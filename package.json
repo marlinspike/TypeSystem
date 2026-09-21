@@ -1,0 +1,21 @@
+{
+  "name": "typesys-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",
+    "clean": "tsc -b --clean"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "5.0.1",
+    "tsx": "4.23.15",
+    "@types/node": "26.6.2"
+  }
+}
