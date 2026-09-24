@@ -1,0 +1,18 @@
+{
+  "name": "@typesys/mcp-server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "bin": {
+    "typesys-mcp-server": "./dist/bin.js"
+  },
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@modelcontextprotocol/sdk": "1.30.0"
+  }
+}

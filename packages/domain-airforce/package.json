@@ -1,0 +1,15 @@
+{
+  "name": "@typesys/domain-airforce",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/adapter-in-memory": "0.1.0",
+    "@typesys/adapter-mock-rest": "0.1.0"
+  }
+}

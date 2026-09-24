@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",
+    "demo": "tsx packages/demo-web/src/server.ts",
     "clean": "tsc -b --clean"
   },
   "devDependencies": {

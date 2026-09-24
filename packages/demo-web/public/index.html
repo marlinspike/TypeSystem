@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TypeS — Semantic Runtime Demo</title>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">TS</span>
+      <div class="brand-text">
+        <strong>TypeS</strong>
+        <span>Semantic Runtime Demo</span>
+      </div>
+    </div>
+
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab active" data-tab="explorer" role="tab" aria-selected="true">Explorer</button>
+      <button class="tab" data-tab="query" role="tab" aria-selected="false">Query</button>
+      <button class="tab" data-tab="mcp" role="tab" aria-selected="false">MCP Console</button>
+    </nav>
+
+    <div class="identity-switch" id="identitySwitch" aria-label="Acting identity"></div>
+  </header>
+
+  <p class="hint-banner" id="hintBanner"></p>
+
+  <main class="tab-panels">
+
+    <!-- ===================== EXPLORER ===================== -->
+    <section class="tab-panel active" id="tab-explorer">
+      <div class="explorer-grid">
+
+        <aside class="panel types-panel">
+          <h2>Semantic Types <span class="count-pill" id="typeCount">0</span></h2>
+          <p class="panel-sub">The registered meta-model. Click a type to inspect its full definition.</p>
+          <div class="type-list" id="typeList"></div>
+        </aside>
+
+        <section class="panel object-panel">
+          <div class="object-toolbar">
+            <select id="typePicker" aria-label="Object type"></select>
+            <select id="objectPicker" aria-label="Object instance"></select>
+            <button id="loadObjectBtn" class="btn btn-primary">Open</button>
+            <label class="prov-toggle">
+              <input type="checkbox" id="provToggle" checked />
+              <span>Show provenance</span>
+            </label>
+          </div>
+          <div class="breadcrumbs" id="breadcrumbs"></div>
+          <div id="objectDetail" class="object-detail">
+            <div class="empty-state">
+              <div class="empty-icon">◎</div>
+              <p>Pick a type and object above, then <strong>Open</strong> — or click any Aircraft's relationship chip once one is loaded.</p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel actions-panel">
+          <h2>Actions <span class="count-pill" id="actionCount">0</span></h2>
+          <p class="panel-sub">Governed capabilities for the currently open object's type.</p>
+          <div id="actionsList">
+            <div class="empty-state small">Open an object to see its available Actions.</div>
+          </div>
+        </aside>
+
+      </div>
+    </section>
+
+    <!-- ===================== QUERY ===================== -->
+    <section class="tab-panel" id="tab-query">
+      <div class="query-grid">
+        <div class="panel query-editor">
+          <h2>Structured Query</h2>
+          <p class="panel-sub">The same JSON shape is the input schema of the MCP <code>query</code> tool — no separate query language.</p>
+          <div class="query-examples" id="queryExamples"></div>
+          <textarea id="queryInput" spellcheck="false"></textarea>
+          <div class="query-actions">
+            <button id="runQueryBtn" class="btn btn-primary">Run Query</button>
+            <span class="query-identity-note">Runs as <strong id="queryIdentityNote">maintainer</strong></span>
+          </div>
+        </div>
+        <div class="panel query-result">
+          <h2>Result</h2>
+          <pre id="queryOutput" class="json-view"><span class="muted">Run a query to see results.</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== MCP CONSOLE ===================== -->
+    <section class="tab-panel" id="tab-mcp">
+      <div class="mcp-grid">
+        <div class="panel mcp-ops">
+          <h2>MCP Operations</h2>
+          <p class="panel-sub">
+            These hit a real <code>@modelcontextprotocol/sdk</code> <code>Server</code>/<code>Client</code> pair,
+            wired to the <em>same</em> registry and runtime instance as the Explorer tab — proving the human web
+            path and the AI-agent path enforce identical governance.
+          </p>
+          <div class="mcp-op-list" id="mcpOpList"></div>
+        </div>
+        <div class="panel mcp-result">
+          <h2>Raw MCP Response</h2>
+          <pre id="mcpOutput" class="json-view"><span class="muted">Choose an operation to see its exact MCP result payload.</span></pre>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="audit-drawer" id="auditDrawer">
+    <button class="audit-toggle" id="auditToggle">
+      <span class="chevron">▴</span> Audit Log <span class="badge" id="auditCount">0</span>
+      <span class="audit-hint">every policy decision, live</span>
+    </button>
+    <div class="audit-body" id="auditBody" hidden>
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Subject</th><th>Action</th><th>Resource</th><th>Decision</th><th>Reason</th></tr>
+        </thead>
+        <tbody id="auditRows"></tbody>
+      </table>
+    </div>
+  </footer>
+
+</div>
+
+<div class="modal-overlay hidden" id="typeModalOverlay">
+  <div class="modal" id="typeModal"></div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

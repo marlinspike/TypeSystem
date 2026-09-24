@@ -5,6 +5,7 @@
     { "path": "packages/adapter-in-memory" },
     { "path": "packages/adapter-mock-rest" },
     { "path": "packages/domain-airforce" },
-    { "path": "packages/mcp-server" }
+    { "path": "packages/mcp-server" },
+    { "path": "packages/demo-web" }
   ]
 }

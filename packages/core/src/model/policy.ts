@@ -16,6 +16,8 @@ export interface Identity {
 export interface PolicyRequest {
   subject: Identity;
   action: "read" | "invoke";
+  /** The named rule to evaluate, e.g. a Type's objectPolicy, a propertyPolicy, or an Action's authorizationPolicy. */
+  policyName: string;
   resource: {
     typeName: string;
     objectId?: string;
