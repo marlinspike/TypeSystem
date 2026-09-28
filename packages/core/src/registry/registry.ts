@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import type { Ajv2020 } from "ajv/dist/2020.js";
 import { createSemanticValidator, SchemaValidationError } from "./validation.js";
 import type { RegistryStore } from "./registry-store.js";
-import type { SemanticTypeSchema, XRelationshipSpec, XRelationships, XComputed } from "../model/vocabulary.js";
+import type { SemanticTypeSchema, XRelationshipSpec, XComputed } from "../model/vocabulary.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
@@ -123,7 +123,7 @@ export class SemanticRegistry {
       relByName.set(r.name, { ...r, id: ulid(), sourceType: opts.name });
     }
     for (const trait of traits) {
-      for (const [name, spec] of Object.entries(trait.relationships ?? ({} as XRelationships))) {
+      for (const [name, spec] of Object.entries(trait.relationships ?? {})) {
         relByName.set(name, toRelationshipDefinition(name, spec, opts.name, opts.version));
       }
     }

@@ -62,7 +62,7 @@ describe("mapWithConcurrencySettled", () => {
 
     expect(results[0]).toEqual({ status: "fulfilled", value: 10 });
     expect(results[1]?.status).toBe("rejected");
-    expect((results[1] as PromiseRejectedResult).reason.message).toBe("item 2 failed");
+    expect(((results[1] as PromiseRejectedResult).reason as Error).message).toBe("item 2 failed");
     expect(results[2]).toEqual({ status: "fulfilled", value: 30 });
   });
 });

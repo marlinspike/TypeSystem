@@ -93,7 +93,7 @@ async function buildTestbed() {
   policyEngine.registerRule("public", allowAllRule);
   policyEngine.registerRule("deny-all", requireRole("nobody-has-this-role"));
 
-  const runtime = new SemanticRuntime(registry, [new StubAdapter()], policyEngine, new InMemoryCache());
+  const runtime = new SemanticRuntime(registry, [new StubAdapter()], policyEngine, { cache: new InMemoryCache() });
   return { registry, runtime };
 }
 
@@ -224,7 +224,7 @@ describe("OpenTelemetry instrumentation (ADR-0017) — with a real SDK registere
     });
     const policyEngine = new AbacPolicyEngine();
     policyEngine.registerRule("public", allowAllRule);
-    const runtime = new SemanticRuntime(registry, [new StubAdapter()], policyEngine, new InMemoryCache());
+    const runtime = new SemanticRuntime(registry, [new StubAdapter()], policyEngine, { cache: new InMemoryCache() });
 
     await runtime.getObject("test.Cached", "obj-1", identity); // miss
     await runtime.getObject("test.Cached", "obj-1", identity); // hit

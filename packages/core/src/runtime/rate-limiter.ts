@@ -11,7 +11,7 @@ export interface RateLimiter {
 
 /** Never limits — what every `SemanticRuntime` uses when no `RateLimiter` is supplied, preserving pre-ADR-0019 behavior exactly. */
 export class NoopRateLimiter implements RateLimiter {
-  tryAcquire(): boolean {
+  tryAcquire(_key: string): boolean {
     return true;
   }
 }

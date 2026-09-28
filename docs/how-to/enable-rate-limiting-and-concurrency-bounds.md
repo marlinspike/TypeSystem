@@ -9,18 +9,16 @@ a sane default (20), no rate limiting at all
 
 ## Bound how many adapter calls one fan-out can open at once
 
-`SemanticRuntime`'s 7th constructor argument. Every relationship
+The `maxConcurrency` option (in `SemanticRuntime`'s 4th argument). Every relationship
 resolution, query page, and computed-property provenance lookup fans out
 through this same limit:
 
 ```ts
 import { SemanticRuntime } from "@typesys/core";
 
-const runtime = new SemanticRuntime(
-  registry, adapters, policyEngine,
-  undefined, undefined, undefined, // cache, defaultCacheTtlMs, rateLimiter — omit for defaults
-  5 // maxConcurrency — at most 5 adapter calls in flight at once from one fan-out
-);
+const runtime = new SemanticRuntime(registry, adapters, policyEngine, {
+  maxConcurrency: 5 // at most 5 adapter calls in flight at once from one fan-out
+});
 ```
 
 Lower it if your adapter's backing system (a REST API with its own rate
@@ -31,16 +29,14 @@ fan-outs.
 
 ## Rate-limit callers
 
-`SemanticRuntime`'s 6th constructor argument:
+The `rateLimiter` option:
 
 ```ts
 import { SemanticRuntime, InMemoryRateLimiter } from "@typesys/core";
 
-const runtime = new SemanticRuntime(
-  registry, adapters, policyEngine,
-  undefined, undefined, // cache, defaultCacheTtlMs
-  new InMemoryRateLimiter({ capacity: 100, refillPerSecond: 20 }) // burst of 100, steady-state 20/sec
-);
+const runtime = new SemanticRuntime(registry, adapters, policyEngine, {
+  rateLimiter: new InMemoryRateLimiter({ capacity: 100, refillPerSecond: 20 }) // burst of 100, steady-state 20/sec
+});
 ```
 
 Every call to `getObject`, `getRelationship`, `query`, `getProvenance`,
@@ -85,22 +81,24 @@ before any policy check or adapter call:
 |---|---|---|
 | `defaultLimit` | 100 | Page size when a query omits `limit`. |
 | `maxLimit` | 1000 | Largest `limit` a caller may ask for. |
-| `maxIncludes` | 10 | Most `include` entries per query. |
-| `maxFilterDepth` | 8 | Deepest `and`/`or` nesting (a bare condition is depth 1). |
-| `maxFilterConditions` | 100 | Most leaf conditions across the whole filter. |
+| `maxIncludes` | 10 | Most `include` entries in the whole include tree, every level counted. |
+| `maxIncludeDepth` | 3 | Deepest `include` nesting (a top-level include is depth 1). |
+| `maxFilterDepth` | 8 | Deepest `and`/`or` nesting in any one filter, top-level or include-level (a bare condition is depth 1). |
+| `maxFilterConditions` | 100 | Most leaf conditions in any one filter. |
 
 Anything over a limit, and any malformed query (unknown fields, a bad
-operator, a non-integer `limit`), throws `InvalidInputError` rather than
+operator, a non-integer `limit`, the same relationship included twice at
+one level), throws `InvalidInputError` rather than
 being clamped or ignored, so callers learn the bound. Input nested more
 than 64 levels deep is rejected before schema validation even runs.
 
-Override any subset with `SemanticRuntime`'s 8th constructor argument, or
-`buildRuntime({ queryLimits })`:
+Override any subset with the `queryLimits` option, either on the
+`SemanticRuntime` constructor or through `buildRuntime`:
 
 ```ts
 const { runtime } = await buildRuntime({
   manifests, adapters, policyRules,
-  queryLimits: { defaultLimit: 25, maxLimit: 200 } // the rest keep their defaults
+  runtimeOptions: { queryLimits: { defaultLimit: 25, maxLimit: 200 } } // the rest keep their defaults
 });
 ```
 

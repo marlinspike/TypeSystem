@@ -2,7 +2,7 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 import { createSemanticValidator } from "../registry/validation.js";
 import type { JsonSchema2020 } from "../model/json-schema.js";
 import type { ActionDefinition } from "../model/action.js";
-import type { QueryFilter, SemanticQuery } from "../model/query.js";
+import type { QueryFilter, QueryInclude, SemanticQuery } from "../model/query.js";
 import { InvalidInputError } from "./errors.js";
 
 /**
@@ -16,11 +16,13 @@ export interface QueryLimits {
   defaultLimit: number;
   /** Largest `limit` a caller may request. Larger values are rejected, not clamped, so callers learn the bound. */
   maxLimit: number;
-  /** Most top-level `include` entries (each is one relationship resolution per result item). */
+  /** Most `include` entries across the whole include tree, every level counted (each is one relationship resolution per object it applies to). */
   maxIncludes: number;
-  /** Deepest `and`/`or` nesting allowed in a filter (a bare condition is depth 1). */
+  /** Deepest `include` nesting (a top-level include is depth 1). Each level multiplies the objects resolved. */
+  maxIncludeDepth: number;
+  /** Deepest `and`/`or` nesting allowed in any one filter, top-level or include-level (a bare condition is depth 1). */
   maxFilterDepth: number;
-  /** Most leaf conditions allowed across a whole filter tree. */
+  /** Most leaf conditions allowed in any one filter, top-level or include-level. */
   maxFilterConditions: number;
 }
 
@@ -28,6 +30,7 @@ export const DEFAULT_QUERY_LIMITS: QueryLimits = {
   defaultLimit: 100,
   maxLimit: 1000,
   maxIncludes: 10,
+  maxIncludeDepth: 3,
   maxFilterDepth: 8,
   maxFilterConditions: 100
 };
@@ -109,7 +112,7 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
         additionalProperties: false
       }
     }
-  } as JsonSchema2020;
+  };
 }
 
 function describeErrors(errors: ErrorObject[] | null | undefined): string {
@@ -169,19 +172,49 @@ export class InputValidator {
     if (!this.validateQueryShape(input)) {
       throw new InvalidInputError(`Invalid query: ${describeErrors(this.validateQueryShape.errors)}`, this.validateQueryShape.errors);
     }
-    const query = input as unknown as SemanticQuery;
-    if (query.filter) {
-      const { depth, conditions } = measureFilter(query.filter);
-      if (depth > this.limits.maxFilterDepth) {
-        throw new InvalidInputError(`Invalid query: filter nesting depth ${depth} exceeds the maximum of ${this.limits.maxFilterDepth}`);
+    const query = input as SemanticQuery;
+    if (query.filter) this.checkFilter(query.filter, "filter");
+    if (query.include) this.checkIncludeTree(query.include);
+    return { ...query, limit: query.limit ?? this.limits.defaultLimit };
+  }
+
+  private checkFilter(filter: QueryFilter, where: string): void {
+    const { depth, conditions } = measureFilter(filter);
+    if (depth > this.limits.maxFilterDepth) {
+      throw new InvalidInputError(`Invalid query: ${where} nesting depth ${depth} exceeds the maximum of ${this.limits.maxFilterDepth}`);
+    }
+    if (conditions > this.limits.maxFilterConditions) {
+      throw new InvalidInputError(
+        `Invalid query: ${where} has ${conditions} conditions, exceeding the maximum of ${this.limits.maxFilterConditions}`
+      );
+    }
+  }
+
+  /** Walks the include tree iteratively: total entries, depth, duplicate siblings, and each include-level filter. */
+  private checkIncludeTree(includes: QueryInclude[]): void {
+    let total = 0;
+    const stack: { siblings: QueryInclude[]; depth: number; path: string }[] = [{ siblings: includes, depth: 1, path: "include" }];
+    while (stack.length > 0) {
+      const { siblings, depth, path } = stack.pop()!;
+      if (depth > this.limits.maxIncludeDepth) {
+        throw new InvalidInputError(`Invalid query: include nesting depth ${depth} exceeds the maximum of ${this.limits.maxIncludeDepth}`);
       }
-      if (conditions > this.limits.maxFilterConditions) {
-        throw new InvalidInputError(
-          `Invalid query: filter has ${conditions} conditions, exceeding the maximum of ${this.limits.maxFilterConditions}`
-        );
+      total += siblings.length;
+      if (total > this.limits.maxIncludes) {
+        throw new InvalidInputError(`Invalid query: more than ${this.limits.maxIncludes} include entries across all levels`);
+      }
+      const seen = new Set<string>();
+      for (const inc of siblings) {
+        // Results are keyed by relationship name, so a second entry would silently overwrite the first.
+        if (seen.has(inc.relationship)) {
+          throw new InvalidInputError(`Invalid query: relationship "${inc.relationship}" is included twice at ${path}`);
+        }
+        seen.add(inc.relationship);
+        const incPath = `${path}.${inc.relationship}`;
+        if (inc.filter) this.checkFilter(inc.filter, `${incPath} filter`);
+        if (inc.include) stack.push({ siblings: inc.include, depth: depth + 1, path: incPath });
       }
     }
-    return { ...query, limit: query.limit ?? this.limits.defaultLimit };
   }
 
   /** Throws `InvalidInputError` when `input` doesn't satisfy the Action's declared `inputSchema`. */

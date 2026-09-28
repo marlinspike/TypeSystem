@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { generateKeyPair, SignJWT, exportJWK, createLocalJWKSet, type JWTVerifyGetKey, type KeyLike } from "jose";
+import { generateKeyPair, SignJWT, exportJWK, createLocalJWKSet, type JWTVerifyGetKey } from "jose";
 import { createOidcIdentityResolver, anonymousIdentity } from "../src/oidc-identity-resolver.js";
 
 const ISSUER = "https://idp.example.com";
 const AUDIENCE = "typesys-demo";
 
-let privateKey: KeyLike;
+// jose 6 dropped the `KeyLike` export; derive the type rather than name it.
+let privateKey: Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 let localJwks: JWTVerifyGetKey;
 
 async function mintToken(claims: Record<string, unknown>, opts: { issuer?: string; audience?: string; expired?: boolean } = {}): Promise<string> {

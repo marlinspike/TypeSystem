@@ -19,6 +19,7 @@
     "lint:install": "npm ci --prefix tools/eslint",
     "lint": "node tools/eslint/node_modules/eslint/bin/eslint.js -c tools/eslint/eslint.config.js .",
     "lint:fix": "npm run lint -- --fix",
+    "typecheck": "node tools/eslint/node_modules/typescript/bin/tsc -p tools/eslint/tsconfig.lint.json",
     "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",
     "smoke:mcp-http": "tsx scripts/smoke-test-mcp-http.ts",
     "mcp:http": "tsx packages/mcp-server/src/bin-http.ts",

@@ -101,9 +101,10 @@ the defaults below, since a deployment can change them:
 | Bound | Default | What happens past it |
 |---|---|---|
 | `limit` | 100 when omitted, max 1000, integer ≥ 1 | Rejected, not clamped. |
-| `include` entries | 10 | Rejected. |
-| `filter` nesting (`and`/`or` depth) | 8 | Rejected. |
-| `filter` leaf conditions | 100 | Rejected. |
+| `include` entries, all levels counted | 10 | Rejected. |
+| `include` nesting depth | 3 | Rejected. |
+| Any one `filter`'s nesting (`and`/`or` depth), top-level or include-level | 8 | Rejected. |
+| Any one `filter`'s leaf conditions | 100 | Rejected. |
 
 - **Results are paged.** A query without `limit` returns at most 100
   items. If the result has a `nextCursor`, pass it back as `cursor` (with
@@ -112,10 +113,17 @@ the defaults below, since a deployment can change them:
 - **Unknown fields are rejected**, at the top level and inside filters and
   includes. A typo like `"operater"` fails the call; it isn't silently
   ignored. `authToken` is the one extra field every tool accepts.
-- **Only a top-level include's `relationship` is acted on today.** The
-  schema accepts a `filter` and a nested `include` inside an include
-  entry, but the runtime currently ignores both, so to filter or go
-  deeper, read the relationship resource and navigate from there.
+- **Includes can filter and nest.** Each include entry takes its own
+  `filter` (applied to that relationship's related objects) and its own
+  `include` (resolved from each related object that survives the filter),
+  e.g. `{"relationship": "maintenance", "filter": {"property":
+  "eventType", "operator": "eq", "value": "unscheduled"}, "include":
+  [{"relationship": "workOrder"}]}`. Results nest the same way, keyed by
+  relationship name, so don't list the same relationship twice at one
+  level.
+- **Include filters only see what you can see.** They run after
+  property-level redaction, so a condition on a property your identity
+  can't read behaves as if the property were absent.
 
 **Action tools validate their input too.** Arguments (minus `authToken`)
 are checked against that Action's `inputSchema` *after* the authorization

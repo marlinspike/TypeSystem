@@ -1,0 +1,19 @@
+{
+  // Type information for ESLint only; never used to build. Resolves @typesys/* to each package's
+  // source so linting needs no prior `npm run build`, and covers tests and scripts, which the
+  // per-package tsconfigs (include: ["src"]) leave out.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "paths": { "@typesys/*": ["../../packages/*/src/index.ts"] }
+  },
+  "include": [
+    "../../packages/*/src/**/*.ts",
+    "../../packages/*/test/**/*.ts",
+    "../../scripts/**/*.ts",
+    "../../vitest.config.ts"
+  ]
+}

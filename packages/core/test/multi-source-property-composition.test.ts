@@ -117,7 +117,7 @@ async function setup(opts: { cached?: boolean } = {}) {
   });
 
   const cache = opts.cached ? new InMemoryCache() : undefined;
-  const runtime = new SemanticRuntime(registry, [baseAdapter, warrantyAdapter], policyEngine, cache);
+  const runtime = new SemanticRuntime(registry, [baseAdapter, warrantyAdapter], policyEngine, { cache });
 
   return { registry, runtime, baseAdapter, warrantyAdapter };
 }

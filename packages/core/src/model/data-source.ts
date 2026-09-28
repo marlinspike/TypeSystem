@@ -8,7 +8,8 @@
 export interface DataSource {
   id: string;
   name: string;
-  kind: "in-memory" | "mock-rest" | "postgres" | string;
+  // `string & Record<never, never>` keeps editor autocomplete for the known kinds while still accepting any string.
+  kind: "in-memory" | "mock-rest" | "postgres" | (string & Record<never, never>);
   config?: Record<string, unknown>;
 }
 

@@ -8,13 +8,14 @@ import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { SemanticQuery, QueryResult } from "../model/query.js";
+import type { SemanticQuery, QueryInclude, QueryResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled } from "./concurrency.js";
+import { matchesFilter } from "./filter.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
 
@@ -35,27 +36,56 @@ export interface ResolvedObject {
  * once, here, never re-implemented by a transport-specific layer (see
  * ADR-0009 and ADR-0012).
  */
+/**
+ * Everything optional about a `SemanticRuntime`. Every field defaults to
+ * the behavior the runtime had before that feature existed, so `{}` (or
+ * omitting the argument) is always safe.
+ */
+export interface SemanticRuntimeOptions {
+  /** Omit to preserve pre-ADR-0016 "always live" behavior exactly — a `NoopCache` always misses. */
+  cache?: Cache;
+  /** Fallback TTL for any `resolutionMode: "cached"` Mapping/relationship/computed property with no `cacheTtlMs` of its own. Default 30s. */
+  defaultCacheTtlMs?: number;
+  /** Omit to preserve pre-ADR-0019 "unlimited" behavior exactly — a `NoopRateLimiter` never rejects. Checked once per call, keyed by `identity.subjectId` (see ADR-0019). */
+  rateLimiter?: RateLimiter;
+  /** Caps how many adapter calls a single relationship/query/provenance fan-out issues concurrently (see ADR-0019 and `mapWithConcurrency`). Default 20. */
+  maxConcurrency?: number;
+  /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count and depth, filter depth/size (see `input-validation.ts`). */
+  queryLimits?: Partial<QueryLimits>;
+}
+
+/**
+ * The single boundary through which every consumer — a human application
+ * or an AI agent over MCP — reads objects, navigates relationships,
+ * queries, and invokes Actions. Policy and audit are enforced exactly
+ * once, here, never re-implemented by a transport-specific layer (see
+ * ADR-0009 and ADR-0012).
+ */
 export class SemanticRuntime {
   private readonly mappingResolver: MappingResolver;
   private readonly adapters: Map<string, Adapter>;
   private readonly inputValidator: InputValidator;
+  private readonly cache: Cache;
+  private readonly defaultCacheTtlMs: number;
+  private readonly rateLimiter: RateLimiter;
+  private readonly maxConcurrency: number;
 
   constructor(
     private readonly registry: SemanticRegistry,
     adapters: Adapter[],
     private readonly policyEngine: PolicyEngine,
-    /** Omit to preserve pre-ADR-0016 "always live" behavior exactly — a `NoopCache` always misses. */
-    private readonly cache: Cache = new NoopCache(),
-    /** Fallback TTL for any `resolutionMode: "cached"` Mapping/relationship/computed property with no `cacheTtlMs` of its own. */
-    private readonly defaultCacheTtlMs: number = DEFAULT_CACHE_TTL_MS,
-    /** Omit to preserve pre-ADR-0019 "unlimited" behavior exactly — a `NoopRateLimiter` never rejects. Checked once per call, keyed by `identity.subjectId` (see ADR-0019). */
-    private readonly rateLimiter: RateLimiter = new NoopRateLimiter(),
-    /** Caps how many adapter calls a single relationship/query/provenance fan-out issues concurrently (see ADR-0019 and `mapWithConcurrency`). */
-    private readonly maxConcurrency: number = DEFAULT_MAX_CONCURRENCY,
-    /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count, filter depth/size (see `input-validation.ts`). */
-    queryLimits: Partial<QueryLimits> = {}
+    options: SemanticRuntimeOptions = {}
   ) {
-    this.inputValidator = new InputValidator(queryLimits);
+    // Before this options object existed, the 4th argument was a positional `Cache`. Fail loudly
+    // rather than silently treating a Cache as an (empty) options object and dropping it.
+    if (typeof (options as { get?: unknown }).get === "function") {
+      throw new TypeError("SemanticRuntime's 4th argument is now an options object: pass { cache } instead of a Cache");
+    }
+    this.cache = options.cache ?? new NoopCache();
+    this.defaultCacheTtlMs = options.defaultCacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+    this.rateLimiter = options.rateLimiter ?? new NoopRateLimiter();
+    this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
+    this.inputValidator = new InputValidator(options.queryLimits);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
   }
@@ -273,7 +303,7 @@ export class SemanticRuntime {
       }
     };
 
-    for (const cp of typeDef.computedProperties as ComputedPropertyDefinition[]) {
+    for (const cp of typeDef.computedProperties) {
       computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, ctx);
     }
     Object.assign(values, computedResults);
@@ -408,18 +438,42 @@ export class SemanticRuntime {
             ...(q.includeProvenance ? { provenance } : {})
           };
           if (q.include) {
-            const includeResults = await mapWithConcurrency(q.include, this.maxConcurrency, (inc) =>
-              this.getRelationship(q.type, item.objectId, inc.relationship, identity)
-            );
-            q.include.forEach((inc, i) => {
-              resolved.values[inc.relationship] = includeResults[i];
-            });
+            Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, q.include, identity));
           }
           return resolved;
         });
         return { items, nextCursor: result.nextCursor };
       }
     );
+  }
+
+  /**
+   * Resolves one object's `include` tree (ADR-0011), keyed by relationship
+   * name. Each entry navigates through `getRelationship`, so relationship
+   * policy and per-object redaction apply exactly as on a direct call; then
+   * the entry's own `filter` runs against each related object's *visible*
+   * values, and its nested `include` recurses from each survivor. Filtering
+   * after redaction treats a property the caller can't read as absent, so
+   * an include filter can never be used to probe a hidden value.
+   */
+  private async resolveIncludes(
+    typeName: string,
+    objectId: string,
+    includes: QueryInclude[],
+    identity: Identity
+  ): Promise<Record<string, ResolvedObject[]>> {
+    const results = await mapWithConcurrency(includes, this.maxConcurrency, async (inc) => {
+      const related = await this.getRelationship(typeName, objectId, inc.relationship, identity);
+      const kept = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
+      const nested = inc.include;
+      if (nested && nested.length > 0) {
+        await mapWithConcurrency(kept, this.maxConcurrency, async (r) => {
+          Object.assign(r.values, await this.resolveIncludes(r.typeName, r.objectId, nested, identity));
+        });
+      }
+      return kept;
+    });
+    return Object.fromEntries(includes.map((inc, i) => [inc.relationship, results[i]!]));
   }
 
   async getProvenance(
