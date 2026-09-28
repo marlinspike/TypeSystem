@@ -24,6 +24,19 @@ function matchesCondition(values: Record<string, unknown>, condition: QueryCondi
   }
 }
 
+/** Every property name a filter tree references, walked iteratively (validated filters are depth-bounded anyway). */
+export function filterProperties(filter: QueryFilter): Set<string> {
+  const names = new Set<string>();
+  const stack: QueryFilter[] = [filter];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if ("and" in node) stack.push(...node.and);
+    else if ("or" in node) stack.push(...node.or);
+    else names.add(node.property);
+  }
+  return names;
+}
+
 /**
  * Shared interpreter for the structured query DSL (see ADR-0011). Any
  * adapter that supports `queryByType` filtering can reuse this rather than
