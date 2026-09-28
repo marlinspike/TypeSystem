@@ -4,6 +4,14 @@ An honest inventory, kept up to date as the codebase changes — the
 architecture and its contracts are complete; the implementation is a
 proven, extending vertical slice, not a finished platform.
 
+This page answers "what's built and tested versus a documented extension
+point" for the architecture *as it exists*. It is a different question
+from "is it safe to run this against real production traffic" — for that,
+see [ADR-0024](adr/0024-production-readiness-gap.md), a ranked list of
+what closing that gap would actually take (a real policy engine, real
+load testing, a verified multi-instance story, and more), deliberately
+not attempted in this pass.
+
 ## Fully built, tested, and demonstrated
 
 - Meta-model + registry: Type/Relationship/Action/Policy/DataSource/Mapping,

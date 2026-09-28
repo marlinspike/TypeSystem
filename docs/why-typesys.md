@@ -44,9 +44,12 @@ message queue.
   system, there's nothing to unify.
 - **You need a mature, battle-tested 1.0 product today.** This is a
   reference implementation of a real architecture, not a product with a
-  release history. Read [`docs/completeness.md`](completeness.md) (or ask
-  directly) for exactly what's proven-in-tests versus a documented,
-  not-yet-built extension point before betting production traffic on it.
+  release history. Read [`docs/completeness.md`](completeness.md) for
+  exactly what's proven-in-tests versus a documented, not-yet-built
+  extension point, and
+  [ADR-0024](adr/0024-production-readiness-gap.md) for the specific,
+  ranked list of what closing the gap to real production traffic would
+  actually take — before betting production traffic on it.
 - **Sub-millisecond, zero-indirection latency is the whole point.** Every
   layer here — policy check, audit write, provenance tracking — is real
   work done on every call. It's fast enough for the workloads it was

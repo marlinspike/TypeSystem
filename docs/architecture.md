@@ -228,6 +228,112 @@ network client — the HTTP transport resolves identity from a real
 token embedded in a resource URI's query string or a tool call's
 argument) only when no header is present.
 
+## Read and write paths at a glance
+
+The component diagram above is the static shape. The three flowcharts here
+are the dynamic behavior distilled to a glance; the detailed sequence
+diagrams in the sections that follow trace the same paths call by call.
+Start here for the shape, drop into the sequences for the exact message
+order.
+
+### The read pipeline
+
+Every read a consumer issues (`getObject`, and the per-object leg of
+`query` and `getRelationship`) runs the same ordered pipeline inside
+`SemanticRuntime`, wrapped in a single OpenTelemetry span (ADR-0017). Two
+of the stages are policy checkpoints, and each writes an audit row as it
+decides, which is why enforcement cannot be routed around by a different
+caller.
+
+```mermaid
+flowchart TB
+    a["admit and load<br/>rate limit, load TypeDefinition"]
+    b["policy: object gate<br/>allow or deny, writes audit"]
+    c["resolve properties<br/>mappings then adapter (+cache)"]
+    d["computed properties<br/>may reach other adapters"]
+    e["policy: field redaction<br/>drop denied fields, writes audit"]
+    f["return object<br/>plus provenance if requested"]
+    a --> b --> c --> d --> e --> f
+```
+
+### Policy in practice: one object, three identities
+
+Because policy is evaluated inside that pipeline and not in any consumer,
+the same `getObject` for `AF86-0147` returns a materially different result
+per identity, with no separate code path. The object gate runs
+`airforce.read-aircraft` (maintainer or viewer); both the
+`maintenanceStatus` field and the work-order action run
+`airforce.maintainer-only`. The anonymous identity has no roles, so it is
+refused at the gate and never reaches the field or the action. Each column
+below summarizes what that identity gets back: the object read, the
+sensitive field, and the separate `invokeAction` for the work order.
+
+```mermaid
+flowchart TB
+    call["getObject: AF86-0147"]
+    subgraph m["Maintainer (role: maintainer)"]
+        m1["read object: allow"]
+        m2["maintenanceStatus: shown"]
+        m3["work-order action: allowed"]
+    end
+    subgraph v["Viewer (role: viewer)"]
+        v1["read object: allow"]
+        v2["maintenanceStatus: redacted"]
+        v3["work-order action: denied"]
+    end
+    subgraph an["Anonymous (no roles)"]
+        a1["read object: denied at gate"]
+        a2["maintenanceStatus: not reached"]
+        a3["work-order action: not reached"]
+    end
+    call --> m
+    call --> v
+    call --> an
+    m1 --> m2 --> m3
+    v1 --> v2 --> v3
+    a1 --> a2 --> a3
+    classDef ok fill:#eaf3de,stroke:#3b6d11,color:#173404;
+    classDef no fill:#fcebeb,stroke:#a32d2d,color:#501313;
+    classDef na fill:#f1efe8,stroke:#5f5e5a,color:#2c2c2a;
+    class m1,m2,m3 ok;
+    class v1 ok;
+    class v2,v3 no;
+    class a1 no;
+    class a2,a3 na;
+```
+
+### The governed write path
+
+Writes go through `invokeAction`, a governed capability rather than a
+plain call. It runs the same kind of policy gate, enforces the action's
+business preconditions before it will dispatch, executes through an
+adapter, and audits twice: once for the policy decision, once for the
+outcome. A denied attempt is audited too, so a refusal is as accountable
+as a success. `CreateMaintenanceWorkOrder` is the worked example; its
+precondition is that the referenced maintenance event actually exists,
+checked live against the REST system before any write happens.
+
+```mermaid
+flowchart TB
+    inv["invokeAction<br/>CreateMaintenanceWorkOrder"]
+    gate["policy: invoke gate<br/>maintainer-only, writes audit"]
+    authz["AuthorizationError<br/>on deny: audit + throw"]
+    pre["precondition check<br/>maintenance event exists?"]
+    pf["PreconditionFailed<br/>on missing: throw"]
+    exec["adapter.executeAction<br/>REST createWorkOrder"]
+    aud["audit: success<br/>second audit event"]
+    ret["return WorkOrder<br/>canonical shape"]
+    inv --> gate
+    gate -->|deny| authz
+    gate -->|allow| pre
+    pre -->|missing| pf
+    pre -->|exists| exec
+    exec --> aud
+    aud --> ret
+    classDef err fill:#fcebeb,stroke:#a32d2d,color:#501313;
+    class authz,pf err;
+```
+
 ## Sequence: `runtime.query()` spanning both adapter styles
 
 The vertical slice's adapter-substitution proof

@@ -92,3 +92,4 @@ other reasonable way.
 | [0021](adr/0021-http-transport.md) | A stateless Streamable HTTP transport for MCP, with identity from a real `Authorization` header. |
 | [0022](adr/0022-cross-source-computed-properties.md) | A computed property's binding function can call `ctx.getAdapter()` on any registered adapter, not just its own — proven with `Aircraft.needsAttention`. |
 | [0023](adr/0023-multi-source-property-composition.md) | `getObject`/`query` merge a Type's base wildcard mapping with per-property overrides from other DataSources into one object read. |
+| [0024](adr/0024-production-readiness-gap.md) | A ranked, concrete list of what production-readiness would actually take — deliberately not attempted in this pass. |

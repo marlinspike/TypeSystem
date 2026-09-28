@@ -57,6 +57,101 @@ including how this compares to a hand-rolled BFF, GraphQL/Apollo
 Federation, Palantir Ontology/C3 AI Type System, and just giving an
 agent direct database access.
 
+## How it works
+
+Three views of the same system, from the outside in. The first is the
+shape of the whole thing: who calls it, and the one boundary that sits
+between every consumer and the data. The next two open up the two ideas
+that make that shape work, how a Type is assembled from smaller parts,
+and how a single object's parts resolve to different physical stores. The
+request-time and policy sequences these imply are traced call by call in
+[`docs/architecture.md`](docs/architecture.md).
+
+### One governed boundary
+
+Applications and AI agents never touch your systems directly. They go
+through one runtime, and that runtime is the only place policy is
+enforced, audit is written, and provenance is assembled. A human
+application calls it directly; an AI agent reaches it through the MCP
+server. Either path inherits identical enforcement, because there is only
+one path to enforce.
+
+```mermaid
+flowchart TB
+    app["Human application"]
+    agent["AI agent"]
+    mcp["MCP server"]
+    rt["SemanticRuntime<br/>getObject · query · invokeAction"]
+    gov["Policy · Audit · Provenance<br/>enforced once, per call"]
+    inmem["InMemory adapter"]
+    rest["MockRest adapter"]
+    pg["Postgres adapter"]
+    repo[("In-memory repo")]
+    ext[("Legacy REST API")]
+    pgdb[("PostgreSQL")]
+    app --> rt
+    agent --> mcp --> rt
+    rt --- gov
+    rt --> inmem --> repo
+    rt --> rest --> ext
+    rt --> pg --> pgdb
+```
+
+### How a Type is composed
+
+A Type is not authored as one flat definition. It is assembled at
+registration time from a single base type it `extends`, zero or more
+shared `traits`, and its own schema and annotations. `registerType()`
+composes those into one JSON Schema `allOf`, validates it, and merges
+their members into a single flattened `TypeDefinition`, with a Type's own
+definitions winning over a trait's and traits over the base.
+`airforce.Aircraft` is the example carried through the repo.
+
+```mermaid
+flowchart TB
+    asset["core.Asset (extends)<br/>id, name, description"]
+    traits["traits: Trackable, Maintainable<br/>trackingId, maintenanceStatus, ..."]
+    own["own schema + annotations<br/>tailNumber, model, x-relationships, x-computed, x-policy"]
+    reg["registerType()<br/>compose allOf, validate (Ajv 2020-12), own wins"]
+    subgraph def["airforce.Aircraft: flattened TypeDefinition"]
+        p["properties"]
+        r["relationships"]
+        c["computed properties"]
+        pol["policy"]
+    end
+    asset --> reg
+    traits --> reg
+    own --> reg
+    reg --> def
+```
+
+### How one object maps to many stores
+
+Nothing about the backends is baked into the Type. A separate set of
+`DataSource` and `Mapping` records binds each part of an object to a
+physical system, and the `Adapter` for that system does the I/O. Because
+the binding is per part, one `Aircraft` read fans out across more than
+one store: its scalar properties and `components` resolve from the
+in-memory repository, its maintenance history from a legacy REST system,
+and its `needsAttention` computed property reaches across into that REST
+system even though it has no direct mapping to it.
+
+```mermaid
+flowchart TB
+    ac["airforce.Aircraft (one object)"]
+    props["scalar properties + components<br/>mapping targetName *, byForeignKey"]
+    maint["maintenance history<br/>relationship, byForeignKey"]
+    need["needsAttention<br/>computed, cross-source"]
+    inmem["InMemory adapter<br/>in-memory-airforce-repo"]
+    rest["MockRest adapter<br/>mock-remis-rest"]
+    ac --> props
+    ac --> maint
+    ac --> need
+    props --> inmem
+    maint --> rest
+    need -.-> rest
+```
+
 ## Packages
 
 - **`packages/core`** (`@typesys/core`) — the meta-model, registry,
@@ -176,7 +271,8 @@ real time, regardless of which surface triggered it.
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — the layered architecture,
-  with Mermaid diagrams for the component layout, a cross-adapter query,
+  with Mermaid diagrams for the component layout, the read pipeline, the
+  policy/identity matrix, the governed write path, a cross-adapter query,
   and a governed Action invocation.
 - [`docs/semantic-meta-model.md`](docs/semantic-meta-model.md) — the
   canonical meta-model specification: Type, Property, Relationship, Action,

@@ -46,7 +46,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - `packages/adapter-postgres/`, `packages/registry-store-postgres/`: real PostgreSQL-backed implementations of `Adapter`/`RegistryStore` — both optional, env-gated, never a dependency of core.
 - `packages/domain-airforce/`: the reference vertical-slice domain (Aircraft/Component/MaintenanceEvent/WorkOrder) — the pattern every new domain follows.
 - `packages/domain-hospital/`: a second, unrelated domain (Patient/Provider/Appointment) proving that pattern generalizes — no changes to `packages/core` or `packages/mcp-server` needed.
-- `docs/adr/`: 23 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way.
+- `docs/adr/`: 24 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. The last one (0024) is a ranked list of what production-readiness would actually take, deliberately not attempted.
 
 ## Running things
 
