@@ -43,3 +43,29 @@ export async function mapWithConcurrencySettled<T, R>(
     }
   });
 }
+
+/**
+ * A counting semaphore: at most `permits` calls to `run` execute at once;
+ * the rest wait in FIFO order. A released permit passes straight to the
+ * next waiter, so a steady stream of new callers can't starve old ones.
+ */
+export class Semaphore {
+  private available: number;
+  private readonly waiters: (() => void)[] = [];
+
+  constructor(permits: number) {
+    this.available = Math.max(1, permits);
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.available > 0) this.available--;
+    else await new Promise<void>((resolve) => this.waiters.push(resolve));
+    try {
+      return await fn();
+    } finally {
+      const next = this.waiters.shift();
+      if (next) next();
+      else this.available++;
+    }
+  }
+}
