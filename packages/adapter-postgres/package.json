@@ -37,6 +37,7 @@
     "pg": "8.23.0"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "@typesys/adapter-in-memory": "0.1.0"
   }
 }

@@ -17,7 +17,10 @@ proven, extending vertical slice, not a finished platform.
   in-memory repo, mocked external REST, and a real PostgreSQL-backed
   adapter (`@typesys/adapter-postgres`) — object retrieval, filtered
   queries, and both relationship conventions proven against actual rows,
-  not mocks.
+  not mocks. All three combine pairwise, not just individually: a real
+  PostgreSQL-backed `Widget` with a relationship *and* a per-property
+  Mapping override both resolving through a different, real
+  `InMemoryRepositoryAdapter` (`packages/adapter-postgres/test/cross-adapter-composition.test.ts`).
 - Two independent domains, both real code: `domain-airforce` and
   `domain-hospital` (Patient/Provider/Appointment), the latter proving
   domain-neutrality (ADR-0013) end-to-end — real relationship resolution

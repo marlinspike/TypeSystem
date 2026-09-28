@@ -172,8 +172,12 @@ one cache entry safely serves every identity. See
 `Mapping` pointing at a different `DataSource` than the rest of its
 properties, and `SemanticRuntime` merges the two into one object read
 (ADR-0023) — proven with a synthetic fixture in
-`packages/core/test/multi-source-property-composition.test.ts`, since no
-shipped domain currently needs it for real. See
+`packages/core/test/multi-source-property-composition.test.ts` (no shipped
+domain currently needs it for real), and separately with two genuinely
+different real adapters — a real PostgreSQL-backed `Widget` merged with a
+property override *and* a relationship both resolved through a real
+`InMemoryRepositoryAdapter`
+(`packages/adapter-postgres/test/cross-adapter-composition.test.ts`). See
 [`docs/how-to/combine-multiple-sources.md`](how-to/combine-multiple-sources.md).
 
 ## Domain packaging
