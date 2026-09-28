@@ -270,7 +270,7 @@ sensitive field, and the separate `invokeAction` for the work order.
 
 ```mermaid
 flowchart TB
-    call["getObject: AF86-0147"]
+    req["getObject: AF86-0147"]
     subgraph m["Maintainer (role: maintainer)"]
         m1["read object: allow"]
         m2["maintenanceStatus: shown"]
@@ -286,9 +286,9 @@ flowchart TB
         a2["maintenanceStatus: not reached"]
         a3["work-order action: not reached"]
     end
-    call --> m
-    call --> v
-    call --> an
+    req --> m
+    req --> v
+    req --> an
     m1 --> m2 --> m3
     v1 --> v2 --> v3
     a1 --> a2 --> a3
