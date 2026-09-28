@@ -1,8 +1,13 @@
 name: Release
 
+# Docs-only pushes skip this too, matching ci.yml.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "llms.txt"
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 

@@ -36,7 +36,7 @@ instead of re-explaining it.
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
 | [`add-a-policy-rule.md`](how-to/add-a-policy-rule.md) | Gate a Type/property/Action by role or attribute. |
 | [`enable-caching.md`](how-to/enable-caching.md) | Stop re-fetching data that doesn't change every request. |
-| [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, and how much fan-out one call can open. |
+| [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, how much fan-out one call can open, and how much one query can ask for. |
 | [`enable-observability.md`](how-to/enable-observability.md) | See real traces/metrics for this runtime in your own OTel backend. |
 | [`use-postgres.md`](how-to/use-postgres.md) | Make the registry survive a restart. |
 | [`generate-typescript-types.md`](how-to/generate-typescript-types.md) | Get autocomplete/type-safety for objects this registry returns. |

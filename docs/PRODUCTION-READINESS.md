@@ -48,7 +48,10 @@ says so.
    (ADR-0021) and the `query` DSL tool (ADR-0011) accept external input,
    and nothing here has been reviewed for injection, resource exhaustion,
    or malformed-input behavior. This belongs next to the policy engine,
-   not unlisted.
+   not unlisted. *Partially addressed:* `SemanticRuntime` now validates
+   query shape and bounds (`QueryLimits`) and Action input against each
+   `inputSchema` (`packages/core/src/runtime/input-validation.ts`). That is
+   input hygiene, not a threat model; the review itself is still open.
 3. **Data classification enforcement.** `ProvenanceRef` carries a
    `classification` field and `x-provenance` a `defaultClassification`,
    but the runtime does not read either back or enforce

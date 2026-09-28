@@ -1,6 +1,6 @@
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { withSpan, type JsonSchema2020, type SemanticQuery, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
+import { semanticQuerySchema, withSpan, type JsonSchema2020, type SemanticQuery, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 
 const AUTH_TOKEN_FIELD = {
@@ -14,18 +14,6 @@ function withAuthToken(schema: JsonSchema2020): JsonSchema2020 {
     properties: { ...(schema.properties ?? {}), ...AUTH_TOKEN_FIELD }
   };
 }
-
-const QUERY_TOOL_INPUT_SCHEMA: JsonSchema2020 = withAuthToken({
-  type: "object",
-  properties: {
-    type: { type: "string", description: "Logical type name to query, e.g. airforce.Aircraft" },
-    filter: { description: "A QueryFilter: {property, operator, value} or {and:[...]}/{or:[...]}" },
-    include: { type: "array", items: { type: "object" }, description: "Relationships to navigate and include inline" },
-    includeProvenance: { type: "boolean" },
-    limit: { type: "number" }
-  },
-  required: ["type"]
-});
 
 /**
  * Actions map 1:1 onto MCP tools, plus one generic `query` tool for the
@@ -50,7 +38,8 @@ export function registerToolHandlers(
       {
         name: "query",
         description: "Run a structured semantic query against a Type, optionally including related objects.",
-        inputSchema: QUERY_TOOL_INPUT_SCHEMA as Tool["inputSchema"]
+        // The exact schema (and limits) SemanticRuntime.query enforces, so an agent is told the real bounds.
+        inputSchema: withAuthToken(semanticQuerySchema(runtime.queryLimits)) as Tool["inputSchema"]
       }
     ];
     return { tools };
@@ -66,7 +55,8 @@ export function registerToolHandlers(
       try {
         const isQuery = name === "query";
         const result = isQuery
-          ? await runtime.query(rest as unknown as SemanticQuery, identity)
+          ? // Unchecked JSON is fine here: SemanticRuntime.query validates it before doing anything else.
+            await runtime.query(rest as unknown as SemanticQuery, identity)
           : await runtime.invokeAction(name, rest, identity);
         const structuredContent =
           !isQuery && result !== null && typeof result === "object" ? (result as Record<string, unknown>) : undefined;

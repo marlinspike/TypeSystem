@@ -1,6 +1,8 @@
-# How to bound concurrency and rate-limit callers
+# How to bound concurrency, query size, and rate-limit callers
 
-Both are opt-in-by-omission — a runtime you build with no extra
+Query-size limits are on by default (see
+[the last section](#bound-how-much-one-query-can-ask-for)). Concurrency and
+rate limiting are opt-in-by-omission — a runtime you build with no extra
 arguments behaves exactly as it did before ADR-0019: fan-out bounded at
 a sane default (20), no rate limiting at all
 ([ADR-0019](../adr/0019-concurrency-bounds-and-rate-limiting.md)).
@@ -72,3 +74,41 @@ Follow [`packages/core/test/concurrency.test.ts`](../../packages/core/test/concu
 [`packages/core/test/rate-limiting.test.ts`](../../packages/core/test/rate-limiting.test.ts)
 (budget exhaustion throws, refills over time, tracked independently per
 identity, and omitting a `RateLimiter` entirely stays unlimited).
+
+## Bound how much one query can ask for
+
+Unlike the two bounds above, this one is **on by default**. `query` input
+is validated against `semanticQuerySchema` and these `QueryLimits`
+before any policy check or adapter call:
+
+| Limit | Default | Meaning |
+|---|---|---|
+| `defaultLimit` | 100 | Page size when a query omits `limit`. |
+| `maxLimit` | 1000 | Largest `limit` a caller may ask for. |
+| `maxIncludes` | 10 | Most `include` entries per query. |
+| `maxFilterDepth` | 8 | Deepest `and`/`or` nesting (a bare condition is depth 1). |
+| `maxFilterConditions` | 100 | Most leaf conditions across the whole filter. |
+
+Anything over a limit, and any malformed query (unknown fields, a bad
+operator, a non-integer `limit`), throws `InvalidInputError` rather than
+being clamped or ignored, so callers learn the bound. Input nested more
+than 64 levels deep is rejected before schema validation even runs.
+
+Override any subset with `SemanticRuntime`'s 8th constructor argument, or
+`buildRuntime({ queryLimits })`:
+
+```ts
+const { runtime } = await buildRuntime({
+  manifests, adapters, policyRules,
+  queryLimits: { defaultLimit: 25, maxLimit: 200 } // the rest keep their defaults
+});
+```
+
+`defaultLimit` must not exceed `maxLimit`; the constructor throws if it
+does. The MCP `query` tool advertises `runtime.queryLimits` in its
+`inputSchema`, so agents see your real bounds. The tests are in
+[`packages/core/test/input-validation.test.ts`](../../packages/core/test/input-validation.test.ts).
+
+**Paging, not truncation.** Before these limits existed, a query without
+`limit` returned every match. It now returns one page; callers follow
+`nextCursor` (passed back as `cursor`) for the rest.

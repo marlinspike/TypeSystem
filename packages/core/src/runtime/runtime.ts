@@ -10,6 +10,7 @@ import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
+import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
@@ -37,6 +38,7 @@ export interface ResolvedObject {
 export class SemanticRuntime {
   private readonly mappingResolver: MappingResolver;
   private readonly adapters: Map<string, Adapter>;
+  private readonly inputValidator: InputValidator;
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -49,10 +51,18 @@ export class SemanticRuntime {
     /** Omit to preserve pre-ADR-0019 "unlimited" behavior exactly — a `NoopRateLimiter` never rejects. Checked once per call, keyed by `identity.subjectId` (see ADR-0019). */
     private readonly rateLimiter: RateLimiter = new NoopRateLimiter(),
     /** Caps how many adapter calls a single relationship/query/provenance fan-out issues concurrently (see ADR-0019 and `mapWithConcurrency`). */
-    private readonly maxConcurrency: number = DEFAULT_MAX_CONCURRENCY
+    private readonly maxConcurrency: number = DEFAULT_MAX_CONCURRENCY,
+    /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count, filter depth/size (see `input-validation.ts`). */
+    queryLimits: Partial<QueryLimits> = {}
   ) {
+    this.inputValidator = new InputValidator(queryLimits);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
+  }
+
+  /** The effective query bounds — what a transport should advertise (e.g. the MCP `query` tool's inputSchema). */
+  get queryLimits(): QueryLimits {
+    return this.inputValidator.limits;
   }
 
   private getAdapter(dataSourceId: string): Adapter {
@@ -356,13 +366,22 @@ export class SemanticRuntime {
     );
   }
 
-  async query(q: SemanticQuery, identity: Identity): Promise<QueryResult<ResolvedObject>> {
+  /**
+   * `input` is validated against `semanticQuerySchema` and the runtime's
+   * `QueryLimits` before anything else runs — callers (an MCP tool, an HTTP
+   * body) routinely hand this unchecked JSON. An omitted `limit` becomes
+   * `queryLimits.defaultLimit`; follow `nextCursor` for further pages.
+   */
+  async query(input: SemanticQuery, identity: Identity): Promise<QueryResult<ResolvedObject>> {
+    const claimedType = (input as { type?: unknown } | null | undefined)?.type;
     return instrumentOperation(
       "SemanticRuntime.query",
-      q.type,
-      { "typesys.identity.subject_id": identity.subjectId, "typesys.query.limit": q.limit ?? -1 },
+      typeof claimedType === "string" ? claimedType : "unknown",
+      { "typesys.identity.subject_id": identity.subjectId },
       async () => {
         this.checkRateLimit(identity);
+        const q = this.inputValidator.validateQuery(input);
+        annotateActiveSpan({ "typesys.query.limit": q.limit });
         const typeDef = await this.requireType(q.type);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
@@ -475,6 +494,9 @@ export class SemanticRuntime {
           typeName: primaryType,
           actionName: action.name
         });
+        // After the policy check, so every attempt by an unauthorized caller is still audited as a
+        // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
+        this.inputValidator.validateActionInput(action, input);
 
         const ctx: ActionContext = {
           identity,

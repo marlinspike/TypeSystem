@@ -84,4 +84,36 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
     });
     expect(unauthorized.isError).toBe(true);
   });
+
+  it("8. advertises the query tool's real schema and limits, and rejects over-limit or malformed queries", async () => {
+    const { tools } = await client.listTools();
+    const queryTool = tools.find((t) => t.name === "query")!;
+    const props = queryTool.inputSchema.properties as Record<string, { maximum?: number }>;
+    expect(props.limit?.maximum).toBe(bundle.runtime.queryLimits.maxLimit);
+    expect(props.authToken).toBeDefined();
+
+    const ok = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft", limit: 1, authToken: "demo-maintainer-token" } });
+    expect(ok.isError).not.toBe(true);
+
+    const overLimit = await client.callTool({
+      name: "query",
+      arguments: { type: "airforce.Aircraft", limit: bundle.runtime.queryLimits.maxLimit + 1, authToken: "demo-maintainer-token" }
+    });
+    expect(overLimit.isError).toBe(true);
+
+    const malformed = await client.callTool({
+      name: "query",
+      arguments: { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "regex", value: ".*" }, authToken: "demo-maintainer-token" }
+    });
+    expect(malformed.isError).toBe(true);
+  });
+
+  it("9. rejects Action input that doesn't match the Action's inputSchema", async () => {
+    const result = await client.callTool({
+      name: "CreateMaintenanceWorkOrder",
+      arguments: { maintenanceEventId: "EVT-9002", authToken: "demo-maintainer-token" }
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/assignedTo/);
+  });
 });

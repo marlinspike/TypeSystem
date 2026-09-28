@@ -73,6 +73,13 @@ export const CreateWidgetTicketAction: ActionDefinition = {
 };
 ```
 
+**`inputSchema` is enforced, not just documented.** `invokeAction` checks
+the input against it (after the policy check, before preconditions) and
+throws `InvalidInputError` on a mismatch, so a precondition or adapter
+never sees a malformed shape. It's also the MCP tool's advertised
+schema. Add `additionalProperties: false` if extra fields should be
+rejected rather than passed through.
+
 `preconditions[].check` runs *before* the adapter's `executeAction` — use
 it for business rules the runtime should enforce regardless of which
 adapter implements the Action (existence checks, state-machine

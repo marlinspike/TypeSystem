@@ -1,9 +1,19 @@
 name: CI
 
+# A change touching only docs/, README.md, or llms.txt skips CI; any other file in the
+# same push or PR still triggers it.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "llms.txt"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "llms.txt"
 
 jobs:
   # Runs first, without Postgres: proves the default in-memory path — the one every
@@ -17,6 +27,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - run: npm run lint:install
+      - run: npm run lint
       - run: npm run build
       - run: npm run build:postgres
       - run: npm test

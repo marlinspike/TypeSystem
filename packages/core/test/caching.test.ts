@@ -6,8 +6,7 @@ import { InMemoryCache } from "../src/runtime/cache.js";
 import { AbacPolicyEngine, allowAllRule, requireRole } from "../src/policy/abac-policy-engine.js";
 import type { Adapter, ResolvedProperties, RelatedRef, AdapterQueryResult } from "../src/runtime/adapter.js";
 import type { ActionDefinition } from "../src/model/action.js";
-import type { ActionContext, ComputeContext } from "../src/model/context.js";
-import type { RelationshipDefinition } from "../src/model/relationship.js";
+import type { ComputeContext } from "../src/model/context.js";
 import type { Identity } from "../src/model/policy.js";
 import type { SemanticTypeSchema } from "../src/model/vocabulary.js";
 

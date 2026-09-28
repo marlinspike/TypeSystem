@@ -1,0 +1,13 @@
+{
+  "name": "typesys-eslint-tooling",
+  "private": true,
+  "description": "Lint toolchain, isolated from the workspaces: typescript-eslint needs TypeScript's JS API, which TypeScript 7 (used by the build) no longer ships. Run via `npm run lint:install` then `npm run lint` from the repo root.",
+  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.11.0",
+    "globals": "17.12.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.0"
+  }
+}

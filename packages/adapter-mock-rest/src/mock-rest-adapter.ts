@@ -10,7 +10,8 @@ import {
   type QueryFilter,
   type RelationshipDefinition
 } from "@typesys/core";
-import { MockRestClient, type ExternalMaintenanceRecord, type ExternalWorkOrderRecord } from "./mock-rest-client.js";
+import type { MockRestClient} from "./mock-rest-client.js";
+import { type ExternalMaintenanceRecord, type ExternalWorkOrderRecord } from "./mock-rest-client.js";
 
 export interface MockRestAdapterTypeMapping {
   maintenanceEventType: string;
