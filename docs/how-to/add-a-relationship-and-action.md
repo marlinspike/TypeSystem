@@ -41,6 +41,22 @@ Navigate it at runtime with `runtime.getRelationship(typeName, objectId,
 relationshipName, identity)`, or inline it into a query via `include:
 [{relationship: "components"}]` (see
 [`packages/core/src/model/query.ts`](../../packages/core/src/model/query.ts)).
+An include entry can also filter its related objects and nest further
+includes from each one:
+
+```ts
+await runtime.query({
+  type: "airforce.Aircraft",
+  include: [{
+    relationship: "maintenance",
+    filter: { property: "eventType", operator: "eq", value: "unscheduled" },
+    include: [{ relationship: "workOrder" }]
+  }]
+}, identity);
+```
+
+Include filters run after property-level redaction, so they only match
+on values the caller is allowed to see.
 
 ## An Action
 

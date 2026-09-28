@@ -72,7 +72,7 @@ async function setup(resolutionMode: "live" | "cached", cacheTtlMs?: number) {
 
   const adapter = new CountingAdapter();
   const cache = new InMemoryCache();
-  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, cache, cacheTtlMs);
+  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, { cache, defaultCacheTtlMs: cacheTtlMs });
 
   return { registry, runtime, adapter, cache };
 }
@@ -151,7 +151,7 @@ describe("Cached resolution mode (ADR-0016)", () => {
     let computeCount = 0;
     const compute = async (ctx: ComputeContext) => {
       computeCount++;
-      return (await ctx.getProperty("name")) + "!";
+      return `${String(await ctx.getProperty("name"))}!`;
     };
 
     await registry.registerType(
@@ -178,7 +178,7 @@ describe("Cached resolution mode (ADR-0016)", () => {
     const policyEngine = new AbacPolicyEngine();
     policyEngine.registerRule("public", allowAllRule);
     const adapter = new CountingAdapter();
-    const runtime = new SemanticRuntime(registry, [adapter], policyEngine, new InMemoryCache());
+    const runtime = new SemanticRuntime(registry, [adapter], policyEngine, { cache: new InMemoryCache() });
 
     const first = await runtime.getObject("test.Loud", "obj-1", maintainer);
     const second = await runtime.getObject("test.Loud", "obj-1", maintainer);

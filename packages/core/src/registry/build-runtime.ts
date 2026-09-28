@@ -1,12 +1,11 @@
 import type { Adapter } from "../runtime/adapter.js";
-import { SemanticRuntime } from "../runtime/runtime.js";
+import { SemanticRuntime, type SemanticRuntimeOptions } from "../runtime/runtime.js";
 import { SemanticRegistry } from "./registry.js";
 import { InMemoryRegistryStore } from "./in-memory-registry-store.js";
 import type { RegistryStore } from "./registry-store.js";
 import { registerDomain, type DomainManifest } from "./manifest.js";
 import { AbacPolicyEngine, type PolicyRule } from "../policy/abac-policy-engine.js";
 import type { PolicyEngine } from "../model/policy.js";
-import type { QueryLimits } from "../runtime/input-validation.js";
 
 export interface BuildRuntimeOptions {
   /** Defaults to a fresh `InMemoryRegistryStore` — pass a `PostgresRegistryStore` for a durable registry. */
@@ -18,8 +17,8 @@ export interface BuildRuntimeOptions {
   policyRules?: Record<string, PolicyRule>;
   /** Supply your own PolicyEngine (e.g. an OPA/Cedar-backed one) instead of the default ABAC engine. */
   policyEngine?: PolicyEngine;
-  /** Overrides for any of `DEFAULT_QUERY_LIMITS` (page size, include count, filter depth/size). */
-  queryLimits?: Partial<QueryLimits>;
+  /** Cache, rate limiter, concurrency bound, and query limits for the runtime — see `SemanticRuntimeOptions`. */
+  runtimeOptions?: SemanticRuntimeOptions;
 }
 
 export interface BuiltRuntime {
@@ -53,16 +52,7 @@ export async function buildRuntime(opts: BuildRuntimeOptions): Promise<BuiltRunt
     }
   }
 
-  const runtime = new SemanticRuntime(
-    registry,
-    opts.adapters,
-    policyEngine,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    opts.queryLimits
-  );
+  const runtime = new SemanticRuntime(registry, opts.adapters, policyEngine, opts.runtimeOptions);
 
   return { registry, runtime, policyEngine };
 }

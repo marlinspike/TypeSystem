@@ -242,7 +242,8 @@ npm install
 npm run build      # tsc -b across the workspace
 npm test           # vitest run — Postgres-backed tests auto-skip without DATABASE_URL
 npm run lint:install  # once: installs the isolated ESLint toolchain in tools/eslint
-npm run lint          # ESLint across the repo (npm run lint:fix to auto-fix)
+npm run lint          # type-aware ESLint across the repo (npm run lint:fix to auto-fix)
+npm run typecheck     # type-checks source, tests, and scripts (the build covers only src)
 npm run smoke:mcp  # spawns a real stdio MCP subprocess and runs the
                    # 7-step discover -> inspect -> retrieve -> navigate ->
                    # provenance -> list-actions -> invoke script end-to-end

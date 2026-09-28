@@ -84,7 +84,7 @@ async function setup(queryLimits = {}) {
   const policyEngine = new AbacPolicyEngine();
   policyEngine.registerRule("public", allowAllRule);
   const adapter = new RecordingAdapter();
-  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, undefined, undefined, undefined, undefined, queryLimits);
+  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, { queryLimits });
   return { runtime, adapter };
 }
 

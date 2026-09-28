@@ -67,8 +67,8 @@ export function createHttpApp(opts: HttpTransportOptions = {}): Express {
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
       res.on("close", () => {
-        transport.close();
-        server.close();
+        // Both return promises; a rejection left unhandled would take the whole process down.
+        void Promise.allSettled([transport.close(), server.close()]);
       });
     } catch (err) {
       console.error("Error handling MCP HTTP request:", err);

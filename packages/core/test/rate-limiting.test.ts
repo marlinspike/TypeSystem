@@ -106,7 +106,7 @@ async function setup(rateLimiter: InMemoryRateLimiter) {
 
   // Cache/defaultCacheTtlMs left at their defaults (NoopCache) — only the 6th
   // constructor argument (rateLimiter) is under test here.
-  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, undefined, undefined, rateLimiter);
+  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, { rateLimiter });
   return runtime;
 }
 

@@ -69,7 +69,7 @@ export function createOidcIdentityResolver(config: OidcIdentityResolverConfig): 
       return {
         subjectId: typeof payload.sub === "string" ? payload.sub : "unknown",
         roles: extractRoles(payload, rolesClaim),
-        attributes: payload as Record<string, unknown>,
+        attributes: payload,
         ...(typeof scope === "string" ? { tokenScopes: scope.split(" ").filter(Boolean) } : {})
       };
     } catch (err) {

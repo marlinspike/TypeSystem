@@ -38,18 +38,17 @@ Add `resolutionMode`/`cacheTtlMs` to the relationship spec itself:
 
 ## Wire up the cache itself
 
-`SemanticRuntime`'s 4th/5th constructor arguments — omit either and
+The `cache` and `defaultCacheTtlMs` fields of `SemanticRuntime`'s options (its 4th argument) — omit either and
 caching is a true no-op (a `NoopCache` that always misses), so adding
 this to an existing runtime is always safe to try incrementally:
 
 ```ts
 import { SemanticRuntime, InMemoryCache } from "@typesys/core";
 
-const runtime = new SemanticRuntime(
-  registry, adapters, policyEngine,
-  new InMemoryCache(),   // omit for pre-ADR-0016 "always live" behavior
-  30_000                  // defaultCacheTtlMs — used when a mapping has no cacheTtlMs of its own
-);
+const runtime = new SemanticRuntime(registry, adapters, policyEngine, {
+  cache: new InMemoryCache(), // omit for pre-ADR-0016 "always live" behavior
+  defaultCacheTtlMs: 30_000   // used when a mapping has no cacheTtlMs of its own
+});
 ```
 
 ## What actually gets cached

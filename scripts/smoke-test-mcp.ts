@@ -34,8 +34,9 @@ async function step(label: string, fn: () => Promise<void>): Promise<void> {
 
 // Smoke tests poke at arbitrary JSON shapes; a typed result would add nothing here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function readJson(result: { contents: { text?: string }[] }): any {
-  return JSON.parse(result.contents[0]!.text ?? "null");
+function readJson(result: { contents: ({ text: string } | { blob: string })[] }): any {
+  const first = result.contents[0];
+  return JSON.parse(first && "text" in first ? first.text : "null");
 }
 
 async function main(): Promise<void> {

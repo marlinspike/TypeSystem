@@ -4,8 +4,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer, type TypeSysMcpServer } from "../src/server.js";
 import { buildTypeUri, buildObjectUri, buildRelationshipUri, buildProvenanceUri } from "../src/resource-uri.js";
 
-function jsonOf(result: { contents: { text?: string }[] }): unknown {
-  return JSON.parse(result.contents[0]!.text!);
+/** MCP resource contents are either text or binary (`blob`); every resource here is JSON text. */
+function jsonOf(result: { contents: ({ text: string } | { blob: string })[] }): unknown {
+  const first = result.contents[0];
+  if (!first || !("text" in first)) throw new Error("expected a text resource");
+  return JSON.parse(first.text);
 }
 
 describe("MCP contract — the vertical slice's discover -> inspect -> retrieve -> navigate -> provenance -> act script", () => {

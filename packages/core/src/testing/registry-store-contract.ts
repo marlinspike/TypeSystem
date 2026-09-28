@@ -19,11 +19,21 @@ import type { AuditEvent } from "../audit/audit-log.js";
  * whatever else is unique to that backend (e.g.
  * `packages/registry-store-postgres/test/postgres-registry-store.test.ts`).
  */
+/** The assertions the contract suite actually uses — a subset any mainstream framework's `expect` satisfies (vitest, jest). */
+export interface ContractAssertion {
+  toBe(expected: unknown): void;
+  toEqual(expected: unknown): void;
+  toMatchObject(expected: object): void;
+  toContain(item: unknown): void;
+  toHaveLength(length: number): void;
+  toBeUndefined(): void;
+  toBeGreaterThan(n: number): void;
+}
+
 export interface ContractTestHarness {
   describe: (name: string, fn: () => void) => void;
   it: (name: string, fn: () => Promise<void> | void) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect: (value: unknown) => any;
+  expect: (value: unknown) => ContractAssertion;
   beforeEach: (fn: () => Promise<void> | void) => void;
 }
 

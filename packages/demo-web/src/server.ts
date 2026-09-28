@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import express, { type Request, type Response } from "express";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, type Identity, type TypeDefinition } from "@typesys/core";
+import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, type Identity, type SemanticQuery, type TypeDefinition } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
 import { createServer as createMcpServer } from "@typesys/mcp-server";
 
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   app.get("/api/types/:name", async (req: Request, res: Response) => {
     const typeDef = await registry.getType(req.params.name as string);
     if (!typeDef) {
-      res.status(404).json({ error: "NotFoundError", message: `Unknown type "${req.params.name}"` });
+      res.status(404).json({ error: "NotFoundError", message: `Unknown type "${req.params.name as string}"` });
       return;
     }
     res.json(describeType(typeDef));
@@ -140,7 +140,8 @@ async function main(): Promise<void> {
   app.post("/api/query", async (req: Request, res: Response) => {
     try {
       const identity = resolveIdentity(req.query.identity);
-      const result = await runtime.query(req.body, identity);
+      // Unchecked JSON is fine: SemanticRuntime.query validates it first.
+      const result = await runtime.query(req.body as SemanticQuery, identity);
       res.json(result);
     } catch (err) {
       sendError(res, err);
@@ -200,7 +201,8 @@ async function main(): Promise<void> {
 
   app.post("/api/mcp/resource", async (req: Request, res: Response) => {
     try {
-      res.json(await mcpClient.readResource({ uri: req.body.uri }));
+      const { uri } = req.body as { uri: string };
+      res.json(await mcpClient.readResource({ uri }));
     } catch (err) {
       sendError(res, err);
     }
@@ -208,7 +210,8 @@ async function main(): Promise<void> {
 
   app.post("/api/mcp/tool", async (req: Request, res: Response) => {
     try {
-      res.json(await mcpClient.callTool({ name: req.body.name, arguments: req.body.arguments }));
+      const { name, arguments: args } = req.body as { name: string; arguments?: Record<string, unknown> };
+      res.json(await mcpClient.callTool({ name, arguments: args }));
     } catch (err) {
       sendError(res, err);
     }
