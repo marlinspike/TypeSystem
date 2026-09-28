@@ -5,9 +5,9 @@ layer between physical enterprise systems (databases, REST APIs, legacy
 platforms) and their consumers (applications and AI agents), so a consumer
 can ask for an object, its relationships, its provenance, and the actions
 it can perform, without knowing which system produced the answer. It is an
-open, standards-based take on the same problem the C3 AI Type System and
-Palantir Ontology address — built on JSON Schema 2020-12, a small embedded
-ABAC policy engine, and the Model Context Protocol — not a clone of either.
+open, standards-based take on the same problem Palantir Ontology
+addresses — built on JSON Schema 2020-12, a small embedded ABAC policy
+engine, and the Model Context Protocol — not a clone of it.
 
 > **New here?** → [`docs/README.md`](docs/README.md) is the full
 > documentation index (tutorial, how-tos, reference, ADRs). Evaluating
@@ -54,7 +54,7 @@ real work done on every call).
 
 See [`docs/why-typesys.md`](docs/why-typesys.md) for the full case —
 including how this compares to a hand-rolled BFF, GraphQL/Apollo
-Federation, Palantir Ontology/C3 AI Type System, and just giving an
+Federation, Palantir Ontology, and just giving an
 agent direct database access.
 
 ## How it works
