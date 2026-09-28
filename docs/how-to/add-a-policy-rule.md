@@ -58,6 +58,15 @@ A viewer can read the Widget; `internalNotes` just won't be in `values`
 for them. This is deliberate — "you can retrieve an object" and "you can
 see every property of it" are different questions, always.
 
+Filtering is the one place a property policy *does* fail the call. A
+`query` whose top-level `filter` references a property the caller can't
+read is rejected with `AuthorizationError` (and audited as a deny),
+because the filter runs in the adapter against unredacted values, and
+the set of matching objects would reveal the hidden value. The check runs
+once per Type with no `objectId`, so a rule that allows only some
+objects' values denies the filter. Include-level filters don't need
+this: they run after redaction.
+
 ## Every decision is audited, and (if you have an OTel SDK registered)
 traced
 

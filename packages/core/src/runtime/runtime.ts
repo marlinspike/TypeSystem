@@ -8,14 +8,14 @@ import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { SemanticQuery, QueryInclude, QueryResult } from "../model/query.js";
+import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled } from "./concurrency.js";
-import { matchesFilter } from "./filter.js";
+import { filterProperties, matchesFilter } from "./filter.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
 
@@ -415,6 +415,7 @@ export class SemanticRuntime {
         const typeDef = await this.requireType(q.type);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
+        if (q.filter) await this.requireFilterableProperties(typeDef, q.filter, identity);
 
         // Listing/filtering/pagination is inherently single-source — only the base
         // mapping's adapter can answer "which objects match", so overrides (ADR-0023)
@@ -445,6 +446,23 @@ export class SemanticRuntime {
         return { items, nextCursor: result.nextCursor };
       }
     );
+  }
+
+  /**
+   * The top-level filter runs in the adapter, against raw values, *before*
+   * property-level redaction. So a filter on a property the caller can't
+   * read would still select by its hidden value, and which objects come
+   * back would reveal it. Reject such a query outright (audited as a deny)
+   * rather than answer it. Checked per Type, not per object: a policy that
+   * only allows some objects' values denies the filter, failing closed.
+   */
+  private async requireFilterableProperties(typeDef: TypeDefinition, filter: QueryFilter, identity: Identity): Promise<void> {
+    const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
+    for (const property of filterProperties(filter)) {
+      const policyName = propertyPolicies[property];
+      if (!policyName) continue;
+      await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, propertyPath: property });
+    }
   }
 
   /**

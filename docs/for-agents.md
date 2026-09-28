@@ -121,9 +121,12 @@ the defaults below, since a deployment can change them:
   [{"relationship": "workOrder"}]}`. Results nest the same way, keyed by
   relationship name, so don't list the same relationship twice at one
   level.
-- **Include filters only see what you can see.** They run after
-  property-level redaction, so a condition on a property your identity
-  can't read behaves as if the property were absent.
+- **Filter only on properties you can read.** A top-level `filter` that
+  references a property your identity can't see (one missing from the
+  objects you get back) is rejected with `Not authorized`, since answering
+  it would reveal the hidden value. Include filters run after redaction
+  instead, so a condition on a property you can't read behaves as if the
+  property were absent.
 
 **Action tools validate their input too.** Arguments (minus `authToken`)
 are checked against that Action's `inputSchema` *after* the authorization
@@ -137,7 +140,7 @@ The text tells you which kind of failure it was:
 
 | `content[0].text` starts with | Meaning | What to do |
 |---|---|---|
-| `Not authorized:` | Policy denied this identity. | Don't retry with the same token; it's a real decision. |
+| `Not authorized:` | Policy denied this identity, including filtering on a property it can't read (the message names the property). | Don't retry with the same token; drop the hidden property from the filter, or accept the denial. |
 | `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit; the message names the path and rule. | Fix the arguments and retry. |
 | `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
 | `Rate limit exceeded` | Too many calls for this identity. | Back off and retry later. |
