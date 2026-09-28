@@ -16,10 +16,23 @@
  *      machine over time, not to be compared against the in-memory
  *      numbers row-for-row: the two use deliberately different domains
  *      (airforce vs. a synthetic `bench.Widget`/`bench.Part` schema)
- *      because the airforce domain's `readinessStatus` computed property
- *      adds its own async resolution cost that has nothing to do with
- *      which adapter is underneath it. Compare a backend's numbers
- *      against its own history, not against the other backend's row.
+ *      because the airforce domain's `readinessStatus`/`needsAttention`
+ *      computed properties add their own async resolution cost that has
+ *      nothing to do with which adapter is underneath it. Compare a
+ *      backend's numbers against its own history, not against the other
+ *      backend's row.
+ *
+ *      `airforce.Aircraft`'s "query + filter" number in particular is
+ *      dominated by `needsAttention` (ADR-0022): every "operational"
+ *      aircraft in the result (the filter used here selects exactly
+ *      those) makes two live `queryByType` calls into the maintenance
+ *      adapter to check for open work orders — even with the mock REST
+ *      client's simulated latency set to 0, each call still yields a real
+ *      macrotask hop (`setTimeout(resolve, 0)`), and that cost multiplies
+ *      across every matching aircraft in the page, bounded by
+ *      `maxConcurrency`. This is a genuine, worth-knowing cost of pattern
+ *      2 in docs/how-to/combine-multiple-sources.md, not a regression to
+ *      chase — see ADR-0022's Consequences.
  *
  * Skips the Postgres section cleanly (same convention as the rest of the
  * repo) when DATABASE_URL/PGHOST isn't set.

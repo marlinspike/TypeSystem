@@ -128,7 +128,13 @@ them:
 resources/read  typesys://objects/airforce.Aircraft/AF86-0147?token=demo-maintainer-token
   -> { "typeName": "airforce.Aircraft", "objectId": "AF86-0147",
        "values": { "tailNumber": "AF86-0147", "model": "F-16C",
-                    "maintenanceStatus": "degraded", "readinessStatus": "PMC", ... } }
+                    "maintenanceStatus": "degraded", "readinessStatus": "PMC",
+                    "needsAttention": true, ... } }
+  # readinessStatus and needsAttention are both computed — the first from
+  # this Aircraft's own maintenanceStatus, the second also from a live
+  # cross-source check against the maintenance system's WorkOrders (see
+  # ADR-0022 and docs/how-to/combine-multiple-sources.md) — neither is
+  # stored anywhere; both are derived fresh on every read.
 
 resources/read  typesys://objects/airforce.Aircraft/AF86-0147/relationships/maintenance?token=demo-maintainer-token
   -> [ { "typeName": "airforce.MaintenanceEvent", "objectId": "EVT-9001", "values": {...} }, ... ]

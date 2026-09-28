@@ -1,8 +1,9 @@
 import { TrackableTrait, MaintainableTrait, type DomainTypeEntry } from "@typesys/core";
 import { computeReadinessStatus } from "../computed/readiness-status.js";
+import { computeNeedsAttention } from "../computed/needs-attention.js";
 
-export const AIRCRAFT_DATA_SOURCE_ID = "in-memory-airforce-repo";
-export const MAINTENANCE_DATA_SOURCE_ID = "mock-remis-rest";
+export { AIRCRAFT_DATA_SOURCE_ID, MAINTENANCE_DATA_SOURCE_ID } from "../data-source-ids.js";
+import { AIRCRAFT_DATA_SOURCE_ID, MAINTENANCE_DATA_SOURCE_ID } from "../data-source-ids.js";
 
 export const AircraftType: DomainTypeEntry = {
   schema: {
@@ -34,6 +35,14 @@ export const AircraftType: DomainTypeEntry = {
         dependsOn: ["maintenanceStatus"],
         binding: "computeReadinessStatus",
         resolutionMode: "live"
+      },
+      needsAttention: {
+        // Combines maintenanceStatus (this Aircraft's own source) with a live
+        // lookup against the maintenance system (a different DataSource this
+        // Aircraft has no direct Mapping to) — see ADR-0022.
+        dependsOn: ["maintenanceStatus"],
+        binding: "computeNeedsAttention",
+        resolutionMode: "live"
       }
     },
     "x-policy": {
@@ -48,6 +57,6 @@ export const AircraftType: DomainTypeEntry = {
     version: "1.0.0",
     extends: "core.Asset",
     traits: [TrackableTrait, MaintainableTrait],
-    computedImplementations: { computeReadinessStatus }
+    computedImplementations: { computeReadinessStatus, computeNeedsAttention }
   }
 };

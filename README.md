@@ -27,7 +27,9 @@ and a message queue.
 **Use it when:**
 
 - You have (or will have) more than one physical system that need to
-  present a single, coherent object model to consumers.
+  present a single, coherent object model to consumers — see
+  [`docs/how-to/combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)
+  for the three real, tested ways to do that.
 - Authorization has to be enforced identically everywhere a piece of
   data is read — not re-implemented per UI, per API endpoint, per agent
   tool. One policy boundary (`SemanticRuntime`), so a human application

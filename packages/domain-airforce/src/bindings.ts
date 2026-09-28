@@ -1,5 +1,6 @@
 import type { BindingRegistry } from "@typesys/core";
 import { computeReadinessStatus } from "./computed/readiness-status.js";
+import { computeNeedsAttention } from "./computed/needs-attention.js";
 import { maintenanceEventExists } from "./actions/create-maintenance-work-order.js";
 
 /**
@@ -11,6 +12,6 @@ import { maintenanceEventExists } from "./actions/create-maintenance-work-order.
  * holds the live functions directly.
  */
 export const airforceBindingRegistry: BindingRegistry = {
-  computed: { computeReadinessStatus },
+  computed: { computeReadinessStatus, computeNeedsAttention },
   preconditions: { maintenanceEventExists }
 };

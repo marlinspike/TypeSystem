@@ -37,6 +37,7 @@ instead of re-explaining it.
 | [`use-postgres.md`](how-to/use-postgres.md) | Make the registry survive a restart. |
 | [`generate-typescript-types.md`](how-to/generate-typescript-types.md) | Get autocomplete/type-safety for objects this registry returns. |
 | [`run-mcp-over-http.md`](how-to/run-mcp-over-http.md) | Serve the MCP server to a real network client instead of a local stdio process. |
+| [`combine-multiple-sources.md`](how-to/combine-multiple-sources.md) | Stitch one object's (or one graph's) data together from more than one backend system. |
 
 ## Building an AI agent integration?
 
@@ -89,3 +90,5 @@ other reasonable way.
 | [0019](adr/0019-concurrency-bounds-and-rate-limiting.md) | Bounded-concurrency fan-out for every relationship/query/provenance resolution, plus an opt-in per-identity token-bucket `RateLimiter`. |
 | [0020](adr/0020-publish-infrastructure.md) | Real npm publish infrastructure (metadata, changesets, a gated release workflow) — deliberately stopping short of an actual `npm publish`. |
 | [0021](adr/0021-http-transport.md) | A stateless Streamable HTTP transport for MCP, with identity from a real `Authorization` header. |
+| [0022](adr/0022-cross-source-computed-properties.md) | A computed property's binding function can call `ctx.getAdapter()` on any registered adapter, not just its own — proven with `Aircraft.needsAttention`. |
+| [0023](adr/0023-multi-source-property-composition.md) | `getObject`/`query` merge a Type's base wildcard mapping with per-property overrides from other DataSources into one object read. |

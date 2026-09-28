@@ -100,6 +100,51 @@ export class SemanticRuntime {
     return resolved;
   }
 
+  /**
+   * Merges a Type's base property bundle with zero-or-more per-property
+   * overrides from other DataSources (ADR-0023) — e.g. most of an Aircraft
+   * comes from a repository, but `warrantyStatus` comes from a separate
+   * warranty system. An override's value (and provenance) replaces the
+   * base's for that one field; a base value with no override is untouched.
+   * Returns `base` unchanged, with zero adapter calls, when there are no
+   * overrides — every Type that doesn't use this feature pays nothing for it.
+   */
+  private async mergeOverrides(
+    typeName: string,
+    objectId: string,
+    base: ResolvedProperties,
+    overrides: Mapping[]
+  ): Promise<ResolvedProperties> {
+    if (overrides.length === 0) return base;
+
+    const results = await mapWithConcurrency(overrides, this.maxConcurrency, async (mapping) => ({
+      mapping,
+      resolved: await this.resolveProperties(this.getAdapter(mapping.dataSourceId), mapping, typeName, objectId)
+    }));
+
+    const values = { ...base.values };
+    const provenance = [...base.provenance];
+    for (const { mapping, resolved } of results) {
+      // The override system may have nothing for this object — keep whatever the base had (or nothing).
+      if (!(mapping.targetName in resolved.values)) continue;
+      values[mapping.targetName] = resolved.values[mapping.targetName];
+
+      const overrideProvenance = resolved.provenance.find((p) => p.propertyPath === mapping.targetName);
+      if (!overrideProvenance) continue;
+      const existingIndex = provenance.findIndex((p) => p.propertyPath === mapping.targetName);
+      if (existingIndex >= 0) provenance[existingIndex] = overrideProvenance;
+      else provenance.push(overrideProvenance);
+    }
+    return { values, provenance };
+  }
+
+  /** The base bundle plus any per-property overrides, merged (ADR-0023). What `getObject` and `query` both resolve properties through. */
+  private async resolveObjectProperties(typeName: string, objectId: string): Promise<ResolvedProperties> {
+    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeName);
+    const baseResolved = await this.resolveProperties(this.getAdapter(base.dataSourceId), base, typeName, objectId);
+    return this.mergeOverrides(typeName, objectId, baseResolved, overrides);
+  }
+
   private async resolveRelationship(adapter: Adapter, relDef: RelationshipDefinition, objectId: string): Promise<RelatedRef[]> {
     if (relDef.resolutionMode !== "cached") return adapter.resolveRelationship(relDef, objectId);
     const key = this.relationshipCacheKey(relDef.resolution.dataSourceId, relDef.name, objectId);
@@ -144,9 +189,10 @@ export class SemanticRuntime {
     const typeDef = await this.registry.getType(typeName);
     if (!typeDef) return;
 
+    // Every property mapping — the wildcard base AND any per-property overrides
+    // (ADR-0023) — since each can be independently cached under its own dataSourceId.
     const mappings = await this.registry.listMappings(typeName);
-    const propertyMapping = mappings.find((m) => m.target === "property");
-    if (propertyMapping) {
+    for (const propertyMapping of mappings.filter((m) => m.target === "property")) {
       await this.cache.delete(this.propertyCacheKey(propertyMapping.dataSourceId, typeName, objectId));
     }
     for (const rel of typeDef.relationships) {
@@ -253,9 +299,7 @@ export class SemanticRuntime {
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName, objectId });
 
-        const mapping = await this.mappingResolver.resolvePropertyMapping(typeName);
-        const adapter = this.getAdapter(mapping.dataSourceId);
-        const resolved = await this.resolveProperties(adapter, mapping, typeName, objectId);
+        const resolved = await this.resolveObjectProperties(typeName, objectId);
 
         const { values, provenance } = await this.finalizeValues(typeDef, objectId, identity, resolved);
         return { typeName, objectId, values, ...(opts.includeProvenance ? { provenance } : {}) };
@@ -323,8 +367,11 @@ export class SemanticRuntime {
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
 
-        const mapping = await this.mappingResolver.resolvePropertyMapping(q.type);
-        const adapter = this.getAdapter(mapping.dataSourceId);
+        // Listing/filtering/pagination is inherently single-source — only the base
+        // mapping's adapter can answer "which objects match", so overrides (ADR-0023)
+        // are merged per item below, not folded into this call.
+        const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
+        const adapter = this.getAdapter(base.dataSourceId);
         const result = await adapter.queryByType(q.type, q.filter, q.limit, q.cursor);
 
         // Every item, and every `include` within an item, is independent — resolve the
@@ -333,10 +380,8 @@ export class SemanticRuntime {
         // multiplied across a whole result page), bounded by maxConcurrency (ADR-0019)
         // so a large `limit` can't open unbounded concurrent adapter calls.
         const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
-          const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, {
-            values: item.values,
-            provenance: item.provenance
-          });
+          const merged = await this.mergeOverrides(q.type, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
+          const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, merged);
           const resolved: ResolvedObject = {
             typeName: q.type,
             objectId: item.objectId,

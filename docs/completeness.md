@@ -24,6 +24,14 @@ proven, extending vertical slice, not a finished platform.
   (`byForeignKey`/`byOwnField`), `extends core.Person` composition,
   object/property policy boundaries, and a real MCP connection browsing
   it with zero changes to `resources.ts`/`tools.ts`.
+- All three ways to combine data from multiple sources into one object
+  graph/object are real and tested, not just modeled: relationships
+  crossing adapters (ADR-0006), a computed property deriving its value
+  from a second adapter it has no direct Mapping to
+  (`Aircraft.needsAttention`, ADR-0022), and per-property Mapping
+  overrides merging a Type's own fields from several DataSources into
+  one `getObject`/`query` read (ADR-0023). See
+  [`docs/how-to/combine-multiple-sources.md`](how-to/combine-multiple-sources.md).
 - A production PostgreSQL `RegistryStore` — real migrations, an
   append-only audit table enforced by a DB trigger, keyset-paginated
   audit queries, a `BindingRegistry` seam for the behavior a database can
