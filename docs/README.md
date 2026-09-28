@@ -18,6 +18,10 @@ points into.
    inventory: what's fully built and tested versus a documented,
    not-yet-built extension point. Read this before assuming a capability
    exists just because an ADR discusses it.
+4. **[Production readiness](PRODUCTION-READINESS.md)** — the ranked list
+   of what stands between this reference implementation and real
+   production traffic, kept current as items are actually closed. Read it
+   before betting production traffic on any of this.
 
 ## Building something? (how-to guides)
 
@@ -92,4 +96,4 @@ other reasonable way.
 | [0021](adr/0021-http-transport.md) | A stateless Streamable HTTP transport for MCP, with identity from a real `Authorization` header. |
 | [0022](adr/0022-cross-source-computed-properties.md) | A computed property's binding function can call `ctx.getAdapter()` on any registered adapter, not just its own — proven with `Aircraft.needsAttention`. |
 | [0023](adr/0023-multi-source-property-composition.md) | `getObject`/`query` merge a Type's base wildcard mapping with per-property overrides from other DataSources into one object read. |
-| [0024](adr/0024-production-readiness-gap.md) | A ranked, concrete list of what production-readiness would actually take — deliberately not attempted in this pass. |
+| [0024](adr/0024-production-readiness-gap.md) | The decision to document (not close) the production-readiness gap in this pass; the ranked list itself lives in [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md). |

@@ -21,6 +21,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - [docs/semantic-meta-model.md](docs/semantic-meta-model.md): the canonical contracts — Type, Property, Relationship, Action, ComputedProperty, Policy, DataSource, Mapping, audit/Event — with real field names, not aspirational ones.
 - [docs/architecture.md](docs/architecture.md): the layered architecture (Model → Registry → Runtime → Query/Actions → Adapters → Systems, Policy/Audit cutting across), with Mermaid diagrams.
 - [docs/completeness.md](docs/completeness.md): an honest, kept-current inventory of what's fully built and tested versus a documented-but-unbuilt extension point. Read before assuming a capability exists.
+- [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md): the living, ranked list of what stands between this reference implementation and real production traffic (a real policy engine, a threat model, load testing, a multi-instance story, and more). Read before betting production traffic on any of it.
 
 ## How-to guides (task-oriented, assume you've read the quickstart)
 
@@ -46,7 +47,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - `packages/adapter-postgres/`, `packages/registry-store-postgres/`: real PostgreSQL-backed implementations of `Adapter`/`RegistryStore` — both optional, env-gated, never a dependency of core.
 - `packages/domain-airforce/`: the reference vertical-slice domain (Aircraft/Component/MaintenanceEvent/WorkOrder) — the pattern every new domain follows.
 - `packages/domain-hospital/`: a second, unrelated domain (Patient/Provider/Appointment) proving that pattern generalizes — no changes to `packages/core` or `packages/mcp-server` needed.
-- `docs/adr/`: 24 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. The last one (0024) is a ranked list of what production-readiness would actually take, deliberately not attempted.
+- `docs/adr/`: 24 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. The last one (0024) records the decision to document, not close, the production-readiness gap in this pass; the ranked list itself lives in docs/PRODUCTION-READINESS.md.
 
 ## Running things
 
