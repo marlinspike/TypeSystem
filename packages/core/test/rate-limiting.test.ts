@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { InMemoryRateLimiter, NoopRateLimiter } from "../src/runtime/rate-limiter.js";
 import { RateLimitExceededError } from "../src/runtime/errors.js";
 import { SemanticRegistry } from "../src/registry/registry.js";
@@ -34,6 +34,12 @@ describe("NoopRateLimiter", () => {
 });
 
 describe("InMemoryRateLimiter (token bucket)", () => {
+  // The limiter refills from Date.now(); a faked clock keeps these tests from depending on how
+  // fast the machine runs consecutive calls (a slow CI runner made the capacity test flaky).
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("allows up to `capacity` calls, then rejects", () => {
     const limiter = new InMemoryRateLimiter({ capacity: 3, refillPerSecond: 0 });
     expect(limiter.tryAcquire("k")).toBe(true);
@@ -42,11 +48,12 @@ describe("InMemoryRateLimiter (token bucket)", () => {
     expect(limiter.tryAcquire("k")).toBe(false);
   });
 
-  it("refills over time", async () => {
+  it("refills over time", () => {
+    vi.useFakeTimers();
     const limiter = new InMemoryRateLimiter({ capacity: 1, refillPerSecond: 20 }); // one token every 50ms
     expect(limiter.tryAcquire("k")).toBe(true);
     expect(limiter.tryAcquire("k")).toBe(false);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    vi.advanceTimersByTime(60);
     expect(limiter.tryAcquire("k")).toBe(true);
   });
 
@@ -57,11 +64,12 @@ describe("InMemoryRateLimiter (token bucket)", () => {
     expect(limiter.tryAcquire("bob")).toBe(true); // unaffected by alice's exhausted budget
   });
 
-  it("never exceeds capacity even after a long idle period", async () => {
+  it("never exceeds capacity even after a long idle period", () => {
+    vi.useFakeTimers();
     const limiter = new InMemoryRateLimiter({ capacity: 2, refillPerSecond: 1000 });
     expect(limiter.tryAcquire("k")).toBe(true);
     expect(limiter.tryAcquire("k")).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    vi.advanceTimersByTime(50);
     // Would have refilled far more than capacity if not clamped.
     expect(limiter.tryAcquire("k")).toBe(true);
     expect(limiter.tryAcquire("k")).toBe(true);
