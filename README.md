@@ -16,6 +16,45 @@ ABAC policy engine, and the Model Context Protocol — not a clone of either.
 > [`docs/for-agents.md`](docs/for-agents.md), or read
 > [`llms.txt`](llms.txt) at the repo root for the token-efficient map.
 
+## Why TypeS?
+
+Your applications and your AI agents both need to ask "give me this
+Aircraft, its components, where that data came from, and what I'm
+allowed to do to it" — without either of them needing to know the
+answer actually lives across a Postgres database, a legacy REST API,
+and a message queue.
+
+**Use it when:**
+
+- You have (or will have) more than one physical system that need to
+  present a single, coherent object model to consumers.
+- Authorization has to be enforced identically everywhere a piece of
+  data is read — not re-implemented per UI, per API endpoint, per agent
+  tool. One policy boundary (`SemanticRuntime`), so a human application
+  and an AI agent get *provably identical* enforcement.
+- You need to know where a value came from, not just what it is —
+  regulated industries, DoD/federal environments, anywhere "trust me"
+  isn't good enough for a number a decision gets made on.
+- You want an AI agent to discover and act on your domain safely,
+  without hand-writing a tool schema per backend or re-deriving
+  authorization logic inside the agent layer.
+- You're going to add domains for years and don't want every new one to
+  require touching a shared core — a domain is a package you add, never
+  code you edit into a core.
+
+**Don't use it when** you have one database and one application talking
+to it directly (an ORM is simpler, faster to write, and has no
+canonical-layer overhead to justify), you need a mature 1.0 product
+today (this is a reference implementation of a real architecture, not a
+release history), or sub-millisecond zero-indirection latency is the
+whole point (policy checks, audit writes, and provenance tracking are
+real work done on every call).
+
+See [`docs/why-typesys.md`](docs/why-typesys.md) for the full case —
+including how this compares to a hand-rolled BFF, GraphQL/Apollo
+Federation, Palantir Ontology/C3 AI Type System, and just giving an
+agent direct database access.
+
 ## Packages
 
 - **`packages/core`** (`@typesys/core`) — the meta-model, registry,
