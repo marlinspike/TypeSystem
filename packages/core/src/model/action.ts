@@ -13,6 +13,14 @@ export type Idempotency = "none" | "key" | "natural";
 export interface PreconditionSpec {
   description: string;
   check: (ctx: ActionContext) => Promise<boolean>;
+  /**
+   * Stable key this precondition's `check` is registered under. Optional
+   * because in-process authoring (a literal inline closure) never needs
+   * one — required only if this ActionDefinition will be persisted to a
+   * durable `RegistryStore` (ADR-0015), which strips `check` and re-attaches
+   * it from a `BindingRegistry` by this key on read.
+   */
+  bindingId?: string;
 }
 
 export interface ActionDefinition {

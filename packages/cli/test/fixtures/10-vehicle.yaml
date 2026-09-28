@@ -1,0 +1,34 @@
+name: fleet.Vehicle
+version: 1.0.0
+title: Vehicle
+description: A ground vehicle tracked declaratively, proving the YAML authoring path.
+extends: core.Asset
+traits: [Trackable, Maintainable]
+
+properties:
+  plateNumber:
+    type: string
+  fuelType:
+    type: string
+    enum: [gasoline, diesel, electric]
+required: [plateNumber]
+
+relationships:
+  depot:
+    target: core.Location
+    cardinality: one-to-one
+    description: Where this vehicle is currently stationed.
+    resolution:
+      dataSourceId: fleet-repo
+      operation: "byOwnField:depotId"
+
+computed:
+  utilizationRate:
+    dependsOn: [maintenanceStatus]
+    binding: computeUtilizationRate
+    resolutionMode: live
+
+policy:
+  objectPolicy: fleet.read-vehicle
+  propertyPolicies:
+    maintenanceStatus: fleet.maintainer-only

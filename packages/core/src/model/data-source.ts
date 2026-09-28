@@ -25,4 +25,6 @@ export interface Mapping {
   resolutionMode: ResolutionMode;
   /** Seam for multi-source conflict resolution; not exercised by the slice. */
   priority?: number;
+  /** Only meaningful when `resolutionMode === "cached"`; falls back to the runtime's `defaultCacheTtlMs` (see ADR-0016). */
+  cacheTtlMs?: number;
 }

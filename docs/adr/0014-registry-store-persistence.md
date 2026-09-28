@@ -2,7 +2,19 @@
 
 ## Status
 
-Accepted
+Accepted. **Partially superseded by
+[ADR-0015](0015-postgres-registry-store.md)**: the Postgres-backed
+`RegistryStore` this ADR described as a not-yet-built extension point
+(`packages/registry-store-postgres`) now exists. The interface-boundary
+decision here — `SemanticRegistry` depends only on `RegistryStore`, never a
+concrete backend — is exactly what made that possible without touching
+`SemanticRegistry` or any of its callers, and still stands. Read this ADR
+for the *why an interface, not a hardcoded backend* reasoning; read
+ADR-0015 for how the Postgres implementation actually works. The
+historical claims below ("there is no Postgres-backed implementation")
+describe the state of the codebase at the time this ADR was written, not
+the current state — left unedited rather than rewritten, so this document
+stays an accurate record of the decision as it was made.
 
 ## Context
 

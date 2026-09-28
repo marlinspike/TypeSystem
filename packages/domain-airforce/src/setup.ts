@@ -1,12 +1,11 @@
 import {
   SemanticRegistry,
-  InMemoryRegistryStore,
   SemanticRuntime,
-  AbacPolicyEngine,
   requireRole,
-  registerDomain,
+  buildRuntime,
   coreManifest,
-  type Identity
+  type Identity,
+  type PolicyEngine
 } from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { MockRestAdapter, MockRestClient } from "@typesys/adapter-mock-rest";
@@ -20,7 +19,7 @@ import { sampleWorkOrders } from "./sample-data/work-orders.js";
 export interface AirforceTestbed {
   registry: SemanticRegistry;
   runtime: SemanticRuntime;
-  policyEngine: AbacPolicyEngine;
+  policyEngine: PolicyEngine;
   inMemoryAdapter: InMemoryRepositoryAdapter;
   mockRestAdapter: MockRestAdapter;
 }
@@ -31,12 +30,13 @@ export interface AirforceTestbed {
  * engine with the demo roles. Reused by domain-airforce's own tests and by
  * the MCP server's bootstrap — one source of truth for "how the slice is
  * assembled."
+ *
+ * The generic wiring (store → registry → register manifests → policy
+ * engine → runtime) is `buildRuntime` (`@typesys/core`) — only what's
+ * actually specific to this domain (which adapters, how they're seeded)
+ * lives here now.
  */
 export async function buildAirforceTestbed(): Promise<AirforceTestbed> {
-  const registry = new SemanticRegistry(new InMemoryRegistryStore());
-  await registerDomain(registry, coreManifest);
-  await registerDomain(registry, airforceManifest);
-
   const inMemoryAdapter = new InMemoryRepositoryAdapter(AIRCRAFT_DATA_SOURCE_ID, "airforce-repo");
   inMemoryAdapter.seed("airforce.Aircraft", sampleAircraft);
   inMemoryAdapter.seed("airforce.Component", sampleComponents);
@@ -49,11 +49,14 @@ export async function buildAirforceTestbed(): Promise<AirforceTestbed> {
     workOrderType: "airforce.WorkOrder"
   });
 
-  const policyEngine = new AbacPolicyEngine();
-  policyEngine.registerRule("airforce.read-aircraft", requireRole("maintainer", "viewer"));
-  policyEngine.registerRule("airforce.maintainer-only", requireRole("maintainer"));
-
-  const runtime = new SemanticRuntime(registry, [inMemoryAdapter, mockRestAdapter], policyEngine);
+  const { registry, runtime, policyEngine } = await buildRuntime({
+    manifests: [coreManifest, airforceManifest],
+    adapters: [inMemoryAdapter, mockRestAdapter],
+    policyRules: {
+      "airforce.read-aircraft": requireRole("maintainer", "viewer"),
+      "airforce.maintainer-only": requireRole("maintainer")
+    }
+  });
 
   return { registry, runtime, policyEngine, inMemoryAdapter, mockRestAdapter };
 }

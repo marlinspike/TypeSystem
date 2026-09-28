@@ -290,6 +290,16 @@ post-dispatch `auditRequired` check (`outcome: "success"`) — both go through
 Matching `docs/initial_prompt.md`'s explicit non-goals, this codebase does
 not include: a real graph database (relationships are property-graph-flavored
 registry records, not a graph engine), a workflow engine, a full policy-as-code
-system (OPA/Cedar), a real IdP/OIDC integration, a Postgres-backed registry
-store, or a caching layer. Each of these is a documented extension point
-(see the relevant ADR) rather than a speculative implementation.
+system (OPA/Cedar), or a real IdP/OIDC integration. Each of these is a
+documented extension point (see the relevant ADR) rather than a speculative
+implementation. Three exceptions were built once they were actually
+needed, each behind the same kind of swappable interface as everything
+else in this list: a production PostgreSQL-backed `RegistryStore`
+(`packages/registry-store-postgres`, ADR-0015), a TTL-based cache for
+`resolutionMode: "cached"` properties/relationships/computed properties
+(ADR-0016), and OpenTelemetry tracing/metrics that cost nothing and do
+nothing unless an application registers a real SDK (ADR-0017). The
+concurrent (not sequential) fan-out for relationship/query resolution is
+not a new capability but a correctness fix to existing runtime code — the
+N+1 pattern a one-to-many relationship or a query's `include` previously
+produced.

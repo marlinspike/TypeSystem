@@ -1,0 +1,91 @@
+# How to enable caching
+
+Opt-in per `Mapping`, relationship, or computed property — nothing is
+cached unless you ask for it ([ADR-0016](../adr/0016-caching.md)).
+
+## Cache a property
+
+```ts
+await registry.registerMapping({
+  id: "map-widget", typeName: "fleet.Widget", target: "property", targetName: "*",
+  dataSourceId: "fleet-repo", operation: "get",
+  resolutionMode: "cached",
+  cacheTtlMs: 30_000   // optional — falls back to the runtime's defaultCacheTtlMs
+});
+```
+
+## Cache a relationship
+
+Add `resolutionMode`/`cacheTtlMs` to the relationship spec itself:
+
+```ts
+"x-relationships": {
+  components: {
+    target: "fleet.Part", cardinality: "one-to-many",
+    resolution: { dataSourceId: "fleet-repo", operation: "byForeignKey:widgetId" },
+    resolutionMode: "cached", cacheTtlMs: 60_000
+  }
+}
+```
+
+## Cache a computed property
+
+```ts
+"x-computed": {
+  utilizationRate: { dependsOn: ["status"], binding: "computeUtilizationRate", resolutionMode: "cached", cacheTtlMs: 15_000 }
+}
+```
+
+## Wire up the cache itself
+
+`SemanticRuntime`'s 4th/5th constructor arguments — omit either and
+caching is a true no-op (a `NoopCache` that always misses), so adding
+this to an existing runtime is always safe to try incrementally:
+
+```ts
+import { SemanticRuntime, InMemoryCache } from "@typesys/core";
+
+const runtime = new SemanticRuntime(
+  registry, adapters, policyEngine,
+  new InMemoryCache(),   // omit for pre-ADR-0016 "always live" behavior
+  30_000                  // defaultCacheTtlMs — used when a mapping has no cacheTtlMs of its own
+);
+```
+
+## What actually gets cached
+
+The adapter's **raw** output — before property-level policy redaction.
+One cache entry correctly serves every identity; each identity's
+redaction still runs fresh on every read. Never worry about a cache bug
+leaking one identity's view to another — the cache sits entirely on the
+"resolve" side, redaction entirely on the "respond" side.
+
+## Invalidate manually
+
+TTL alone, not event-driven invalidation, is the whole story here — see
+ADR-0016's "Alternatives Considered" for why. If your code just wrote
+fresh data and can't wait out the TTL:
+
+```ts
+await runtime.invalidateObject("fleet.Widget", "widget-1");
+```
+
+Clears that object's cached properties, every relationship's cached
+ref list, and every cached computed-property value — all in one call.
+
+## `InMemoryCache` is per-process
+
+Two runtime instances (two replicas) cache independently. A distributed
+`Cache` implementation (Redis, etc.) is a documented, not-built extension
+point — the same shape of seam `RegistryStore` was before
+[ADR-0015](../adr/0015-postgres-registry-store.md)'s Postgres
+implementation existed. Implement the four-method `Cache` interface
+(`packages/core/src/runtime/cache.ts`) and pass it in the same
+constructor slot.
+
+## Verify it
+
+Follow [`packages/core/test/caching.test.ts`](../../packages/core/test/caching.test.ts) —
+a counting adapter proves the second call within the TTL never touches
+it, a short TTL + a real sleep proves expiry, and one test proves the
+per-identity-redaction-stays-fresh property directly.

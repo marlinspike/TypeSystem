@@ -7,6 +7,8 @@
   ],
   "scripts": {
     "build": "tsc -b",
+    "build:postgres": "tsc -b packages/registry-store-postgres",
+    "migrate:postgres": "npm run migrate --workspace=@typesys/registry-store-postgres",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",

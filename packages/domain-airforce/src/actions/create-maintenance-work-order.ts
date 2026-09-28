@@ -1,5 +1,17 @@
-import type { ActionDefinition } from "@typesys/core";
+import type { ActionDefinition, PreconditionBinding } from "@typesys/core";
 import { MAINTENANCE_DATA_SOURCE_ID } from "../types/aircraft.js";
+
+/**
+ * Named (not inline) specifically so it can be registered under the same
+ * key — "maintenanceEventExists" — in `airforceBindingRegistry`
+ * (`../bindings.js`) for Postgres rehydration (see ADR-0015).
+ */
+export const maintenanceEventExists: PreconditionBinding = async (ctx) => {
+  const input = ctx.input as { maintenanceEventId: string };
+  const adapter = ctx.getAdapter(MAINTENANCE_DATA_SOURCE_ID);
+  const resolved = await adapter.resolveProperties("airforce.MaintenanceEvent", input.maintenanceEventId, []);
+  return Object.keys(resolved.values).length > 0;
+};
 
 /**
  * The vertical slice's one required Action (see ADR-0005). Its
@@ -32,12 +44,8 @@ export const CreateMaintenanceWorkOrderAction: ActionDefinition = {
   preconditions: [
     {
       description: "The referenced maintenance event must exist",
-      check: async (ctx) => {
-        const input = ctx.input as { maintenanceEventId: string };
-        const adapter = ctx.getAdapter(MAINTENANCE_DATA_SOURCE_ID);
-        const resolved = await adapter.resolveProperties("airforce.MaintenanceEvent", input.maintenanceEventId, []);
-        return Object.keys(resolved.values).length > 0;
-      }
+      bindingId: "maintenanceEventExists",
+      check: maintenanceEventExists
     }
   ],
   implementation: { dataSourceId: MAINTENANCE_DATA_SOURCE_ID, operation: "createWorkOrder" },

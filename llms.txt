@@ -1,0 +1,51 @@
+# TypeS
+
+> A domain-neutral enterprise semantic type system: a canonical layer between physical enterprise systems (databases, REST APIs, legacy platforms) and their consumers (applications and AI agents), so a consumer can ask for an object, its relationships, its provenance, and the actions it can perform, without knowing which system produced the answer.
+
+TypeScript monorepo (npm workspaces). Open standards throughout: JSON
+Schema 2020-12 for the canonical type representation, MCP for the
+AI-agent surface, OAuth/OIDC for identity. Not a clone of the Palantir
+Ontology or C3 AI Type System, though conceptually similar in ambition.
+Read [`docs/why-typesys.md`](docs/why-typesys.md) before assuming this is
+the right tool for a given problem — it names when *not* to use it too.
+
+## Start here
+
+- [docs/README.md](docs/README.md): the full documentation index — tutorial, how-tos, reference, explanation.
+- [docs/why-typesys.md](docs/why-typesys.md): when to use this, when not to, comparison to GraphQL federation / a hand-rolled BFF / Palantir/C3.
+- [docs/quickstart.md](docs/quickstart.md): clone to a working query in ten minutes, every command verified against this exact repo.
+- [docs/for-agents.md](docs/for-agents.md): **read this if you are an AI agent about to call the MCP server** — exact resource URIs, tool call shapes, auth model, a full worked request/response example.
+
+## Core concepts (in order of dependency)
+
+- [docs/semantic-meta-model.md](docs/semantic-meta-model.md): the canonical contracts — Type, Property, Relationship, Action, ComputedProperty, Policy, DataSource, Mapping, audit/Event — with real field names, not aspirational ones.
+- [docs/architecture.md](docs/architecture.md): the layered architecture (Model → Registry → Runtime → Query/Actions → Adapters → Systems, Policy/Audit cutting across), with Mermaid diagrams.
+- [docs/completeness.md](docs/completeness.md): an honest, kept-current inventory of what's fully built and tested versus a documented-but-unbuilt extension point. Read before assuming a capability exists.
+
+## How-to guides (task-oriented, assume you've read the quickstart)
+
+- [docs/how-to/add-a-type.md](docs/how-to/add-a-type.md)
+- [docs/how-to/add-a-relationship-and-action.md](docs/how-to/add-a-relationship-and-action.md)
+- [docs/how-to/write-an-adapter.md](docs/how-to/write-an-adapter.md)
+- [docs/how-to/add-a-policy-rule.md](docs/how-to/add-a-policy-rule.md)
+- [docs/how-to/enable-caching.md](docs/how-to/enable-caching.md)
+- [docs/how-to/enable-observability.md](docs/how-to/enable-observability.md)
+- [docs/how-to/use-postgres.md](docs/how-to/use-postgres.md)
+- [docs/how-to/generate-typescript-types.md](docs/how-to/generate-typescript-types.md)
+
+## Key source, if you need ground truth rather than prose
+
+- `packages/core/src/runtime/runtime.ts`: `SemanticRuntime` — the single boundary every consumer (human app or AI agent) goes through; policy, cache, tracing, and audit all happen exactly once, here.
+- `packages/core/src/registry/registry.ts`: `SemanticRegistry` — validates and composes Type/Action/Relationship definitions.
+- `packages/core/src/model/`: every meta-model type, as actual TypeScript, always more current than any doc describing it.
+- `packages/mcp-server/src/`: the MCP server — `resources.ts` (browsing), `tools.ts` (governed Actions + `query`), `auth.ts` (identity resolution).
+- `packages/domain-airforce/`: the reference vertical-slice domain (Aircraft/Component/MaintenanceEvent/WorkOrder) — the pattern every new domain follows.
+- `docs/adr/`: 17 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way.
+
+## Running things
+
+```bash
+npm install && npm run build && npm test   # Postgres-gated tests skip cleanly without DATABASE_URL
+npm run smoke:mcp                          # real stdio MCP server, full discover-to-invoke script
+npm run demo                                # interactive web app at http://localhost:4000
+```

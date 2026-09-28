@@ -1,14 +1,11 @@
-import semver from "semver";
 import type { RegistryStore } from "./registry-store.js";
+import { latestFirst, resolveVersion } from "./version-resolution.js";
 import type { TypeDefinition } from "../model/type.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { DataSource, Mapping } from "../model/data-source.js";
+import type { QueryResult } from "../model/query.js";
 import type { AuditEvent } from "../audit/audit-log.js";
-
-function latestFirst<T extends { version: string }>(versions: T[]): T[] {
-  return [...versions].sort((a, b) => semver.rcompare(a.version, b.version));
-}
 
 export class InMemoryRegistryStore implements RegistryStore {
   private readonly types = new Map<string, TypeDefinition[]>();
@@ -24,10 +21,7 @@ export class InMemoryRegistryStore implements RegistryStore {
   }
 
   async getType(name: string, versionRange?: string): Promise<TypeDefinition | undefined> {
-    const versions = latestFirst(this.types.get(name) ?? []);
-    if (versions.length === 0) return undefined;
-    if (!versionRange) return versions[0];
-    return versions.find((v) => semver.satisfies(v.version, versionRange));
+    return resolveVersion(this.types.get(name) ?? [], versionRange);
   }
 
   async listTypeVersions(name: string): Promise<TypeDefinition[]> {
@@ -39,11 +33,11 @@ export class InMemoryRegistryStore implements RegistryStore {
   }
 
   async putRelationship(def: RelationshipDefinition): Promise<void> {
+    // Keyed by (sourceType, name), not (name, version): listRelationships has no
+    // version parameter and only ever means "current" — re-registering a type at a
+    // new version must replace its relationships, not accumulate stale ones (ADR-0015).
     const existing = this.relationships.get(def.sourceType) ?? [];
-    this.relationships.set(def.sourceType, [
-      ...existing.filter((r) => !(r.name === def.name && r.version === def.version)),
-      def
-    ]);
+    this.relationships.set(def.sourceType, [...existing.filter((r) => r.name !== def.name), def]);
   }
 
   async listRelationships(sourceType: string): Promise<RelationshipDefinition[]> {
@@ -56,10 +50,7 @@ export class InMemoryRegistryStore implements RegistryStore {
   }
 
   async getAction(name: string, versionRange?: string): Promise<ActionDefinition | undefined> {
-    const versions = latestFirst(this.actions.get(name) ?? []);
-    if (versions.length === 0) return undefined;
-    if (!versionRange) return versions[0];
-    return versions.find((v) => semver.satisfies(v.version, versionRange));
+    return resolveVersion(this.actions.get(name) ?? [], versionRange);
   }
 
   async listActions(): Promise<ActionDefinition[]> {
@@ -87,7 +78,18 @@ export class InMemoryRegistryStore implements RegistryStore {
     this.auditEvents.push(evt);
   }
 
-  async listAuditEvents(): Promise<AuditEvent[]> {
-    return [...this.auditEvents];
+  async listAuditEvents(opts: { limit?: number; before?: string } = {}): Promise<QueryResult<AuditEvent>> {
+    const { limit = 100, before } = opts;
+    // Newest first, by insertion order (append-only) — ids are ULIDs, so this
+    // also happens to be lexicographic id order, but we don't rely on that here.
+    const newestFirst = [...this.auditEvents].reverse();
+    const startIndex = before ? newestFirst.findIndex((e) => e.id === before) + 1 : 0;
+    const page = newestFirst.slice(startIndex, startIndex + limit);
+    const nextCursor = startIndex + limit < newestFirst.length ? page[page.length - 1]?.id : undefined;
+    return { items: page, nextCursor };
+  }
+
+  async close(): Promise<void> {
+    // No-op — kept for interface symmetry with PostgresRegistryStore (ADR-0015).
   }
 }

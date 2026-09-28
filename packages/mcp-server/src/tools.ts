@@ -1,6 +1,6 @@
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import type { JsonSchema2020, SemanticQuery, SemanticRegistry, SemanticRuntime } from "@typesys/core";
+import { withSpan, type JsonSchema2020, type SemanticQuery, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
 import { resolveIdentity } from "./auth.js";
 
 const AUTH_TOKEN_FIELD = {
@@ -53,23 +53,26 @@ export function registerToolHandlers(server: Server, registry: SemanticRegistry,
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: rawArgs } = request.params;
-    const { authToken, ...rest } = (rawArgs ?? {}) as Record<string, unknown> & { authToken?: string };
-    const identity = resolveIdentity(authToken);
+    // One top-level span per MCP tool call — see the matching comment in resources.ts.
+    return withSpan("mcp.tools/call", { "mcp.tool.name": name }, async () => {
+      const { authToken, ...rest } = (rawArgs ?? {}) as Record<string, unknown> & { authToken?: string };
+      const identity = resolveIdentity(authToken);
 
-    try {
-      const isQuery = name === "query";
-      const result = isQuery
-        ? await runtime.query(rest as unknown as SemanticQuery, identity)
-        : await runtime.invokeAction(name, rest, identity);
-      const structuredContent =
-        !isQuery && result !== null && typeof result === "object" ? (result as Record<string, unknown>) : undefined;
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-        ...(structuredContent ? { structuredContent } : {})
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { content: [{ type: "text" as const, text: message }], isError: true };
-    }
+      try {
+        const isQuery = name === "query";
+        const result = isQuery
+          ? await runtime.query(rest as unknown as SemanticQuery, identity)
+          : await runtime.invokeAction(name, rest, identity);
+        const structuredContent =
+          !isQuery && result !== null && typeof result === "object" ? (result as Record<string, unknown>) : undefined;
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          ...(structuredContent ? { structuredContent } : {})
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: message }], isError: true };
+      }
+    });
   });
 }

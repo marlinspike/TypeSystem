@@ -56,4 +56,71 @@ describe("SemanticRegistry", () => {
     expect(mappings).toHaveLength(1);
     expect(mappings[0]?.dataSourceId).toBe("ds-1");
   });
+
+  it("re-registering a type at a new version replaces its relationships rather than accumulating them (ADR-0015)", async () => {
+    const registry = new SemanticRegistry(new InMemoryRegistryStore());
+
+    await registry.registerType(
+      {
+        $id: "https://typesys.dev/types/test/Widget/1.0.0",
+        title: "Widget",
+        type: "object",
+        "x-relationships": {
+          owner: {
+            target: "core.Party",
+            cardinality: "one-to-one",
+            resolution: { dataSourceId: "ds", operation: "get" }
+          }
+        }
+      },
+      { name: "test.Widget", version: "1.0.0" }
+    );
+    expect(await registry.listRelationships("test.Widget")).toHaveLength(1);
+
+    await registry.registerType(
+      {
+        $id: "https://typesys.dev/types/test/Widget/2.0.0",
+        title: "Widget",
+        type: "object",
+        "x-relationships": {
+          owner: {
+            target: "core.Organization", // target changed in v2
+            cardinality: "one-to-one",
+            resolution: { dataSourceId: "ds", operation: "get" }
+          }
+        }
+      },
+      { name: "test.Widget", version: "2.0.0" }
+    );
+
+    const rels = await registry.listRelationships("test.Widget");
+    expect(rels).toHaveLength(1); // not 2 — the stale v1.0.0 "owner" row must not linger
+    expect(rels[0]?.targetType).toBe("core.Organization");
+    expect(rels[0]?.version).toBe("2.0.0");
+  });
+
+  it("audit events are queryable newest-first, bounded, and cursor-paginated", async () => {
+    const registry = new SemanticRegistry(new InMemoryRegistryStore());
+    for (let i = 0; i < 5; i++) {
+      await registry.appendAuditEvent({
+        id: `evt-${i}`,
+        timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(),
+        subjectId: "user-1",
+        action: "read",
+        resource: { typeName: "test.Widget" },
+        decision: "allow"
+      });
+    }
+
+    const firstPage = await registry.listAuditEvents({ limit: 2 });
+    expect(firstPage.items.map((e) => e.id)).toEqual(["evt-4", "evt-3"]);
+    expect(firstPage.nextCursor).toBe("evt-3");
+
+    const secondPage = await registry.listAuditEvents({ limit: 2, before: firstPage.nextCursor });
+    expect(secondPage.items.map((e) => e.id)).toEqual(["evt-2", "evt-1"]);
+
+    const all = await registry.listAuditEvents({ limit: 100 });
+    expect(all.items).toHaveLength(5);
+    expect(all.nextCursor).toBeUndefined();
+  });
 });

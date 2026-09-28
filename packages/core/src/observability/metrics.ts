@@ -1,0 +1,29 @@
+import { metrics } from "@opentelemetry/api";
+
+/** Same no-op-by-default contract as tracing.ts (see ADR-0017) — `@opentelemetry/api` only. */
+const meter = metrics.getMeter("@typesys/core");
+
+const policyDecisionsCounter = meter.createCounter("typesys.policy.decisions", {
+  description: "Policy engine decisions, labeled by outcome. Mirrors, never replaces, the durable audit log."
+});
+
+const cacheRequestsCounter = meter.createCounter("typesys.cache.requests", {
+  description: "Cache lookups performed by cache-aware resolution paths (ADR-0016), labeled by result."
+});
+
+const operationDurationHistogram = meter.createHistogram("typesys.operation.duration", {
+  description: "Wall-clock duration of a traced SemanticRuntime operation.",
+  unit: "ms"
+});
+
+export function recordPolicyDecision(decision: "allow" | "deny"): void {
+  policyDecisionsCounter.add(1, { decision });
+}
+
+export function recordCacheResult(result: "hit" | "miss"): void {
+  cacheRequestsCounter.add(1, { result });
+}
+
+export function recordOperationDuration(operation: string, typeName: string, durationMs: number): void {
+  operationDurationHistogram.record(durationMs, { operation, type_name: typeName });
+}

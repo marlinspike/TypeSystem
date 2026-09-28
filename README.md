@@ -9,11 +9,21 @@ open, standards-based take on the same problem the C3 AI Type System and
 Palantir Ontology address — built on JSON Schema 2020-12, a small embedded
 ABAC policy engine, and the Model Context Protocol — not a clone of either.
 
+> **New here?** → [`docs/README.md`](docs/README.md) is the full
+> documentation index (tutorial, how-tos, reference, ADRs). Evaluating
+> whether this is the right tool? → [`docs/why-typesys.md`](docs/why-typesys.md).
+> Building an AI agent against the MCP server? →
+> [`docs/for-agents.md`](docs/for-agents.md), or read
+> [`llms.txt`](llms.txt) at the repo root for the token-efficient map.
+
 ## Packages
 
 - **`packages/core`** (`@typesys/core`) — the meta-model, registry,
-  runtime, policy engine, audit log, and domain-neutral base types/traits
-  (Party, Person, Organization, Location, Asset, Event).
+  runtime, policy engine, audit log, domain-neutral base types/traits
+  (Party, Person, Organization, Location, Asset, Event), a TTL-based cache
+  for `resolutionMode: "cached"` (ADR-0016), and OpenTelemetry tracing/
+  metrics that cost nothing unless an application registers a real SDK
+  (ADR-0017).
 - **`packages/adapter-in-memory`** (`@typesys/adapter-in-memory`) — an
   in-memory repository adapter standing in for a database-backed store.
 - **`packages/adapter-mock-rest`** (`@typesys/adapter-mock-rest`) — a
@@ -34,13 +44,26 @@ ABAC policy engine, and the Model Context Protocol — not a clone of either.
   WorkOrder objects, navigate relationships, invoke the governed Action,
   and watch the ABAC policy engine and audit log react live as you switch
   identity. See [Demo](#demo) below.
+- **`packages/cli`** (`@typesys/cli`) — declarative YAML authoring for
+  Types (compiles to the same `SemanticTypeSchema`/`RegisterTypeOptions`
+  code-authored Types use) plus a `generate-types` codegen command that
+  turns registered Types into real TypeScript interfaces. See
+  [`packages/cli/README.md`](packages/cli/README.md).
+- **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
+  a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
+  audit queries, an append-only audit table enforced by a DB trigger, and a
+  `BindingRegistry` seam for the computed-property/precondition functions a
+  database can never store). See [`packages/registry-store-postgres/README.md`](packages/registry-store-postgres/README.md)
+  and [ADR-0015](docs/adr/0015-postgres-registry-store.md). Optional — never a
+  dependency of `@typesys/core` — and its own tests are skipped unless
+  `DATABASE_URL` (or `PGHOST`) is set.
 
 ## Getting started
 
 ```bash
 npm install
 npm run build      # tsc -b across the workspace
-npm test           # vitest run — 36 tests across core/domain-airforce/mcp-server
+npm test           # vitest run — Postgres-backed tests auto-skip without DATABASE_URL
 npm run smoke:mcp  # spawns a real stdio MCP subprocess and runs the
                    # 7-step discover -> inspect -> retrieve -> navigate ->
                    # provenance -> list-actions -> invoke script end-to-end
@@ -94,7 +117,8 @@ real time, regardless of which surface triggered it.
 - [`docs/adr/`](docs/adr/) — architecture decision records for the major,
   hard-to-reverse choices (schema representation, type identity,
   composition, adapters, policy, versioning, query DSL, MCP mapping, domain
-  packaging, persistence).
+  packaging, persistence, the production Postgres registry store, caching,
+  observability).
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying
   `packages/core`.

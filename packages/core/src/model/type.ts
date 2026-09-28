@@ -1,6 +1,7 @@
 import type { SemanticTypeSchema } from "./vocabulary.js";
 import type { RelationshipDefinition } from "./relationship.js";
 import type { ComputeContext } from "./context.js";
+import type { ResolutionMode } from "./data-source.js";
 
 /**
  * A Type's stable, namespaced logical name (e.g. "airforce.Aircraft") is
@@ -20,7 +21,17 @@ export interface TypeIdentity {
 export interface ComputedPropertyDefinition {
   name: string;
   dependsOn: string[];
-  resolutionMode: "live" | "materialized" | "cached";
+  resolutionMode: ResolutionMode;
+  /** Only meaningful when `resolutionMode === "cached"`; falls back to the runtime's `defaultCacheTtlMs` (see ADR-0016). */
+  cacheTtlMs?: number;
+  /**
+   * The stable key this compute implementation is registered under (see
+   * `XComputedSpec.binding`). A durable `RegistryStore` (e.g. Postgres,
+   * ADR-0015) can never persist `compute` itself — only this identifier —
+   * and re-attaches the live function from a `BindingRegistry` supplied by
+   * whichever process reads the Type back.
+   */
+  binding: string;
   compute: (ctx: ComputeContext) => Promise<unknown>;
 }
 

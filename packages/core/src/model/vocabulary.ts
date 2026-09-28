@@ -1,4 +1,5 @@
 import type { JsonSchema2020 } from "./json-schema.js";
+import type { ResolutionMode } from "./data-source.js";
 
 /**
  * The private JSON Schema vocabulary this project layers on top of 2020-12.
@@ -19,6 +20,9 @@ export interface XRelationshipSpec {
   description?: string;
   edgeSchema?: JsonSchema2020;
   resolution: { dataSourceId: string; operation: string };
+  /** Defaults to "live" when omitted (see ADR-0016). */
+  resolutionMode?: ResolutionMode;
+  cacheTtlMs?: number;
 }
 
 export interface XRelationships {
@@ -32,7 +36,8 @@ export interface XActions {
 export interface XComputedSpec {
   dependsOn: string[];
   binding: string;
-  resolutionMode?: "live" | "materialized" | "cached";
+  resolutionMode?: ResolutionMode;
+  cacheTtlMs?: number;
 }
 
 export interface XComputed {

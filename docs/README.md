@@ -1,0 +1,85 @@
+# TypeS Documentation
+
+Everything here is organized by what you're trying to do, not by which
+package happens to hold the code. If you're an AI agent looking for the
+most token-efficient map of this repo, read [`llms.txt`](../llms.txt) at
+the repo root first — this page is the fuller, human-oriented index it
+points into.
+
+## New here?
+
+1. **[Why TypeS?](why-typesys.md)** — when to use this, when not to, how
+   it compares to a hand-rolled BFF, GraphQL federation, and the
+   Palantir/C3 platforms it takes inspiration from without cloning.
+2. **[Quickstart](quickstart.md)** — clone to a working, policy-gated
+   query in about ten minutes. Every command is verified against this
+   exact repo.
+3. **[Completeness](completeness.md)** — an honest, kept-current
+   inventory: what's fully built and tested versus a documented,
+   not-yet-built extension point. Read this before assuming a capability
+   exists just because an ADR discusses it.
+
+## Building something? (how-to guides)
+
+Task-first, assume you've done the quickstart. Each one is short on
+purpose — for the *why* behind a pattern, it links out to the relevant ADR
+instead of re-explaining it.
+
+| Guide | When you need it |
+|---|---|
+| [`add-a-type.md`](how-to/add-a-type.md) | Define a new object shape — properties, `extends`, traits. |
+| [`add-a-relationship-and-action.md`](how-to/add-a-relationship-and-action.md) | Connect Types, and add a governed capability that acts on them. |
+| [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
+| [`add-a-policy-rule.md`](how-to/add-a-policy-rule.md) | Gate a Type/property/Action by role or attribute. |
+| [`enable-caching.md`](how-to/enable-caching.md) | Stop re-fetching data that doesn't change every request. |
+| [`enable-observability.md`](how-to/enable-observability.md) | See real traces/metrics for this runtime in your own OTel backend. |
+| [`use-postgres.md`](how-to/use-postgres.md) | Make the registry survive a restart. |
+| [`generate-typescript-types.md`](how-to/generate-typescript-types.md) | Get autocomplete/type-safety for objects this registry returns. |
+
+## Building an AI agent integration?
+
+**[`for-agents.md`](for-agents.md)** — procedural, not architectural: the
+exact MCP resource URIs and tool call shapes, the auth model, and a
+complete worked request/response example against the shipped demo domain.
+Written to be followed by an agent directly, not just read by the person
+building one.
+
+## Reference
+
+- **[`semantic-meta-model.md`](semantic-meta-model.md)** — the canonical
+  contracts (Type, Property, Relationship, Action, ComputedProperty,
+  Policy, DataSource, Mapping, audit/Event), with real field names.
+- **[`architecture.md`](architecture.md)** — the layered architecture,
+  with Mermaid diagrams for the component layout, a cross-adapter query,
+  and a governed Action invocation.
+- **[`developer-guide/adding-a-domain.md`](developer-guide/adding-a-domain.md)** —
+  the code-authored (not YAML) path for adding a whole new domain, proven
+  by walking through a second one (Hospital) without touching
+  `packages/core`.
+
+## Explanation — architecture decision records
+
+Every major, hard-to-reverse choice, in the order it was made, each with
+alternatives actually considered and why they were rejected — the fastest
+way to understand *why* something is shaped the way it is instead of some
+other reasonable way.
+
+| ADR | Decision |
+|---|---|
+| [0001](adr/0001-canonical-schema-representation.md) | JSON Schema 2020-12 + a private `x-*` vocabulary as the canonical Type representation. |
+| [0002](adr/0002-type-identity.md) | Logical namespaced name, registry ULID, and semver version — three separate concepts, kept independent. |
+| [0003](adr/0003-relationships-as-first-class-records.md) | Relationships are first-class `RelationshipDefinition` records, not nested JSON. |
+| [0004](adr/0004-composition-via-allof-not-dynamicref.md) | `extends`/traits compose via plain `allOf`+`$ref`, not `$dynamicRef`. |
+| [0005](adr/0005-actions-as-first-class-governed-capabilities.md) | Actions are governed capabilities separate from semantic objects, mapped 1:1 to MCP tools. |
+| [0006](adr/0006-adapter-architecture.md) | `DataSource` + `Mapping` + `Adapter`; two adapter styles prove substitutability. |
+| [0007](adr/0007-runtime-resolution-modes.md) | `live`/`materialized`/`cached` resolution modes (see ADR-0016 for `cached`'s real implementation). |
+| [0008](adr/0008-provenance-model.md) | Provenance is opt-in per read, never inlined into every response by default. |
+| [0009](adr/0009-embedded-abac-policy-engine.md) | A small embedded ABAC `PolicyEngine`, swappable for OPA/Cedar later. |
+| [0010](adr/0010-schema-versioning-and-aliasing.md) | Semver versioning plus an alias/deprecation mechanism for backward compatibility. |
+| [0011](adr/0011-query-dsl-not-graphql.md) | A structured JSON query DSL instead of GraphQL or a bespoke language. |
+| [0012](adr/0012-mcp-mapping-and-stateless-identity.md) | MCP Resources = browsing, Tools = Actions + `query`; identity resolved fresh on every call. |
+| [0013](adr/0013-domain-packaging.md) | Domain packages are added, never edited into, a shared core. |
+| [0014](adr/0014-registry-store-persistence.md) | `RegistryStore` as an interface, with only an in-memory implementation at the time. |
+| [0015](adr/0015-postgres-registry-store.md) | The production PostgreSQL `RegistryStore`, with a `BindingRegistry` seam for behavior a database can never store. |
+| [0016](adr/0016-caching.md) | A TTL-based `Cache`, opt-in per mapping, caching pre-redaction raw values so it's safe for every identity. |
+| [0017](adr/0017-observability.md) | OpenTelemetry tracing/metrics via the API package only — a true no-op unless an application registers a real SDK. |

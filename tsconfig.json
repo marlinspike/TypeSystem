@@ -6,6 +6,7 @@
     { "path": "packages/adapter-mock-rest" },
     { "path": "packages/domain-airforce" },
     { "path": "packages/mcp-server" },
-    { "path": "packages/demo-web" }
+    { "path": "packages/demo-web" },
+    { "path": "packages/cli" }
   ]
 }

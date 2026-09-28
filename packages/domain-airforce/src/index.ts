@@ -7,3 +7,4 @@ export * from "./computed/readiness-status.js";
 export * from "./mappings/index.js";
 export * from "./manifest.js";
 export * from "./setup.js";
+export * from "./bindings.js";

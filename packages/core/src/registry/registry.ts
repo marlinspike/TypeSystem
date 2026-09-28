@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import type { Ajv2020 } from "ajv/dist/2020.js";
 import { createSemanticValidator, SchemaValidationError } from "./validation.js";
 import type { RegistryStore } from "./registry-store.js";
-import type { SemanticTypeSchema, XRelationshipSpec, XRelationships } from "../model/vocabulary.js";
+import type { SemanticTypeSchema, XRelationshipSpec, XRelationships, XComputed } from "../model/vocabulary.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
@@ -10,6 +10,7 @@ import type { TraitDefinition } from "../model/trait.js";
 import type { ComputeContext } from "../model/context.js";
 import type { JsonSchema2020 } from "../model/json-schema.js";
 import type { DataSource, Mapping } from "../model/data-source.js";
+import type { QueryResult } from "../model/query.js";
 import type { AuditEvent } from "../audit/audit-log.js";
 
 export interface RegisterTypeOptions {
@@ -37,7 +38,9 @@ function toRelationshipDefinition(
     inverseName: spec.inverse,
     edgeSchema: spec.edgeSchema,
     resolution: spec.resolution,
-    version
+    version,
+    resolutionMode: spec.resolutionMode,
+    cacheTtlMs: spec.cacheTtlMs
   };
 }
 
@@ -66,6 +69,19 @@ export class SemanticRegistry {
 
   private traitSchemaId(traitName: string): string {
     return `https://typesys.dev/traits/${traitName}`;
+  }
+
+  /**
+   * Returns a registered trait's raw property schema (the fragment merged
+   * into every composing Type's `allOf`), or `undefined` if that trait
+   * name has never been used in a `registerType` call yet. Needed by
+   * codegen (`@typesys/cli`) to flatten a Type's own + inherited + trait
+   * properties into one generated interface — `TypeDefinition` itself only
+   * records trait *names*, not their schemas, since composition already
+   * happened by the time registration finishes (see ADR-0004).
+   */
+  getTraitSchema(traitName: string): JsonSchema2020 | undefined {
+    return this.ajv.getSchema(this.traitSchemaId(traitName))?.schema as JsonSchema2020 | undefined;
   }
 
   async registerType(schema: SemanticTypeSchema, opts: RegisterTypeOptions): Promise<TypeDefinition> {
@@ -125,7 +141,7 @@ export class SemanticRegistry {
     const computedByName = new Map<string, ComputedPropertyDefinition>();
     for (const c of baseType?.computedProperties ?? []) computedByName.set(c.name, c);
     const computedImpls = opts.computedImplementations ?? {};
-    const applyComputedSpecs = (specs: Record<string, { dependsOn: string[]; binding: string; resolutionMode?: "live" | "materialized" | "cached" }>) => {
+    const applyComputedSpecs = (specs: XComputed) => {
       for (const [name, spec] of Object.entries(specs)) {
         const compute = computedImpls[spec.binding];
         if (!compute) {
@@ -135,6 +151,8 @@ export class SemanticRegistry {
           name,
           dependsOn: spec.dependsOn,
           resolutionMode: spec.resolutionMode ?? "live",
+          cacheTtlMs: spec.cacheTtlMs,
+          binding: spec.binding,
           compute
         });
       }
@@ -216,7 +234,11 @@ export class SemanticRegistry {
     await this.store.appendAuditEvent(evt);
   }
 
-  async listAuditEvents(): Promise<AuditEvent[]> {
-    return this.store.listAuditEvents();
+  async listAuditEvents(opts?: { limit?: number; before?: string }): Promise<QueryResult<AuditEvent>> {
+    return this.store.listAuditEvents(opts);
+  }
+
+  async close(): Promise<void> {
+    await this.store.close?.();
   }
 }

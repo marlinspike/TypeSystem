@@ -1,0 +1,20 @@
+{
+  "name": "@typesys/registry-store-postgres",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "migrate": "tsx src/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
+  }
+}

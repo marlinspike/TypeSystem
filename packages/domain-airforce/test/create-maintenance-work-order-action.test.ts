@@ -15,7 +15,7 @@ describe("CreateMaintenanceWorkOrder action", () => {
     expect(result.status).toBe("open");
     expect(result.assignedTo).toBe("SrA Chen");
 
-    const auditEvents = await registry.listAuditEvents();
+    const { items: auditEvents } = await registry.listAuditEvents();
     const actionAudit = auditEvents.find((e) => e.action === "CreateMaintenanceWorkOrder" && e.outcome === "success");
     expect(actionAudit).toBeDefined();
     expect(actionAudit?.subjectId).toBe(demoIdentities.maintainer.subjectId);
@@ -28,7 +28,7 @@ describe("CreateMaintenanceWorkOrder action", () => {
       runtime.invokeAction("CreateMaintenanceWorkOrder", { maintenanceEventId: "EVT-9002", assignedTo: "x" }, demoIdentities.viewer)
     ).rejects.toBeInstanceOf(AuthorizationError);
 
-    const auditEvents = await registry.listAuditEvents();
+    const { items: auditEvents } = await registry.listAuditEvents();
     const denial = auditEvents.find((e) => e.action === "CreateMaintenanceWorkOrder" && e.decision === "deny");
     expect(denial).toBeDefined();
     expect(denial?.subjectId).toBe(demoIdentities.viewer.subjectId);

@@ -170,9 +170,11 @@ async function main(): Promise<void> {
     }
   });
 
-  app.get("/api/audit", async (_req: Request, res: Response) => {
-    const events = await registry.listAuditEvents();
-    res.json(events.slice(-200).reverse());
+  app.get("/api/audit", async (req: Request, res: Response) => {
+    const limit = Number(req.query.limit ?? 200);
+    const before = typeof req.query.before === "string" ? req.query.before : undefined;
+    const result = await registry.listAuditEvents({ limit, before });
+    res.json(result.items);
   });
 
   // MCP Console bridge: the exact same tool/resource calls an AI agent would make.

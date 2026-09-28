@@ -12,18 +12,26 @@ export * from "./model/context.js";
 
 export * from "./registry/registry-store.js";
 export * from "./registry/in-memory-registry-store.js";
+export * from "./registry/version-resolution.js";
+export * from "./registry/binding-registry.js";
 export * from "./registry/validation.js";
 export * from "./registry/registry.js";
 export * from "./registry/manifest.js";
+export * from "./registry/build-runtime.js";
 
 export * from "./runtime/adapter.js";
+export * from "./runtime/cache.js";
 export * from "./runtime/errors.js";
+export * from "./observability/tracing.js";
+export * from "./observability/metrics.js";
 export * from "./runtime/filter.js";
 export * from "./runtime/mapping-resolver.js";
 export * from "./runtime/runtime.js";
 
 export * from "./policy/abac-policy-engine.js";
 export * from "./audit/audit-log.js";
+
+export * from "./testing/registry-store-contract.js";
 
 export * from "./base/manifest.js";
 export { PartyType } from "./base/types/party.js";
