@@ -1,9 +1,17 @@
 name: CI
 
+# A change touching only docs/ or README.md skips CI; any other file in the
+# same push or PR still triggers it.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
 
 jobs:
   # Runs first, without Postgres: proves the default in-memory path — the one every
