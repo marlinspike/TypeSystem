@@ -39,7 +39,8 @@ the right tool for a given problem — it names when *not* to use it too.
 
 ## Key source, if you need ground truth rather than prose
 
-- `packages/core/src/runtime/runtime.ts`: `SemanticRuntime` — the single boundary every consumer (human app or AI agent) goes through; policy, cache, rate limiting, tracing, and audit all happen exactly once, here.
+- `packages/core/src/runtime/runtime.ts`: `SemanticRuntime` — the single boundary every consumer (human app or AI agent) goes through; input validation, policy, cache, rate limiting, tracing, and audit all happen exactly once, here.
+- `packages/core/src/runtime/input-validation.ts`: `InputValidator`, `semanticQuerySchema`, `QueryLimits` — query shape + size limits (default page 100, max 1000) and Action input checked against each `inputSchema`; failures throw `InvalidInputError`. The MCP `query` tool advertises this same schema, so change it here, not in `mcp-server`.
 - `packages/core/src/registry/registry.ts`: `SemanticRegistry` — validates and composes Type/Action/Relationship definitions.
 - `packages/core/src/model/`: every meta-model type, as actual TypeScript, always more current than any doc describing it.
 - `packages/mcp-server/src/`: the MCP server — `resources.ts` (browsing), `tools.ts` (governed Actions + `query`), `auth.ts` (identity resolution), `http-transport.ts` (Streamable HTTP), `bin.ts`/`bin-http.ts` (stdio/HTTP entrypoints).
@@ -53,8 +54,17 @@ the right tool for a given problem — it names when *not* to use it too.
 
 ```bash
 npm install && npm run build && npm test   # Postgres-gated tests skip cleanly without DATABASE_URL
+npm run lint:install && npm run lint       # ESLint (isolated in tools/eslint — see below); CI fails on any error
 npm run smoke:mcp                          # real stdio MCP server, full discover-to-invoke script
 npm run smoke:mcp-http                     # the same script over a real HTTP transport
 npm run benchmark                          # SemanticRuntime latency/throughput, in-memory + Postgres
 npm run demo                                # interactive web app at http://localhost:4000
 ```
+
+## Conventions for coding agents changing this repo
+
+- **Before calling a change done:** `npm run build && npm test && npm run lint`, plus `npm run smoke:mcp` if you touched `mcp-server` or `SemanticRuntime`. CI runs all of these.
+- **Linting lives in `tools/eslint/`, on purpose.** typescript-eslint needs TypeScript's JS API, which the TypeScript 7 used for the build doesn't ship, so the linter has its own `package.json` pinning TypeScript 5.9. Don't move ESLint into the root `devDependencies`: npm refuses the peer-dependency conflict. Install it once with `npm run lint:install`; auto-fix with `npm run lint:fix`.
+- **Validate input at `SemanticRuntime`, never in a transport.** New public runtime methods that accept caller JSON should go through `InputValidator`, the same way they go through the policy engine, so apps, the demo HTTP API, and MCP agents all get identical checks.
+- **Query results are paged by default.** `query` without `limit` returns `QueryLimits.defaultLimit` (100) items. Adapters always receive a concrete `limit` and must honor it and return `nextCursor` when more remain.
+- **User-visible behavior changes need a changeset** (`npm run changeset`) and, where relevant, an update to `docs/completeness.md` / `docs/PRODUCTION-READINESS.md`.

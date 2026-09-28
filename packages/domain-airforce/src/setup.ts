@@ -1,6 +1,7 @@
-import {
+import type {
   SemanticRegistry,
-  SemanticRuntime,
+  SemanticRuntime} from "@typesys/core";
+import {
   requireRole,
   buildRuntime,
   coreManifest,

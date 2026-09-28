@@ -60,6 +60,12 @@ const all = await this.fetchAllFromRealBackend();
 const filtered = filter ? all.filter((v) => matchesFilter(v, filter)) : all;
 ```
 
+The runtime always passes a concrete `limit` (the caller's, or
+`QueryLimits.defaultLimit`; see
+[`enable-rate-limiting-and-concurrency-bounds.md`](enable-rate-limiting-and-concurrency-bounds.md#bound-how-much-one-query-can-ask-for)).
+Return at most that many items, and a `nextCursor` whenever more remain,
+or callers can never reach page two.
+
 **`resolveRelationship`** — interpret `relationship.resolution.operation`
 yourself (see [`add-a-relationship-and-action.md`](add-a-relationship-and-action.md)
 for the two conventions already in use) and return just the related
@@ -67,8 +73,9 @@ object ids — the runtime calls `getObject` on each one for you, concurrently.
 
 **`executeAction`** — match on `action.implementation.operation`, do the
 real write, return the result. This is the *only* place a side effect
-happens; the runtime already ran policy checks and preconditions before
-calling you.
+happens; the runtime already ran the policy check, validated `input`
+against the Action's `inputSchema`, and ran preconditions before calling
+you.
 
 ## Wire it in
 

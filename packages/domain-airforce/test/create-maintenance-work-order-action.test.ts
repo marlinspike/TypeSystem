@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AuthorizationError, PreconditionFailedError } from "@typesys/core";
+import { AuthorizationError, InvalidInputError, PreconditionFailedError } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "../src/setup.js";
 
 describe("CreateMaintenanceWorkOrder action", () => {
@@ -44,5 +44,24 @@ describe("CreateMaintenanceWorkOrder action", () => {
         demoIdentities.maintainer
       )
     ).rejects.toBeInstanceOf(PreconditionFailedError);
+  });
+
+  it("rejects input that doesn't match the action's inputSchema, before the precondition or adapter runs", async () => {
+    const { runtime } = await buildAirforceTestbed();
+
+    await expect(
+      runtime.invokeAction("CreateMaintenanceWorkOrder", { maintenanceEventId: 9002 }, demoIdentities.maintainer)
+    ).rejects.toBeInstanceOf(InvalidInputError);
+  });
+
+  it("checks authorization before input shape, so an unauthorized caller's malformed call is still audited as a denial", async () => {
+    const { runtime, registry } = await buildAirforceTestbed();
+
+    await expect(runtime.invokeAction("CreateMaintenanceWorkOrder", { bogus: true }, demoIdentities.viewer)).rejects.toBeInstanceOf(
+      AuthorizationError
+    );
+
+    const { items: auditEvents } = await registry.listAuditEvents();
+    expect(auditEvents.some((e) => e.action === "CreateMaintenanceWorkOrder" && e.decision === "deny")).toBe(true);
   });
 });

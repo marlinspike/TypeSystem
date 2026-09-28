@@ -159,8 +159,9 @@ flowchart TB
   (Party, Person, Organization, Location, Asset, Event), a TTL-based cache
   for `resolutionMode: "cached"` (ADR-0016), OpenTelemetry tracing/
   metrics that cost nothing unless an application registers a real SDK
-  (ADR-0017), and bounded-concurrency fan-out + an opt-in per-identity
-  rate limiter (ADR-0019).
+  (ADR-0017), bounded-concurrency fan-out + an opt-in per-identity
+  rate limiter (ADR-0019), and input validation at the runtime boundary
+  (query shape + size limits, Action input against its `inputSchema`).
 - **`packages/adapter-in-memory`** (`@typesys/adapter-in-memory`) — an
   in-memory repository adapter standing in for a database-backed store.
 - **`packages/adapter-mock-rest`** (`@typesys/adapter-mock-rest`) — a
@@ -221,6 +222,8 @@ flowchart TB
 npm install
 npm run build      # tsc -b across the workspace
 npm test           # vitest run — Postgres-backed tests auto-skip without DATABASE_URL
+npm run lint:install  # once: installs the isolated ESLint toolchain in tools/eslint
+npm run lint          # ESLint across the repo (npm run lint:fix to auto-fix)
 npm run smoke:mcp  # spawns a real stdio MCP subprocess and runs the
                    # 7-step discover -> inspect -> retrieve -> navigate ->
                    # provenance -> list-actions -> invoke script end-to-end

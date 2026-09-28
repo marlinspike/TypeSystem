@@ -159,7 +159,9 @@ PreconditionSpec[]` (`{description, check: (ctx: ActionContext) =>
 Promise<boolean>}`), `implementation: {dataSourceId, operation}`,
 `sideEffects: "none" | "creates" | "mutates" | "external"`, `idempotency:
 "none" | "key" | "natural"`, `auditRequired: boolean`, `version`,
-`deprecated?`.
+`deprecated?`. `inputSchema` is enforced at invocation: the runtime
+validates input against it (after the policy check, before
+preconditions) and throws `InvalidInputError` on a mismatch.
 
 Actions are first-class governed capabilities, deliberately separate from
 the semantic objects they act on (ADR-0005). They are registered

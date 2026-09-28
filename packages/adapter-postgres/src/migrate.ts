@@ -49,7 +49,7 @@ export async function runMigrations(pool: Pool, migrationsDir: string = DEFAULT_
       } catch (err) {
         await client.query("ROLLBACK");
         const detail = err instanceof Error ? err.message : String(err);
-        throw new Error(`Migration "${file}" failed and was rolled back: ${detail}`);
+        throw new Error(`Migration "${file}" failed and was rolled back: ${detail}`, { cause: err });
       }
     }
 

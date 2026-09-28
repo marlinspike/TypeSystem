@@ -94,9 +94,45 @@ string field) plus a generic `query` tool:
 (`{and:[...]}` / `{or:[...]}`) — the full shape is
 `packages/core/src/model/query.ts`'s `SemanticQuery`.
 
+**The `query` tool's `inputSchema` from `tools/list` is the exact schema
+the server enforces**, limits included — read it rather than relying on
+the defaults below, since a deployment can change them:
+
+| Bound | Default | What happens past it |
+|---|---|---|
+| `limit` | 100 when omitted, max 1000, integer ≥ 1 | Rejected, not clamped. |
+| `include` entries | 10 | Rejected. |
+| `filter` nesting (`and`/`or` depth) | 8 | Rejected. |
+| `filter` leaf conditions | 100 | Rejected. |
+
+- **Results are paged.** A query without `limit` returns at most 100
+  items. If the result has a `nextCursor`, pass it back as `cursor` (with
+  the same `type`/`filter`) for the next page. Its absence means you have
+  everything.
+- **Unknown fields are rejected**, at the top level and inside filters and
+  includes. A typo like `"operater"` fails the call; it isn't silently
+  ignored. `authToken` is the one extra field every tool accepts.
+- **Only a top-level include's `relationship` is acted on today.** The
+  schema accepts a `filter` and a nested `include` inside an include
+  entry, but the runtime currently ignores both, so to filter or go
+  deeper, read the relationship resource and navigate from there.
+
+**Action tools validate their input too.** Arguments (minus `authToken`)
+are checked against that Action's `inputSchema` *after* the authorization
+check, so an identity that isn't allowed to invoke the Action gets the
+denial, not a schema complaint.
+
 A denied or failed tool call returns normally (not a protocol error) with
 `isError: true` and a human-readable `content[0].text` explaining why —
 check `isError` on every `tools/call` result before trusting the payload.
+The text tells you which kind of failure it was:
+
+| `content[0].text` starts with | Meaning | What to do |
+|---|---|---|
+| `Not authorized:` | Policy denied this identity. | Don't retry with the same token; it's a real decision. |
+| `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit; the message names the path and rule. | Fix the arguments and retry. |
+| `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
+| `Rate limit exceeded` | Too many calls for this identity. | Back off and retry later. |
 
 ## The discovery sequence a well-behaved agent follows
 

@@ -264,6 +264,10 @@ function renderBreadcrumbs() {
       return `${i > 0 ? '<span class="sep">›</span>' : ""}<span class="crumb${isLast ? " current" : ""}" data-index="${i}">${label}</span>`;
     })
     .join("");
+  el.onclick = (e) => {
+    const crumb = e.target.closest(".crumb:not(.current)");
+    if (crumb) jumpTo(Number(crumb.dataset.index));
+  };
 }
 
 async function renderCurrentObject() {
@@ -450,7 +454,7 @@ async function renderActionsPanel(typeName) {
       const props = Object.entries(a.inputSchema.properties || {});
       const requiredSet = new Set(a.inputSchema.required || []);
       const fields = props
-        .map(([prop, schema]) => {
+        .map(([prop]) => {
           const prefill = prop === "maintenanceEventId" && typeName === "airforce.MaintenanceEvent" ? currentObjectId : "";
           return `<label>${prop}${requiredSet.has(prop) ? " *" : ""}
             <input type="text" data-field="${prop}" value="${escapeHtml(prefill)}" placeholder="Enter a value" />

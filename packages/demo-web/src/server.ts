@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import express, { type Request, type Response } from "express";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AuthorizationError, NotFoundError, PreconditionFailedError, type Identity, type TypeDefinition } from "@typesys/core";
+import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, type Identity, type TypeDefinition } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
 import { createServer as createMcpServer } from "@typesys/mcp-server";
 
@@ -47,6 +47,10 @@ function sendError(res: Response, err: unknown): void {
   }
   if (err instanceof NotFoundError) {
     res.status(404).json({ error: "NotFoundError", message: err.message });
+    return;
+  }
+  if (err instanceof InvalidInputError) {
+    res.status(400).json({ error: "InvalidInputError", message: err.message });
     return;
   }
   if (err instanceof PreconditionFailedError) {

@@ -56,6 +56,15 @@ document that gap rather than close it in this pass.
   unlimited simultaneous adapter calls), plus an opt-in per-identity
   token-bucket `RateLimiter` checked once at every public runtime entry
   point (ADR-0019).
+- Input validation at the runtime boundary: `query` is checked against
+  `semanticQuerySchema` and `QueryLimits` (default page 100, max 1000,
+  bounded includes and filter depth/size), and `invokeAction` input
+  against each Action's `inputSchema`, all throwing `InvalidInputError`
+  (`packages/core/src/runtime/input-validation.ts`). The MCP `query` tool
+  advertises the same schema.
+- ESLint (`typescript-eslint` recommended rules, syntax-only) enforced in
+  CI, run from an isolated `tools/eslint` toolchain because TypeScript 7
+  ships no JS API for the parser.
 - OpenTelemetry tracing/metrics that cost nothing unless an application
   registers a real SDK — verified both directions (ADR-0017).
 - MCP server on the real SDK, stateless per-call identity, proving the
@@ -94,7 +103,8 @@ document that gap rather than close it in this pass.
 - Property-level policy is demonstrated on two fields across two domains
   (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`).
 - The query DSL covers filter/include/limit — no aggregation, sort, or
-  full-text search.
+  full-text search. An include entry's own `filter` and nested `include`
+  are accepted by the schema but not yet acted on by the runtime.
 - Relationship resolution is one convention (`byForeignKey:<field>`,
   `byOwnField:<field>`), not a general join mechanism.
 - Caching is wired and tested in isolation; the shipped demo domain
