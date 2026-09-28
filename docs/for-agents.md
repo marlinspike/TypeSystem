@@ -32,20 +32,28 @@ connection — check the result of every call, not just the first one.
 
 ## Authentication
 
+**Over HTTP** (see "Running the server" below): send a real
+`Authorization: Bearer <token>` header on every request. This is the
+authoritative source when present.
+
+**Over stdio** (no headers exist on that transport): the same token goes
+in-band instead —
+
 - **Resource reads**: append `?token=<token>` to the URI.
 - **Tool calls**: include `"authToken": "<token>"` in the call's
   `arguments`, alongside whatever fields that tool actually needs.
-- **No token, or a token the server doesn't recognize**: you're treated as
-  an anonymous identity with no roles — most reads and every write will be
-  denied, not erroed. A denial is expected, normal behavior for the wrong
-  identity, not a sign anything is broken.
+
+Either way: **no token, or a token the server doesn't recognize** — you're
+treated as an anonymous identity with no roles — most reads and every
+write will be denied, not erroed. A denial is expected, normal behavior
+for the wrong identity, not a sign anything is broken.
 
 This demo server accepts two static demo tokens
 (`demo-maintainer-token`, `demo-viewer-token`) — see
 `packages/mcp-server/src/auth.ts`. A production deployment replaces only
-the token-verification step (real OIDC + JWKS) behind the exact same
-`Identity`/`PolicyEngine` interfaces; nothing about how you call the
-server changes.
+the token-verification step — `@typesys/auth-oidc`'s real OIDC/JWKS
+verification (ADR-0018) drops in behind the exact same `IdentityResolver`
+parameter — nothing about how you call the server changes.
 
 ## Resource URIs
 
@@ -141,14 +149,28 @@ MCP client call, in TypeScript, for every step above.
 
 ## Running the server
 
+Stdio (a locally-spawned agent process):
+
 ```bash
 npm install && npm run build   # from the repo root
 node packages/mcp-server/dist/bin.js   # stdio MCP server
 ```
 
-or, without a build step, `npx tsx packages/mcp-server/src/bin.ts`. There
-is no HTTP mode in this codebase yet — stdio only (see
-[ADR-0012](adr/0012-mcp-mapping-and-stateless-identity.md)).
+or, without a build step, `npx tsx packages/mcp-server/src/bin.ts`.
+
+Streamable HTTP (a network client — a hosted agent, a browser tool, a
+teammate's machine):
+
+```bash
+npm run mcp:http   # http://localhost:3939/mcp, PORT env var to override
+```
+
+Both run the identical resource/tool-handling logic against the identical
+registry/runtime — see [ADR-0021](adr/0021-http-transport.md) for the
+transport-level details (stateless, `Authorization`-header-based
+identity, a fresh `Server` per HTTP request). `npm run smoke:mcp-http`
+runs the same discover -> act script above end-to-end against a real
+`http.Server`.
 
 ## If you are building a *new* domain for agents to use
 

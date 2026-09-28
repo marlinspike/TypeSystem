@@ -1,8 +1,24 @@
 {
   "name": "@typesys/demo-web",
   "version": "0.1.0",
+  "description": "Interactive web demo for TypeS — browse Types, navigate relationships, invoke governed Actions, and watch policy/audit react live.",
+  "private": true,
   "type": "module",
   "main": "./dist/server.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/demo-web"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/demo-web",
+  "keywords": [
+    "typesys",
+    "demo"
+  ],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "start": "node dist/server.js"
   },

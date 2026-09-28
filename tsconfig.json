@@ -5,8 +5,10 @@
     { "path": "packages/adapter-in-memory" },
     { "path": "packages/adapter-mock-rest" },
     { "path": "packages/domain-airforce" },
+    { "path": "packages/domain-hospital" },
     { "path": "packages/mcp-server" },
     { "path": "packages/demo-web" },
-    { "path": "packages/cli" }
+    { "path": "packages/cli" },
+    { "path": "packages/auth-oidc" }
   ]
 }

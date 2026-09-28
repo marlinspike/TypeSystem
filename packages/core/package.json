@@ -1,12 +1,34 @@
 {
   "name": "@typesys/core",
   "version": "0.1.0",
+  "description": "The TypeS meta-model, registry, runtime, policy engine, and audit log — the foundation every adapter, domain, and transport builds on.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/core",
+  "keywords": [
+    "typesys",
+    "semantic-type-system",
+    "json-schema",
+    "policy-engine",
+    "abac",
+    "ontology"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",

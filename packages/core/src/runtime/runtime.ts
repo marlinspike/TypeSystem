@@ -10,12 +10,15 @@ import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
-import { AuthorizationError, NotFoundError, PreconditionFailedError } from "./errors.js";
+import { AuthorizationError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
 import { type Cache, NoopCache } from "./cache.js";
+import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
+import { mapWithConcurrency, mapWithConcurrencySettled } from "./concurrency.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
 
 const DEFAULT_CACHE_TTL_MS = 30_000;
+const DEFAULT_MAX_CONCURRENCY = 20;
 
 export interface ResolvedObject {
   typeName: string;
@@ -42,7 +45,11 @@ export class SemanticRuntime {
     /** Omit to preserve pre-ADR-0016 "always live" behavior exactly — a `NoopCache` always misses. */
     private readonly cache: Cache = new NoopCache(),
     /** Fallback TTL for any `resolutionMode: "cached"` Mapping/relationship/computed property with no `cacheTtlMs` of its own. */
-    private readonly defaultCacheTtlMs: number = DEFAULT_CACHE_TTL_MS
+    private readonly defaultCacheTtlMs: number = DEFAULT_CACHE_TTL_MS,
+    /** Omit to preserve pre-ADR-0019 "unlimited" behavior exactly — a `NoopRateLimiter` never rejects. Checked once per call, keyed by `identity.subjectId` (see ADR-0019). */
+    private readonly rateLimiter: RateLimiter = new NoopRateLimiter(),
+    /** Caps how many adapter calls a single relationship/query/provenance fan-out issues concurrently (see ADR-0019 and `mapWithConcurrency`). */
+    private readonly maxConcurrency: number = DEFAULT_MAX_CONCURRENCY
   ) {
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
@@ -52,6 +59,12 @@ export class SemanticRuntime {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
     return adapter;
+  }
+
+  private checkRateLimit(identity: Identity): void {
+    if (!this.rateLimiter.tryAcquire(identity.subjectId)) {
+      throw new RateLimitExceededError(`Rate limit exceeded for subject "${identity.subjectId}"`);
+    }
   }
 
   private propertyCacheKey(dataSourceId: string, typeName: string, objectId: string): string {
@@ -235,6 +248,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.object_id": objectId, "typesys.identity.subject_id": identity.subjectId },
       async () => {
+        this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName, objectId });
@@ -260,6 +274,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, "typesys.identity.subject_id": identity.subjectId },
       async () => {
+        this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const resolvedName = this.registry.resolveAlias(typeDef, relationshipName);
         const relDef = typeDef.relationships.find((r) => r.name === resolvedName);
@@ -274,11 +289,15 @@ export class SemanticRuntime {
 
         // Fan out concurrently, not one sequential round trip per related object — the
         // classic N+1 pattern for a one-to-many relationship (e.g. an Aircraft with 50
-        // components previously meant 50 sequential getObject calls). Promise.allSettled
-        // preserves relatedRefs order and still lets an unauthorized related object be
-        // silently omitted (ADR's existing behavior) without an early return aborting the
-        // rest of a partially-authorized batch.
-        const settled = await Promise.allSettled(relatedRefs.map((ref) => this.getObject(relDef.targetType, ref.objectId, identity)));
+        // components previously meant 50 sequential getObject calls). Bounded by
+        // maxConcurrency (ADR-0019) rather than a raw Promise.allSettled, so a relationship
+        // with thousands of related objects can't open thousands of simultaneous adapter
+        // calls at once; still preserves relatedRefs order and still lets an unauthorized
+        // related object be silently omitted (ADR's existing behavior) without an early
+        // return aborting the rest of a partially-authorized batch.
+        const settled = await mapWithConcurrencySettled(relatedRefs, this.maxConcurrency, (ref) =>
+          this.getObject(relDef.targetType, ref.objectId, identity)
+        );
 
         const results: ResolvedObject[] = [];
         for (const outcome of settled) {
@@ -299,6 +318,7 @@ export class SemanticRuntime {
       q.type,
       { "typesys.identity.subject_id": identity.subjectId, "typesys.query.limit": q.limit ?? -1 },
       async () => {
+        this.checkRateLimit(identity);
         const typeDef = await this.requireType(q.type);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
@@ -310,30 +330,29 @@ export class SemanticRuntime {
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
         // round trip at a time (the same N+1 pattern fixed in getRelationship above,
-        // multiplied across a whole result page).
-        const items = await Promise.all(
-          result.items.map(async (item) => {
-            const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, {
-              values: item.values,
-              provenance: item.provenance
+        // multiplied across a whole result page), bounded by maxConcurrency (ADR-0019)
+        // so a large `limit` can't open unbounded concurrent adapter calls.
+        const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
+          const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, {
+            values: item.values,
+            provenance: item.provenance
+          });
+          const resolved: ResolvedObject = {
+            typeName: q.type,
+            objectId: item.objectId,
+            values,
+            ...(q.includeProvenance ? { provenance } : {})
+          };
+          if (q.include) {
+            const includeResults = await mapWithConcurrency(q.include, this.maxConcurrency, (inc) =>
+              this.getRelationship(q.type, item.objectId, inc.relationship, identity)
+            );
+            q.include.forEach((inc, i) => {
+              resolved.values[inc.relationship] = includeResults[i];
             });
-            const resolved: ResolvedObject = {
-              typeName: q.type,
-              objectId: item.objectId,
-              values,
-              ...(q.includeProvenance ? { provenance } : {})
-            };
-            if (q.include) {
-              const includeResults = await Promise.all(
-                q.include.map((inc) => this.getRelationship(q.type, item.objectId, inc.relationship, identity))
-              );
-              q.include.forEach((inc, i) => {
-                resolved.values[inc.relationship] = includeResults[i];
-              });
-            }
-            return resolved;
-          })
-        );
+          }
+          return resolved;
+        });
         return { items, nextCursor: result.nextCursor };
       }
     );
@@ -350,6 +369,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.object_id": objectId, "typesys.property_path": propertyPath, "typesys.identity.subject_id": identity.subjectId },
       async () => {
+        this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
         const policyName = propertyPolicies[propertyPath] ?? typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
@@ -357,8 +377,8 @@ export class SemanticRuntime {
 
         const computed = typeDef.computedProperties.find((c) => c.name === propertyPath);
         if (computed) {
-          const nested = await Promise.all(
-            computed.dependsOn.map((dep) => this.getProvenance(typeName, objectId, dep, identity))
+          const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
+            this.getProvenance(typeName, objectId, dep, identity)
           );
           return nested.flat();
         }
@@ -377,6 +397,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.identity.subject_id": identity.subjectId },
       async () => {
+        this.checkRateLimit(identity);
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: { action: ActionDefinition; authorized: boolean }[] = [];
@@ -404,6 +425,7 @@ export class SemanticRuntime {
       primaryType,
       { "typesys.action_name": action.name, "typesys.identity.subject_id": identity.subjectId },
       async () => {
+        this.checkRateLimit(identity);
         await this.requireAllowed(identity, "invoke", action.authorizationPolicy, {
           typeName: primaryType,
           actionName: action.name

@@ -1,6 +1,7 @@
 {
   "name": "@typesys/mcp-server",
   "version": "0.1.0",
+  "description": "Model Context Protocol server exposing a TypeS semantic registry as governed resources and tools.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -8,11 +9,35 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "typesys-mcp-server": "./dist/bin.js"
+    "typesys-mcp-server": "./dist/bin.js",
+    "typesys-mcp-server-http": "./dist/bin-http.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/mcp-server"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/mcp-server",
+  "keywords": [
+    "typesys",
+    "mcp",
+    "model-context-protocol",
+    "semantic-type-system"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@typesys/core": "0.1.0",
     "@typesys/domain-airforce": "0.1.0",
-    "@modelcontextprotocol/sdk": "1.30.0"
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6"
   }
 }

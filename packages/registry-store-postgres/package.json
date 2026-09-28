@@ -1,12 +1,34 @@
 {
   "name": "@typesys/registry-store-postgres",
   "version": "0.1.0",
+  "description": "Production PostgreSQL-backed RegistryStore for TypeS, with real migrations and an append-only, trigger-enforced audit table.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/registry-store-postgres"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/registry-store-postgres#readme",
+  "keywords": [
+    "typesys",
+    "semantic-type-system",
+    "postgres",
+    "postgresql",
+    "registry"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
   "scripts": {
     "migrate": "tsx src/migrate-cli.ts"
   },

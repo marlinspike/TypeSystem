@@ -1,12 +1,32 @@
 {
   "name": "@typesys/adapter-in-memory",
   "version": "0.1.0",
+  "description": "In-memory Adapter implementation for TypeS — a database-backed store stand-in for tests and demos.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/adapter-in-memory"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/adapter-in-memory",
+  "keywords": [
+    "typesys",
+    "semantic-type-system",
+    "adapter",
+    "in-memory"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@typesys/core": "0.1.0"
   }

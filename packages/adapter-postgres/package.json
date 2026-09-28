@@ -1,0 +1,42 @@
+{
+  "name": "@typesys/adapter-postgres",
+  "version": "0.1.0",
+  "description": "PostgreSQL-backed Adapter implementation for TypeS, proving the Adapter interface against a real database.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/adapter-postgres"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/adapter-postgres#readme",
+  "keywords": [
+    "typesys",
+    "semantic-type-system",
+    "adapter",
+    "postgres",
+    "postgresql"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "migrate": "tsx src/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
+  }
+}

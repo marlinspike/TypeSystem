@@ -21,6 +21,8 @@ export * from "./registry/build-runtime.js";
 
 export * from "./runtime/adapter.js";
 export * from "./runtime/cache.js";
+export * from "./runtime/rate-limiter.js";
+export * from "./runtime/concurrency.js";
 export * from "./runtime/errors.js";
 export * from "./observability/tracing.js";
 export * from "./observability/metrics.js";

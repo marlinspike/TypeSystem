@@ -1,7 +1,7 @@
 import { ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { withSpan, type SemanticRegistry, type SemanticRuntime, type TypeDefinition } from "@typesys/core";
-import { resolveIdentity } from "./auth.js";
+import type { IdentityResolver } from "./auth.js";
 import { buildObjectUri, buildTypeListUri, buildTypeUri, parseResourceUri } from "./resource-uri.js";
 
 function describeType(typeDef: TypeDefinition) {
@@ -35,7 +35,12 @@ function jsonContents(uri: string, value: unknown) {
  * Every read goes through the same SemanticRuntime/PolicyEngine as any
  * other consumer; there is no MCP-specific authorization logic here.
  */
-export function registerResourceHandlers(server: Server, registry: SemanticRegistry, runtime: SemanticRuntime): void {
+export function registerResourceHandlers(
+  server: Server,
+  registry: SemanticRegistry,
+  runtime: SemanticRuntime,
+  resolveIdentity: IdentityResolver
+): void {
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const types = await registry.listTypes();
     return {
@@ -62,7 +67,7 @@ export function registerResourceHandlers(server: Server, registry: SemanticRegis
     // (ADR-0017), rather than a second, MCP-specific instrumentation scheme.
     return withSpan("mcp.resources/read", { "mcp.resource.uri": uri }, async () => {
       const { category, segments, token } = parseResourceUri(uri);
-      const identity = resolveIdentity(token);
+      const identity = await resolveIdentity(token);
 
       if (category === "types" && segments.length === 0) {
         const types = await registry.listTypes();

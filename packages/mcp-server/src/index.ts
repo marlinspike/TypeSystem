@@ -8,3 +8,4 @@ export * from "./resources.js";
 export * from "./tools.js";
 export * from "./auth.js";
 export * from "./resource-uri.js";
+export * from "./http-transport.js";

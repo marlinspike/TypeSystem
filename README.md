@@ -21,9 +21,10 @@ ABAC policy engine, and the Model Context Protocol — not a clone of either.
 - **`packages/core`** (`@typesys/core`) — the meta-model, registry,
   runtime, policy engine, audit log, domain-neutral base types/traits
   (Party, Person, Organization, Location, Asset, Event), a TTL-based cache
-  for `resolutionMode: "cached"` (ADR-0016), and OpenTelemetry tracing/
+  for `resolutionMode: "cached"` (ADR-0016), OpenTelemetry tracing/
   metrics that cost nothing unless an application registers a real SDK
-  (ADR-0017).
+  (ADR-0017), and bounded-concurrency fan-out + an opt-in per-identity
+  rate limiter (ADR-0019).
 - **`packages/adapter-in-memory`** (`@typesys/adapter-in-memory`) — an
   in-memory repository adapter standing in for a database-backed store.
 - **`packages/adapter-mock-rest`** (`@typesys/adapter-mock-rest`) — a
@@ -35,10 +36,17 @@ ABAC policy engine, and the Model Context Protocol — not a clone of either.
   adapter substitution (Aircraft/Component on the in-memory adapter,
   MaintenanceEvent/WorkOrder on the mock-REST adapter) behind one
   consumer-facing model.
+- **`packages/domain-hospital`** (`@typesys/domain-hospital`) — a second,
+  unrelated domain (Patient/Provider/Appointment) proving the registry/
+  runtime/MCP layers are genuinely domain-neutral (ADR-0013), with zero
+  changes to `packages/core` or `packages/mcp-server`. See
+  [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md).
 - **`packages/mcp-server`** (`@typesys/mcp-server`) — an MCP server exposing
   the semantic model as resources (browsing) and Actions as tools (governed
   invocation), with identity resolved fresh from a bearer token on every
-  call.
+  call. Two transports: stdio (`bin.ts`) and a stateless Streamable HTTP
+  transport (`bin-http.ts`, identity from a real `Authorization` header —
+  see [ADR-0021](docs/adr/0021-http-transport.md)).
 - **`packages/demo-web`** (`@typesys/demo-web`) — an interactive web demo:
   browse the type catalog, explore Aircraft/Component/MaintenanceEvent/
   WorkOrder objects, navigate relationships, invoke the governed Action,
@@ -57,6 +65,19 @@ ABAC policy engine, and the Model Context Protocol — not a clone of either.
   and [ADR-0015](docs/adr/0015-postgres-registry-store.md). Optional — never a
   dependency of `@typesys/core` — and its own tests are skipped unless
   `DATABASE_URL` (or `PGHOST`) is set.
+- **`packages/adapter-postgres`** (`@typesys/adapter-postgres`) — a real
+  `Adapter` implementation backed by PostgreSQL (a generic JSONB `objects`
+  table, with a pushed-down indexed query for `byForeignKey` relationship
+  resolution), proving adapter substitution against a genuine database, not
+  just in-memory/mocked ones. See [`packages/adapter-postgres/README.md`](packages/adapter-postgres/README.md).
+  Optional, same env-gating as `registry-store-postgres`.
+- **`packages/auth-oidc`** (`@typesys/auth-oidc`) — a real OIDC/JWT
+  `IdentityResolver`: signature, issuer (RFC 9207), audience, and expiry
+  verified via `jose` against a JWKS endpoint, scope claims mapped per
+  RFC 9396. Drop-in replacement for `mcp-server`'s demo token map — same
+  `IdentityResolver` shape, passed as a parameter. See
+  [`packages/auth-oidc/README.md`](packages/auth-oidc/README.md) and
+  [ADR-0018](docs/adr/0018-oidc-identity-resolution.md).
 
 ## Getting started
 
@@ -67,6 +88,11 @@ npm test           # vitest run — Postgres-backed tests auto-skip without DATA
 npm run smoke:mcp  # spawns a real stdio MCP subprocess and runs the
                    # 7-step discover -> inspect -> retrieve -> navigate ->
                    # provenance -> list-actions -> invoke script end-to-end
+npm run smoke:mcp-http  # the same script over a real HTTP transport,
+                        # identity from an Authorization header (ADR-0021)
+npm run benchmark  # p50/p95/p99 latency + throughput of SemanticRuntime
+                   # operations (add DATABASE_URL to include the
+                   # Postgres-backed adapter) — see scripts/benchmark.ts
 npm run demo       # http://localhost:4000 — see Demo below
 ```
 
@@ -118,7 +144,19 @@ real time, regardless of which surface triggered it.
   hard-to-reverse choices (schema representation, type identity,
   composition, adapters, policy, versioning, query DSL, MCP mapping, domain
   packaging, persistence, the production Postgres registry store, caching,
-  observability).
+  observability, OIDC identity resolution, concurrency/rate-limit bounds,
+  publish infrastructure).
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying
   `packages/core`.
+
+## Releasing
+
+Versioning is coordinated with [changesets](https://github.com/changesets/changesets):
+`npx changeset` records a change, `npx changeset status` shows the
+version bumps it (and everything depending on it) would produce.
+`.github/workflows/release.yml` runs on every push to `main` but its
+publish step is gated behind an `NPM_TOKEN` repository secret that is
+**not** configured here — no `@typesys/*` package has actually been
+published to npm. See [ADR-0020](docs/adr/0020-publish-infrastructure.md)
+for why that's a deliberate line this repo stops short of on its own.

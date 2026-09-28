@@ -11,6 +11,17 @@ used by `packages/domain-airforce`, and the one hard rule is:
 If you find yourself wanting to edit `packages/core`, that's a signal the
 change belongs in your domain package, or in a shared trait, not in core.
 
+**This is now real, tested code, not just a walkthrough.**
+[`packages/domain-hospital`](../../packages/domain-hospital) is exactly
+what's described below, built and passing 15 tests — relationship
+resolution for both adapter conventions (`byForeignKey`/`byOwnField`),
+`extends core.Person` composition, object- and property-level policy
+boundaries, and a real MCP-protocol proof
+(`test/mcp-domain-neutrality.test.ts`) that `packages/mcp-server`'s
+`resources.ts`/`tools.ts` browse this domain correctly with zero changes
+to either file. Read the steps below for the *why* behind each piece,
+then read the actual package for the *exactly how* — they match.
+
 ## 1. Lay out the package
 
 Following `packages/domain-airforce`'s shape:
@@ -42,7 +53,8 @@ own):
   "types": "./dist/index.d.ts",
   "exports": { ".": "./dist/index.js" },
   "dependencies": {
-    "@typesys/core": "0.1.0"
+    "@typesys/core": "0.1.0",
+    "@typesys/adapter-in-memory": "0.1.0"
   }
 }
 ```
@@ -127,7 +139,7 @@ prove — `Appointment -> Patient` and `Appointment -> Provider` — both
 ```ts
 // packages/domain-hospital/src/types/appointment.ts
 import type { DomainTypeEntry } from "@typesys/core";
-import { PATIENT_DATA_SOURCE_ID } from "./patient.js";
+import { HOSPITAL_DATA_SOURCE_ID } from "./patient.js";
 
 export const AppointmentType: DomainTypeEntry = {
   schema: {
@@ -148,13 +160,13 @@ export const AppointmentType: DomainTypeEntry = {
         target: "hospital.Patient",
         cardinality: "one-to-one",
         description: "The patient this appointment is for.",
-        resolution: { dataSourceId: PATIENT_DATA_SOURCE_ID, operation: "byId:patientId" }
+        resolution: { dataSourceId: HOSPITAL_DATA_SOURCE_ID, operation: "byOwnField:patientId" }
       },
       provider: {
         target: "hospital.Provider",
         cardinality: "one-to-one",
         description: "The clinician this appointment is with.",
-        resolution: { dataSourceId: PATIENT_DATA_SOURCE_ID, operation: "byId:providerId" }
+        resolution: { dataSourceId: HOSPITAL_DATA_SOURCE_ID, operation: "byOwnField:providerId" }
       }
     },
     "x-policy": { objectPolicy: "hospital.read-appointment" }
@@ -163,18 +175,18 @@ export const AppointmentType: DomainTypeEntry = {
 };
 ```
 
-Note: `operation: "byId:<field>"` above is illustrative of the relationship
-resolution shape — `InMemoryRepositoryAdapter`'s built-in
-`resolveRelationship()` in this codebase only understands
-`"byForeignKey:<field>"` (matching *many* records whose `<field>` equals the
-source object's id, e.g. `Aircraft.components`). A one-to-one "look up a
-single record by its own id" relationship like `Appointment -> Patient`
-would need either a small adapter-side addition to interpret a
-`"byId:<field>"` operation, or could reuse `byForeignKey` if you model it as
-"find all Patients whose `id` equals this Appointment's `patientId`" (which
-also works for cardinality `one-to-one`, since exactly one match is
-expected). Either way, this is an adapter-level detail — it does not
-require touching `packages/core`.
+Note: `operation: "byOwnField:<field>"` is a real, tested relationship
+convention — a one-to-one "look up a single record by its own field value"
+lookup, the counterpart to `"byForeignKey:<field>"` (which matches *many*
+records whose `<field>` equals the source object's id, e.g.
+`Aircraft.components` or `Patient.appointments`/`Provider.appointments`
+above). It didn't exist in `InMemoryRepositoryAdapter` until this domain
+needed it — added there (and, earlier, to `@typesys/adapter-postgres`,
+which needed the identical convention for its own one-to-one
+relationships) as a small, adapter-level addition. This is exactly the
+kind of change this guide's hard rule allows: it lives in
+`packages/adapter-in-memory/src/in-memory-repository-adapter.ts`, not
+`packages/core/src`.
 
 ## 3. Wire the manifest
 
@@ -227,23 +239,40 @@ At this point, with **no changes to `packages/core/src`**, you can already:
   `hospitalManifest`, and immediately browse `hospital.Patient`,
   `hospital.Provider`, and `hospital.Appointment` as MCP resources, with
   zero changes to `packages/mcp-server/src/resources.ts` or `tools.ts` —
-  both files are generic over whatever the registry holds.
+  both files are generic over whatever the registry holds. This is not
+  hypothetical:
+  [`packages/domain-hospital/test/mcp-domain-neutrality.test.ts`](../../packages/domain-hospital/test/mcp-domain-neutrality.test.ts)
+  does exactly this over a real MCP `Client`/`Server` connection, calling
+  `registerResourceHandlers`/`registerToolHandlers` unmodified.
 
-## 5. What you don't need to build for this to be architecturally valid
+## 5. Real `DataSource` + `Mapping` + `Adapter` wiring — not strictly required, but built anyway
 
-Real `DataSource` + `Mapping` + `Adapter` wiring (like
-`airforceDataSources`/`airforceMappings` and the in-memory/mock-REST
-adapters in `packages/domain-airforce`) is what you'd need before an
-`Appointment` object could actually be resolved with real data. It is
-**not required** to prove the point this walkthrough is making. The point
-is that the registry, runtime, and MCP layers needed zero code changes to
-accept a brand-new domain — the same guarantee `packages/domain-airforce`
-relies on, generalized to a second, unrelated domain. If you do want to run
-it end-to-end, `packages/adapter-in-memory`'s `InMemoryRepositoryAdapter`
-is directly reusable: seed it with sample Patients/Providers/Appointments
-the same way `packages/domain-airforce/src/setup.ts` seeds Aircraft and
-Component data, and register a matching `DataSource` + wildcard `Mapping`
-set the same way `packages/domain-airforce/src/mappings/index.ts` does.
+Real wiring (like `airforceDataSources`/`airforceMappings` and the
+in-memory/mock-REST adapters in `packages/domain-airforce`) is what you
+need before an `Appointment` object can actually be resolved with real
+data. It is **not required** to prove the point this walkthrough is
+making — the point is that the registry, runtime, and MCP layers need
+zero code changes to accept a brand-new domain — but
+`packages/domain-hospital` builds it anyway, so this is a real,
+running, tested second domain rather than a registration-only proof:
+
+- `packages/adapter-in-memory`'s `InMemoryRepositoryAdapter`, seeded with
+  sample Patients/Providers/Appointments (`src/sample-data/`), the same
+  way `packages/domain-airforce/src/setup.ts` seeds Aircraft and
+  Component data.
+- A matching `DataSource` + wildcard `Mapping` set
+  (`src/mappings/index.ts`), the same shape as
+  `packages/domain-airforce/src/mappings/index.ts`.
+- `buildHospitalTestbed()` (`src/setup.ts`) — the same `buildRuntime`
+  helper `buildAirforceTestbed()` calls, proving that helper is generic
+  across domains too, not just the registry/runtime/MCP layers.
+
+`packages/domain-hospital/test/relationship-resolution.test.ts` resolves
+real `Appointment.patient`/`Appointment.provider`/`Patient.appointments`/
+`Provider.appointments` objects end-to-end against this seeded data —
+including a `query` with `include` that fans out both relationships for
+every Appointment concurrently, the same bounded-concurrency path
+(ADR-0019) every other domain's relationships go through.
 
 ## 6. Actions, if you need any
 
@@ -268,3 +297,11 @@ model and relationships alone are enough to prove domain-neutrality.
   other domain uses.
 - `registerDomain(registry, hospitalManifest)` is the only call needed to
   bring the whole domain into a running registry/runtime/MCP server.
+- `packages/adapter-in-memory/src/in-memory-repository-adapter.ts` gained
+  `"byOwnField:<field>"` support — the one real, adapter-level (not core)
+  code change this domain needed, adding a second relationship
+  convention `Appointment`'s one-to-one relationships use.
+- 15 tests, all real, all green: type composition, both relationship
+  conventions, object- and property-level policy boundaries, and a real
+  MCP-protocol connection proving `resources.ts`/`tools.ts` needed zero
+  changes.

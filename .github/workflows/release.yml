@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  # Builds/tests exactly like CI first — never lets a broken build anywhere near
+  # "Version Packages" PR creation or a real publish attempt.
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run build:postgres
+      - run: npm test
+
+      # Gated behind a real NPM_TOKEN repository secret, checked here rather than
+      # relying on changesets/action or `npm publish` to fail loudly when it's
+      # absent. This repository has no NPM_TOKEN configured, so this step (and the
+      # real `changeset publish` inside it) never runs here — see
+      # docs/adr/0020-publish-infrastructure.md for why that's a deliberate,
+      # standing decision, not a TODO.
+      - name: Check for NPM_TOKEN
+        id: check-npm-token
+        run: echo "configured=${{ secrets.NPM_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+      # On every push to main: opens/updates a "Version Packages" PR from any
+      # pending .changeset/*.md files (via `npm run version-packages`). Once that
+      # PR is merged (so there are no pending changesets left, only version bumps),
+      # this same action instead runs `npm run release` (build + `changeset
+      # publish`) to actually publish whatever versions changed.
+      - name: Create Release PR or Publish to npm
+        if: steps.check-npm-token.outputs.configured == 'true'
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+          version: npm run version-packages
+          title: "Version Packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Skipped (no NPM_TOKEN configured)
+        if: steps.check-npm-token.outputs.configured != 'true'
+        run: |
+          echo "NPM_TOKEN is not configured for this repository, so the release step is skipped entirely."
+          echo "See docs/adr/0020-publish-infrastructure.md — this is deliberate, not a misconfiguration."

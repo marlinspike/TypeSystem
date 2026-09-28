@@ -32,9 +32,11 @@ instead of re-explaining it.
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
 | [`add-a-policy-rule.md`](how-to/add-a-policy-rule.md) | Gate a Type/property/Action by role or attribute. |
 | [`enable-caching.md`](how-to/enable-caching.md) | Stop re-fetching data that doesn't change every request. |
+| [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, and how much fan-out one call can open. |
 | [`enable-observability.md`](how-to/enable-observability.md) | See real traces/metrics for this runtime in your own OTel backend. |
 | [`use-postgres.md`](how-to/use-postgres.md) | Make the registry survive a restart. |
 | [`generate-typescript-types.md`](how-to/generate-typescript-types.md) | Get autocomplete/type-safety for objects this registry returns. |
+| [`run-mcp-over-http.md`](how-to/run-mcp-over-http.md) | Serve the MCP server to a real network client instead of a local stdio process. |
 
 ## Building an AI agent integration?
 
@@ -83,3 +85,7 @@ other reasonable way.
 | [0015](adr/0015-postgres-registry-store.md) | The production PostgreSQL `RegistryStore`, with a `BindingRegistry` seam for behavior a database can never store. |
 | [0016](adr/0016-caching.md) | A TTL-based `Cache`, opt-in per mapping, caching pre-redaction raw values so it's safe for every identity. |
 | [0017](adr/0017-observability.md) | OpenTelemetry tracing/metrics via the API package only — a true no-op unless an application registers a real SDK. |
+| [0018](adr/0018-oidc-identity-resolution.md) | Real OIDC/JWT identity resolution (`@typesys/auth-oidc`, `jose`), fail-open-to-anonymous by default, dropped in behind the existing `IdentityResolver` parameter. |
+| [0019](adr/0019-concurrency-bounds-and-rate-limiting.md) | Bounded-concurrency fan-out for every relationship/query/provenance resolution, plus an opt-in per-identity token-bucket `RateLimiter`. |
+| [0020](adr/0020-publish-infrastructure.md) | Real npm publish infrastructure (metadata, changesets, a gated release workflow) — deliberately stopping short of an actual `npm publish`. |
+| [0021](adr/0021-http-transport.md) | A stateless Streamable HTTP transport for MCP, with identity from a real `Authorization` header. |

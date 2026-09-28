@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Runs first, without Postgres: proves the default in-memory path — the one every
+  # new/small project actually uses — works with zero external infrastructure.
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run build:postgres
+      - run: npm test
+      - name: MCP smoke test (real stdio subprocess)
+        run: npm run smoke:mcp
+      - name: MCP smoke test (real HTTP transport)
+        run: npm run smoke:mcp-http
+
+  # A second job, with a real Postgres service container: proves the same suite
+  # passes against @typesys/registry-store-postgres and @typesys/adapter-postgres
+  # instead of skipping those tests (see docs/how-to/use-postgres.md).
+  test-with-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: typesys
+          POSTGRES_PASSWORD: typesys
+          POSTGRES_DB: typesys_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://typesys:typesys@localhost:5432/typesys_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run build:postgres
+      - run: npm test

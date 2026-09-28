@@ -1,0 +1,31 @@
+{
+  "name": "@typesys/domain-hospital",
+  "version": "0.1.0",
+  "description": "A second, unrelated TypeS domain — Patient/Provider/Appointment — proving the registry/runtime/MCP layers are genuinely domain-neutral (ADR-0013) with zero changes to @typesys/core.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/domain-hospital"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/domain-hospital",
+  "keywords": ["typesys", "semantic-type-system", "domain", "example"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/adapter-in-memory": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/mcp-server": "0.1.0",
+    "@modelcontextprotocol/sdk": "1.30.0"
+  }
+}

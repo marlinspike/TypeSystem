@@ -21,3 +21,10 @@ export class PreconditionFailedError extends Error {
     this.name = "PreconditionFailedError";
   }
 }
+
+export class RateLimitExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RateLimitExceededError";
+  }
+}

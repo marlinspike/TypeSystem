@@ -1,24 +1,36 @@
 {
   "name": "typesys-monorepo",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git"
+  },
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "tsc -b",
-    "build:postgres": "tsc -b packages/registry-store-postgres",
-    "migrate:postgres": "npm run migrate --workspace=@typesys/registry-store-postgres",
+    "build:postgres": "tsc -b packages/registry-store-postgres packages/adapter-postgres",
+    "migrate:postgres": "npm run migrate --workspace=@typesys/registry-store-postgres && npm run migrate --workspace=@typesys/adapter-postgres",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",
+    "smoke:mcp-http": "tsx scripts/smoke-test-mcp-http.ts",
+    "mcp:http": "tsx packages/mcp-server/src/bin-http.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
     "demo": "tsx packages/demo-web/src/server.ts",
-    "clean": "tsc -b --clean"
+    "clean": "tsc -b --clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "npm run build && changeset publish"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
-    "vitest": "5.0.1",
+    "@changesets/cli": "3.0.3",
+    "@types/node": "26.6.2",
     "tsx": "4.23.15",
-    "@types/node": "26.6.2"
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
   }
 }

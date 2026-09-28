@@ -1,0 +1,35 @@
+{
+  "name": "@typesys/auth-oidc",
+  "version": "0.1.0",
+  "description": "Real OIDC/JWT IdentityResolver for TypeS — signature, issuer, audience, and expiry verified via jose against a JWKS endpoint.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/auth-oidc"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/auth-oidc#readme",
+  "keywords": [
+    "typesys",
+    "oidc",
+    "jwt",
+    "jwks",
+    "authentication"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "jose": "6.2.12"
+  }
+}

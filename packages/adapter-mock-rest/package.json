@@ -1,12 +1,33 @@
 {
   "name": "@typesys/adapter-mock-rest",
   "version": "0.1.0",
+  "description": "Mocked external REST Adapter implementation for TypeS, simulating a real system's own shape and network latency.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/adapter-mock-rest"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/adapter-mock-rest",
+  "keywords": [
+    "typesys",
+    "semantic-type-system",
+    "adapter",
+    "rest",
+    "mock"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@typesys/core": "0.1.0"
   }

@@ -16,12 +16,14 @@ export interface InMemoryRecord {
   values: Record<string, unknown>;
 }
 
-function parseForeignKeyOperation(operation: string): string {
+function parseOperation(operation: string): { kind: "byForeignKey" | "byOwnField"; field: string } {
   const [kind, field] = operation.split(":");
-  if (kind !== "byForeignKey" || !field) {
-    throw new Error(`InMemoryRepositoryAdapter only supports "byForeignKey:<field>" relationship operations, got "${operation}"`);
+  if ((kind !== "byForeignKey" && kind !== "byOwnField") || !field) {
+    throw new Error(
+      `InMemoryRepositoryAdapter only supports "byForeignKey:<field>"/"byOwnField:<field>" relationship operations, got "${operation}"`
+    );
   }
-  return field;
+  return { kind, field };
 }
 
 /**
@@ -89,10 +91,19 @@ export class InMemoryRepositoryAdapter implements Adapter {
   }
 
   async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string): Promise<RelatedRef[]> {
-    const field = parseForeignKeyOperation(relationship.resolution.operation);
-    const targetRecords = [...(this.recordsByType.get(relationship.targetType)?.values() ?? [])];
-    const matches = targetRecords.filter((r) => r.values[field] === sourceObjectId);
-    return matches.map((r) => ({ objectId: r.objectId }));
+    const { kind, field } = parseOperation(relationship.resolution.operation);
+
+    if (kind === "byForeignKey") {
+      const targetRecords = [...(this.recordsByType.get(relationship.targetType)?.values() ?? [])];
+      const matches = targetRecords.filter((r) => r.values[field] === sourceObjectId);
+      return matches.map((r) => ({ objectId: r.objectId }));
+    }
+
+    // byOwnField: the source record's own field value IS the target's object id
+    // (e.g. Appointment.providerId names which Provider this Appointment is with).
+    const sourceRecord = this.recordsByType.get(relationship.sourceType)?.get(sourceObjectId);
+    const targetId = sourceRecord?.values[field];
+    return typeof targetId === "string" ? [{ objectId: targetId }] : [];
   }
 
   async executeAction(action: ActionDefinition, _input: unknown, _ctx: ActionContext): Promise<unknown> {

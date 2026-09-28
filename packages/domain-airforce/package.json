@@ -1,12 +1,32 @@
 {
   "name": "@typesys/domain-airforce",
   "version": "0.1.0",
+  "description": "TypeS vertical-slice domain — Aircraft/Component/MaintenanceEvent/WorkOrder — proving adapter substitution behind one consumer-facing model.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/domain-airforce"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/domain-airforce",
+  "keywords": [
+    "typesys",
+    "semantic-type-system",
+    "domain",
+    "example"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@typesys/core": "0.1.0",
     "@typesys/adapter-in-memory": "0.1.0",
