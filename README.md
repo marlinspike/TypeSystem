@@ -24,6 +24,25 @@ allowed to do to it" — without either of them needing to know the
 answer actually lives across a Postgres database, a legacy REST API,
 and a message queue.
 
+### Key capabilities
+
+| Capability | What it does | Why it matters |
+|---|---|---|
+| **One governed boundary** | Every read, query, and Action goes through `SemanticRuntime`, the only place policy, audit, and provenance happen ([ADR-0009](docs/adr/0009-embedded-abac-policy-engine.md)). | Human apps and AI agents get identical enforcement, because there is only one path to enforce. |
+| **Canonical types on open standards** | Types are JSON Schema 2020-12, composed from base types and traits, versioned and aliased ([`add-a-type.md`](docs/how-to/add-a-type.md)). | One object model across every backend, with no proprietary schema language to learn. |
+| **Multi-source objects** | One object's properties, relationships, and computed values can each come from a different system ([`combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)). | Consumers see one Aircraft, not a Postgres row plus a REST payload to reconcile themselves. |
+| **Pluggable adapters** | In-memory, REST, and PostgreSQL adapters ship; a new backend is one small interface ([`write-an-adapter.md`](docs/how-to/write-an-adapter.md)). | Swap or add systems of record without touching consumers. |
+| **Object- and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default ([`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields are redacted per caller, and the engine can be swapped for OPA or Cedar. |
+| **Per-property provenance** | Every value can report which source produced it, when, and at what confidence ([ADR-0008](docs/adr/0008-provenance-model.md)). | Values a decision rests on come with their origin, which regulated environments require. |
+| **Append-only audit log** | Every policy decision and audited Action is recorded; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what. |
+| **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
+| **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP ([`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
+| **Structured, bounded queries** | A JSON query DSL with filters, includes, and paging, schema-validated with size limits ([`enable-rate-limiting-and-concurrency-bounds.md`](docs/how-to/enable-rate-limiting-and-concurrency-bounds.md)). | Callers get expressive reads, and one caller can't request unbounded work. |
+| **Operational controls** | Opt-in caching, per-identity rate limiting, bounded fan-out, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost and latency per mapping and see what the runtime is doing. |
+| **Real identity and persistence** | OIDC/JWT identity resolution ([ADR-0018](docs/adr/0018-oidc-identity-resolution.md)) and a durable PostgreSQL registry ([`use-postgres.md`](docs/how-to/use-postgres.md)). | Drop-in pieces for moving beyond the demo tokens and in-memory store. |
+| **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
+| **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
+
 **Use it when:**
 
 - You have (or will have) more than one physical system that need to
