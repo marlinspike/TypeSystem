@@ -6,6 +6,10 @@ coverage/
 *.swp
 *.swo
 
+# Claude Code per-machine state (shared settings in .claude/settings.json stay tracked)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
 # Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,node,macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,node,macos
 
@@ -15,8 +19,9 @@ coverage/
 .AppleDouble
 .LSOverride
 
-# Icon must end with two \r
-Icon
+# Icon must end with two \r. The pattern below holds a real carriage-return byte
+# inside the brackets; editors and copy-paste tend to strip a bare trailing one.
+Icon[]
 
 
 # Thumbnails
