@@ -88,7 +88,14 @@ await registerYamlTypesFromDirectory(registry, "./fleet", {
 
 `ctx.getProperty(name)` reads another (already-resolved) property or
 computed value on the same object; `ctx.getAdapter(dataSourceId)` reaches
-an adapter directly if you need to look something up elsewhere.
+an adapter directly if you need to look something up elsewhere — including
+a completely different `DataSource` than the one backing this Type's own
+properties. `Aircraft.needsAttention`
+(`packages/domain-airforce/src/computed/needs-attention.ts`) is a real,
+tested example combining both in one computed property — see
+[ADR-0022](../adr/0022-cross-source-computed-properties.md) and
+[`combine-multiple-sources.md`](combine-multiple-sources.md) for when to
+reach for this instead of a relationship.
 
 ## Verify it
 

@@ -218,6 +218,20 @@ sees `readinessStatus` but not the raw `maintenanceStatus` it depends on
 proven in
 `packages/domain-airforce/test/readiness-computed-property.test.ts`.
 
+`ComputeContext` (the `ctx` a binding function receives) also exposes
+`getAdapter(dataSourceId)` — not just `getProperty()` — so a computed
+property is not limited to its own Type's already-resolved values. A
+second worked example, `Aircraft.needsAttention`
+(`packages/domain-airforce/src/computed/needs-attention.ts`), combines
+`maintenanceStatus` (own source, via `getProperty`) with a live query
+against a completely different adapter Aircraft has no `Mapping` to at
+all (ADR-0022) — proven in
+`packages/domain-airforce/test/needs-attention-computed-property.test.ts`.
+This is the pattern to reach for when the combined result is a derived
+scalar, not a related object; see
+[`how-to/combine-multiple-sources.md`](how-to/combine-multiple-sources.md)
+for when to prefer this over a relationship.
+
 ## Policy
 
 `Identity` (`model/policy.ts`): `subjectId`, `roles: string[]`,
@@ -256,16 +270,33 @@ cannot invoke `CreateMaintenanceWorkOrder`
 `target: "property" | "relationship" | "action"`, `targetName` (a property
 name, relationship name, action name, or the wildcard `"*"`),
 `dataSourceId`, `operation`, `resolutionMode: "live" | "materialized" |
-"cached"`, `priority?` (a seam for multi-source conflict resolution, not
-exercised by the slice).
+"cached"`, `priority?` (still an unused, reserved field — see below for
+how multi-source conflicts are actually resolved, which doesn't consult
+it).
 
 Together `DataSource` + `Mapping` keep "what something IS" independent from
-"where its data comes from." `MappingResolver.resolvePropertyMapping()`
-(`packages/core/src/runtime/mapping-resolver.ts`) picks the most specific
-property mapping (an exact `targetName` match) or falls back to the
-wildcard `"*"` mapping — the common case, since every adapter in this
-codebase returns a whole object per lookup, mirroring a real repository
-read or REST `GET`.
+"where its data comes from." Two resolver methods exist on
+`MappingResolver` (`packages/core/src/runtime/mapping-resolver.ts`), for
+two different callers:
+
+- `resolvePropertyMapping(typeName, propertyName?)` — the most specific
+  property mapping for **one named property** (an exact `targetName`
+  match), falling back to the wildcard `"*"` mapping. Used by
+  `getProvenance` to resolve one property's source correctly.
+- `resolvePropertyMappings(typeName)` — **every** property mapping for a
+  Type, split into the required wildcard `base` and zero-or-more
+  per-property `overrides`. Used by `getObject`/`query` to merge a Type's
+  base bundle with any per-property overrides from other `DataSource`s
+  into one object read (ADR-0023) — the real implementation of the
+  "multi-source conflict resolution" `priority?` was originally reserved
+  for. Two mappings claiming the same `targetName` throw a clear error
+  at resolution time rather than silently picking one by priority; see
+  ADR-0023's Alternatives Considered for why.
+
+The common case — every adapter in this codebase returns a whole object
+per lookup, mirroring a real repository read or REST `GET` — needs only
+the wildcard mapping, which is all `airforceMappings`/`hospitalMappings`
+register today.
 
 **Worked example**: `airforceMappings`
 (`packages/domain-airforce/src/mappings/index.ts`) registers four wildcard

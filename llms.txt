@@ -29,23 +29,31 @@ the right tool for a given problem — it names when *not* to use it too.
 - [docs/how-to/write-an-adapter.md](docs/how-to/write-an-adapter.md)
 - [docs/how-to/add-a-policy-rule.md](docs/how-to/add-a-policy-rule.md)
 - [docs/how-to/enable-caching.md](docs/how-to/enable-caching.md)
+- [docs/how-to/enable-rate-limiting-and-concurrency-bounds.md](docs/how-to/enable-rate-limiting-and-concurrency-bounds.md)
 - [docs/how-to/enable-observability.md](docs/how-to/enable-observability.md)
 - [docs/how-to/use-postgres.md](docs/how-to/use-postgres.md)
 - [docs/how-to/generate-typescript-types.md](docs/how-to/generate-typescript-types.md)
+- [docs/how-to/run-mcp-over-http.md](docs/how-to/run-mcp-over-http.md)
+- [docs/how-to/combine-multiple-sources.md](docs/how-to/combine-multiple-sources.md): the three real ways to combine data from multiple sources — start here if that's your question.
 
 ## Key source, if you need ground truth rather than prose
 
-- `packages/core/src/runtime/runtime.ts`: `SemanticRuntime` — the single boundary every consumer (human app or AI agent) goes through; policy, cache, tracing, and audit all happen exactly once, here.
+- `packages/core/src/runtime/runtime.ts`: `SemanticRuntime` — the single boundary every consumer (human app or AI agent) goes through; policy, cache, rate limiting, tracing, and audit all happen exactly once, here.
 - `packages/core/src/registry/registry.ts`: `SemanticRegistry` — validates and composes Type/Action/Relationship definitions.
 - `packages/core/src/model/`: every meta-model type, as actual TypeScript, always more current than any doc describing it.
-- `packages/mcp-server/src/`: the MCP server — `resources.ts` (browsing), `tools.ts` (governed Actions + `query`), `auth.ts` (identity resolution).
+- `packages/mcp-server/src/`: the MCP server — `resources.ts` (browsing), `tools.ts` (governed Actions + `query`), `auth.ts` (identity resolution), `http-transport.ts` (Streamable HTTP), `bin.ts`/`bin-http.ts` (stdio/HTTP entrypoints).
+- `packages/auth-oidc/`: real OIDC/JWT identity resolution — a drop-in `IdentityResolver` for `mcp-server`'s auth parameter.
+- `packages/adapter-postgres/`, `packages/registry-store-postgres/`: real PostgreSQL-backed implementations of `Adapter`/`RegistryStore` — both optional, env-gated, never a dependency of core.
 - `packages/domain-airforce/`: the reference vertical-slice domain (Aircraft/Component/MaintenanceEvent/WorkOrder) — the pattern every new domain follows.
-- `docs/adr/`: 17 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way.
+- `packages/domain-hospital/`: a second, unrelated domain (Patient/Provider/Appointment) proving that pattern generalizes — no changes to `packages/core` or `packages/mcp-server` needed.
+- `docs/adr/`: 23 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way.
 
 ## Running things
 
 ```bash
 npm install && npm run build && npm test   # Postgres-gated tests skip cleanly without DATABASE_URL
 npm run smoke:mcp                          # real stdio MCP server, full discover-to-invoke script
+npm run smoke:mcp-http                     # the same script over a real HTTP transport
+npm run benchmark                          # SemanticRuntime latency/throughput, in-memory + Postgres
 npm run demo                                # interactive web app at http://localhost:4000
 ```

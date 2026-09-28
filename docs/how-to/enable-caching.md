@@ -60,6 +60,13 @@ redaction still runs fresh on every read. Never worry about a cache bug
 leaking one identity's view to another — the cache sits entirely on the
 "resolve" side, redaction entirely on the "respond" side.
 
+If a Type uses per-property `Mapping` overrides from other `DataSource`s
+(multi-source property composition, [ADR-0023](../adr/0023-multi-source-property-composition.md),
+see [`combine-multiple-sources.md`](combine-multiple-sources.md)), each
+mapping's `resolutionMode`/`cacheTtlMs` is independent — the base bundle
+and each override cache (or don't) on their own terms, keyed by their own
+`dataSourceId`. `invalidateObject` clears all of them together.
+
 ## Invalidate manually
 
 TTL alone, not event-driven invalidation, is the whole story here — see

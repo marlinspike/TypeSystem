@@ -23,7 +23,14 @@ export interface Mapping {
   dataSourceId: string;
   operation: string;
   resolutionMode: ResolutionMode;
-  /** Seam for multi-source conflict resolution; not exercised by the slice. */
+  /**
+   * Still unused. Multi-source composition (ADR-0023) was eventually
+   * built without it: a Type may have at most one property `Mapping` per
+   * `targetName` (wildcard aside) — `MappingResolver.resolvePropertyMappings`
+   * throws on a genuine conflict rather than using `priority` to pick a
+   * winner. Kept as a reserved field in case a future need for
+   * priority-based resolution (rather than fail-loud) actually arises.
+   */
   priority?: number;
   /** Only meaningful when `resolutionMode === "cached"`; falls back to the runtime's `defaultCacheTtlMs` (see ADR-0016). */
   cacheTtlMs?: number;

@@ -44,11 +44,13 @@ flowchart TB
     subgraph Adapters["Adapters"]
         INMEM["InMemoryRepositoryAdapter"]
         REST["MockRestAdapter"]
+        PG["PostgresRepositoryAdapter"]
     end
 
-    subgraph Systems["Enterprise Systems (stand-ins)"]
+    subgraph Systems["Enterprise Systems (stand-ins, plus one real one)"]
         DB[(In-memory repository)]
         EXT[(Mocked external REST system)]
+        PGDB[(Real PostgreSQL)]
     end
 
     APP --> RUNTIME
@@ -57,11 +59,24 @@ flowchart TB
     MODEL -.defines shape of.-> REGISTRY
     RUNTIME --> INMEM
     RUNTIME --> REST
+    RUNTIME --> PG
     INMEM --> DB
     REST --> EXT
+    PG --> PGDB
     POLICY -. enforced by .- RUNTIME
     AUDIT -. written by .- RUNTIME
+    CACHE["Cache (ADR-0016)"] -. consulted by .- RUNTIME
+    RATELIMIT["RateLimiter (ADR-0019)"] -. checked by .- RUNTIME
 ```
+
+Three adapter styles, not two: `InMemoryRepositoryAdapter` (a
+database-shaped stand-in), `MockRestAdapter` (an external-system-shaped
+stand-in with its own field names), and `PostgresRepositoryAdapter`
+(`@typesys/adapter-postgres`) — a real PostgreSQL-backed implementation
+of the identical `Adapter` interface, proven against actual rows, not
+mocks. `Cache` and `RateLimiter` sit at the same Runtime boundary
+`Policy`/`Audit` do — consulted/checked once, in `SemanticRuntime`,
+never re-implemented per transport.
 
 Reading the diagram: a **Type** (defined in the Semantic Model) is validated
 and composed by the **Semantic Registry** at registration time. The
@@ -140,14 +155,26 @@ is the in-memory adapter's provenance record for `maintenanceStatus` (see
 ## Resolution modes
 
 `Mapping.resolutionMode` and `ComputedPropertyDefinition.resolutionMode` are
-typed as `"live" | "materialized" | "cached"`. Only `live` and `materialized`
-are actually exercised: every `Mapping` in the airforce domain
-(`packages/domain-airforce/src/mappings/index.ts`) uses `"live"` — the
-adapter is called at request time — and the model supports `"materialized"`
-generically (a mapping could point at a pre-computed projection instead of a
-live call, with zero change to the Runtime or Adapter interface). `"cached"`
-is a named, documented, but unbuilt extension point (see ADR-0007) — there is
-no cache layer in this codebase.
+typed as `"live" | "materialized" | "cached"`. Every `Mapping` in the
+airforce and hospital domains uses `"live"` — the adapter is called at
+request time — and the model supports `"materialized"` generically (a
+mapping could point at a pre-computed projection instead of a live call,
+with zero change to the Runtime or Adapter interface), though nothing in
+this codebase populates one (there is no ingestion pipeline). `"cached"` is
+real and built (ADR-0016): a TTL-based `Cache`, opt-in per mapping — set
+`resolutionMode: "cached"` on any `Mapping`/relationship/computed property
+and `SemanticRuntime` caches the adapter's raw (pre-redaction) output, so
+one cache entry safely serves every identity. See
+[`docs/how-to/enable-caching.md`](how-to/enable-caching.md).
+
+`Mapping` also supports field-level granularity beyond the common wildcard
+(`targetName: "*"`) case: a Type can register a *specific* per-property
+`Mapping` pointing at a different `DataSource` than the rest of its
+properties, and `SemanticRuntime` merges the two into one object read
+(ADR-0023) — proven with a synthetic fixture in
+`packages/core/test/multi-source-property-composition.test.ts`, since no
+shipped domain currently needs it for real. See
+[`docs/how-to/combine-multiple-sources.md`](how-to/combine-multiple-sources.md).
 
 ## Domain packaging
 
@@ -158,10 +185,12 @@ workspace package that exports a `DomainManifest` (`domain`, `types`,
 `actions?`, `dataSources?`, `mappings?`) and calls
 `registerDomain(registry, manifest)`, which registers data sources, then
 types (in manifest order, so `extends` targets are already registered), then
-actions, then mappings. `packages/domain-airforce` is the one domain
-implemented in this codebase; `docs/developer-guide/adding-a-domain.md`
-walks through adding a second (Hospital) with zero changes to
-`packages/core`.
+actions, then mappings. `packages/domain-airforce` is the reference vertical
+slice; `packages/domain-hospital` (Patient/Provider/Appointment) is a
+second, real, tested, unrelated domain built specifically to prove this
+guarantee — zero changes to `packages/core` — rather than leave it as a
+documentation-only claim. See
+[`docs/developer-guide/adding-a-domain.md`](developer-guide/adding-a-domain.md).
 
 ## MCP mapping
 
@@ -178,10 +207,22 @@ domain, both adapter styles seeded with sample data) and exposes it two ways:
   one generic `query` tool whose input schema is the `SemanticQuery` DSL
   verbatim.
 
-Both handlers resolve an `Identity` fresh from a bearer token on every call
-(`resolveIdentity()` in `src/auth.ts`) — MCP is stateless as of the
-2026-07-28 spec revision, so identity is never cached on a connection. See
+Both handlers resolve an `Identity` fresh from a bearer token on every
+call, via an `IdentityResolver` function threaded in as a parameter
+(never mutable module state) — MCP is stateless as of the 2026-07-28 spec
+revision, so identity is never cached on a connection. Defaults to a
+static demo token map (`resolveDemoIdentity` in `src/auth.ts`); pass
+`@typesys/auth-oidc`'s `createOidcIdentityResolver(...)` instead for real
+JWT/JWKS verification (ADR-0018), with no other code changing. See
 ADR-0012.
+
+Two real transports expose the identical resource/tool handlers: stdio
+(`bin.ts`, a locally-spawned agent process) and a stateless Streamable
+HTTP transport (`bin-http.ts`/`createHttpApp`, ADR-0021) for a real
+network client — the HTTP transport resolves identity from a real
+`Authorization: Bearer` header, falling back to the stdio convention (a
+token embedded in a resource URI's query string or a tool call's
+argument) only when no header is present.
 
 ## Sequence: `runtime.query()` spanning both adapter styles
 
@@ -289,17 +330,40 @@ post-dispatch `auditRequired` check (`outcome: "success"`) — both go through
 
 Matching `docs/initial_prompt.md`'s explicit non-goals, this codebase does
 not include: a real graph database (relationships are property-graph-flavored
-registry records, not a graph engine), a workflow engine, a full policy-as-code
-system (OPA/Cedar), or a real IdP/OIDC integration. Each of these is a
-documented extension point (see the relevant ADR) rather than a speculative
-implementation. Three exceptions were built once they were actually
-needed, each behind the same kind of swappable interface as everything
-else in this list: a production PostgreSQL-backed `RegistryStore`
-(`packages/registry-store-postgres`, ADR-0015), a TTL-based cache for
-`resolutionMode: "cached"` properties/relationships/computed properties
-(ADR-0016), and OpenTelemetry tracing/metrics that cost nothing and do
-nothing unless an application registers a real SDK (ADR-0017). The
-concurrent (not sequential) fan-out for relationship/query resolution is
-not a new capability but a correctness fix to existing runtime code — the
-N+1 pattern a one-to-many relationship or a query's `include` previously
-produced.
+registry records, not a graph engine), a workflow engine, or a full
+policy-as-code system (OPA/Cedar). Each of these is a documented extension
+point (see the relevant ADR) rather than a speculative implementation.
+
+Several exceptions were built once they were actually needed, each behind
+the same kind of swappable interface as everything else in this list:
+
+- A production PostgreSQL-backed `RegistryStore`
+  (`packages/registry-store-postgres`, ADR-0015) and a real
+  PostgreSQL-backed `Adapter` (`packages/adapter-postgres`, ADR-0006's
+  Consequences) — the second adapter substitution proof, against a real
+  database rather than mocks.
+- A TTL-based cache for `resolutionMode: "cached"` properties/
+  relationships/computed properties (ADR-0016).
+- OpenTelemetry tracing/metrics that cost nothing and do nothing unless
+  an application registers a real SDK (ADR-0017).
+- Real OIDC/JWT identity verification (`@typesys/auth-oidc`, ADR-0018) —
+  "a real IdP/OIDC integration" was originally listed as a non-goal here;
+  it was built once ADR-0018 needed it, behind the same `IdentityResolver`
+  parameter the static demo token map already used.
+- Bounded-concurrency fan-out and an opt-in per-identity `RateLimiter`
+  (ADR-0019).
+- A gated release pipeline (changesets, `.github/workflows/release.yml`)
+  that stops short of ever running a real `npm publish` (ADR-0020).
+- A stateless Streamable HTTP transport for MCP (ADR-0021), alongside
+  stdio.
+- Two more real ways to combine data from multiple sources — a
+  cross-source computed property (ADR-0022) and per-property `Mapping`
+  overrides merged into one object read (ADR-0023) — alongside the
+  cross-adapter relationships this document's own sequence diagram below
+  already proves.
+
+The concurrent (not sequential) fan-out for relationship/query resolution
+was originally a correctness fix to existing runtime code — the N+1
+pattern a one-to-many relationship or a query's `include` previously
+produced — and is now also bounded (ADR-0019), so a very large fan-out
+can't open unlimited simultaneous adapter calls either.

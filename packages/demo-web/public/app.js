@@ -312,7 +312,7 @@ function renderObjectCard(container, typeName, object, typeDef) {
   const values = object.values;
 
   const rows = Object.entries(values)
-    .filter(([key]) => key !== "readinessStatus") // shown as the header badge instead, not duplicated as a row
+    .filter(([key]) => key !== "readinessStatus" && key !== "needsAttention") // shown as header badges instead, not duplicated as rows
     .map(([key, value]) => {
       const prov = provByPath.get(key);
       const provDot = state.showProvenance !== false
@@ -333,6 +333,13 @@ function renderObjectCard(container, typeName, object, typeDef) {
   const readiness = values.readinessStatus
     ? `<span class="badge ${READINESS_BADGE[values.readinessStatus] || "badge-warn"} badge-readiness">${values.readinessStatus}</span>`
     : "";
+  // needsAttention combines this Aircraft's own maintenanceStatus with a live
+  // check against a completely different adapter (open work orders) — see
+  // ADR-0022 / docs/how-to/combine-multiple-sources.md. Only shown when true,
+  // so a healthy Aircraft's card stays uncluttered.
+  const needsAttention = values.needsAttention
+    ? `<span class="badge badge-deny badge-readiness" title="Own maintenanceStatus is down/degraded, or an open work order exists against this aircraft (checked live against the maintenance system)">⚠ Needs attention</span>`
+    : "";
 
   const relChips = typeDef.relationships
     .map((r) => {
@@ -349,6 +356,7 @@ function renderObjectCard(container, typeName, object, typeDef) {
         <span class="type-name">${typeName}</span>
         <span class="obj-id">${object.objectId}</span>
         ${readiness}
+        ${needsAttention}
       </div>
       <table class="prop-table">${rows}${restrictedRows}</table>
       ${typeDef.relationships.length ? `<div class="rel-chips">${relChips}</div><div id="relExpansion"></div>` : ""}
