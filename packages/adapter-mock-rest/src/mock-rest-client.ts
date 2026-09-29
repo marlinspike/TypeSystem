@@ -28,8 +28,28 @@ export class MockRestClient {
 
   constructor(private readonly latencyMs: number = 5) {}
 
-  private delay(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, this.latencyMs));
+  /**
+   * Simulated network latency, cooperatively cancellable (ADR-0026): if the
+   * runtime's per-call deadline aborts the signal mid-flight, the pending
+   * call rejects immediately instead of running out its latency — the
+   * behavior a real HTTP client with an `AbortSignal` would exhibit.
+   */
+  private delay(signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("MockRestClient request aborted"));
+        return;
+      }
+      const timer = setTimeout(resolve, this.latencyMs);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(new Error("MockRestClient request aborted"));
+        },
+        { once: true }
+      );
+    });
   }
 
   seedMaintenanceEvents(records: ExternalMaintenanceRecord[]): void {
@@ -41,28 +61,31 @@ export class MockRestClient {
     this.nextWorkOrderSeq = this.workOrders.size + 1;
   }
 
-  async getMaintenanceEvent(eventId: string): Promise<ExternalMaintenanceRecord | undefined> {
-    await this.delay();
+  async getMaintenanceEvent(eventId: string, signal?: AbortSignal): Promise<ExternalMaintenanceRecord | undefined> {
+    await this.delay(signal);
     return this.maintenanceEvents.get(eventId);
   }
 
-  async listAllMaintenanceEvents(): Promise<ExternalMaintenanceRecord[]> {
-    await this.delay();
+  async listAllMaintenanceEvents(signal?: AbortSignal): Promise<ExternalMaintenanceRecord[]> {
+    await this.delay(signal);
     return [...this.maintenanceEvents.values()];
   }
 
-  async getWorkOrder(id: string): Promise<ExternalWorkOrderRecord | undefined> {
-    await this.delay();
+  async getWorkOrder(id: string, signal?: AbortSignal): Promise<ExternalWorkOrderRecord | undefined> {
+    await this.delay(signal);
     return this.workOrders.get(id);
   }
 
-  async listAllWorkOrders(): Promise<ExternalWorkOrderRecord[]> {
-    await this.delay();
+  async listAllWorkOrders(signal?: AbortSignal): Promise<ExternalWorkOrderRecord[]> {
+    await this.delay(signal);
     return [...this.workOrders.values()];
   }
 
-  async createWorkOrder(input: { event_id: string; assigned_to: string; status?: string }): Promise<ExternalWorkOrderRecord> {
-    await this.delay();
+  async createWorkOrder(
+    input: { event_id: string; assigned_to: string; status?: string },
+    signal?: AbortSignal
+  ): Promise<ExternalWorkOrderRecord> {
+    await this.delay(signal);
     const record: ExternalWorkOrderRecord = {
       wo_id: `WO-${String(this.nextWorkOrderSeq++).padStart(4, "0")}`,
       event_id: input.event_id,

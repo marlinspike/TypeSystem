@@ -71,6 +71,14 @@ document that gap rather than close it in this pass.
 - One concurrency budget per request: `maxConcurrency` caps the adapter
   calls of a whole top-level call, nested fan-out and computed properties
   included, rather than each fan-out level separately (ADR-0025).
+- Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
+  cooperative `AbortSignal` cancellation, retries with exponential backoff
+  and jitter for idempotent reads (and only Actions whose `idempotency` is
+  not `"none"`), and a per-data-source circuit breaker — all wired once into
+  `SemanticRuntime.getAdapter` and off by default. The mock-REST adapter
+  honors the signal on its simulated latency; the Postgres pool's default
+  `max` is aligned to the concurrency budget, with an opt-in
+  `PG_STATEMENT_TIMEOUT_MS` (`packages/core/test/resilience.test.ts`).
 - Type-aware ESLint (`typescript-eslint` `recommendedTypeChecked`) and a
   full type-check of source, tests, and scripts (`npm run typecheck`),
   both enforced in CI, run from an isolated `tools/eslint` toolchain

@@ -39,3 +39,29 @@ export class InvalidInputError extends Error {
     this.name = "InvalidInputError";
   }
 }
+
+/** A single adapter call exceeded its per-call deadline (ADR-0026); the call's `AbortSignal` was aborted. Retryable. */
+export class AdapterTimeoutError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "AdapterTimeoutError";
+  }
+}
+
+/** A data source could not be reached — connection pool exhausted, backend refused or reset the connection (ADR-0026). Retryable. */
+export class AdapterUnavailableError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "AdapterUnavailableError";
+  }
+}
+
+/** The circuit breaker for a data source is open, so the call failed fast without being attempted (ADR-0026). Not retryable. */
+export class CircuitOpenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CircuitOpenError";
+  }
+}

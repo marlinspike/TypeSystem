@@ -13,6 +13,7 @@ import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult } from "../m
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
+import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
@@ -22,6 +23,26 @@ import { recordPolicyDecision, recordCacheResult } from "../observability/metric
 
 const DEFAULT_CACHE_TTL_MS = 30_000;
 const DEFAULT_MAX_CONCURRENCY = 20;
+
+/** The adapter reads (idempotent, always safe to retry) versus the one write path. Drives retry eligibility in `getAdapter` (ADR-0026). */
+const RETRYABLE_ADAPTER_READS = new Set(["resolveProperties", "queryByType", "resolveRelationship"]);
+
+/**
+ * Whether one intercepted adapter call may be retried. Reads always may;
+ * `executeAction` only if the Action declared itself idempotent
+ * (`idempotency !== "none"`, ADR-0005/0026), so the resilience layer can
+ * never turn one side effect into two silently. Anything else (an unknown
+ * method) is treated as not retryable.
+ */
+function isRetryableAdapterCall(prop: string | symbol, args: unknown[]): boolean {
+  if (typeof prop !== "string") return false;
+  if (RETRYABLE_ADAPTER_READS.has(prop)) return true;
+  if (prop === "executeAction") {
+    const action = args[0] as ActionDefinition | undefined;
+    return !!action && action.idempotency !== "none";
+  }
+  return false;
+}
 
 export interface ResolvedObject {
   typeName: string;
@@ -57,6 +78,13 @@ export interface SemanticRuntimeOptions {
   maxConcurrency?: number;
   /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count and depth, filter depth/size (see `input-validation.ts`). */
   queryLimits?: Partial<QueryLimits>;
+  /**
+   * Timeout, retry, and circuit-breaker policy applied to every adapter call
+   * (ADR-0026). Omit to preserve pre-ADR-0026 behavior exactly — no deadline,
+   * no retry, no breaker. `RECOMMENDED_RESILIENCE_POLICY` is a sane starting
+   * point to pass here.
+   */
+  resilience?: ResiliencePolicy;
 }
 
 /**
@@ -74,6 +102,7 @@ export class SemanticRuntime {
   private readonly defaultCacheTtlMs: number;
   private readonly rateLimiter: RateLimiter;
   private readonly maxConcurrency: number;
+  private readonly resilience: AdapterResilience;
   /** The concurrency budget of this runtime's call currently executing, if any (see `withRequestBudget`). */
   private readonly requestBudget = new AsyncLocalStorage<Semaphore>();
 
@@ -93,6 +122,7 @@ export class SemanticRuntime {
     this.rateLimiter = options.rateLimiter ?? new NoopRateLimiter();
     this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
     this.inputValidator = new InputValidator(options.queryLimits);
+    this.resilience = new AdapterResilience(options.resilience);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
   }
@@ -112,16 +142,38 @@ export class SemanticRuntime {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
     const store = this.requestBudget;
-    const budget = store.getStore();
-    if (!budget) return adapter;
+    const resilience = this.resilience;
+
+    // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
+    // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
+    // Resolved per call (not once), so it holds across resilience retries and after backoff sleeps.
+    const underBudget = (invoke: () => Promise<unknown>): Promise<unknown> => {
+      const budget = store.getStore();
+      return budget ? budget.run(() => store.exit(invoke)) : invoke();
+    };
+
     return new Proxy(adapter, {
       get(target, prop, receiver) {
         const value: unknown = Reflect.get(target, prop, receiver);
         if (typeof value !== "function") return value;
-        // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
-        // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
-        return (...args: unknown[]) =>
-          budget.run(() => store.exit(() => (value as (...a: unknown[]) => Promise<unknown>).apply(target, args)));
+        const method = value as (...a: unknown[]) => Promise<unknown>;
+
+        // No resilience policy: the exact pre-ADR-0026 path — budget only, original args, no signal.
+        if (resilience.isNoop) {
+          return (...args: unknown[]) => underBudget(() => method.apply(target, args));
+        }
+
+        // With a policy the breaker/timeout/retry wrap the budget, so backoff sleeps don't hold a
+        // permit and each attempt takes a fresh one (ADR-0026). The deadline's signal is appended as
+        // the method's optional trailing `AdapterCallOptions`; runtime call sites never pass one, so
+        // appending is unambiguous, and it's added only when a timeout is actually configured.
+        return (...args: unknown[]) => {
+          const retryable = isRetryableAdapterCall(prop, args);
+          return resilience.run(dataSourceId, retryable, (signal) => {
+            const callArgs = signal ? [...args, { signal }] : args;
+            return underBudget(() => method.apply(target, callArgs));
+          });
+        };
       }
     });
   }

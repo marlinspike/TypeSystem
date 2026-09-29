@@ -1,6 +1,7 @@
 import {
   matchesFilter,
   type Adapter,
+  type AdapterCallOptions,
   type AdapterQueryResult,
   type RelatedRef,
   type ResolvedProperties,
@@ -39,6 +40,11 @@ function paginate<T>(items: T[], limit?: number, cursor?: string): { page: T[]; 
  * mocked external REST-shaped system (snake_case fields, its own record
  * identifiers) into the canonical semantic model, simulating the shape of
  * a real system like REMIS without requiring one to be running.
+ *
+ * It forwards the runtime's per-call `AbortSignal` (ADR-0026) to its client's
+ * simulated network calls, so a call the runtime deadline abandons stops
+ * promptly rather than running to completion — what a real REST client would
+ * do with an aborted `fetch`.
  */
 export class MockRestAdapter implements Adapter {
   readonly dataSourceId: string;
@@ -84,25 +90,30 @@ export class MockRestAdapter implements Adapter {
     }));
   }
 
-  private async listCanonical(typeName: string): Promise<Record<string, unknown>[]> {
+  private async listCanonical(typeName: string, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
     if (typeName === this.typeMapping.maintenanceEventType) {
-      return (await this.client.listAllMaintenanceEvents()).map((r) => this.toCanonicalMaintenanceEvent(r));
+      return (await this.client.listAllMaintenanceEvents(signal)).map((r) => this.toCanonicalMaintenanceEvent(r));
     }
     if (typeName === this.typeMapping.workOrderType) {
-      return (await this.client.listAllWorkOrders()).map((r) => this.toCanonicalWorkOrder(r));
+      return (await this.client.listAllWorkOrders(signal)).map((r) => this.toCanonicalWorkOrder(r));
     }
     throw new Error(`MockRestAdapter has no mapping for type "${typeName}"`);
   }
 
-  async resolveProperties(typeName: string, objectId: string, _propertyNames: string[]): Promise<ResolvedProperties> {
+  async resolveProperties(
+    typeName: string,
+    objectId: string,
+    _propertyNames: string[],
+    opts?: AdapterCallOptions
+  ): Promise<ResolvedProperties> {
     if (typeName === this.typeMapping.maintenanceEventType) {
-      const record = await this.client.getMaintenanceEvent(objectId);
+      const record = await this.client.getMaintenanceEvent(objectId, opts?.signal);
       if (!record) return { values: {}, provenance: [] };
       const values = this.toCanonicalMaintenanceEvent(record);
       return { values, provenance: this.buildProvenance(objectId, values) };
     }
     if (typeName === this.typeMapping.workOrderType) {
-      const record = await this.client.getWorkOrder(objectId);
+      const record = await this.client.getWorkOrder(objectId, opts?.signal);
       if (!record) return { values: {}, provenance: [] };
       const values = this.toCanonicalWorkOrder(record);
       return { values, provenance: this.buildProvenance(objectId, values) };
@@ -114,9 +125,10 @@ export class MockRestAdapter implements Adapter {
     typeName: string,
     filter?: QueryFilter,
     limit?: number,
-    cursor?: string
+    cursor?: string,
+    opts?: AdapterCallOptions
   ): Promise<AdapterQueryResult> {
-    const all = await this.listCanonical(typeName);
+    const all = await this.listCanonical(typeName, opts?.signal);
     const filtered = filter ? all.filter((v) => matchesFilter(v, filter)) : all;
     const { page, nextCursor } = paginate(filtered, limit, cursor);
     return {
@@ -129,19 +141,31 @@ export class MockRestAdapter implements Adapter {
     };
   }
 
-  async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string): Promise<RelatedRef[]> {
+  async resolveRelationship(
+    relationship: RelationshipDefinition,
+    sourceObjectId: string,
+    opts?: AdapterCallOptions
+  ): Promise<RelatedRef[]> {
     const field = parseForeignKeyOperation(relationship.resolution.operation);
-    const targets = await this.listCanonical(relationship.targetType);
+    const targets = await this.listCanonical(relationship.targetType, opts?.signal);
     return targets.filter((v) => v[field] === sourceObjectId).map((v) => ({ objectId: v.id as string }));
   }
 
-  async executeAction(action: ActionDefinition, input: unknown, _ctx: ActionContext): Promise<unknown> {
+  async executeAction(
+    action: ActionDefinition,
+    input: unknown,
+    _ctx: ActionContext,
+    opts?: AdapterCallOptions
+  ): Promise<unknown> {
     if (action.implementation.operation === "createWorkOrder") {
       const typedInput = input as { maintenanceEventId: string; assignedTo: string };
-      const record = await this.client.createWorkOrder({
-        event_id: typedInput.maintenanceEventId,
-        assigned_to: typedInput.assignedTo
-      });
+      const record = await this.client.createWorkOrder(
+        {
+          event_id: typedInput.maintenanceEventId,
+          assigned_to: typedInput.assignedTo
+        },
+        opts?.signal
+      );
       return this.toCanonicalWorkOrder(record);
     }
     throw new Error(`MockRestAdapter has no implementation for action "${action.name}" (operation "${action.implementation.operation}")`);

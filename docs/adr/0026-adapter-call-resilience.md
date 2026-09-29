@@ -2,10 +2,14 @@
 
 ## Status
 
-Proposed — written ahead of implementation (an ADR-first workflow), unlike
-the accepted ADRs that describe code already in the tree. It flips to
-Accepted, with the concrete "proven, not assumed" evidence (test names,
-measured numbers) filled in, when the implementation lands.
+Accepted — implemented in `@typesys/core` (`runtime/resilience.ts`, wired
+into `SemanticRuntime.getAdapter`), with `AdapterCallOptions` added to the
+`Adapter` interface, the mock-REST adapter honoring the signal, and the
+Postgres pool default aligned to the concurrency budget. Proven by
+`packages/core/test/resilience.test.ts`: a timeout throws `AdapterTimeoutError`
+and aborts the call's signal; retries recover a transient read; a
+non-idempotent Action is never retried while an idempotent one is; the breaker
+opens, fast-fails without calling the adapter, and half-opens after cooldown.
 
 ## Context
 
@@ -68,9 +72,12 @@ race, no orphaned work from the native timeout.
 and are retried on *retryable* errors (timeout, connection reset, pool
 exhaustion, an adapter-declared transient). `executeAction` is **never**
 retried by default, because re-issuing a side effect can double-charge,
-double-create, or double-send; an Action opts in only by declaring
-`idempotent: true` on its definition (and is then retried the same way). The
-error taxonomy in `packages/core/src/runtime/errors.ts` decides retryability:
+double-create, or double-send; an Action is retried only when it declares
+itself idempotent through the existing `ActionDefinition.idempotency` field
+(`"key"` or `"natural"` — anything other than `"none"`, ADR-0005), and is then
+retried the same way. The error taxonomy (`isRetryableError` in
+`packages/core/src/runtime/resilience.ts`, using `packages/core/src/runtime/errors.ts`)
+decides retryability:
 `AuthorizationError`, `InvalidInputError`, `NotFoundError`, and
 `PreconditionFailedError` are never retried — retrying them wastes budget and
 re-audits denials.
