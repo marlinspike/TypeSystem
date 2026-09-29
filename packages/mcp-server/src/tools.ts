@@ -1,6 +1,6 @@
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { semanticQuerySchema, withSpan, type JsonSchema2020, type SemanticQuery, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
+import { semanticQuerySchema, aggregateQuerySchema, withSpan, type JsonSchema2020, type SemanticQuery, type SemanticAggregateQuery, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 
 const AUTH_TOKEN_FIELD = {
@@ -40,6 +40,11 @@ export function registerToolHandlers(
         description: "Run a structured semantic query against a Type, optionally including related objects.",
         // The exact schema (and limits) SemanticRuntime.query enforces, so an agent is told the real bounds.
         inputSchema: withAuthToken(semanticQuerySchema(runtime.queryLimits)) as Tool["inputSchema"]
+      },
+      {
+        name: "aggregate",
+        description: "Run a grouped aggregation (count/sum/avg/min/max, optional groupBy) against a Type.",
+        inputSchema: withAuthToken(aggregateQuerySchema(runtime.queryLimits)) as Tool["inputSchema"]
       }
     ];
     return { tools };
@@ -53,13 +58,17 @@ export function registerToolHandlers(
       const identity = await resolveIdentity(authToken);
 
       try {
-        const isQuery = name === "query";
-        const result = isQuery
-          ? // Unchecked JSON is fine here: SemanticRuntime.query validates it before doing anything else.
-            await runtime.query(rest as unknown as SemanticQuery, identity)
-          : await runtime.invokeAction(name, rest, identity);
-        const structuredContent =
-          !isQuery && result !== null && typeof result === "object" ? (result as Record<string, unknown>) : undefined;
+        // Unchecked JSON is fine here: SemanticRuntime validates each shape before doing anything else.
+        let result: unknown;
+        let structuredContent: Record<string, unknown> | undefined;
+        if (name === "query") {
+          result = await runtime.query(rest as unknown as SemanticQuery, identity);
+        } else if (name === "aggregate") {
+          result = await runtime.aggregate(rest as unknown as SemanticAggregateQuery, identity);
+        } else {
+          result = await runtime.invokeAction(name, rest, identity);
+          structuredContent = result !== null && typeof result === "object" ? (result as Record<string, unknown>) : undefined;
+        }
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
           ...(structuredContent ? { structuredContent } : {})

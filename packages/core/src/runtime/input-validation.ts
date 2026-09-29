@@ -2,7 +2,7 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 import { createSemanticValidator } from "../registry/validation.js";
 import type { JsonSchema2020 } from "../model/json-schema.js";
 import type { ActionDefinition } from "../model/action.js";
-import type { QueryFilter, QueryInclude, SemanticQuery } from "../model/query.js";
+import type { QueryFilter, QueryInclude, SemanticQuery, SemanticAggregateQuery } from "../model/query.js";
 import { InvalidInputError } from "./errors.js";
 
 /**
@@ -24,6 +24,18 @@ export interface QueryLimits {
   maxFilterDepth: number;
   /** Most leaf conditions allowed in any one filter, top-level or include-level. */
   maxFilterConditions: number;
+  /** Most sort keys allowed on one query (ADR-0027). */
+  maxSortKeys: number;
+  /** Most properties allowed in one `select` projection, top-level or per-include (ADR-0027). */
+  maxSelect: number;
+  /** Most aggregations allowed in one aggregate query (ADR-0027). */
+  maxAggregations: number;
+  /** Most `groupBy` keys allowed in one aggregate query (ADR-0027). */
+  maxGroupBy: number;
+  /** Longest `search.text` accepted (ADR-0027). */
+  maxSearchTextLength: number;
+  /** Default ceiling on how many related objects one relationship resolves to per source object (ADR-0028), bounding one-to-many fan-out. */
+  maxRelatedPerObject: number;
 }
 
 export const DEFAULT_QUERY_LIMITS: QueryLimits = {
@@ -32,7 +44,13 @@ export const DEFAULT_QUERY_LIMITS: QueryLimits = {
   maxIncludes: 10,
   maxIncludeDepth: 3,
   maxFilterDepth: 8,
-  maxFilterConditions: 100
+  maxFilterConditions: 100,
+  maxSortKeys: 8,
+  maxSelect: 100,
+  maxAggregations: 20,
+  maxGroupBy: 8,
+  maxSearchTextLength: 256,
+  maxRelatedPerObject: 1000
 };
 
 /**
@@ -56,6 +74,41 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
     properties: {
       type: { type: "string", pattern: NAME_PATTERN, maxLength: 256, description: "Logical type name to query, e.g. airforce.Aircraft" },
       filter: { $ref: "#/$defs/filter" },
+      sort: {
+        type: "array",
+        maxItems: limits.maxSortKeys,
+        items: {
+          type: "object",
+          properties: {
+            property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+            direction: { enum: ["asc", "desc"] }
+          },
+          required: ["property"],
+          additionalProperties: false
+        },
+        description: "Order the result page by these keys, in priority order"
+      },
+      select: {
+        type: "array",
+        maxItems: limits.maxSelect,
+        items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+        description: "Return only these properties on each object (requested includes are still returned)"
+      },
+      search: {
+        type: "object",
+        properties: {
+          text: { type: "string", minLength: 1, maxLength: limits.maxSearchTextLength },
+          properties: {
+            type: "array",
+            minItems: 1,
+            maxItems: limits.maxSelect,
+            items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 }
+          }
+        },
+        required: ["text"],
+        additionalProperties: false,
+        description: "Case-insensitive text search across properties (omit `properties` to search the type's own readable fields)"
+      },
       include: {
         type: "array",
         maxItems: limits.maxIncludes,
@@ -81,7 +134,7 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
             type: "object",
             properties: {
               property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
-              operator: { enum: ["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains"] },
+              operator: { enum: ["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains", "icontains"] },
               value: {}
             },
             required: ["property", "operator", "value"],
@@ -106,10 +159,90 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
         properties: {
           relationship: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
           filter: { $ref: "#/$defs/filter" },
+          sort: {
+            type: "array",
+            maxItems: limits.maxSortKeys,
+            items: {
+              type: "object",
+              properties: { property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 }, direction: { enum: ["asc", "desc"] } },
+              required: ["property"],
+              additionalProperties: false
+            }
+          },
+          limit: { type: "integer", minimum: 1, maximum: limits.maxRelatedPerObject },
+          select: { type: "array", maxItems: limits.maxSelect, items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 } },
           include: { type: "array", maxItems: limits.maxIncludes, items: { $ref: "#/$defs/include" } }
         },
         required: ["relationship"],
         additionalProperties: false
+      }
+    }
+  };
+}
+
+/**
+ * The JSON Schema for a `SemanticAggregateQuery` (ADR-0027) — also the MCP
+ * `aggregate` tool's advertised inputSchema, so an agent is told the real
+ * shape and bounds, the same way `semanticQuerySchema` backs the `query` tool.
+ */
+export function aggregateQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS): JsonSchema2020 {
+  return {
+    type: "object",
+    properties: {
+      type: { type: "string", pattern: NAME_PATTERN, maxLength: 256, description: "Logical type name to aggregate over" },
+      filter: { $ref: "#/$defs/filter" },
+      groupBy: {
+        type: "array",
+        maxItems: limits.maxGroupBy,
+        items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+        description: "Group results by these properties"
+      },
+      aggregations: {
+        type: "array",
+        minItems: 1,
+        maxItems: limits.maxAggregations,
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+            op: { enum: ["count", "sum", "avg", "min", "max"] },
+            property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 }
+          },
+          required: ["name", "op"],
+          additionalProperties: false
+        },
+        description: "The aggregations to compute per group"
+      }
+    },
+    required: ["type", "aggregations"],
+    additionalProperties: false,
+    $defs: {
+      filter: {
+        description: "A QueryFilter: {property, operator, value} or {and:[...]}/{or:[...]}",
+        oneOf: [
+          {
+            type: "object",
+            properties: {
+              property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+              operator: { enum: ["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains", "icontains"] },
+              value: {}
+            },
+            required: ["property", "operator", "value"],
+            additionalProperties: false
+          },
+          {
+            type: "object",
+            properties: { and: { type: "array", minItems: 1, items: { $ref: "#/$defs/filter" } } },
+            required: ["and"],
+            additionalProperties: false
+          },
+          {
+            type: "object",
+            properties: { or: { type: "array", minItems: 1, items: { $ref: "#/$defs/filter" } } },
+            required: ["or"],
+            additionalProperties: false
+          }
+        ]
       }
     }
   };
@@ -155,6 +288,7 @@ export class InputValidator {
   readonly limits: QueryLimits;
   private readonly ajv = createSemanticValidator();
   private readonly validateQueryShape: ValidateFunction;
+  private readonly validateAggregateShape: ValidateFunction;
   /**
    * Keyed by name@version, not object identity (a durable RegistryStore hands back a fresh
    * ActionDefinition per read), and remembering the schema each was compiled from: re-registering
@@ -169,6 +303,7 @@ export class InputValidator {
       throw new Error(`QueryLimits.defaultLimit (${this.limits.defaultLimit}) exceeds maxLimit (${this.limits.maxLimit})`);
     }
     this.validateQueryShape = this.ajv.compile(semanticQuerySchema(this.limits));
+    this.validateAggregateShape = this.ajv.compile(aggregateQuerySchema(this.limits));
   }
 
   /** Throws `InvalidInputError` on a malformed or over-limit query; otherwise returns it with `limit` defaulted. */
@@ -181,6 +316,17 @@ export class InputValidator {
     if (query.filter) this.checkFilter(query.filter, "filter");
     if (query.include) this.checkIncludeTree(query.include);
     return { ...query, limit: query.limit ?? this.limits.defaultLimit };
+  }
+
+  /** Throws `InvalidInputError` on a malformed or over-limit aggregate query (ADR-0027); otherwise returns it. */
+  validateAggregateQuery(input: unknown): SemanticAggregateQuery {
+    assertJsonDepth(input, "aggregate query");
+    if (!this.validateAggregateShape(input)) {
+      throw new InvalidInputError(`Invalid aggregate query: ${describeErrors(this.validateAggregateShape.errors)}`, this.validateAggregateShape.errors);
+    }
+    const q = input as SemanticAggregateQuery;
+    if (q.filter) this.checkFilter(q.filter, "filter");
+    return q;
   }
 
   private checkFilter(filter: QueryFilter, where: string): void {

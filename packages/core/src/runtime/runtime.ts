@@ -9,19 +9,41 @@ import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult } from "../model/query.js";
+import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey, SearchSpec, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
+import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
+import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
+import { applyProjection, applySort } from "./query-ops.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
 
 const DEFAULT_CACHE_TTL_MS = 30_000;
 const DEFAULT_MAX_CONCURRENCY = 20;
+
+/** The adapter reads (idempotent, always safe to retry) versus the one write path. Drives retry eligibility in `getAdapter` (ADR-0026). */
+const RETRYABLE_ADAPTER_READS = new Set(["resolveProperties", "queryByType", "resolveRelationship", "aggregate"]);
+
+/**
+ * Whether one intercepted adapter call may be retried. Reads always may;
+ * `executeAction` only if the Action declared itself idempotent
+ * (`idempotency !== "none"`, ADR-0005/0026), so the resilience layer can
+ * never turn one side effect into two silently. Anything else (an unknown
+ * method) is treated as not retryable.
+ */
+function isRetryableAdapterCall(prop: string | symbol, args: unknown[]): boolean {
+  if (typeof prop !== "string") return false;
+  if (RETRYABLE_ADAPTER_READS.has(prop)) return true;
+  if (prop === "executeAction") {
+    const action = args[0] as ActionDefinition | undefined;
+    return !!action && action.idempotency !== "none";
+  }
+  return false;
+}
 
 export interface ResolvedObject {
   typeName: string;
@@ -57,6 +79,13 @@ export interface SemanticRuntimeOptions {
   maxConcurrency?: number;
   /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count and depth, filter depth/size (see `input-validation.ts`). */
   queryLimits?: Partial<QueryLimits>;
+  /**
+   * Timeout, retry, and circuit-breaker policy applied to every adapter call
+   * (ADR-0026). Omit to preserve pre-ADR-0026 behavior exactly — no deadline,
+   * no retry, no breaker. `RECOMMENDED_RESILIENCE_POLICY` is a sane starting
+   * point to pass here.
+   */
+  resilience?: ResiliencePolicy;
 }
 
 /**
@@ -74,6 +103,7 @@ export class SemanticRuntime {
   private readonly defaultCacheTtlMs: number;
   private readonly rateLimiter: RateLimiter;
   private readonly maxConcurrency: number;
+  private readonly resilience: AdapterResilience;
   /** The concurrency budget of this runtime's call currently executing, if any (see `withRequestBudget`). */
   private readonly requestBudget = new AsyncLocalStorage<Semaphore>();
 
@@ -93,6 +123,7 @@ export class SemanticRuntime {
     this.rateLimiter = options.rateLimiter ?? new NoopRateLimiter();
     this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
     this.inputValidator = new InputValidator(options.queryLimits);
+    this.resilience = new AdapterResilience(options.resilience);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
   }
@@ -112,16 +143,38 @@ export class SemanticRuntime {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
     const store = this.requestBudget;
-    const budget = store.getStore();
-    if (!budget) return adapter;
+    const resilience = this.resilience;
+
+    // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
+    // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
+    // Resolved per call (not once), so it holds across resilience retries and after backoff sleeps.
+    const underBudget = (invoke: () => Promise<unknown>): Promise<unknown> => {
+      const budget = store.getStore();
+      return budget ? budget.run(() => store.exit(invoke)) : invoke();
+    };
+
     return new Proxy(adapter, {
       get(target, prop, receiver) {
         const value: unknown = Reflect.get(target, prop, receiver);
         if (typeof value !== "function") return value;
-        // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
-        // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
-        return (...args: unknown[]) =>
-          budget.run(() => store.exit(() => (value as (...a: unknown[]) => Promise<unknown>).apply(target, args)));
+        const method = value as (...a: unknown[]) => Promise<unknown>;
+
+        // No resilience policy: the exact pre-ADR-0026 path — budget only, original args, no signal.
+        if (resilience.isNoop) {
+          return (...args: unknown[]) => underBudget(() => method.apply(target, args));
+        }
+
+        // With a policy the breaker/timeout/retry wrap the budget, so backoff sleeps don't hold a
+        // permit and each attempt takes a fresh one (ADR-0026). The deadline's signal is appended as
+        // the method's optional trailing `AdapterCallOptions`; runtime call sites never pass one, so
+        // appending is unambiguous, and it's added only when a timeout is actually configured.
+        return (...args: unknown[]) => {
+          const retryable = isRetryableAdapterCall(prop, args);
+          return resilience.run(dataSourceId, retryable, (signal) => {
+            const callArgs = signal ? [...args, { signal }] : args;
+            return underBudget(() => method.apply(target, callArgs));
+          });
+        };
       }
     });
   }
@@ -407,16 +460,16 @@ export class SemanticRuntime {
 
         const adapter = this.getAdapter(relDef.resolution.dataSourceId);
         const relatedRefs = await this.resolveRelationship(adapter, relDef, objectId);
+        // Bound the *count* of the fan-out: a one-to-many with more related objects than
+        // maxRelatedPerObject (ADR-0028) is truncated, the count-analogue of the maxConcurrency
+        // bound on its concurrency (ADR-0019). The adapter's returned order is preserved.
+        const bounded = relatedRefs.slice(0, this.queryLimits.maxRelatedPerObject);
 
-        // Fan out concurrently, not one sequential round trip per related object — the
-        // classic N+1 pattern for a one-to-many relationship (e.g. an Aircraft with 50
-        // components previously meant 50 sequential getObject calls). Bounded by
-        // maxConcurrency (ADR-0019) rather than a raw Promise.allSettled, so a relationship
-        // with thousands of related objects can't open thousands of simultaneous adapter
-        // calls at once; still preserves relatedRefs order and still lets an unauthorized
-        // related object be silently omitted (ADR's existing behavior) without an early
-        // return aborting the rest of a partially-authorized batch.
-        const settled = await mapWithConcurrencySettled(relatedRefs, this.maxConcurrency, (ref) =>
+        // Fan out concurrently, not one sequential round trip per related object — the classic
+        // N+1 pattern for a one-to-many relationship. Bounded by maxConcurrency (ADR-0019) rather
+        // than a raw Promise.allSettled, and an unauthorized related object is silently omitted
+        // (existing behavior) without aborting the rest of a partially-authorized batch.
+        const settled = await mapWithConcurrencySettled(bounded, this.maxConcurrency, (ref) =>
           this.getObject(relDef.targetType, ref.objectId, identity)
         );
 
@@ -454,15 +507,22 @@ export class SemanticRuntime {
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
         if (q.filter) {
           this.rejectComputedFilterProperties(typeDef, q.filter);
-          await this.requireFilterableProperties(typeDef, q.filter, identity);
+          await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
         }
+        if (q.sort) {
+          this.rejectComputedSortProperties(typeDef, q.sort);
+          await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
+        }
+        // `search` desugars to an `icontains` OR-filter over resolved, readable, non-computed
+        // properties, AND-combined with any explicit filter (ADR-0027).
+        const effectiveFilter = await this.resolveSearchFilter(typeDef, q.filter, q.search, identity);
 
         // Listing/filtering/pagination is inherently single-source — only the base
         // mapping's adapter can answer "which objects match", so overrides (ADR-0023)
         // are merged per item below, not folded into this call.
         const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
         const adapter = this.getAdapter(base.dataSourceId);
-        const result = await adapter.queryByType(q.type, q.filter, q.limit, q.cursor);
+        const result = await adapter.queryByType(q.type, effectiveFilter, q.limit, q.cursor, q.sort);
 
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
@@ -472,11 +532,14 @@ export class SemanticRuntime {
         const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
           const merged = await this.mergeOverrides(q.type, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
           const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, merged);
+          // Projection trims the object's own properties, after redaction (ADR-0027); requested
+          // includes are assigned afterward so they survive it.
+          const projected = applyProjection(values, q.select);
           const resolved: ResolvedObject = {
             typeName: q.type,
             objectId: item.objectId,
-            values,
-            ...(q.includeProvenance ? { provenance } : {})
+            values: projected,
+            ...(q.includeProvenance ? { provenance: q.select ? provenance.filter((p) => p.propertyPath in projected) : provenance } : {})
           };
           if (q.include) {
             Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, q.include, identity));
@@ -486,6 +549,110 @@ export class SemanticRuntime {
         return { items, nextCursor: result.nextCursor };
       }
     ));
+  }
+
+  /**
+   * Grouped aggregation over a Type (ADR-0027). Same one-boundary treatment
+   * as `query`: rate limit, input validation, object policy, and a
+   * fail-closed guard that neither grouping nor an aggregation may reference a
+   * property the caller can't read (which would leak it through a count or an
+   * average) or a computed property (which doesn't exist at adapter time). The
+   * work is pushed to the adapter's optional `aggregate`; a data source whose
+   * adapter can't aggregate is a clear `AggregationNotSupportedError`, never a
+   * silent pull-everything-and-count-in-the-runtime.
+   */
+  async aggregate(input: SemanticAggregateQuery, identity: Identity): Promise<AggregateResult> {
+    const claimedType = (input as { type?: unknown } | null | undefined)?.type;
+    return this.withRequestBudget(() => instrumentOperation(
+      "SemanticRuntime.aggregate",
+      typeof claimedType === "string" ? claimedType : "unknown",
+      { "typesys.identity.subject_id": identity.subjectId },
+      async () => {
+        await this.checkRateLimit(identity);
+        const q = this.inputValidator.validateAggregateQuery(input);
+        const typeDef = await this.requireType(q.type);
+        const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
+        await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
+
+        const referenced = new Set<string>();
+        if (q.filter) for (const p of filterProperties(q.filter)) referenced.add(p);
+        for (const g of q.groupBy ?? []) referenced.add(g);
+        for (const a of q.aggregations) if (a.property) referenced.add(a.property);
+        this.rejectComputedAggregateProperties(typeDef, referenced);
+        await this.requireReadableProperties(typeDef, referenced, identity);
+
+        const { base } = await this.mappingResolver.resolvePropertyMappings(q.type);
+        const adapter = this.getAdapter(base.dataSourceId);
+        if (typeof adapter.aggregate !== "function") {
+          throw new AggregationNotSupportedError(
+            `Data source "${base.dataSourceId}" for type "${q.type}" does not support aggregation`
+          );
+        }
+        return adapter.aggregate(q);
+      }
+    ));
+  }
+
+  /**
+   * Turns a `search` into an `icontains` OR-filter over resolved properties,
+   * AND-combined with any explicit filter (ADR-0027). Property resolution
+   * fails closed: an explicitly-named property that the caller can't read is
+   * denied and a computed one is rejected; when properties are omitted, the
+   * type's own readable, non-computed, non-policy-gated properties are used
+   * (never a gated one, since search runs pre-redaction in the adapter).
+   */
+  private async resolveSearchFilter(
+    typeDef: TypeDefinition,
+    filter: QueryFilter | undefined,
+    search: SearchSpec | undefined,
+    identity: Identity
+  ): Promise<QueryFilter | undefined> {
+    if (!search) return filter;
+    const props = await this.resolveSearchProperties(typeDef, search.properties, identity);
+    if (props.length === 0) {
+      throw new InvalidInputError(
+        `Invalid query: no searchable properties on "${typeDef.name}"; name them explicitly in search.properties`
+      );
+    }
+    const searchFilter: QueryFilter =
+      props.length === 1
+        ? { property: props[0]!, operator: "icontains", value: search.text }
+        : { or: props.map((p) => ({ property: p, operator: "icontains", value: search.text })) };
+    return filter ? { and: [filter, searchFilter] } : searchFilter;
+  }
+
+  private async resolveSearchProperties(
+    typeDef: TypeDefinition,
+    named: string[] | undefined,
+    identity: Identity
+  ): Promise<string[]> {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    if (named && named.length > 0) {
+      const computedNamed = named.filter((p) => computed.has(p));
+      if (computedNamed.length > 0) {
+        throw new InvalidInputError(
+          `Invalid query: cannot search computed ${computedNamed.length === 1 ? "property" : "properties"} ` +
+            `${computedNamed.map((p) => `"${p}"`).join(", ")}`
+        );
+      }
+      await this.requireReadableProperties(typeDef, named, identity);
+      return named;
+    }
+    const gated = new Set(Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {}));
+    const declared = Object.keys(typeDef.schema.properties ?? {});
+    return declared.filter((p) => !computed.has(p) && !gated.has(p));
+  }
+
+  private rejectComputedAggregateProperties(typeDef: TypeDefinition, names: Set<string>): void {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    const used = [...names].filter((p) => computed.has(p));
+    if (used.length > 0) {
+      throw new InvalidInputError(
+        `Invalid aggregate query: cannot group or aggregate "${typeDef.name}" on computed ` +
+          `${used.length === 1 ? "property" : "properties"} ${used.map((p) => `"${p}"`).join(", ")}; ` +
+          `computed values don't exist until after the adapter has run.`
+      );
+    }
   }
 
   /**
@@ -507,16 +674,34 @@ export class SemanticRuntime {
   }
 
   /**
-   * The top-level filter runs in the adapter, against raw values, *before*
-   * property-level redaction. So a filter on a property the caller can't
-   * read would still select by its hidden value, and which objects come
-   * back would reveal it. Reject such a query outright (audited as a deny)
-   * rather than answer it. Checked per Type, not per object: a policy that
-   * only allows some objects' values denies the filter, failing closed.
+   * The top-level sort runs in the adapter too, so — exactly like a filter —
+   * it cannot order by a computed property, which doesn't exist until after
+   * the adapter has returned its page. Reject it with a clear pointer (ADR-0027).
    */
-  private async requireFilterableProperties(typeDef: TypeDefinition, filter: QueryFilter, identity: Identity): Promise<void> {
+  private rejectComputedSortProperties(typeDef: TypeDefinition, sort: SortKey[]): void {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    const used = sort.map((s) => s.property).filter((p) => computed.has(p));
+    if (used.length > 0) {
+      throw new InvalidInputError(
+        `Invalid query: cannot sort "${typeDef.name}" on computed ${used.length === 1 ? "property" : "properties"} ` +
+          `${used.map((p) => `"${p}"`).join(", ")}; computed values don't exist until after the adapter has sorted. ` +
+          `Sort the results client-side instead.`
+      );
+    }
+  }
+
+  /**
+   * A top-level filter or sort runs in the adapter, against raw values,
+   * *before* property-level redaction. So filtering or ordering by a property
+   * the caller can't read would still select or position objects by its
+   * hidden value, and which objects come back — or in what order — would
+   * reveal it. Reject such a query outright (audited as a deny) rather than
+   * answer it. Checked per Type, not per object: a policy that only allows
+   * some objects' values denies the whole query, failing closed.
+   */
+  private async requireReadableProperties(typeDef: TypeDefinition, propertyNames: Iterable<string>, identity: Identity): Promise<void> {
     const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
-    for (const property of filterProperties(filter)) {
+    for (const property of propertyNames) {
       const policyName = propertyPolicies[property];
       if (!policyName) continue;
       await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, propertyPath: property });
@@ -540,7 +725,16 @@ export class SemanticRuntime {
   ): Promise<Record<string, ResolvedObject[]>> {
     const results = await mapWithConcurrency(includes, this.maxConcurrency, async (inc) => {
       const related = await this.getRelationship(typeName, objectId, inc.relationship, identity);
-      const kept = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
+      const filtered = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
+      // Sort then limit the related set (ADR-0028), post-resolution — so an include sort may
+      // reference computed properties (unlike a top-level sort) and both see already-redacted values.
+      const sorted = inc.sort ? applySort(filtered, inc.sort, (r) => r.values) : filtered;
+      const kept = inc.limit != null ? sorted.slice(0, inc.limit) : sorted;
+      // Projection (ADR-0027) runs AFTER filter/sort/limit (which see full visible values) and
+      // BEFORE nested includes are assigned, so those survive it.
+      if (inc.select) {
+        for (const r of kept) r.values = applyProjection(r.values, inc.select);
+      }
       const nested = inc.include;
       if (nested && nested.length > 0) {
         await mapWithConcurrency(kept, this.maxConcurrency, async (r) => {

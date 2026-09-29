@@ -1,29 +1,27 @@
 import {
   matchesFilter,
+  applySort,
+  computeAggregations,
+  parseResolution,
+  UnsupportedResolutionError,
   type Adapter,
+  type AdapterCallOptions,
   type AdapterQueryResult,
+  type AggregateResult,
   type RelatedRef,
   type ResolvedProperties,
   type ActionContext,
   type ActionDefinition,
   type ProvenanceRef,
   type QueryFilter,
-  type RelationshipDefinition
+  type RelationshipDefinition,
+  type SemanticAggregateQuery,
+  type SortKey
 } from "@typesys/core";
 
 export interface InMemoryRecord {
   objectId: string;
   values: Record<string, unknown>;
-}
-
-function parseOperation(operation: string): { kind: "byForeignKey" | "byOwnField"; field: string } {
-  const [kind, field] = operation.split(":");
-  if ((kind !== "byForeignKey" && kind !== "byOwnField") || !field) {
-    throw new Error(
-      `InMemoryRepositoryAdapter only supports "byForeignKey:<field>"/"byOwnField:<field>" relationship operations, got "${operation}"`
-    );
-  }
-  return { kind, field };
 }
 
 /**
@@ -70,15 +68,18 @@ export class InMemoryRepositoryAdapter implements Adapter {
     typeName: string,
     filter?: QueryFilter,
     limit?: number,
-    cursor?: string
+    cursor?: string,
+    sort?: SortKey[],
+    _opts?: AdapterCallOptions
   ): Promise<AdapterQueryResult> {
     const all = [...(this.recordsByType.get(typeName)?.values() ?? [])];
     const filtered = filter ? all.filter((r) => matchesFilter(r.values, filter)) : all;
+    const sorted = applySort(filtered, sort, (r) => r.values);
 
     const startIndex = cursor ? Number(cursor) : 0;
-    const pageSize = limit ?? filtered.length;
-    const page = filtered.slice(startIndex, startIndex + pageSize);
-    const nextCursor = startIndex + pageSize < filtered.length ? String(startIndex + pageSize) : undefined;
+    const pageSize = limit ?? sorted.length;
+    const page = sorted.slice(startIndex, startIndex + pageSize);
+    const nextCursor = startIndex + pageSize < sorted.length ? String(startIndex + pageSize) : undefined;
 
     return {
       items: page.map((r) => ({
@@ -90,20 +91,52 @@ export class InMemoryRepositoryAdapter implements Adapter {
     };
   }
 
-  async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string): Promise<RelatedRef[]> {
-    const { kind, field } = parseOperation(relationship.resolution.operation);
+  async aggregate(query: SemanticAggregateQuery, _opts?: AdapterCallOptions): Promise<AggregateResult> {
+    const all = [...(this.recordsByType.get(query.type)?.values() ?? [])].map((r) => r.values);
+    const filtered = query.filter ? all.filter((v) => matchesFilter(v, query.filter)) : all;
+    return computeAggregations(filtered, query);
+  }
 
-    if (kind === "byForeignKey") {
-      const targetRecords = [...(this.recordsByType.get(relationship.targetType)?.values() ?? [])];
-      const matches = targetRecords.filter((r) => r.values[field] === sourceObjectId);
-      return matches.map((r) => ({ objectId: r.objectId }));
+  async resolveRelationship(
+    relationship: RelationshipDefinition,
+    sourceObjectId: string,
+    _opts?: AdapterCallOptions
+  ): Promise<RelatedRef[]> {
+    const strategy = parseResolution(relationship.resolution.operation);
+    switch (strategy.kind) {
+      case "byForeignKey": {
+        const targets = [...(this.recordsByType.get(relationship.targetType)?.values() ?? [])];
+        return targets.filter((r) => r.values[strategy.field] === sourceObjectId).map((r) => ({ objectId: r.objectId }));
+      }
+      case "byOwnField": {
+        // The source record's own field value IS the target's object id
+        // (e.g. Appointment.providerId names which Provider this Appointment is with).
+        const source = this.recordsByType.get(relationship.sourceType)?.get(sourceObjectId);
+        const targetId = source?.values[strategy.field];
+        return typeof targetId === "string" ? [{ objectId: targetId }] : [];
+      }
+      case "byJoinTable": {
+        if (strategy.dataSourceId && strategy.dataSourceId !== this.dataSourceId) {
+          throw new UnsupportedResolutionError(
+            `InMemoryRepositoryAdapter cannot resolve a byJoinTable whose join collection lives in another data source ("${strategy.dataSourceId}")`
+          );
+        }
+        const joins = [...(this.recordsByType.get(strategy.joinType)?.values() ?? [])];
+        return joins
+          .filter((r) => r.values[strategy.sourceKey] === sourceObjectId)
+          .map((r) => r.values[strategy.targetKey])
+          .filter((id): id is string => typeof id === "string")
+          .map((objectId) => ({ objectId }));
+      }
+      case "byCompositeKey": {
+        const source = this.recordsByType.get(relationship.sourceType)?.get(sourceObjectId);
+        if (!source) return [];
+        const targets = [...(this.recordsByType.get(relationship.targetType)?.values() ?? [])];
+        return targets
+          .filter((r) => strategy.keys.every((k) => r.values[k.targetField] === source.values[k.sourceField]))
+          .map((r) => ({ objectId: r.objectId }));
+      }
     }
-
-    // byOwnField: the source record's own field value IS the target's object id
-    // (e.g. Appointment.providerId names which Provider this Appointment is with).
-    const sourceRecord = this.recordsByType.get(relationship.sourceType)?.get(sourceObjectId);
-    const targetId = sourceRecord?.values[field];
-    return typeof targetId === "string" ? [{ objectId: targetId }] : [];
   }
 
   async executeAction(action: ActionDefinition, _input: unknown, _ctx: ActionContext): Promise<unknown> {

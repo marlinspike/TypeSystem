@@ -74,7 +74,7 @@ describe("InMemoryRepositoryAdapter", () => {
     const adapter = new InMemoryRepositoryAdapter("mem");
     await expect(
       adapter.resolveRelationship(relationship({ resolution: { dataSourceId: "mem", operation: "byWhatever:x" } }), "s1")
-    ).rejects.toThrow(/only supports/);
+    ).rejects.toThrow(/Unknown relationship resolution strategy/);
   });
 
   it("put via seed() overwrites — seeding the same objectId twice keeps the latest", () => {
