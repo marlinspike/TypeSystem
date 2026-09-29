@@ -99,3 +99,7 @@ other reasonable way.
 | [0023](adr/0023-multi-source-property-composition.md) | `getObject`/`query` merge a Type's base wildcard mapping with per-property overrides from other DataSources into one object read. |
 | [0024](adr/0024-production-readiness-gap.md) | The decision to document (not close) the production-readiness gap in this pass; the ranked list itself lives in [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md). |
 | [0025](adr/0025-multi-instance-deployment.md) | Shared Redis `Cache`/`RateLimiter` for multiple replicas, advisory-locked migrations, one concurrency budget per request, and a load test that proves them. |
+| [0026](adr/0026-adapter-call-resilience.md) | _(Proposed)_ Per-adapter-call timeout + `AbortSignal` cancellation, idempotent-only retries with backoff, a per-DataSource circuit breaker, and reconciled `maxConcurrency`/pool defaults. |
+| [0027](adr/0027-query-dsl-extensions.md) | _(Proposed)_ Sort, projection (`select`), a separate `aggregate` query + tool, and full-text `search` as a per-adapter capability — all optional, all fail-closed under policy. |
+| [0028](adr/0028-relationship-resolution-strategies.md) | _(Proposed)_ Relationships beyond foreign keys: a closed, parsed strategy set (`byJoinTable`, `byCompositeKey`) plus bounded, filterable, ordered traversal. |
+| [0029](adr/0029-deployment-artifacts.md) | _(Proposed)_ A multi-stage `Dockerfile`, `docker-compose` topology, reference Kubernetes manifests, and `/healthz`/`/readyz` — making ADR-0025's multi-replica design runnable. |
