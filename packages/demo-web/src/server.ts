@@ -1,23 +1,124 @@
 import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
-import express, { type Request, type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, type Identity, type SemanticQuery, type TypeDefinition } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
+import {
+  AuthorizationError,
+  InMemoryRateLimiter,
+  InvalidInputError,
+  NotFoundError,
+  PreconditionFailedError,
+  RateLimitExceededError,
+  buildRuntime,
+  coreManifest,
+  type Adapter,
+  type Identity,
+  type RateLimiter,
+  type SemanticQuery,
+  type TypeDefinition
+} from "@typesys/core";
+import { airforceManifest, airforcePolicyRules, buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
+import { buildHospitalTestbed, hospitalDemoIdentities, hospitalManifest, hospitalPolicyRules } from "@typesys/domain-hospital";
 import { createServer as createMcpServer } from "@typesys/mcp-server";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const IDENTITY_KEYS = ["maintainer", "viewer", "anonymous"] as const;
-type IdentityKey = (typeof IDENTITY_KEYS)[number];
+/**
+ * Deliberately low, so the per-request concurrency budget (ADR-0025) is visible: a query with
+ * nested includes fans out to dozens of adapter calls, but never more than this many at once.
+ */
+const DEMO_MAX_CONCURRENCY = 4;
 
-function isIdentityKey(value: unknown): value is IdentityKey {
-  return typeof value === "string" && (IDENTITY_KEYS as readonly string[]).includes(value);
-}
+/**
+ * Rate limiting applies to one dedicated identity, so the burst demo can exhaust a budget without
+ * throttling the identities you're clicking around as.
+ */
+const BURST_IDENTITY: Identity = { subjectId: "demo-burst-tester", roles: ["maintainer"], attributes: {} };
+const BURST_LIMIT = { capacity: 20, refillPerSecond: 5 };
+
+const IDENTITIES = {
+  maintainer: { identity: demoIdentities.maintainer, domain: "airforce", token: "demo-maintainer-token" },
+  viewer: { identity: demoIdentities.viewer, domain: "airforce", token: "demo-viewer-token" },
+  clinician: { identity: hospitalDemoIdentities.clinician, domain: "hospital", token: "demo-clinician-token" },
+  patient: { identity: hospitalDemoIdentities.patient, domain: "hospital", token: "demo-patient-token" },
+  anonymous: { identity: demoIdentities.anonymous, domain: "none", token: "" }
+} as const;
+type IdentityKey = keyof typeof IDENTITIES;
 
 function resolveIdentity(key: unknown): Identity {
-  return isIdentityKey(key) ? demoIdentities[key] : demoIdentities.anonymous;
+  return typeof key === "string" && key in IDENTITIES ? IDENTITIES[key as IdentityKey].identity : demoIdentities.anonymous;
+}
+
+// ---------------------------------------------------------------------------
+// Per-request adapter statistics
+// ---------------------------------------------------------------------------
+
+interface RequestStats {
+  calls: Record<string, number>;
+  inFlight: number;
+  peakInFlight: number;
+  startedAt: number;
+}
+
+/** One stats record per HTTP request, so concurrent requests from the browser don't mix their numbers. */
+const requestStats = new AsyncLocalStorage<RequestStats>();
+
+/**
+ * Wraps an adapter so every call is counted against the current HTTP request's stats. The
+ * runtime wraps this again in its own concurrency gate, so `peakInFlight` shows the budget at work.
+ */
+function tracked<A extends Adapter>(adapter: A): A {
+  return new Proxy(adapter, {
+    get(target, prop, receiver) {
+      const value: unknown = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function") return value;
+      return async (...args: unknown[]) => {
+        const stats = requestStats.getStore();
+        if (!stats) return (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+        stats.calls[target.dataSourceId] = (stats.calls[target.dataSourceId] ?? 0) + 1;
+        stats.inFlight++;
+        stats.peakInFlight = Math.max(stats.peakInFlight, stats.inFlight);
+        try {
+          return await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+        } finally {
+          stats.inFlight--;
+        }
+      };
+    }
+  });
+}
+
+/** Sends JSON with this request's adapter stats in an `X-TypeS-Stats` header, read by the status bar. */
+function sendJson(res: Response, status: number, body: unknown): void {
+  const stats = requestStats.getStore();
+  if (stats) {
+    res.setHeader(
+      "X-TypeS-Stats",
+      JSON.stringify({ calls: stats.calls, peakInFlight: stats.peakInFlight, durationMs: Math.round(performance.now() - stats.startedAt) })
+    );
+  }
+  res.status(status).json(body);
+}
+
+function sendError(res: Response, err: unknown): void {
+  const known: [new (...args: never[]) => Error, number][] = [
+    [AuthorizationError, 403],
+    [NotFoundError, 404],
+    [InvalidInputError, 400],
+    [PreconditionFailedError, 422],
+    [RateLimitExceededError, 429]
+  ];
+  for (const [ErrorClass, status] of known) {
+    if (err instanceof ErrorClass) {
+      const reason = err instanceof AuthorizationError ? err.reason : undefined;
+      sendJson(res, status, { error: err.name, message: err.message, ...(reason ? { reason } : {}) });
+      return;
+    }
+  }
+  console.error(err);
+  sendJson(res, 500, { error: "InternalError", message: err instanceof Error ? err.message : String(err) });
 }
 
 function describeType(typeDef: TypeDefinition) {
@@ -31,191 +132,197 @@ function describeType(typeDef: TypeDefinition) {
       name: r.name,
       targetType: r.targetType,
       cardinality: r.cardinality,
-      inverseName: r.inverseName
+      inverseName: r.inverseName,
+      dataSourceId: r.resolution.dataSourceId
     })),
     actionNames: typeDef.actionNames,
     computedPropertyNames: typeDef.computedProperties.map((c) => c.name),
+    computedProperties: typeDef.computedProperties.map((c) => ({ name: c.name, dependsOn: c.dependsOn, resolutionMode: c.resolutionMode })),
+    objectPolicy: typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny",
     propertyPolicies: typeDef.schema["x-policy"]?.propertyPolicies ?? {},
     schema: typeDef.schema
   };
 }
 
-function sendError(res: Response, err: unknown): void {
-  if (err instanceof AuthorizationError) {
-    res.status(403).json({ error: "AuthorizationError", message: err.message, reason: err.reason });
-    return;
-  }
-  if (err instanceof NotFoundError) {
-    res.status(404).json({ error: "NotFoundError", message: err.message });
-    return;
-  }
-  if (err instanceof InvalidInputError) {
-    res.status(400).json({ error: "InvalidInputError", message: err.message });
-    return;
-  }
-  if (err instanceof PreconditionFailedError) {
-    res.status(422).json({ error: "PreconditionFailedError", message: err.message });
-    return;
-  }
-  console.error(err);
-  res.status(500).json({ error: "InternalError", message: err instanceof Error ? err.message : String(err) });
-}
-
 async function main(): Promise<void> {
-  const testbed = await buildAirforceTestbed();
-  const { registry, runtime } = testbed;
+  // Each domain's testbed supplies its seeded adapters; one runtime then hosts both domains —
+  // the domain-neutrality claim (ADR-0013), live: two unrelated domains, one registry, one policy engine.
+  const airforce = await buildAirforceTestbed();
+  const hospital = await buildHospitalTestbed();
+  const burstLimiter = new InMemoryRateLimiter(BURST_LIMIT);
+  const rateLimiter: RateLimiter = { tryAcquire: (key) => (key === BURST_IDENTITY.subjectId ? burstLimiter.tryAcquire(key) : true) };
 
-  // Wire a second, MCP-protocol-shaped front door onto the SAME registry/runtime
-  // instance, so the "MCP Console" tab proves identical governance, not just
-  // similar-looking code, between the human web path and the AI-agent path.
-  const mcpBundle = await createMcpServer(testbed);
+  const { registry, runtime, policyEngine } = await buildRuntime({
+    manifests: [coreManifest, airforceManifest, hospitalManifest],
+    adapters: [tracked(airforce.inMemoryAdapter), tracked(airforce.mockRestAdapter), tracked(hospital.adapter)],
+    policyRules: { ...airforcePolicyRules, ...hospitalPolicyRules },
+    runtimeOptions: { maxConcurrency: DEMO_MAX_CONCURRENCY, rateLimiter }
+  });
+
+  // A second, MCP-protocol-shaped front door onto the SAME runtime, so the MCP Console proves
+  // identical governance, not just similar-looking code, between the web path and the agent path.
+  const tokenIdentities = new Map<string, Identity>(Object.values(IDENTITIES).filter((i) => i.token).map((i) => [i.token, i.identity]));
+  const mcpBundle = await createMcpServer(
+    { registry, runtime, policyEngine, inMemoryAdapter: airforce.inMemoryAdapter, mockRestAdapter: airforce.mockRestAdapter },
+    (token) => Promise.resolve((token && tokenIdentities.get(token)) || demoIdentities.anonymous)
+  );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const mcpClient = new Client({ name: "typesys-demo-web", version: "0.1.0" });
   await Promise.all([mcpClient.connect(clientTransport), mcpBundle.server.connect(serverTransport)]);
 
   const app = express();
   app.use(express.json());
+  app.use("/api", (_req: Request, _res: Response, next: NextFunction) => {
+    requestStats.run({ calls: {}, inFlight: 0, peakInFlight: 0, startedAt: performance.now() }, next);
+  });
 
-  app.get("/api/identities", (_req: Request, res: Response) => {
-    res.json(
-      IDENTITY_KEYS.map((key) => ({
-        key,
-        subjectId: demoIdentities[key].subjectId,
-        roles: demoIdentities[key].roles
-      }))
+  /** Wraps a handler so any thrown error becomes a typed JSON error response. */
+  const handle = (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response) => {
+    fn(req, res).catch((err: unknown) => sendError(res, err));
+  };
+
+  app.get("/api/identities", (_req, res) => {
+    sendJson(
+      res,
+      200,
+      Object.entries(IDENTITIES).map(([key, { identity, domain, token }]) => ({ key, domain, token, subjectId: identity.subjectId, roles: identity.roles }))
     );
   });
 
-  app.get("/api/types", async (_req: Request, res: Response) => {
-    const types = await registry.listTypes();
-    res.json(types.map(describeType));
+  app.get("/api/runtime", (_req, res) => {
+    sendJson(res, 200, {
+      queryLimits: runtime.queryLimits,
+      maxConcurrency: DEMO_MAX_CONCURRENCY,
+      rateLimit: { subjectId: BURST_IDENTITY.subjectId, ...BURST_LIMIT },
+      dataSources: [airforce.inMemoryAdapter.dataSourceId, airforce.mockRestAdapter.dataSourceId, hospital.adapter.dataSourceId]
+    });
   });
 
-  app.get("/api/types/:name", async (req: Request, res: Response) => {
-    const typeDef = await registry.getType(req.params.name as string);
-    if (!typeDef) {
-      res.status(404).json({ error: "NotFoundError", message: `Unknown type "${req.params.name as string}"` });
-      return;
-    }
-    res.json(describeType(typeDef));
-  });
+  app.get(
+    "/api/types",
+    handle(async (_req, res) => sendJson(res, 200, (await registry.listTypes()).map(describeType)))
+  );
 
-  app.get("/api/objects/:typeName", async (req: Request, res: Response) => {
-    try {
-      const identity = resolveIdentity(req.query.identity);
-      const result = await runtime.query({ type: req.params.typeName as string }, identity);
-      res.json(result);
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
+  app.get(
+    "/api/types/:name",
+    handle(async (req, res) => {
+      const typeDef = await registry.getType(req.params.name as string);
+      if (!typeDef) throw new NotFoundError(`Unknown type "${req.params.name as string}"`);
+      sendJson(res, 200, describeType(typeDef));
+    })
+  );
 
-  app.get("/api/objects/:typeName/:objectId", async (req: Request, res: Response) => {
-    try {
-      const identity = resolveIdentity(req.query.identity);
-      const object = await runtime.getObject(req.params.typeName as string, req.params.objectId as string, identity, {
+  app.get(
+    "/api/objects/:typeName",
+    handle(async (req, res) => {
+      sendJson(res, 200, await runtime.query({ type: req.params.typeName as string }, resolveIdentity(req.query.identity)));
+    })
+  );
+
+  app.get(
+    "/api/objects/:typeName/:objectId",
+    handle(async (req, res) => {
+      const object = await runtime.getObject(req.params.typeName as string, req.params.objectId as string, resolveIdentity(req.query.identity), {
         includeProvenance: true
       });
-      res.json(object);
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
+      sendJson(res, 200, object);
+    })
+  );
 
-  app.get("/api/objects/:typeName/:objectId/relationships/:relationshipName", async (req: Request, res: Response) => {
-    try {
-      const identity = resolveIdentity(req.query.identity);
+  app.get(
+    "/api/objects/:typeName/:objectId/relationships/:relationshipName",
+    handle(async (req, res) => {
       const related = await runtime.getRelationship(
         req.params.typeName as string,
         req.params.objectId as string,
         req.params.relationshipName as string,
-        identity
+        resolveIdentity(req.query.identity)
       );
-      res.json(related);
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
+      sendJson(res, 200, related);
+    })
+  );
 
-  app.post("/api/query", async (req: Request, res: Response) => {
-    try {
-      const identity = resolveIdentity(req.query.identity);
+  app.get(
+    "/api/objects/:typeName/:objectId/provenance/:propertyPath",
+    handle(async (req, res) => {
+      const provenance = await runtime.getProvenance(
+        req.params.typeName as string,
+        req.params.objectId as string,
+        req.params.propertyPath as string,
+        resolveIdentity(req.query.identity)
+      );
+      sendJson(res, 200, provenance);
+    })
+  );
+
+  app.post(
+    "/api/query",
+    handle(async (req, res) => {
       // Unchecked JSON is fine: SemanticRuntime.query validates it first.
-      const result = await runtime.query(req.body as SemanticQuery, identity);
-      res.json(result);
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
+      sendJson(res, 200, await runtime.query(req.body as SemanticQuery, resolveIdentity(req.query.identity)));
+    })
+  );
 
-  app.get("/api/actions/:typeName", async (req: Request, res: Response) => {
-    const identity = resolveIdentity(req.query.identity);
-    const actions = await runtime.listActions(req.params.typeName as string, identity);
-    res.json(
-      actions.map(({ action, authorized }) => ({
-        name: action.name,
-        description: action.description,
-        inputSchema: action.inputSchema,
-        authorized
-      }))
-    );
-  });
+  app.get(
+    "/api/actions/:typeName",
+    handle(async (req, res) => {
+      const actions = await runtime.listActions(req.params.typeName as string, resolveIdentity(req.query.identity));
+      sendJson(
+        res,
+        200,
+        actions.map(({ action, authorized }) => ({ name: action.name, description: action.description, inputSchema: action.inputSchema, authorized }))
+      );
+    })
+  );
 
-  app.post("/api/actions/:name/invoke", async (req: Request, res: Response) => {
-    const identity = resolveIdentity(req.query.identity);
-    try {
-      const result = await runtime.invokeAction(req.params.name as string, req.body, identity);
-      res.json({ ok: true, result });
-    } catch (err) {
-      if (err instanceof AuthorizationError || err instanceof PreconditionFailedError || err instanceof NotFoundError) {
-        res.json({ ok: false, error: err.constructor.name, message: err.message });
-        return;
-      }
-      sendError(res, err);
-    }
-  });
+  app.post(
+    "/api/actions/:name/invoke",
+    handle(async (req, res) => {
+      sendJson(res, 200, { ok: true, result: await runtime.invokeAction(req.params.name as string, req.body, resolveIdentity(req.query.identity)) });
+    })
+  );
 
-  app.get("/api/audit", async (req: Request, res: Response) => {
-    const limit = Number(req.query.limit ?? 200);
-    const before = typeof req.query.before === "string" ? req.query.before : undefined;
-    const result = await registry.listAuditEvents({ limit, before });
-    res.json(result.items);
-  });
+  // Fires `count` reads at once as the rate-limited burst identity, and reports how many the
+  // token bucket admitted. The budget refills at BURST_LIMIT.refillPerSecond afterwards.
+  app.post(
+    "/api/playground/burst",
+    handle(async (req, res) => {
+      const count = Math.min(200, Math.max(1, Number((req.body as { count?: number }).count ?? 50)));
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: count }, () => runtime.getObject("airforce.Aircraft", "AF86-0147", BURST_IDENTITY))
+      );
+      const denied = outcomes.filter((o) => o.status === "rejected" && o.reason instanceof RateLimitExceededError).length;
+      const failed = outcomes.filter((o) => o.status === "rejected" && !(o.reason instanceof RateLimitExceededError)).length;
+      sendJson(res, 200, { count, allowed: count - denied - failed, denied, failed, ...BURST_LIMIT });
+    })
+  );
+
+  app.get(
+    "/api/audit",
+    handle(async (req, res) => {
+      const limit = Math.min(500, Number(req.query.limit ?? 300));
+      const before = typeof req.query.before === "string" ? req.query.before : undefined;
+      sendJson(res, 200, (await registry.listAuditEvents({ limit, before })).items);
+    })
+  );
 
   // MCP Console bridge: the exact same tool/resource calls an AI agent would make.
-  app.get("/api/mcp/resources", async (_req: Request, res: Response) => {
-    try {
-      res.json(await mcpClient.listResources());
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
-
-  app.get("/api/mcp/tools", async (_req: Request, res: Response) => {
-    try {
-      res.json(await mcpClient.listTools());
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
-
-  app.post("/api/mcp/resource", async (req: Request, res: Response) => {
-    try {
+  app.get("/api/mcp/resources", handle(async (_req, res) => sendJson(res, 200, await mcpClient.listResources())));
+  app.get("/api/mcp/tools", handle(async (_req, res) => sendJson(res, 200, await mcpClient.listTools())));
+  app.post(
+    "/api/mcp/resource",
+    handle(async (req, res) => {
       const { uri } = req.body as { uri: string };
-      res.json(await mcpClient.readResource({ uri }));
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
-
-  app.post("/api/mcp/tool", async (req: Request, res: Response) => {
-    try {
+      sendJson(res, 200, await mcpClient.readResource({ uri }));
+    })
+  );
+  app.post(
+    "/api/mcp/tool",
+    handle(async (req, res) => {
       const { name, arguments: args } = req.body as { name: string; arguments?: Record<string, unknown> };
-      res.json(await mcpClient.callTool({ name, arguments: args }));
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
+      sendJson(res, 200, await mcpClient.callTool({ name, arguments: args }));
+    })
+  );
 
   app.use(express.static(path.join(__dirname, "../public")));
 

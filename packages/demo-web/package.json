@@ -1,7 +1,7 @@
 {
   "name": "@typesys/demo-web",
   "version": "0.1.0",
-  "description": "Interactive web demo for TypeS — browse Types, navigate relationships, invoke governed Actions, and watch policy/audit react live.",
+  "description": "Interactive web demo for TypeS: two domains on one runtime, provenance, live guardrail scenarios, the MCP console, and a live audit log.",
   "private": true,
   "type": "module",
   "main": "./dist/server.js",
@@ -25,6 +25,7 @@
   "dependencies": {
     "@typesys/core": "0.1.0",
     "@typesys/domain-airforce": "0.1.0",
+    "@typesys/domain-hospital": "0.1.0",
     "@typesys/mcp-server": "0.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "express": "5.2.1"

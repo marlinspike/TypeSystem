@@ -5,5 +5,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../domain-airforce" }, { "path": "../mcp-server" }]
+  "references": [{ "path": "../core" }, { "path": "../domain-airforce" }, { "path": "../domain-hospital" }, { "path": "../mcp-server" }]
 }
