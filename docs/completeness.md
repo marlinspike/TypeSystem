@@ -71,6 +71,14 @@ document that gap rather than close it in this pass.
 - One concurrency budget per request: `maxConcurrency` caps the adapter
   calls of a whole top-level call, nested fan-out and computed properties
   included, rather than each fan-out level separately (ADR-0025).
+- Deployment artifacts (ADR-0029): `/healthz` and `/readyz` on the HTTP
+  transport (covered by `packages/mcp-server/test/http-health.test.ts`), a
+  multi-stage `Dockerfile`, a `docker-compose.yml` (Postgres + Redis + one-shot
+  migration + N app replicas + nginx), and reference Kubernetes manifests
+  (`deploy/k8s/`) with probes and a migration `Job`. The container/compose/k8s
+  files are inspected reference artifacts — correct and runnable, but not built
+  or run in CI, and not production-hardened (image scanning, secrets, TLS
+  remain `PRODUCTION-READINESS.md` items).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is
@@ -118,8 +126,12 @@ document that gap rather than close it in this pass.
 
 ## Real but narrow — the mechanism exists, exercised once
 
-- Property-level policy is demonstrated on two fields across two domains
-  (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`).
+- Property-level policy is exercised on several fields, not just the two
+  demo-domain ones (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`):
+  a dedicated suite (`packages/core/test/property-policy.test.ts`) covers role-
+  and attribute-based (ABAC) property policies across getObject redaction,
+  getProvenance denial, query projection, and fail-closed filtering, with
+  partial per-caller visibility.
 - The query DSL covers filter, sort, projection (`select`), pagination,
   relationship includes, grouped aggregation (`runtime.aggregate()` + the MCP
   `aggregate` tool), and case-insensitive `search` / `icontains` — all

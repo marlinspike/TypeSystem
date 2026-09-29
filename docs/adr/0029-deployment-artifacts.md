@@ -2,10 +2,22 @@
 
 ## Status
 
-Proposed — written ahead of implementation (an ADR-first workflow), unlike
-the accepted ADRs that describe code already in the tree. It flips to
-Accepted, with the concrete "proven, not assumed" evidence (test names,
-measured numbers) filled in, when the implementation lands.
+Accepted — implemented. `/healthz` and `/readyz` added to the HTTP transport
+(`createHttpApp`), proven by `packages/mcp-server/test/http-health.test.ts`; a
+multi-stage `Dockerfile` + `.dockerignore`; a `docker-compose.yml` (Postgres,
+Redis, a one-shot migration, N `app` replicas, an nginx load balancer);
+flat reference Kubernetes manifests (`deploy/k8s/`) with liveness/readiness
+probes, a migration `Job`, a `ConfigMap`, and an example `Secret`; and a deploy
+how-to (`docs/how-to/deploy-with-containers.md`).
+
+Amendments vs. the decision below: `/readyz` checks that the registry store
+answers (a cheap `listActions`), which already goes `503` when a Postgres-backed
+store is unreachable; a *separate* Redis probe wasn't added, because the shipped
+demo server doesn't wire Redis. The reference image keeps dev dependencies for
+simplicity (a production build prunes them or uses distroless — see
+Alternatives). And the Docker build / `compose up` were **not run** in the
+authoring environment: the container, compose, and k8s files are inspected
+reference artifacts; only the health endpoints are covered by an automated test.
 
 ## Context
 

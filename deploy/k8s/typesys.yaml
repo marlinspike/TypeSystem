@@ -1,0 +1,84 @@
+# Reference Kubernetes manifests for the TypeS MCP server (ADR-0025, ADR-0029).
+#
+# Flat YAML on purpose — tool-agnostic and readable. A real deployment would template these
+# (Helm/Kustomize), pin the image by digest, and add resource requests/limits, a
+# PodDisruptionBudget, and an HPA. Apply with:  kubectl apply -f deploy/k8s/
+#
+# Before applying: replace REGISTRY/typesys-mcp-server:TAG with your built-and-pushed image, and
+# create the Secret named `typesys-secrets` out-of-band (see secret.example.yaml) — never commit
+# real secret values.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: typesys-config
+data:
+  PORT: "3939"
+---
+# Runs the advisory-lock-safe migrations (ADR-0025) once before/independently of the rollout.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: typesys-migrate
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: REGISTRY/typesys-mcp-server:TAG
+          command: ["npm", "run", "migrate:postgres"]
+          envFrom:
+            - secretRef:
+                name: typesys-secrets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: typesys-mcp-server
+  labels:
+    app: typesys-mcp-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: typesys-mcp-server
+  template:
+    metadata:
+      labels:
+        app: typesys-mcp-server
+    spec:
+      containers:
+        - name: mcp-server
+          image: REGISTRY/typesys-mcp-server:TAG
+          ports:
+            - containerPort: 3939
+          envFrom:
+            - configMapRef:
+                name: typesys-config
+            - secretRef:
+                name: typesys-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3939
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3939
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: typesys-mcp-server
+spec:
+  selector:
+    app: typesys-mcp-server
+  ports:
+    - port: 80
+      targetPort: 3939

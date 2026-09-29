@@ -42,6 +42,7 @@ instead of re-explaining it.
 | [`generate-typescript-types.md`](how-to/generate-typescript-types.md) | Get autocomplete/type-safety for objects this registry returns. |
 | [`run-multiple-instances.md`](how-to/run-multiple-instances.md) | Run several replicas with a shared cache and rate limiter, and load-test them. |
 | [`run-mcp-over-http.md`](how-to/run-mcp-over-http.md) | Serve the MCP server to a real network client instead of a local stdio process. |
+| [`deploy-with-containers.md`](how-to/deploy-with-containers.md) | Run the MCP server as a container, locally with Docker Compose, and as reference Kubernetes manifests. |
 | [`combine-multiple-sources.md`](how-to/combine-multiple-sources.md) | Stitch one object's (or one graph's) data together from more than one backend system. |
 
 ## Building an AI agent integration?
@@ -102,4 +103,4 @@ other reasonable way.
 | [0026](adr/0026-adapter-call-resilience.md) | Per-adapter-call timeout + `AbortSignal` cancellation, idempotent-only retries with backoff, a per-DataSource circuit breaker, and reconciled `maxConcurrency`/pool defaults. |
 | [0027](adr/0027-query-dsl-extensions.md) | Sort, projection (`select`), a separate `aggregate` query + tool, and full-text `search` desugaring to a uniform `icontains` operator — all optional, all fail-closed under policy. |
 | [0028](adr/0028-relationship-resolution-strategies.md) | Relationships beyond foreign keys: a closed, parsed strategy set (`byJoinTable`, `byCompositeKey`) plus bounded, ordered traversal (`maxRelatedPerObject`, include `sort`/`limit`). |
-| [0029](adr/0029-deployment-artifacts.md) | _(Proposed)_ A multi-stage `Dockerfile`, `docker-compose` topology, reference Kubernetes manifests, and `/healthz`/`/readyz` — making ADR-0025's multi-replica design runnable. |
+| [0029](adr/0029-deployment-artifacts.md) | A multi-stage `Dockerfile`, `docker-compose` topology, reference Kubernetes manifests, and `/healthz`/`/readyz` — making ADR-0025's multi-replica design runnable. |
