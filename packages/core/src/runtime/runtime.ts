@@ -9,7 +9,7 @@ import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult } from "../model/query.js";
+import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
@@ -18,6 +18,7 @@ import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
+import { applyProjection } from "./query-ops.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
 
@@ -506,7 +507,11 @@ export class SemanticRuntime {
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
         if (q.filter) {
           this.rejectComputedFilterProperties(typeDef, q.filter);
-          await this.requireFilterableProperties(typeDef, q.filter, identity);
+          await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
+        }
+        if (q.sort) {
+          this.rejectComputedSortProperties(typeDef, q.sort);
+          await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
         }
 
         // Listing/filtering/pagination is inherently single-source — only the base
@@ -514,7 +519,7 @@ export class SemanticRuntime {
         // are merged per item below, not folded into this call.
         const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
         const adapter = this.getAdapter(base.dataSourceId);
-        const result = await adapter.queryByType(q.type, q.filter, q.limit, q.cursor);
+        const result = await adapter.queryByType(q.type, q.filter, q.limit, q.cursor, q.sort);
 
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
@@ -524,11 +529,14 @@ export class SemanticRuntime {
         const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
           const merged = await this.mergeOverrides(q.type, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
           const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, merged);
+          // Projection trims the object's own properties, after redaction (ADR-0027); requested
+          // includes are assigned afterward so they survive it.
+          const projected = applyProjection(values, q.select);
           const resolved: ResolvedObject = {
             typeName: q.type,
             objectId: item.objectId,
-            values,
-            ...(q.includeProvenance ? { provenance } : {})
+            values: projected,
+            ...(q.includeProvenance ? { provenance: q.select ? provenance.filter((p) => p.propertyPath in projected) : provenance } : {})
           };
           if (q.include) {
             Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, q.include, identity));
@@ -559,16 +567,34 @@ export class SemanticRuntime {
   }
 
   /**
-   * The top-level filter runs in the adapter, against raw values, *before*
-   * property-level redaction. So a filter on a property the caller can't
-   * read would still select by its hidden value, and which objects come
-   * back would reveal it. Reject such a query outright (audited as a deny)
-   * rather than answer it. Checked per Type, not per object: a policy that
-   * only allows some objects' values denies the filter, failing closed.
+   * The top-level sort runs in the adapter too, so — exactly like a filter —
+   * it cannot order by a computed property, which doesn't exist until after
+   * the adapter has returned its page. Reject it with a clear pointer (ADR-0027).
    */
-  private async requireFilterableProperties(typeDef: TypeDefinition, filter: QueryFilter, identity: Identity): Promise<void> {
+  private rejectComputedSortProperties(typeDef: TypeDefinition, sort: SortKey[]): void {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    const used = sort.map((s) => s.property).filter((p) => computed.has(p));
+    if (used.length > 0) {
+      throw new InvalidInputError(
+        `Invalid query: cannot sort "${typeDef.name}" on computed ${used.length === 1 ? "property" : "properties"} ` +
+          `${used.map((p) => `"${p}"`).join(", ")}; computed values don't exist until after the adapter has sorted. ` +
+          `Sort the results client-side instead.`
+      );
+    }
+  }
+
+  /**
+   * A top-level filter or sort runs in the adapter, against raw values,
+   * *before* property-level redaction. So filtering or ordering by a property
+   * the caller can't read would still select or position objects by its
+   * hidden value, and which objects come back — or in what order — would
+   * reveal it. Reject such a query outright (audited as a deny) rather than
+   * answer it. Checked per Type, not per object: a policy that only allows
+   * some objects' values denies the whole query, failing closed.
+   */
+  private async requireReadableProperties(typeDef: TypeDefinition, propertyNames: Iterable<string>, identity: Identity): Promise<void> {
     const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
-    for (const property of filterProperties(filter)) {
+    for (const property of propertyNames) {
       const policyName = propertyPolicies[property];
       if (!policyName) continue;
       await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, propertyPath: property });
@@ -593,6 +619,11 @@ export class SemanticRuntime {
     const results = await mapWithConcurrency(includes, this.maxConcurrency, async (inc) => {
       const related = await this.getRelationship(typeName, objectId, inc.relationship, identity);
       const kept = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
+      // Projection (ADR-0027) runs AFTER the include filter (which sees full visible values, so
+      // trimming can't change what matched) and BEFORE nested includes are assigned, so those survive.
+      if (inc.select) {
+        for (const r of kept) r.values = applyProjection(r.values, inc.select);
+      }
       const nested = inc.include;
       if (nested && nested.length > 0) {
         await mapWithConcurrency(kept, this.maxConcurrency, async (r) => {

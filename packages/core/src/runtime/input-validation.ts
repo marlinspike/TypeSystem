@@ -24,6 +24,10 @@ export interface QueryLimits {
   maxFilterDepth: number;
   /** Most leaf conditions allowed in any one filter, top-level or include-level. */
   maxFilterConditions: number;
+  /** Most sort keys allowed on one query (ADR-0027). */
+  maxSortKeys: number;
+  /** Most properties allowed in one `select` projection, top-level or per-include (ADR-0027). */
+  maxSelect: number;
 }
 
 export const DEFAULT_QUERY_LIMITS: QueryLimits = {
@@ -32,7 +36,9 @@ export const DEFAULT_QUERY_LIMITS: QueryLimits = {
   maxIncludes: 10,
   maxIncludeDepth: 3,
   maxFilterDepth: 8,
-  maxFilterConditions: 100
+  maxFilterConditions: 100,
+  maxSortKeys: 8,
+  maxSelect: 100
 };
 
 /**
@@ -56,6 +62,26 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
     properties: {
       type: { type: "string", pattern: NAME_PATTERN, maxLength: 256, description: "Logical type name to query, e.g. airforce.Aircraft" },
       filter: { $ref: "#/$defs/filter" },
+      sort: {
+        type: "array",
+        maxItems: limits.maxSortKeys,
+        items: {
+          type: "object",
+          properties: {
+            property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+            direction: { enum: ["asc", "desc"] }
+          },
+          required: ["property"],
+          additionalProperties: false
+        },
+        description: "Order the result page by these keys, in priority order"
+      },
+      select: {
+        type: "array",
+        maxItems: limits.maxSelect,
+        items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
+        description: "Return only these properties on each object (requested includes are still returned)"
+      },
       include: {
         type: "array",
         maxItems: limits.maxIncludes,
@@ -106,6 +132,7 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
         properties: {
           relationship: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
           filter: { $ref: "#/$defs/filter" },
+          select: { type: "array", maxItems: limits.maxSelect, items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 } },
           include: { type: "array", maxItems: limits.maxIncludes, items: { $ref: "#/$defs/include" } }
         },
         required: ["relationship"],

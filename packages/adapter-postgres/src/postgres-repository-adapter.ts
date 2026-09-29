@@ -1,7 +1,9 @@
 import type { Pool } from "pg";
 import {
   matchesFilter,
+  applySort,
   type Adapter,
+  type AdapterCallOptions,
   type AdapterQueryResult,
   type RelatedRef,
   type ResolvedProperties,
@@ -9,7 +11,8 @@ import {
   type ActionDefinition,
   type ProvenanceRef,
   type QueryFilter,
-  type RelationshipDefinition
+  type RelationshipDefinition,
+  type SortKey
 } from "@typesys/core";
 
 function parseOperation(operation: string): { kind: "byForeignKey" | "byOwnField"; field: string } {
@@ -80,18 +83,23 @@ export class PostgresRepositoryAdapter implements Adapter {
     typeName: string,
     filter?: QueryFilter,
     limit?: number,
-    cursor?: string
+    cursor?: string,
+    sort?: SortKey[],
+    _opts?: AdapterCallOptions
   ): Promise<AdapterQueryResult> {
+    // Default order is object_id (stable paging); an explicit `sort` (ADR-0027) overrides it, applied
+    // in JS over the fetched-and-filtered set — consistent with this adapter's fetch-then-page shape.
     const { rows } = await this.pool.query<{ object_id: string; values: Record<string, unknown> }>(
       `SELECT object_id, values FROM objects WHERE type_name = $1 ORDER BY object_id`,
       [typeName]
     );
     const filtered = filter ? rows.filter((r) => matchesFilter(r.values, filter)) : rows;
+    const sorted = applySort(filtered, sort, (r) => r.values);
 
     const startIndex = cursor ? Number(cursor) : 0;
-    const pageSize = limit ?? filtered.length;
-    const page = filtered.slice(startIndex, startIndex + pageSize);
-    const nextCursor = startIndex + pageSize < filtered.length ? String(startIndex + pageSize) : undefined;
+    const pageSize = limit ?? sorted.length;
+    const page = sorted.slice(startIndex, startIndex + pageSize);
+    const nextCursor = startIndex + pageSize < sorted.length ? String(startIndex + pageSize) : undefined;
 
     return {
       items: page.map((r) => ({

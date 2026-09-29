@@ -1,6 +1,8 @@
 import {
   matchesFilter,
+  applySort,
   type Adapter,
+  type AdapterCallOptions,
   type AdapterQueryResult,
   type RelatedRef,
   type ResolvedProperties,
@@ -8,7 +10,8 @@ import {
   type ActionDefinition,
   type ProvenanceRef,
   type QueryFilter,
-  type RelationshipDefinition
+  type RelationshipDefinition,
+  type SortKey
 } from "@typesys/core";
 
 export interface InMemoryRecord {
@@ -70,15 +73,18 @@ export class InMemoryRepositoryAdapter implements Adapter {
     typeName: string,
     filter?: QueryFilter,
     limit?: number,
-    cursor?: string
+    cursor?: string,
+    sort?: SortKey[],
+    _opts?: AdapterCallOptions
   ): Promise<AdapterQueryResult> {
     const all = [...(this.recordsByType.get(typeName)?.values() ?? [])];
     const filtered = filter ? all.filter((r) => matchesFilter(r.values, filter)) : all;
+    const sorted = applySort(filtered, sort, (r) => r.values);
 
     const startIndex = cursor ? Number(cursor) : 0;
-    const pageSize = limit ?? filtered.length;
-    const page = filtered.slice(startIndex, startIndex + pageSize);
-    const nextCursor = startIndex + pageSize < filtered.length ? String(startIndex + pageSize) : undefined;
+    const pageSize = limit ?? sorted.length;
+    const page = sorted.slice(startIndex, startIndex + pageSize);
+    const nextCursor = startIndex + pageSize < sorted.length ? String(startIndex + pageSize) : undefined;
 
     return {
       items: page.map((r) => ({

@@ -1,7 +1,7 @@
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { QueryFilter } from "../model/query.js";
+import type { QueryFilter, SortKey } from "../model/query.js";
 import type { ActionContext } from "../model/context.js";
 
 export interface ResolvedProperties {
@@ -43,7 +43,7 @@ export interface AdapterCallOptions {
 export interface Adapter {
   readonly dataSourceId: string;
   resolveProperties(typeName: string, objectId: string, propertyNames: string[], opts?: AdapterCallOptions): Promise<ResolvedProperties>;
-  queryByType(typeName: string, filter?: QueryFilter, limit?: number, cursor?: string, opts?: AdapterCallOptions): Promise<AdapterQueryResult>;
+  queryByType(typeName: string, filter?: QueryFilter, limit?: number, cursor?: string, sort?: SortKey[], opts?: AdapterCallOptions): Promise<AdapterQueryResult>;
   resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string, opts?: AdapterCallOptions): Promise<RelatedRef[]>;
   executeAction(action: ActionDefinition, input: unknown, ctx: ActionContext, opts?: AdapterCallOptions): Promise<unknown>;
 }

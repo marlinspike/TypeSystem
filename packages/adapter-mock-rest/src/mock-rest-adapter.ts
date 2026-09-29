@@ -1,5 +1,6 @@
 import {
   matchesFilter,
+  applySort,
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
@@ -9,7 +10,8 @@ import {
   type ActionDefinition,
   type ProvenanceRef,
   type QueryFilter,
-  type RelationshipDefinition
+  type RelationshipDefinition,
+  type SortKey
 } from "@typesys/core";
 import type { MockRestClient} from "./mock-rest-client.js";
 import { type ExternalMaintenanceRecord, type ExternalWorkOrderRecord } from "./mock-rest-client.js";
@@ -126,11 +128,13 @@ export class MockRestAdapter implements Adapter {
     filter?: QueryFilter,
     limit?: number,
     cursor?: string,
+    sort?: SortKey[],
     opts?: AdapterCallOptions
   ): Promise<AdapterQueryResult> {
     const all = await this.listCanonical(typeName, opts?.signal);
     const filtered = filter ? all.filter((v) => matchesFilter(v, filter)) : all;
-    const { page, nextCursor } = paginate(filtered, limit, cursor);
+    const sorted = applySort(filtered, sort, (v) => v);
+    const { page, nextCursor } = paginate(sorted, limit, cursor);
     return {
       items: page.map((v) => ({
         objectId: v.id as string,
