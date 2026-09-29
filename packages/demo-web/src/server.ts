@@ -16,6 +16,8 @@ import {
   type Adapter,
   type Identity,
   type RateLimiter,
+  type ResiliencePolicy,
+  type SemanticAggregateQuery,
   type SemanticQuery,
   type TypeDefinition
 } from "@typesys/core";
@@ -30,6 +32,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * nested includes fans out to dozens of adapter calls, but never more than this many at once.
  */
 const DEMO_MAX_CONCURRENCY = 4;
+
+/**
+ * Timeout + idempotent-retry + circuit breaker applied to every adapter call (ADR-0026). The demo
+ * backends are fast, so the timeout won't fire in normal use — this is here so the policy is a live
+ * part of the runtime (and shows up in the Guardrails config), not just words in an ADR.
+ */
+const DEMO_RESILIENCE: ResiliencePolicy = {
+  callTimeoutMs: 2000,
+  retry: { maxAttempts: 3, baseDelayMs: 25, maxDelayMs: 250 },
+  circuitBreaker: { failureThreshold: 5, cooldownMs: 10_000 }
+};
 
 /**
  * Rate limiting applies to one dedicated identity, so the burst demo can exhaust a budget without
@@ -156,7 +169,7 @@ async function main(): Promise<void> {
     manifests: [coreManifest, airforceManifest, hospitalManifest],
     adapters: [tracked(airforce.inMemoryAdapter), tracked(airforce.mockRestAdapter), tracked(hospital.adapter)],
     policyRules: { ...airforcePolicyRules, ...hospitalPolicyRules },
-    runtimeOptions: { maxConcurrency: DEMO_MAX_CONCURRENCY, rateLimiter }
+    runtimeOptions: { maxConcurrency: DEMO_MAX_CONCURRENCY, rateLimiter, resilience: DEMO_RESILIENCE }
   });
 
   // A second, MCP-protocol-shaped front door onto the SAME runtime, so the MCP Console proves
@@ -193,6 +206,7 @@ async function main(): Promise<void> {
     sendJson(res, 200, {
       queryLimits: runtime.queryLimits,
       maxConcurrency: DEMO_MAX_CONCURRENCY,
+      resilience: DEMO_RESILIENCE,
       rateLimit: { subjectId: BURST_IDENTITY.subjectId, ...BURST_LIMIT },
       dataSources: [airforce.inMemoryAdapter.dataSourceId, airforce.mockRestAdapter.dataSourceId, hospital.adapter.dataSourceId]
     });
@@ -263,6 +277,15 @@ async function main(): Promise<void> {
     })
   );
 
+  app.post(
+    "/api/aggregate",
+    handle(async (req, res) => {
+      // Grouped aggregation (ADR-0027) through the same governed boundary: SemanticRuntime.aggregate
+      // validates the shape and fails closed on a hidden or computed group/aggregation property.
+      sendJson(res, 200, await runtime.aggregate(req.body as SemanticAggregateQuery, resolveIdentity(req.query.identity)));
+    })
+  );
+
   app.get(
     "/api/actions/:typeName",
     handle(async (req, res) => {
@@ -323,6 +346,18 @@ async function main(): Promise<void> {
       sendJson(res, 200, await mcpClient.callTool({ name, arguments: args }));
     })
   );
+
+  // Liveness/readiness probes (ADR-0029), mirroring the MCP server's — unauthenticated, no stats,
+  // and outside the /api tree. `/readyz` proves the registry answers (503 otherwise).
+  app.get("/healthz", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "ok" });
+  });
+  app.get("/readyz", (_req: Request, res: Response) => {
+    registry
+      .listTypes()
+      .then(() => res.status(200).json({ status: "ready" }))
+      .catch((err: unknown) => res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) }));
+  });
 
   app.use(express.static(path.join(__dirname, "../public")));
 

@@ -853,3 +853,14 @@ select:focus, input[type="text"]:focus, textarea:focus {
 .mcp-custom select, .mcp-custom textarea { width: 100%; }
 .mcp-custom textarea { height: 140px; font-family: var(--font-mono); font-size: 12px; resize: vertical; }
 .mcp-custom .btn { margin-top: 8px; align-self: flex-start; }
+
+/* ===================== Health dot (ADR-0029) ===================== */
+.health-dot { font-size: 12px; line-height: 1; color: var(--text-faint); align-self: center; cursor: default; transition: color 0.2s; }
+.health-dot.health-ok { color: #2ea043; }
+.health-dot.health-bad { color: #d1242f; }
+
+/* ===================== Aggregate result table (ADR-0027) ===================== */
+.agg-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.agg-table th, .agg-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); }
+.agg-table thead th { color: var(--text-dim); font-weight: 700; }
+.agg-table th.num, .agg-table td.num { text-align: right; }

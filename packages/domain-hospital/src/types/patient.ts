@@ -25,6 +25,12 @@ export const PatientType: DomainTypeEntry = {
         cardinality: "one-to-many",
         description: "Appointments scheduled for this patient.",
         resolution: { dataSourceId: HOSPITAL_DATA_SOURCE_ID, operation: "byForeignKey:patientId" }
+      },
+      providers: {
+        target: "hospital.Provider",
+        cardinality: "many-to-many",
+        description: "Providers this patient has appointments with, resolved many-to-many through the Appointment join collection (ADR-0028).",
+        resolution: { dataSourceId: HOSPITAL_DATA_SOURCE_ID, operation: "byJoinTable:hospital.Appointment/patientId/providerId" }
       }
     },
     "x-policy": {
