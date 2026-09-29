@@ -36,6 +36,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - [docs/how-to/generate-typescript-types.md](docs/how-to/generate-typescript-types.md)
 - [docs/how-to/run-multiple-instances.md](docs/how-to/run-multiple-instances.md): shared Redis cache/rate limiter for several replicas, and `npm run load-test`.
 - [docs/how-to/run-mcp-over-http.md](docs/how-to/run-mcp-over-http.md)
+- [docs/how-to/deploy-with-containers.md](docs/how-to/deploy-with-containers.md): Dockerfile, docker-compose, and reference Kubernetes manifests, plus the `/healthz` and `/readyz` endpoints.
 - [docs/how-to/combine-multiple-sources.md](docs/how-to/combine-multiple-sources.md): the three real ways to combine data from multiple sources — start here if that's your question.
 
 ## Key source, if you need ground truth rather than prose
@@ -50,7 +51,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - `packages/adapter-postgres/`, `packages/registry-store-postgres/`: real PostgreSQL-backed implementations of `Adapter`/`RegistryStore` — both optional, env-gated, never a dependency of core.
 - `packages/domain-airforce/`: the reference vertical-slice domain (Aircraft/Component/MaintenanceEvent/WorkOrder) — the pattern every new domain follows.
 - `packages/domain-hospital/`: a second, unrelated domain (Patient/Provider/Appointment) proving that pattern generalizes — no changes to `packages/core` or `packages/mcp-server` needed.
-- `docs/adr/`: 29 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. 0024 records the decision to document, not close, the production-readiness gap (the ranked list itself lives in docs/PRODUCTION-READINESS.md); 0025 records the multi-instance design. 0026 (adapter-call resilience), 0027 (query DSL extensions: sort, projection, aggregation, full-text search), and 0028 (relationship resolution beyond foreign keys: byJoinTable, byCompositeKey, bounded traversal) are implemented; 0029 (deployment artifacts) remains *Proposed* (written ahead of implementation).
+- `docs/adr/`: 29 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. 0024 records the decision to document, not close, the production-readiness gap (the ranked list itself lives in docs/PRODUCTION-READINESS.md); 0025 records the multi-instance design. 0026 (adapter-call resilience), 0027 (query DSL extensions: sort, projection, aggregation, full-text search), 0028 (relationship resolution beyond foreign keys: byJoinTable, byCompositeKey, bounded traversal), and 0029 (deployment artifacts: Dockerfile, docker-compose, reference Kubernetes, /healthz + /readyz) are all implemented and Accepted.
 
 ## Running things
 

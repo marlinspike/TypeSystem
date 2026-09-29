@@ -71,6 +71,14 @@ document that gap rather than close it in this pass.
 - One concurrency budget per request: `maxConcurrency` caps the adapter
   calls of a whole top-level call, nested fan-out and computed properties
   included, rather than each fan-out level separately (ADR-0025).
+- Deployment artifacts (ADR-0029): `/healthz` and `/readyz` on the HTTP
+  transport (covered by `packages/mcp-server/test/http-health.test.ts`), a
+  multi-stage `Dockerfile`, a `docker-compose.yml` (Postgres + Redis + one-shot
+  migration + N app replicas + nginx), and reference Kubernetes manifests
+  (`deploy/k8s/`) with probes and a migration `Job`. The container/compose/k8s
+  files are inspected reference artifacts — correct and runnable, but not built
+  or run in CI, and not production-hardened (image scanning, secrets, TLS
+  remain `PRODUCTION-READINESS.md` items).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is

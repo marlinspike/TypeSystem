@@ -53,6 +53,27 @@ export function createHttpApp(opts: HttpTransportOptions = {}): Express {
     return testbedPromise;
   }
 
+  // Liveness (ADR-0029): the process is up and serving HTTP. Deliberately no
+  // dependency checks, so a transient backend blip doesn't trigger a restart
+  // loop. Unauthenticated and side-effect-free — it exposes no domain data.
+  app.get("/healthz", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "ok" });
+  });
+
+  // Readiness (ADR-0029): this replica can actually serve — the registry store
+  // answers a cheap read (listActions). With a Postgres-backed RegistryStore
+  // this returns 503 whenever Postgres is unreachable, which is exactly when a
+  // load balancer should stop routing here. Unauthenticated and side-effect-free.
+  app.get("/readyz", async (_req: Request, res: Response) => {
+    try {
+      const testbed = await getTestbed();
+      await testbed.registry.listActions();
+      res.status(200).json({ status: "ready" });
+    } catch (err) {
+      res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/mcp", async (req: Request, res: Response) => {
     const headerToken = bearerTokenFromHeader(req);
     // A fresh resolver per request, closing over *this* request's header —

@@ -1,0 +1,17 @@
+# Rebuilt inside the image (npm ci + tsc -b), so never copy them into the build context.
+node_modules
+**/node_modules
+dist
+**/dist
+**/*.tsbuildinfo
+
+# Not needed to build or run the server.
+.git
+.github
+.changeset
+docs
+tools
+*.log
+coverage
+**/.DS_Store
+.DS_Store
