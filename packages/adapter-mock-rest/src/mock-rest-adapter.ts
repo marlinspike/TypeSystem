@@ -1,6 +1,8 @@
 import {
   matchesFilter,
   applySort,
+  parseResolution,
+  UnsupportedResolutionError,
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
@@ -19,14 +21,6 @@ import { type ExternalMaintenanceRecord, type ExternalWorkOrderRecord } from "./
 export interface MockRestAdapterTypeMapping {
   maintenanceEventType: string;
   workOrderType: string;
-}
-
-function parseForeignKeyOperation(operation: string): string {
-  const [kind, field] = operation.split(":");
-  if (kind !== "byForeignKey" || !field) {
-    throw new Error(`MockRestAdapter only supports "byForeignKey:<field>" relationship operations, got "${operation}"`);
-  }
-  return field;
 }
 
 function paginate<T>(items: T[], limit?: number, cursor?: string): { page: T[]; nextCursor?: string } {
@@ -150,9 +144,12 @@ export class MockRestAdapter implements Adapter {
     sourceObjectId: string,
     opts?: AdapterCallOptions
   ): Promise<RelatedRef[]> {
-    const field = parseForeignKeyOperation(relationship.resolution.operation);
+    const strategy = parseResolution(relationship.resolution.operation);
+    if (strategy.kind !== "byForeignKey") {
+      throw new UnsupportedResolutionError(`MockRestAdapter only supports byForeignKey relationships, not "${strategy.kind}"`);
+    }
     const targets = await this.listCanonical(relationship.targetType, opts?.signal);
-    return targets.filter((v) => v[field] === sourceObjectId).map((v) => ({ objectId: v.id as string }));
+    return targets.filter((v) => v[strategy.field] === sourceObjectId).map((v) => ({ objectId: v.id as string }));
   }
 
   async executeAction(

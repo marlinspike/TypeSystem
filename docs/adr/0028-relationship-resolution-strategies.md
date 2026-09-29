@@ -2,10 +2,22 @@
 
 ## Status
 
-Proposed — written ahead of implementation (an ADR-first workflow), unlike
-the accepted ADRs that describe code already in the tree. It flips to
-Accepted, with the concrete "proven, not assumed" evidence (test names,
-measured numbers) filled in, when the implementation lands.
+Accepted — implemented in `@typesys/core` (`runtime/resolution.ts`'s
+`parseResolution` + `ResolutionStrategy`) and consumed by all three adapters,
+which no longer parse the operation string themselves. `byJoinTable` and
+`byCompositeKey` join the existing `byForeignKey` / `byOwnField`; the runtime
+caps relationship fan-out at `maxRelatedPerObject` and applies include-level
+`sort` / `limit`. Proven by `packages/core/test/resolution.test.ts` (the
+parser) and `packages/adapter-in-memory/test/relationship-strategies.test.ts`
+(many-to-many through a join, composite-key match, a cross-source join
+rejected with `UnsupportedResolutionError`, the fan-out cap, and include
+sort + limit).
+
+**Scope note (amended from point 2):** cross-*data-source* join tables are
+parsed (`<dataSourceId>@…`) but not yet resolved — an adapter whose data
+source doesn't own the join throws `UnsupportedResolutionError`. Same-source
+join tables, the common M:N case, are fully implemented; the runtime-side
+cross-source orchestration is a clean follow-up.
 
 ## Context
 
@@ -64,14 +76,18 @@ An adapter implements the strategies it can and throws
 rest — the same "clear typed error, never wrong data" contract ADR-0027 uses
 for aggregation.
 
-**2. Join-table and cross-source resolution is a batched two-step, not
-N+1.** For `byJoinTable`, the runtime reads association rows from the join
-`DataSource`'s adapter once, then batch-fetches the targets from the target
-type's adapter — reusing the bounded-concurrency fan-out already in
-`getRelationship` (`mapWithConcurrencySettled`, ADR-0019) rather than one
-round trip per association row. Cross-source relationships already work for
-the simple case (ADR-0006 resolves `Aircraft.maintenance` through a different
-adapter); this generalises that to the association case.
+**2. Join-table resolution reads the association, then the runtime fans out.**
+For a same-source `byJoinTable`, the adapter reads its join collection once
+and returns the target ids; the runtime's existing `getRelationship` then
+batch-fetches those targets through the bounded-concurrency fan-out
+(`mapWithConcurrencySettled`, ADR-0019), never one round trip per association
+row. _(Amended: a join table in a **different** `DataSource` — the
+`<dataSourceId>@` prefix — is parsed but not yet resolved; the adapter that
+owns the relationship can't reach another source's collection, so it throws
+`UnsupportedResolutionError`, and the runtime-orchestrated cross-source read
+is left as a follow-up.)_ Simple cross-source *relationships* already work
+(ADR-0006 resolves `Aircraft.maintenance` through a different adapter); this
+ADR adds the association-table case for same-source joins.
 
 **3. Relationship traversal becomes bounded and shapeable.**
 `Adapter.resolveRelationship(relationship, sourceObjectId, opts?)` gains an

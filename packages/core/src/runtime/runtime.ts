@@ -18,7 +18,7 @@ import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
-import { applyProjection } from "./query-ops.js";
+import { applyProjection, applySort } from "./query-ops.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
 
@@ -460,16 +460,16 @@ export class SemanticRuntime {
 
         const adapter = this.getAdapter(relDef.resolution.dataSourceId);
         const relatedRefs = await this.resolveRelationship(adapter, relDef, objectId);
+        // Bound the *count* of the fan-out: a one-to-many with more related objects than
+        // maxRelatedPerObject (ADR-0028) is truncated, the count-analogue of the maxConcurrency
+        // bound on its concurrency (ADR-0019). The adapter's returned order is preserved.
+        const bounded = relatedRefs.slice(0, this.queryLimits.maxRelatedPerObject);
 
-        // Fan out concurrently, not one sequential round trip per related object — the
-        // classic N+1 pattern for a one-to-many relationship (e.g. an Aircraft with 50
-        // components previously meant 50 sequential getObject calls). Bounded by
-        // maxConcurrency (ADR-0019) rather than a raw Promise.allSettled, so a relationship
-        // with thousands of related objects can't open thousands of simultaneous adapter
-        // calls at once; still preserves relatedRefs order and still lets an unauthorized
-        // related object be silently omitted (ADR's existing behavior) without an early
-        // return aborting the rest of a partially-authorized batch.
-        const settled = await mapWithConcurrencySettled(relatedRefs, this.maxConcurrency, (ref) =>
+        // Fan out concurrently, not one sequential round trip per related object — the classic
+        // N+1 pattern for a one-to-many relationship. Bounded by maxConcurrency (ADR-0019) rather
+        // than a raw Promise.allSettled, and an unauthorized related object is silently omitted
+        // (existing behavior) without aborting the rest of a partially-authorized batch.
+        const settled = await mapWithConcurrencySettled(bounded, this.maxConcurrency, (ref) =>
           this.getObject(relDef.targetType, ref.objectId, identity)
         );
 
@@ -725,9 +725,13 @@ export class SemanticRuntime {
   ): Promise<Record<string, ResolvedObject[]>> {
     const results = await mapWithConcurrency(includes, this.maxConcurrency, async (inc) => {
       const related = await this.getRelationship(typeName, objectId, inc.relationship, identity);
-      const kept = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
-      // Projection (ADR-0027) runs AFTER the include filter (which sees full visible values, so
-      // trimming can't change what matched) and BEFORE nested includes are assigned, so those survive.
+      const filtered = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
+      // Sort then limit the related set (ADR-0028), post-resolution — so an include sort may
+      // reference computed properties (unlike a top-level sort) and both see already-redacted values.
+      const sorted = inc.sort ? applySort(filtered, inc.sort, (r) => r.values) : filtered;
+      const kept = inc.limit != null ? sorted.slice(0, inc.limit) : sorted;
+      // Projection (ADR-0027) runs AFTER filter/sort/limit (which see full visible values) and
+      // BEFORE nested includes are assigned, so those survive it.
       if (inc.select) {
         for (const r of kept) r.values = applyProjection(r.values, inc.select);
       }

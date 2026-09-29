@@ -132,8 +132,14 @@ document that gap rather than close it in this pass.
   it returns a clear `AggregationNotSupportedError`. Full-text `search` desugars
   to a uniform `icontains` substring match — native per-backend FTS (Postgres
   `to_tsvector`) is a documented per-adapter enhancement, not yet built.
-- Relationship resolution is one convention (`byForeignKey:<field>`,
-  `byOwnField:<field>`), not a general join mechanism.
+- Relationship resolution is a small closed set of strategies parsed by the
+  shared `parseResolution` (ADR-0028): `byForeignKey`, `byOwnField`,
+  many-to-many `byJoinTable` (same-source join collection), and multi-field
+  `byCompositeKey`. All three adapters consume the parsed form; the runtime
+  caps fan-out at `maxRelatedPerObject` and includes take `sort` / `limit`. A
+  cross-data-source join table is parsed but not yet resolved (an adapter that
+  doesn't own the join throws `UnsupportedResolutionError`) — still not a
+  general graph-join engine, by design (ADR-0003).
 - Caching is wired and tested in isolation; the shipped demo domain
   doesn't turn it on for any real mapping (opt-in by design, per
   ADR-0016 — nothing stops you from setting `resolutionMode: "cached"`

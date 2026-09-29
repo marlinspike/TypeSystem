@@ -73,3 +73,11 @@ export class AggregationNotSupportedError extends Error {
     this.name = "AggregationNotSupportedError";
   }
 }
+
+/** An adapter was asked to resolve a relationship strategy it doesn't implement (ADR-0028). */
+export class UnsupportedResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedResolutionError";
+  }
+}

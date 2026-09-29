@@ -3,6 +3,8 @@ import {
   matchesFilter,
   applySort,
   computeAggregations,
+  parseResolution,
+  UnsupportedResolutionError,
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
@@ -17,16 +19,6 @@ import {
   type SemanticAggregateQuery,
   type SortKey
 } from "@typesys/core";
-
-function parseOperation(operation: string): { kind: "byForeignKey" | "byOwnField"; field: string } {
-  const [kind, field] = operation.split(":");
-  if ((kind !== "byForeignKey" && kind !== "byOwnField") || !field) {
-    throw new Error(
-      `PostgresRepositoryAdapter only supports "byForeignKey:<field>"/"byOwnField:<field>" relationship operations, got "${operation}"`
-    );
-  }
-  return { kind, field };
-}
 
 /**
  * The real-backend counterpart to `@typesys/adapter-in-memory` — same
@@ -127,28 +119,76 @@ export class PostgresRepositoryAdapter implements Adapter {
     return computeAggregations(filtered, query);
   }
 
-  async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string): Promise<RelatedRef[]> {
-    const { kind, field } = parseOperation(relationship.resolution.operation);
-
-    if (kind === "byForeignKey") {
-      // Pushed down as a real JSONB query (indexed by the GIN index in the migration),
-      // not a fetch-everything-then-filter-in-JS pass like the in-memory adapter can
-      // afford to do — this is the one place being backed by a real database changes
-      // how resolution should be implemented, not just where the bytes live.
-      const { rows } = await this.pool.query<{ object_id: string }>(
-        `SELECT object_id FROM objects WHERE type_name = $1 AND values ->> $2 = $3`,
-        [relationship.targetType, field, sourceObjectId]
-      );
-      return rows.map((r) => ({ objectId: r.object_id }));
+  async resolveRelationship(
+    relationship: RelationshipDefinition,
+    sourceObjectId: string,
+    _opts?: AdapterCallOptions
+  ): Promise<RelatedRef[]> {
+    const strategy = parseResolution(relationship.resolution.operation);
+    switch (strategy.kind) {
+      case "byForeignKey": {
+        // Pushed down as a real JSONB query (indexed by the GIN index in the migration),
+        // not a fetch-everything-then-filter-in-JS pass like the in-memory adapter can afford —
+        // being backed by a real database changes how resolution is implemented, not just where
+        // the bytes live.
+        const { rows } = await this.pool.query<{ object_id: string }>(
+          `SELECT object_id FROM objects WHERE type_name = $1 AND values ->> $2 = $3`,
+          [relationship.targetType, strategy.field, sourceObjectId]
+        );
+        return rows.map((r) => ({ objectId: r.object_id }));
+      }
+      case "byOwnField": {
+        // The source record's own field value IS the target's object id.
+        const { rows } = await this.pool.query<{ values: Record<string, unknown> }>(
+          `SELECT values FROM objects WHERE type_name = $1 AND object_id = $2`,
+          [relationship.sourceType, sourceObjectId]
+        );
+        const targetId = rows[0]?.values[strategy.field];
+        return typeof targetId === "string" ? [{ objectId: targetId }] : [];
+      }
+      case "byJoinTable": {
+        if (strategy.dataSourceId && strategy.dataSourceId !== this.dataSourceId) {
+          throw new UnsupportedResolutionError(
+            `PostgresRepositoryAdapter cannot resolve a byJoinTable whose join collection lives in another data source ("${strategy.dataSourceId}")`
+          );
+        }
+        // Association rows are ordinary objects of the join type; read the target key off each
+        // row whose source key matches this source object.
+        const { rows } = await this.pool.query<{ target: string | null }>(
+          `SELECT values ->> $2 AS target FROM objects WHERE type_name = $1 AND values ->> $3 = $4`,
+          [strategy.joinType, strategy.targetKey, strategy.sourceKey, sourceObjectId]
+        );
+        return rows
+          .map((r) => r.target)
+          .filter((t): t is string => typeof t === "string")
+          .map((objectId) => ({ objectId }));
+      }
+      case "byCompositeKey": {
+        const { rows: srcRows } = await this.pool.query<{ values: Record<string, unknown> }>(
+          `SELECT values FROM objects WHERE type_name = $1 AND object_id = $2`,
+          [relationship.sourceType, sourceObjectId]
+        );
+        const source = srcRows[0]?.values;
+        if (!source) return [];
+        const conditions: string[] = [];
+        const params: unknown[] = [relationship.targetType];
+        for (const k of strategy.keys) {
+          const sourceValue = source[k.sourceField];
+          // A missing or non-scalar key part matches nothing (composite keys join on scalar fields).
+          if (typeof sourceValue !== "string" && typeof sourceValue !== "number" && typeof sourceValue !== "boolean") {
+            return [];
+          }
+          // Compare as text against the JSONB ->> extraction, the same shape byForeignKey uses.
+          params.push(k.targetField, String(sourceValue));
+          conditions.push(`values ->> $${params.length - 1} = $${params.length}`);
+        }
+        const { rows } = await this.pool.query<{ object_id: string }>(
+          `SELECT object_id FROM objects WHERE type_name = $1 AND ${conditions.join(" AND ")}`,
+          params
+        );
+        return rows.map((r) => ({ objectId: r.object_id }));
+      }
     }
-
-    // byOwnField: the source record's own field value IS the target's object id.
-    const { rows } = await this.pool.query<{ values: Record<string, unknown> }>(
-      `SELECT values FROM objects WHERE type_name = $1 AND object_id = $2`,
-      [relationship.sourceType, sourceObjectId]
-    );
-    const targetId = rows[0]?.values[field];
-    return typeof targetId === "string" ? [{ objectId: targetId }] : [];
   }
 
   async executeAction(action: ActionDefinition, _input: unknown, _ctx: ActionContext): Promise<unknown> {

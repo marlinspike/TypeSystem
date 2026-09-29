@@ -25,6 +25,10 @@ export interface SortKey {
 export interface QueryInclude {
   relationship: string;
   filter?: QueryFilter;
+  /** Order this include's related objects (ADR-0028). Post-resolution, so unlike a top-level sort it may reference computed properties. */
+  sort?: SortKey[];
+  /** Cap how many related objects this include returns (ADR-0028), applied after `filter` and `sort`. */
+  limit?: number;
   /** Projection for this included relationship's objects (ADR-0027): return only these properties (plus nested includes). */
   select?: string[];
   include?: QueryInclude[];

@@ -34,6 +34,8 @@ export interface QueryLimits {
   maxGroupBy: number;
   /** Longest `search.text` accepted (ADR-0027). */
   maxSearchTextLength: number;
+  /** Default ceiling on how many related objects one relationship resolves to per source object (ADR-0028), bounding one-to-many fan-out. */
+  maxRelatedPerObject: number;
 }
 
 export const DEFAULT_QUERY_LIMITS: QueryLimits = {
@@ -47,7 +49,8 @@ export const DEFAULT_QUERY_LIMITS: QueryLimits = {
   maxSelect: 100,
   maxAggregations: 20,
   maxGroupBy: 8,
-  maxSearchTextLength: 256
+  maxSearchTextLength: 256,
+  maxRelatedPerObject: 1000
 };
 
 /**
@@ -156,6 +159,17 @@ export function semanticQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS):
         properties: {
           relationship: { type: "string", pattern: NAME_PATTERN, maxLength: 256 },
           filter: { $ref: "#/$defs/filter" },
+          sort: {
+            type: "array",
+            maxItems: limits.maxSortKeys,
+            items: {
+              type: "object",
+              properties: { property: { type: "string", pattern: NAME_PATTERN, maxLength: 256 }, direction: { enum: ["asc", "desc"] } },
+              required: ["property"],
+              additionalProperties: false
+            }
+          },
+          limit: { type: "integer", minimum: 1, maximum: limits.maxRelatedPerObject },
           select: { type: "array", maxItems: limits.maxSelect, items: { type: "string", pattern: NAME_PATTERN, maxLength: 256 } },
           include: { type: "array", maxItems: limits.maxIncludes, items: { $ref: "#/$defs/include" } }
         },
