@@ -126,8 +126,12 @@ document that gap rather than close it in this pass.
 
 ## Real but narrow — the mechanism exists, exercised once
 
-- Property-level policy is demonstrated on two fields across two domains
-  (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`).
+- Property-level policy is exercised on several fields, not just the two
+  demo-domain ones (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`):
+  a dedicated suite (`packages/core/test/property-policy.test.ts`) covers role-
+  and attribute-based (ABAC) property policies across getObject redaction,
+  getProvenance denial, query projection, and fail-closed filtering, with
+  partial per-caller visibility.
 - The query DSL covers filter, sort, projection (`select`), pagination,
   relationship includes, grouped aggregation (`runtime.aggregate()` + the MCP
   `aggregate` tool), and case-insensitive `search` / `icontains` — all
