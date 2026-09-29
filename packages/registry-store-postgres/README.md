@@ -77,8 +77,10 @@ properties or preconditions, none of this applies — pass no
   real environment; it is only safe in test/dev databases.
 - **Migrations are never run automatically.** `PostgresRegistryStore`'s
   constructor touches no schema. Run `npm run migrate` as an explicit
-  deploy step — auto-migrating on every app boot risks multiple instances
-  racing to alter the same schema concurrently.
+  deploy step, so schema changes happen once, deliberately, rather than on
+  every boot. Running that step on several replicas at once is safe: the
+  runner takes a Postgres advisory lock, so exactly one run applies each
+  migration (ADR-0025; `test/multi-instance.test.ts`).
 - **`listAuditEvents` is paginated; nothing else is.** Types/Actions/
   Relationships/DataSources/Mappings are bounded by registered-metadata
   cardinality and are returned in full. Audit events are bounded by
