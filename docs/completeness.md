@@ -8,8 +8,8 @@ This page answers "what's built and tested versus a documented extension
 point" for the architecture *as it exists*. Whether it is safe to run
 against real production traffic is a different question. For that, see
 [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md), the ranked list of
-what closing that gap would actually take (a real policy engine, real
-load testing, a verified multi-instance story, and more), and
+what closing that gap would actually take (a real policy engine, a
+threat model, production-scale load numbers, and more), and
 [ADR-0024](adr/0024-production-readiness-gap.md) for the decision to
 document that gap rather than close it in this pass.
 

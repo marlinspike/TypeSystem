@@ -1,7 +1,7 @@
 name: CI
 
-# A change touching only docs/, README.md, or llms.txt skips CI; any other file in the
-# same push or PR still triggers it.
+# A change touching only docs/, README.md, llms.txt, or package READMEs skips
+# CI; any other file in the same push or PR still triggers it.
 on:
   push:
     branches: [main]
@@ -9,11 +9,13 @@ on:
       - "docs/**"
       - "README.md"
       - "llms.txt"
+      - "packages/*/README.md"
   pull_request:
     paths-ignore:
       - "docs/**"
       - "README.md"
       - "llms.txt"
+      - "packages/*/README.md"
 
 jobs:
   # Runs first, without Postgres: proves the default in-memory path — the one every

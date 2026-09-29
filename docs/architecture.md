@@ -124,6 +124,11 @@ free.
   reads the already-flattened `TypeDefinition` from the registry, resolves
   the right `Adapter` via `MappingResolver`, evaluates policy, executes
   computed properties, filters denied properties, and writes audit events.
+  It is also where caller input is checked: query shape and size limits,
+  Action input against its `inputSchema`, and filters that would reveal a
+  hidden property or can't work on a computed one. And it bounds each
+  request's adapter calls with one concurrency budget, however deeply the
+  request fans out (ADR-0025).
 
 ## Type composition: extends + traits, not deep inheritance
 
@@ -471,9 +476,14 @@ the same kind of swappable interface as everything else in this list:
   overrides merged into one object read (ADR-0023) — alongside the
   cross-adapter relationships this document's own sequence diagram below
   already proves.
+- Running several replicas against shared state (ADR-0025): a Redis-backed
+  `Cache` and `RateLimiter` (`packages/redis`), concurrency-safe
+  migrations, and a load test that runs several server processes.
 
 The concurrent (not sequential) fan-out for relationship/query resolution
 was originally a correctness fix to existing runtime code — the N+1
 pattern a one-to-many relationship or a query's `include` previously
-produced — and is now also bounded (ADR-0019), so a very large fan-out
-can't open unlimited simultaneous adapter calls either.
+produced — and is now also bounded (ADR-0019), with one budget per
+request rather than per fan-out level (ADR-0025), so neither a very large
+fan-out nor a deeply nested one can open unlimited simultaneous adapter
+calls.

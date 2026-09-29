@@ -8,6 +8,7 @@ on:
       - "docs/**"
       - "README.md"
       - "llms.txt"
+      - "packages/*/README.md"
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
