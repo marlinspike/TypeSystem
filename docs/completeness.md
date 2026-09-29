@@ -120,12 +120,18 @@ document that gap rather than close it in this pass.
 
 - Property-level policy is demonstrated on two fields across two domains
   (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`).
-- The query DSL covers filter/include/limit — no aggregation, sort, or
-  full-text search. A top-level filter can't use computed properties
-  (rejected with a clear error; they don't exist until after the adapter
-  filters), but include filters can. Includes nest and filter per level (bounded by
-  `maxIncludes`/`maxIncludeDepth`), but there is no projection: every
-  included object comes back with all of its visible properties.
+- The query DSL covers filter, sort, projection (`select`), pagination,
+  relationship includes, grouped aggregation (`runtime.aggregate()` + the MCP
+  `aggregate` tool), and case-insensitive `search` / `icontains` — all
+  fail-closed under property-level policy (ADR-0027, `query-sort-and-projection.test.ts`,
+  `query-aggregate-and-search.test.ts`). A top-level filter or sort can't use a
+  computed property (rejected with a clear error; they don't exist until after
+  the adapter runs), but include filters can; includes nest, filter, and project
+  per level (bounded by `maxIncludes`/`maxIncludeDepth`). Aggregation runs in the
+  adapter's optional `aggregate` (in-memory and Postgres); a data source without
+  it returns a clear `AggregationNotSupportedError`. Full-text `search` desugars
+  to a uniform `icontains` substring match — native per-backend FTS (Postgres
+  `to_tsvector`) is a documented per-adapter enhancement, not yet built.
 - Relationship resolution is one convention (`byForeignKey:<field>`,
   `byOwnField:<field>`), not a general join mechanism.
 - Caching is wired and tested in isolation; the shipped demo domain

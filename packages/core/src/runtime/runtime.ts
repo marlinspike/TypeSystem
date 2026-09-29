@@ -9,10 +9,10 @@ import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { Mapping } from "../model/data-source.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey } from "../model/query.js";
+import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey, SearchSpec, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
+import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
@@ -26,7 +26,7 @@ const DEFAULT_CACHE_TTL_MS = 30_000;
 const DEFAULT_MAX_CONCURRENCY = 20;
 
 /** The adapter reads (idempotent, always safe to retry) versus the one write path. Drives retry eligibility in `getAdapter` (ADR-0026). */
-const RETRYABLE_ADAPTER_READS = new Set(["resolveProperties", "queryByType", "resolveRelationship"]);
+const RETRYABLE_ADAPTER_READS = new Set(["resolveProperties", "queryByType", "resolveRelationship", "aggregate"]);
 
 /**
  * Whether one intercepted adapter call may be retried. Reads always may;
@@ -513,13 +513,16 @@ export class SemanticRuntime {
           this.rejectComputedSortProperties(typeDef, q.sort);
           await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
         }
+        // `search` desugars to an `icontains` OR-filter over resolved, readable, non-computed
+        // properties, AND-combined with any explicit filter (ADR-0027).
+        const effectiveFilter = await this.resolveSearchFilter(typeDef, q.filter, q.search, identity);
 
         // Listing/filtering/pagination is inherently single-source — only the base
         // mapping's adapter can answer "which objects match", so overrides (ADR-0023)
         // are merged per item below, not folded into this call.
         const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
         const adapter = this.getAdapter(base.dataSourceId);
-        const result = await adapter.queryByType(q.type, q.filter, q.limit, q.cursor, q.sort);
+        const result = await adapter.queryByType(q.type, effectiveFilter, q.limit, q.cursor, q.sort);
 
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
@@ -546,6 +549,110 @@ export class SemanticRuntime {
         return { items, nextCursor: result.nextCursor };
       }
     ));
+  }
+
+  /**
+   * Grouped aggregation over a Type (ADR-0027). Same one-boundary treatment
+   * as `query`: rate limit, input validation, object policy, and a
+   * fail-closed guard that neither grouping nor an aggregation may reference a
+   * property the caller can't read (which would leak it through a count or an
+   * average) or a computed property (which doesn't exist at adapter time). The
+   * work is pushed to the adapter's optional `aggregate`; a data source whose
+   * adapter can't aggregate is a clear `AggregationNotSupportedError`, never a
+   * silent pull-everything-and-count-in-the-runtime.
+   */
+  async aggregate(input: SemanticAggregateQuery, identity: Identity): Promise<AggregateResult> {
+    const claimedType = (input as { type?: unknown } | null | undefined)?.type;
+    return this.withRequestBudget(() => instrumentOperation(
+      "SemanticRuntime.aggregate",
+      typeof claimedType === "string" ? claimedType : "unknown",
+      { "typesys.identity.subject_id": identity.subjectId },
+      async () => {
+        await this.checkRateLimit(identity);
+        const q = this.inputValidator.validateAggregateQuery(input);
+        const typeDef = await this.requireType(q.type);
+        const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
+        await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
+
+        const referenced = new Set<string>();
+        if (q.filter) for (const p of filterProperties(q.filter)) referenced.add(p);
+        for (const g of q.groupBy ?? []) referenced.add(g);
+        for (const a of q.aggregations) if (a.property) referenced.add(a.property);
+        this.rejectComputedAggregateProperties(typeDef, referenced);
+        await this.requireReadableProperties(typeDef, referenced, identity);
+
+        const { base } = await this.mappingResolver.resolvePropertyMappings(q.type);
+        const adapter = this.getAdapter(base.dataSourceId);
+        if (typeof adapter.aggregate !== "function") {
+          throw new AggregationNotSupportedError(
+            `Data source "${base.dataSourceId}" for type "${q.type}" does not support aggregation`
+          );
+        }
+        return adapter.aggregate(q);
+      }
+    ));
+  }
+
+  /**
+   * Turns a `search` into an `icontains` OR-filter over resolved properties,
+   * AND-combined with any explicit filter (ADR-0027). Property resolution
+   * fails closed: an explicitly-named property that the caller can't read is
+   * denied and a computed one is rejected; when properties are omitted, the
+   * type's own readable, non-computed, non-policy-gated properties are used
+   * (never a gated one, since search runs pre-redaction in the adapter).
+   */
+  private async resolveSearchFilter(
+    typeDef: TypeDefinition,
+    filter: QueryFilter | undefined,
+    search: SearchSpec | undefined,
+    identity: Identity
+  ): Promise<QueryFilter | undefined> {
+    if (!search) return filter;
+    const props = await this.resolveSearchProperties(typeDef, search.properties, identity);
+    if (props.length === 0) {
+      throw new InvalidInputError(
+        `Invalid query: no searchable properties on "${typeDef.name}"; name them explicitly in search.properties`
+      );
+    }
+    const searchFilter: QueryFilter =
+      props.length === 1
+        ? { property: props[0]!, operator: "icontains", value: search.text }
+        : { or: props.map((p) => ({ property: p, operator: "icontains", value: search.text })) };
+    return filter ? { and: [filter, searchFilter] } : searchFilter;
+  }
+
+  private async resolveSearchProperties(
+    typeDef: TypeDefinition,
+    named: string[] | undefined,
+    identity: Identity
+  ): Promise<string[]> {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    if (named && named.length > 0) {
+      const computedNamed = named.filter((p) => computed.has(p));
+      if (computedNamed.length > 0) {
+        throw new InvalidInputError(
+          `Invalid query: cannot search computed ${computedNamed.length === 1 ? "property" : "properties"} ` +
+            `${computedNamed.map((p) => `"${p}"`).join(", ")}`
+        );
+      }
+      await this.requireReadableProperties(typeDef, named, identity);
+      return named;
+    }
+    const gated = new Set(Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {}));
+    const declared = Object.keys(typeDef.schema.properties ?? {});
+    return declared.filter((p) => !computed.has(p) && !gated.has(p));
+  }
+
+  private rejectComputedAggregateProperties(typeDef: TypeDefinition, names: Set<string>): void {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    const used = [...names].filter((p) => computed.has(p));
+    if (used.length > 0) {
+      throw new InvalidInputError(
+        `Invalid aggregate query: cannot group or aggregate "${typeDef.name}" on computed ` +
+          `${used.length === 1 ? "property" : "properties"} ${used.map((p) => `"${p}"`).join(", ")}; ` +
+          `computed values don't exist until after the adapter has run.`
+      );
+    }
   }
 
   /**

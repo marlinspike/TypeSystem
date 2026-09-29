@@ -19,6 +19,13 @@ function matchesCondition(values: Record<string, unknown>, condition: QueryCondi
       return Array.isArray(condition.value) && condition.value.includes(actual);
     case "contains":
       return Array.isArray(actual) && actual.includes(condition.value);
+    case "icontains":
+      // Case-insensitive substring — the primitive `search` desugars to (ADR-0027).
+      return (
+        typeof actual === "string" &&
+        typeof condition.value === "string" &&
+        actual.toLowerCase().includes(condition.value.toLowerCase())
+      );
     default:
       return false;
   }

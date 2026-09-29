@@ -1,7 +1,7 @@
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { QueryFilter, SortKey } from "../model/query.js";
+import type { QueryFilter, SortKey, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ActionContext } from "../model/context.js";
 
 export interface ResolvedProperties {
@@ -46,4 +46,11 @@ export interface Adapter {
   queryByType(typeName: string, filter?: QueryFilter, limit?: number, cursor?: string, sort?: SortKey[], opts?: AdapterCallOptions): Promise<AdapterQueryResult>;
   resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string, opts?: AdapterCallOptions): Promise<RelatedRef[]>;
   executeAction(action: ActionDefinition, input: unknown, ctx: ActionContext, opts?: AdapterCallOptions): Promise<unknown>;
+  /**
+   * Optional (ADR-0027): grouped aggregation pushed to the data source. An
+   * adapter that can't aggregate omits this method; `runtime.aggregate()`
+   * then throws `AggregationNotSupportedError` naming the data source, rather
+   * than pulling every row back to aggregate in the runtime.
+   */
+  aggregate?(query: SemanticAggregateQuery, opts?: AdapterCallOptions): Promise<AggregateResult>;
 }

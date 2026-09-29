@@ -65,3 +65,11 @@ export class CircuitOpenError extends Error {
     this.name = "CircuitOpenError";
   }
 }
+
+/** A `runtime.aggregate()` was asked of a data source whose adapter does not implement `aggregate` (ADR-0027). */
+export class AggregationNotSupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AggregationNotSupportedError";
+  }
+}

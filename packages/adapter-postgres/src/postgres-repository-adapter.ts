@@ -2,9 +2,11 @@ import type { Pool } from "pg";
 import {
   matchesFilter,
   applySort,
+  computeAggregations,
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
+  type AggregateResult,
   type RelatedRef,
   type ResolvedProperties,
   type ActionContext,
@@ -12,6 +14,7 @@ import {
   type ProvenanceRef,
   type QueryFilter,
   type RelationshipDefinition,
+  type SemanticAggregateQuery,
   type SortKey
 } from "@typesys/core";
 
@@ -109,6 +112,19 @@ export class PostgresRepositoryAdapter implements Adapter {
       })),
       nextCursor
     };
+  }
+
+  async aggregate(query: SemanticAggregateQuery, _opts?: AdapterCallOptions): Promise<AggregateResult> {
+    // Generic table (see class doc): fetch this type's rows and aggregate in JS via the shared
+    // interpreter — consistent with this adapter's fetch-then-process shape. A high-volume Type
+    // would graduate to a bespoke adapter pushing GROUP BY into SQL.
+    const { rows } = await this.pool.query<{ values: Record<string, unknown> }>(
+      `SELECT values FROM objects WHERE type_name = $1`,
+      [query.type]
+    );
+    const all = rows.map((r) => r.values);
+    const filtered = query.filter ? all.filter((v) => matchesFilter(v, query.filter)) : all;
+    return computeAggregations(filtered, query);
   }
 
   async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string): Promise<RelatedRef[]> {

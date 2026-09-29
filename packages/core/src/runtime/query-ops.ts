@@ -1,4 +1,4 @@
-import type { SortKey } from "../model/query.js";
+import type { SortKey, AggregateOp, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 
 /**
  * A total order for sort keys (see ADR-0027): numbers numerically, booleans
@@ -69,4 +69,65 @@ export function applyProjection(
   const out: Record<string, unknown> = {};
   for (const name of select) if (name in values) out[name] = values[name];
   return out;
+}
+
+function aggregateOne(op: AggregateOp, property: string | undefined, rows: readonly Record<string, unknown>[]): number {
+  if (op === "count") {
+    return property ? rows.filter((r) => r[property] !== null && r[property] !== undefined).length : rows.length;
+  }
+  const nums = rows.map((r) => (property ? r[property] : undefined)).filter((v): v is number => typeof v === "number");
+  if (nums.length === 0) return 0;
+  switch (op) {
+    case "sum":
+      return nums.reduce((a, b) => a + b, 0);
+    case "avg":
+      return nums.reduce((a, b) => a + b, 0) / nums.length;
+    case "min":
+      return nums.reduce((a, b) => Math.min(a, b));
+    case "max":
+      return nums.reduce((a, b) => Math.max(a, b));
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Groups rows by `groupBy` and computes each `aggregation` per group (ADR-0027),
+ * reused by every adapter that aggregates over a fetched row set (the same
+ * "one shared interpreter" property `matchesFilter`/`applySort` have). With no
+ * `groupBy` it returns a single group over all rows; a `count` over an empty
+ * set is `0`, and a numeric aggregate over no numeric values is `0`.
+ */
+export function computeAggregations(
+  rows: readonly Record<string, unknown>[],
+  query: Pick<SemanticAggregateQuery, "groupBy" | "aggregations">
+): AggregateResult {
+  const groupBy = query.groupBy ?? [];
+  const groups: { key: Record<string, unknown>; rows: Record<string, unknown>[] }[] = [];
+
+  if (groupBy.length === 0) {
+    groups.push({ key: {}, rows: [...rows] });
+  } else {
+    const byKey = new Map<string, { key: Record<string, unknown>; rows: Record<string, unknown>[] }>();
+    for (const row of rows) {
+      const keyStr = JSON.stringify(groupBy.map((g) => row[g] ?? null));
+      let group = byKey.get(keyStr);
+      if (!group) {
+        const key: Record<string, unknown> = {};
+        for (const g of groupBy) key[g] = row[g];
+        group = { key, rows: [] };
+        byKey.set(keyStr, group);
+      }
+      group.rows.push(row);
+    }
+    groups.push(...byKey.values());
+  }
+
+  return {
+    groups: groups.map((g) => {
+      const values: Record<string, number> = {};
+      for (const agg of query.aggregations) values[agg.name] = aggregateOne(agg.op, agg.property, g.rows);
+      return { key: g.key, values };
+    })
+  };
 }

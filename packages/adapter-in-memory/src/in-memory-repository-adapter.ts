@@ -1,9 +1,11 @@
 import {
   matchesFilter,
   applySort,
+  computeAggregations,
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
+  type AggregateResult,
   type RelatedRef,
   type ResolvedProperties,
   type ActionContext,
@@ -11,6 +13,7 @@ import {
   type ProvenanceRef,
   type QueryFilter,
   type RelationshipDefinition,
+  type SemanticAggregateQuery,
   type SortKey
 } from "@typesys/core";
 
@@ -94,6 +97,12 @@ export class InMemoryRepositoryAdapter implements Adapter {
       })),
       nextCursor
     };
+  }
+
+  async aggregate(query: SemanticAggregateQuery, _opts?: AdapterCallOptions): Promise<AggregateResult> {
+    const all = [...(this.recordsByType.get(query.type)?.values() ?? [])].map((r) => r.values);
+    const filtered = query.filter ? all.filter((v) => matchesFilter(v, query.filter)) : all;
+    return computeAggregations(filtered, query);
   }
 
   async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string): Promise<RelatedRef[]> {

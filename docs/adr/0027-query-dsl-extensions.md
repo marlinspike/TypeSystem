@@ -2,10 +2,15 @@
 
 ## Status
 
-Proposed — written ahead of implementation (an ADR-first workflow), unlike
-the accepted ADRs that describe code already in the tree. It flips to
-Accepted, with the concrete "proven, not assumed" evidence (test names,
-measured numbers) filled in, when the implementation lands.
+Accepted — implemented in `@typesys/core` and all three adapters. Sort and
+projection (`SemanticQuery.sort` / `select`, `QueryInclude.select`) landed
+first, proven by `packages/core/test/query-sort-and-projection.test.ts`; then
+aggregation (`runtime.aggregate()` + the MCP `aggregate` tool) and full-text
+`search`, proven by `packages/core/test/query-aggregate-and-search.test.ts`.
+**The full-text design changed during implementation** — it ships as a uniform
+`icontains` operator that `search` desugars into, not the per-adapter native
+FTS this ADR first sketched; point 4 and its Alternatives entry are amended to
+record what shipped and why.
 
 ## Context
 
@@ -80,15 +85,24 @@ closed: aggregating over, or grouping by, a property the caller can't read is
 rejected, and object policy still gates the type — otherwise `avg(salary)`
 becomes a channel for a value the row-level policy hides.
 
-**4. Full-text — a capability, not a uniform operator.**
-`SemanticQuery.search?: { text: string; properties?: string[] }`. The
-Postgres adapter implements it with `to_tsvector @@ plainto_tsquery`; the
-in-memory adapter falls back to case-insensitive substring. This is the one
-place we knowingly break ADR-0011's "every adapter interprets the DSL
-identically" rule: full-text ranking and tokenisation are inherently
-backend-specific, so the contract is "best-effort text match over the named
-properties, semantics documented per adapter," not bit-identical results.
-Called out here so the divergence is a decision, not an accident.
+**4. Full-text — a uniform `icontains`, with `search` as sugar over it.**
+`SemanticQuery.search?: { text: string; properties?: string[] }`, plus a new
+`icontains` filter operator (case-insensitive substring). `search` desugars,
+in the runtime, into an `icontains` OR-filter over resolved properties,
+AND-combined with any explicit `filter` — so it flows through the existing
+`filter` plumbing and the one shared `matchesFilter` interpreter (ADR-0011),
+identical across every adapter, and needs **no** new adapter method. When
+`properties` is omitted the runtime searches the type's own readable,
+non-computed properties and never a policy-gated one — search runs
+pre-redaction in the adapter, so searching a hidden field would leak it; a
+named property the caller can't read is denied, a computed one rejected.
+_(Amended from the original sketch, which pushed native per-adapter FTS —
+Postgres `to_tsvector`, in-memory substring — and accepted non-identical
+results as the one break from ADR-0011's uniformity. That was dropped:
+uniform substring is portable, testable without a live Postgres, and reuses
+the whole filter path. A backend that wants ranked full-text can special-case
+the `icontains` operator in its own path later — a documented enhancement, not
+a divergence baked into the contract now.)_
 
 **5. Bounds and MCP surface.** `QueryLimits`
 (`packages/core/src/runtime/input-validation.ts`) gains caps on sort-key
@@ -111,8 +125,10 @@ distinct result, becomes a distinct MCP `aggregate` tool alongside it
 - Adapters gain one required method extension (`queryByType` sort arg) and
   one new optional method (`aggregate`); an adapter that doesn't implement
   aggregation degrades to a clear, typed error, not wrong data.
-- Full-text results are explicitly *not* portable across adapters — the sole,
-  documented exception to DSL uniformity.
+- Full-text `search` stays portable: it desugars to the shared `icontains`
+  operator, so every adapter interprets it identically and DSL uniformity
+  (ADR-0011) is preserved. Native ranked FTS is a per-adapter enhancement a
+  backend may add later by special-casing that operator.
 
 ## Alternatives Considered
 
@@ -128,10 +144,14 @@ distinct result, becomes a distinct MCP `aggregate` tool alongside it
 - **Client-side sort/aggregate over a fetched page.** Rejected: it only sees
   one page, so it produces wrong global answers, and it reintroduces the
   unbounded-fetch that ADR-0019 limits exist to prevent.
-- **A uniform full-text operator with identical cross-adapter semantics.**
-  Rejected as not deliverable honestly: emulating Postgres FTS ranking in the
-  in-memory adapter would be a fiction. Better to expose it as a
-  per-adapter capability with documented semantics.
+- **Native per-adapter FTS (Postgres `to_tsvector`, substring elsewhere),
+  non-identical across adapters.** This ADR's original decision; reversed
+  during implementation. Emulating pg ranking elsewhere would be a fiction,
+  but the deeper problem is that it breaks ADR-0011's "every adapter
+  interprets the DSL identically" rule and can't be tested without a live
+  Postgres. Uniform `icontains` substring keeps the rule, reuses the filter
+  path, and is fully testable; ranked FTS becomes an opt-in per-adapter
+  refinement of the same operator rather than a contract-level divergence.
 - **Push projection entirely into the adapter (SELECT only those columns).**
   Rejected as the authoritative mechanism (it would run before redaction and
   couldn't include computed properties) but kept as an optional optimisation
