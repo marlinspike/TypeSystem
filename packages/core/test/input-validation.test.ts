@@ -179,3 +179,23 @@ describe("Action input validation", () => {
     expect(adapter.actionCalls).toBe(0);
   });
 });
+
+describe("Action input validation after re-registration", () => {
+  it("validates against the new inputSchema when the same version is re-registered with a changed schema", async () => {
+    const registry = new SemanticRegistry(new InMemoryRegistryStore());
+    await registry.registerAction(DoThingAction);
+    const policyEngine = new AbacPolicyEngine();
+    policyEngine.registerRule("public", allowAllRule);
+    const runtime = new SemanticRuntime(registry, [new RecordingAdapter()], policyEngine);
+
+    await expect(runtime.invokeAction("DoThing", { count: 1 }, identity)).resolves.toBeDefined();
+
+    // Same name and version, schema changed (e.g. by another instance sharing a durable store).
+    await registry.registerAction({
+      ...DoThingAction,
+      inputSchema: { type: "object", properties: { label: { type: "string" } }, required: ["label"], additionalProperties: false }
+    });
+    await expect(runtime.invokeAction("DoThing", { count: 1 }, identity)).rejects.toBeInstanceOf(InvalidInputError);
+    await expect(runtime.invokeAction("DoThing", { label: "x" }, identity)).resolves.toBeDefined();
+  });
+});

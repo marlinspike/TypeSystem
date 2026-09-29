@@ -155,8 +155,13 @@ export class InputValidator {
   readonly limits: QueryLimits;
   private readonly ajv = createSemanticValidator();
   private readonly validateQueryShape: ValidateFunction;
-  /** Keyed by name@version, not object identity: a durable RegistryStore hands back a fresh ActionDefinition per read. */
-  private readonly actionValidators = new Map<string, ValidateFunction>();
+  /**
+   * Keyed by name@version, not object identity (a durable RegistryStore hands back a fresh
+   * ActionDefinition per read), and remembering the schema each was compiled from: re-registering
+   * the same version with a changed inputSchema — from this process or another instance sharing
+   * the store — must not keep validating against the old one.
+   */
+  private readonly actionValidators = new Map<string, { schemaJson: string; validate: ValidateFunction }>();
 
   constructor(limits: Partial<QueryLimits> = {}) {
     this.limits = { ...DEFAULT_QUERY_LIMITS, ...limits };
@@ -220,13 +225,15 @@ export class InputValidator {
   /** Throws `InvalidInputError` when `input` doesn't satisfy the Action's declared `inputSchema`. */
   validateActionInput(action: ActionDefinition, input: unknown): void {
     const key = `${action.name}@${action.version}`;
-    let validate = this.actionValidators.get(key);
-    if (!validate) {
-      // Strip any $id so re-registering a changed schema under a new version can't collide in Ajv's schema map.
+    const schemaJson = JSON.stringify(action.inputSchema);
+    let cached = this.actionValidators.get(key);
+    if (cached?.schemaJson !== schemaJson) {
+      // Strip any $id so recompiling a changed schema can't collide in Ajv's schema map.
       const { $id: _ignored, ...schema } = action.inputSchema;
-      validate = this.ajv.compile(schema);
-      this.actionValidators.set(key, validate);
+      cached = { schemaJson, validate: this.ajv.compile(schema) };
+      this.actionValidators.set(key, cached);
     }
+    const { validate } = cached;
     assertJsonDepth(input, `input for action "${action.name}"`);
     if (!validate(input)) {
       throw new InvalidInputError(`Invalid input for action "${action.name}": ${describeErrors(validate.errors)}`, validate.errors);

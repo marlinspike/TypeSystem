@@ -34,6 +34,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - [docs/how-to/enable-observability.md](docs/how-to/enable-observability.md)
 - [docs/how-to/use-postgres.md](docs/how-to/use-postgres.md)
 - [docs/how-to/generate-typescript-types.md](docs/how-to/generate-typescript-types.md)
+- [docs/how-to/run-multiple-instances.md](docs/how-to/run-multiple-instances.md): shared Redis cache/rate limiter for several replicas, and `npm run load-test`.
 - [docs/how-to/run-mcp-over-http.md](docs/how-to/run-mcp-over-http.md)
 - [docs/how-to/combine-multiple-sources.md](docs/how-to/combine-multiple-sources.md): the three real ways to combine data from multiple sources — start here if that's your question.
 
@@ -44,21 +45,23 @@ the right tool for a given problem — it names when *not* to use it too.
 - `packages/core/src/registry/registry.ts`: `SemanticRegistry` — validates and composes Type/Action/Relationship definitions.
 - `packages/core/src/model/`: every meta-model type, as actual TypeScript, always more current than any doc describing it.
 - `packages/mcp-server/src/`: the MCP server — `resources.ts` (browsing), `tools.ts` (governed Actions + `query`), `auth.ts` (identity resolution), `http-transport.ts` (Streamable HTTP), `bin.ts`/`bin-http.ts` (stdio/HTTP entrypoints).
+- `packages/redis/`: `RedisCache` and `RedisRateLimiter` — the shared state that makes several replicas behave as one (ADR-0025). Optional, env-gated tests (`REDIS_URL`).
 - `packages/auth-oidc/`: real OIDC/JWT identity resolution — a drop-in `IdentityResolver` for `mcp-server`'s auth parameter.
 - `packages/adapter-postgres/`, `packages/registry-store-postgres/`: real PostgreSQL-backed implementations of `Adapter`/`RegistryStore` — both optional, env-gated, never a dependency of core.
 - `packages/domain-airforce/`: the reference vertical-slice domain (Aircraft/Component/MaintenanceEvent/WorkOrder) — the pattern every new domain follows.
 - `packages/domain-hospital/`: a second, unrelated domain (Patient/Provider/Appointment) proving that pattern generalizes — no changes to `packages/core` or `packages/mcp-server` needed.
-- `docs/adr/`: 24 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. The last one (0024) records the decision to document, not close, the production-readiness gap in this pass; the ranked list itself lives in docs/PRODUCTION-READINESS.md.
+- `docs/adr/`: 25 architecture decision records, one per major/hard-to-reverse choice, each with alternatives actually considered and rejected — the single best way to understand *why* something is shaped the way it is instead of some other reasonable way. 0024 records the decision to document, not close, the production-readiness gap (the ranked list itself lives in docs/PRODUCTION-READINESS.md); 0025 records the multi-instance design.
 
 ## Running things
 
 ```bash
-npm install && npm run build && npm test   # Postgres-gated tests skip cleanly without DATABASE_URL
+npm install && npm run build && npm test   # Postgres/Redis tests skip cleanly without DATABASE_URL/REDIS_URL
 npm run lint:install && npm run lint       # type-aware ESLint (isolated in tools/eslint — see below); CI fails on any error
 npm run typecheck                          # type-checks tests and scripts too — `npm run build` only covers src
 npm run smoke:mcp                          # real stdio MCP server, full discover-to-invoke script
 npm run smoke:mcp-http                     # the same script over a real HTTP transport
 npm run benchmark                          # SemanticRuntime latency/throughput, in-memory + Postgres
+npm run load-test                          # N server processes under concurrent MCP load (REDIS_URL to share state)
 npm run demo                                # interactive web app at http://localhost:4000
 ```
 
@@ -67,5 +70,7 @@ npm run demo                                # interactive web app at http://loca
 - **Before calling a change done:** `npm run build && npm test && npm run lint && npm run typecheck`, plus `npm run smoke:mcp` if you touched `mcp-server` or `SemanticRuntime`. CI runs all of these.
 - **Linting lives in `tools/eslint/`, on purpose.** typescript-eslint needs TypeScript's JS API, which the TypeScript 7 used for the build doesn't ship, so the linter has its own `package.json` pinning TypeScript 5.9. Type information comes from `tools/eslint/tsconfig.lint.json`, which maps `@typesys/*` to each package's source (no build needed) and also backs `npm run typecheck`; add new top-level TypeScript folders to its `include`. Don't move ESLint into the root `devDependencies`: npm refuses the peer-dependency conflict. Install it once with `npm run lint:install`; auto-fix with `npm run lint:fix`.
 - **Validate input at `SemanticRuntime`, never in a transport.** New public runtime methods that accept caller JSON should go through `InputValidator`, the same way they go through the policy engine, so apps, the demo HTTP API, and MCP agents all get identical checks.
+- **Adapter calls share one budget per request.** `getAdapter` returns a view gated by the current call's `maxConcurrency` semaphore (an `AsyncLocalStorage`), so nested fan-out can't multiply it. Get adapters through `getAdapter`/`ctx.getAdapter`, never from `this.adapters` directly, or the call escapes the budget.
+- **Shared state must go through the interfaces.** Anything that must agree across replicas (cache, rate limits, registry, audit) sits behind `Cache`/`RateLimiter`/`RegistryStore`; never add process-local state that changes behavior across instances without a shared implementation and a multi-instance test (see `packages/redis/test/multi-instance.test.ts`).
 - **Query results are paged by default.** `query` without `limit` returns `QueryLimits.defaultLimit` (100) items. Adapters always receive a concrete `limit` and must honor it and return `nextCursor` when more remain.
 - **User-visible behavior changes need a changeset** (`npm run changeset`) and, where relevant, an update to `docs/completeness.md` / `docs/PRODUCTION-READINESS.md`.

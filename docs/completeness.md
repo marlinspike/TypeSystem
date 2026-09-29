@@ -62,6 +62,15 @@ document that gap rather than close it in this pass.
   against each Action's `inputSchema`, all throwing `InvalidInputError`
   (`packages/core/src/runtime/input-validation.ts`). The MCP `query` tool
   advertises the same schema.
+- Multi-instance deployment (ADR-0025): `@typesys/redis`'s `RedisCache`
+  and `RedisRateLimiter` share cache entries, invalidation, and
+  per-identity budgets across replicas; migrations serialize on a
+  Postgres advisory lock. Proven by tests with two runtimes on one Redis
+  and several registries on one Postgres, and by `npm run load-test`,
+  which CI runs with two processes sharing Redis.
+- One concurrency budget per request: `maxConcurrency` caps the adapter
+  calls of a whole top-level call, nested fan-out and computed properties
+  included, rather than each fan-out level separately (ADR-0025).
 - Type-aware ESLint (`typescript-eslint` `recommendedTypeChecked`) and a
   full type-check of source, tests, and scripts (`npm run typecheck`),
   both enforced in CI, run from an isolated `tools/eslint` toolchain
@@ -104,7 +113,9 @@ document that gap rather than close it in this pass.
 - Property-level policy is demonstrated on two fields across two domains
   (`Aircraft.maintenanceStatus`, `Patient.medicalRecordNumber`).
 - The query DSL covers filter/include/limit — no aggregation, sort, or
-  full-text search. Includes nest and filter per level (bounded by
+  full-text search. A top-level filter can't use computed properties
+  (rejected with a clear error; they don't exist until after the adapter
+  filters), but include filters can. Includes nest and filter per level (bounded by
   `maxIncludes`/`maxIncludeDepth`), but there is no projection: every
   included object comes back with all of its visible properties.
 - Relationship resolution is one convention (`byForeignKey:<field>`,
@@ -119,9 +130,6 @@ document that gap rather than close it in this pass.
 - `resolutionMode: "materialized"` is supported by the model, but nothing
   populates a materialized store — there is no ingestion pipeline.
 - The policy engine is a small embedded ABAC evaluator, not OPA/Cedar.
-- No distributed cache — `InMemoryCache` is per-process; a Redis-backed
-  `Cache` implementation is a documented, not-built extension point,
-  same shape of decision as `RegistryStore` before Postgres existed.
 - Adapter-level tracing (a span per individual adapter call, not just
   the runtime method that contains it) is deferred — see ADR-0017's
   "Alternatives Considered."

@@ -38,7 +38,8 @@ and a message queue.
 | **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
 | **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP ([`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL with filters, includes, and paging, schema-validated with size limits ([`enable-rate-limiting-and-concurrency-bounds.md`](docs/how-to/enable-rate-limiting-and-concurrency-bounds.md)). | Callers get expressive reads, and one caller can't request unbounded work. |
-| **Operational controls** | Opt-in caching, per-identity rate limiting, bounded fan-out, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost and latency per mapping and see what the runtime is doing. |
+| **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost and latency per mapping and see what the runtime is doing. |
+| **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, and a load test that runs several processes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md)). | Scale out behind a load balancer and keep one cache and one budget per identity. |
 | **Real identity and persistence** | OIDC/JWT identity resolution ([ADR-0018](docs/adr/0018-oidc-identity-resolution.md)) and a durable PostgreSQL registry ([`use-postgres.md`](docs/how-to/use-postgres.md)). | Drop-in pieces for moving beyond the demo tokens and in-memory store. |
 | **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
@@ -227,6 +228,12 @@ flowchart TB
   resolution), proving adapter substitution against a genuine database, not
   just in-memory/mocked ones. See [`packages/adapter-postgres/README.md`](packages/adapter-postgres/README.md).
   Optional, same env-gating as `registry-store-postgres`.
+- **`packages/redis`** (`@typesys/redis`) — Redis-backed `Cache` and
+  `RateLimiter` for running several runtime instances against shared
+  state: one cache and one rate-limit budget per identity across every
+  replica ([ADR-0025](docs/adr/0025-multi-instance-deployment.md)). See
+  [`packages/redis/README.md`](packages/redis/README.md). Optional, and its
+  tests are skipped unless `REDIS_URL` is set.
 - **`packages/auth-oidc`** (`@typesys/auth-oidc`) — a real OIDC/JWT
   `IdentityResolver`: signature, issuer (RFC 9207), audience, and expiry
   verified via `jose` against a JWKS endpoint, scope claims mapped per
@@ -252,6 +259,8 @@ npm run smoke:mcp-http  # the same script over a real HTTP transport,
 npm run benchmark  # p50/p95/p99 latency + throughput of SemanticRuntime
                    # operations (add DATABASE_URL to include the
                    # Postgres-backed adapter) — see scripts/benchmark.ts
+npm run load-test  # N server processes under concurrent MCP load; add REDIS_URL
+                   # to share a cache and rate limiter (docs/how-to/run-multiple-instances.md)
 npm run demo       # http://localhost:4000 — see Demo below
 ```
 

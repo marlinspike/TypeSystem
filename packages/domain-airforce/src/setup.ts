@@ -1,6 +1,8 @@
 import type {
   SemanticRegistry,
-  SemanticRuntime} from "@typesys/core";
+  SemanticRuntime,
+  SemanticRuntimeOptions
+} from "@typesys/core";
 import {
   requireRole,
   buildRuntime,
@@ -37,12 +39,20 @@ export interface AirforceTestbed {
  * actually specific to this domain (which adapters, how they're seeded)
  * lives here now.
  */
-export async function buildAirforceTestbed(): Promise<AirforceTestbed> {
+/**
+ * `runtimeOptions` (cache, rate limiter, concurrency, query limits) pass straight through to
+ * `buildRuntime` — e.g. Redis-backed ones for a multi-instance run. `mockRestLatencyMs` sets the
+ * simulated network latency of the maintenance system's REST calls (default 1ms), so a load test
+ * can model a realistically slow backend.
+ */
+export async function buildAirforceTestbed(
+  opts: { runtimeOptions?: SemanticRuntimeOptions; mockRestLatencyMs?: number } = {}
+): Promise<AirforceTestbed> {
   const inMemoryAdapter = new InMemoryRepositoryAdapter(AIRCRAFT_DATA_SOURCE_ID, "airforce-repo");
   inMemoryAdapter.seed("airforce.Aircraft", sampleAircraft);
   inMemoryAdapter.seed("airforce.Component", sampleComponents);
 
-  const mockRestClient = new MockRestClient(1);
+  const mockRestClient = new MockRestClient(opts.mockRestLatencyMs ?? 1);
   mockRestClient.seedMaintenanceEvents(sampleMaintenanceEvents);
   mockRestClient.seedWorkOrders(sampleWorkOrders);
   const mockRestAdapter = new MockRestAdapter(MAINTENANCE_DATA_SOURCE_ID, mockRestClient, {
@@ -56,7 +66,8 @@ export async function buildAirforceTestbed(): Promise<AirforceTestbed> {
     policyRules: {
       "airforce.read-aircraft": requireRole("maintainer", "viewer"),
       "airforce.maintainer-only": requireRole("maintainer")
-    }
+    },
+    runtimeOptions: opts.runtimeOptions
   });
 
   return { registry, runtime, policyEngine, inMemoryAdapter, mockRestAdapter };

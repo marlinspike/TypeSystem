@@ -36,10 +36,11 @@ instead of re-explaining it.
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
 | [`add-a-policy-rule.md`](how-to/add-a-policy-rule.md) | Gate a Type/property/Action by role or attribute. |
 | [`enable-caching.md`](how-to/enable-caching.md) | Stop re-fetching data that doesn't change every request. |
-| [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, how much fan-out one call can open, and how much one query can ask for. |
+| [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, how many adapter calls one request can have in flight, and how much one query can ask for. |
 | [`enable-observability.md`](how-to/enable-observability.md) | See real traces/metrics for this runtime in your own OTel backend. |
 | [`use-postgres.md`](how-to/use-postgres.md) | Make the registry survive a restart. |
 | [`generate-typescript-types.md`](how-to/generate-typescript-types.md) | Get autocomplete/type-safety for objects this registry returns. |
+| [`run-multiple-instances.md`](how-to/run-multiple-instances.md) | Run several replicas with a shared cache and rate limiter, and load-test them. |
 | [`run-mcp-over-http.md`](how-to/run-mcp-over-http.md) | Serve the MCP server to a real network client instead of a local stdio process. |
 | [`combine-multiple-sources.md`](how-to/combine-multiple-sources.md) | Stitch one object's (or one graph's) data together from more than one backend system. |
 
@@ -97,3 +98,4 @@ other reasonable way.
 | [0022](adr/0022-cross-source-computed-properties.md) | A computed property's binding function can call `ctx.getAdapter()` on any registered adapter, not just its own — proven with `Aircraft.needsAttention`. |
 | [0023](adr/0023-multi-source-property-composition.md) | `getObject`/`query` merge a Type's base wildcard mapping with per-property overrides from other DataSources into one object read. |
 | [0024](adr/0024-production-readiness-gap.md) | The decision to document (not close) the production-readiness gap in this pass; the ranked list itself lives in [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md). |
+| [0025](adr/0025-multi-instance-deployment.md) | Shared Redis `Cache`/`RateLimiter` for multiple replicas, advisory-locked migrations, one concurrency budget per request, and a load test that proves them. |

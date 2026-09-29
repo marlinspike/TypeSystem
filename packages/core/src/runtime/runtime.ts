@@ -138,8 +138,8 @@ export class SemanticRuntime {
     return this.requestBudget.run(new Semaphore(this.maxConcurrency), fn);
   }
 
-  private checkRateLimit(identity: Identity): void {
-    if (!this.rateLimiter.tryAcquire(identity.subjectId)) {
+  private async checkRateLimit(identity: Identity): Promise<void> {
+    if (!(await this.rateLimiter.tryAcquire(identity.subjectId))) {
       throw new RateLimitExceededError(`Rate limit exceeded for subject "${identity.subjectId}"`);
     }
   }
@@ -371,7 +371,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.object_id": objectId, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName, objectId });
@@ -395,7 +395,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const resolvedName = this.registry.resolveAlias(typeDef, relationshipName);
         const relDef = typeDef.relationships.find((r) => r.name === resolvedName);
@@ -446,7 +446,7 @@ export class SemanticRuntime {
       typeof claimedType === "string" ? claimedType : "unknown",
       { "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
         annotateActiveSpan({ "typesys.query.limit": q.limit });
         const typeDef = await this.requireType(q.type);
@@ -563,7 +563,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.object_id": objectId, "typesys.property_path": propertyPath, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
         const policyName = propertyPolicies[propertyPath] ?? typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
@@ -591,7 +591,7 @@ export class SemanticRuntime {
       typeName,
       { "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: { action: ActionDefinition; authorized: boolean }[] = [];
@@ -619,7 +619,7 @@ export class SemanticRuntime {
       primaryType,
       { "typesys.action_name": action.name, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         await this.requireAllowed(identity, "invoke", action.authorizationPolicy, {
           typeName: primaryType,
           actionName: action.name
