@@ -1,4 +1,4 @@
-import { requireRole, allowAllRule, buildRuntime, coreManifest, type SemanticRegistry, type SemanticRuntime, type Identity, type PolicyEngine } from "@typesys/core";
+import { requireRole, allowAllRule, buildRuntime, coreManifest, type SemanticRegistry, type SemanticRuntime, type Identity, type PolicyEngine, type PolicyRule } from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { hospitalManifest } from "./manifest.js";
 import { HOSPITAL_DATA_SOURCE_ID } from "./types/patient.js";
@@ -21,6 +21,20 @@ export interface HospitalTestbed {
  * by anything (an MCP bootstrap, a demo) that wants a second, real,
  * running domain alongside airforce.
  */
+/** This domain's named policy rules — exported so a runtime hosting several domains (the demo web app) can register them alongside others'. */
+export const hospitalPolicyRules: Record<string, PolicyRule> = {
+  // Provider directory is not sensitive — anyone can browse clinicians.
+  "hospital.read-provider": allowAllRule,
+  // A patient can see their own record/appointments (simplified here to "any
+  // patient-role identity", the same object-vs-property split ADR-0009's ABAC
+  // engine already demonstrates for airforce — per-instance ownership scoping
+  // is a documented, not-built extension point, not something this domain adds).
+  "hospital.read-patient": requireRole("clinician", "admin", "patient"),
+  "hospital.read-appointment": requireRole("clinician", "admin", "patient"),
+  // Sensitive identifiers within an otherwise-readable Patient stay staff-only.
+  "hospital.staff-only": requireRole("clinician", "admin")
+};
+
 export async function buildHospitalTestbed(): Promise<HospitalTestbed> {
   const adapter = new InMemoryRepositoryAdapter(HOSPITAL_DATA_SOURCE_ID, "hospital-repo");
   adapter.seed("hospital.Patient", samplePatients);
@@ -30,18 +44,7 @@ export async function buildHospitalTestbed(): Promise<HospitalTestbed> {
   const { registry, runtime, policyEngine } = await buildRuntime({
     manifests: [coreManifest, hospitalManifest],
     adapters: [adapter],
-    policyRules: {
-      // Provider directory is not sensitive — anyone can browse clinicians.
-      "hospital.read-provider": allowAllRule,
-      // A patient can see their own record/appointments (simplified here to "any
-      // patient-role identity", the same object-vs-property split ADR-0009's ABAC
-      // engine already demonstrates for airforce — per-instance ownership scoping
-      // is a documented, not-built extension point, not something this domain adds).
-      "hospital.read-patient": requireRole("clinician", "admin", "patient"),
-      "hospital.read-appointment": requireRole("clinician", "admin", "patient"),
-      // Sensitive identifiers within an otherwise-readable Patient stay staff-only.
-      "hospital.staff-only": requireRole("clinician", "admin")
-    }
+    policyRules: hospitalPolicyRules
   });
 
   return { registry, runtime, policyEngine, adapter };

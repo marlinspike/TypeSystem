@@ -204,11 +204,12 @@ flowchart TB
   call. Two transports: stdio (`bin.ts`) and a stateless Streamable HTTP
   transport (`bin-http.ts`, identity from a real `Authorization` header —
   see [ADR-0021](docs/adr/0021-http-transport.md)).
-- **`packages/demo-web`** (`@typesys/demo-web`) — an interactive web demo:
-  browse the type catalog, explore Aircraft/Component/MaintenanceEvent/
-  WorkOrder objects, navigate relationships, invoke the governed Action,
-  and watch the ABAC policy engine and audit log react live as you switch
-  identity. See [Demo](#demo) below.
+- **`packages/demo-web`** (`@typesys/demo-web`) — an interactive web demo
+  running both domains on one runtime: browse and navigate objects with
+  per-property provenance, run queries, click through live guardrail
+  scenarios (policy, validation, limits, rate limiting, the concurrency
+  budget), drive the real MCP server, and watch the audit log react as you
+  switch identity. See [Demo](#demo) below.
 - **`packages/cli`** (`@typesys/cli`) — declarative YAML authoring for
   Types (compiles to the same `SemanticTypeSchema`/`RegisterTypeOptions`
   code-authored Types use) plus a `generate-types` codegen command that
@@ -271,34 +272,49 @@ npm run demo
 ```
 
 opens an interactive web app at **http://localhost:4000** wired directly to
-the real `SemanticRegistry`/`SemanticRuntime` (no mocked backend) — and, via
-an in-process `@modelcontextprotocol/sdk` `Server`/`Client` pair sharing that
-same runtime instance, to the real MCP server too. There is no build step;
+one real `SemanticRuntime` hosting **both domains** (airforce and hospital)
+on one registry and one policy engine, with no mocked backend. An in-process
+`@modelcontextprotocol/sdk` `Server`/`Client` pair shares that same runtime,
+so the MCP Console exercises the real MCP server too. There is no build step:
 it's a plain static `index.html`/`app.js`/`styles.css` served by a small
 Express API (`packages/demo-web/src/server.ts`).
 
-Three tabs:
+Switch identity top-right: **Maintainer** and **Viewer** (Air Force),
+**Clinician** and **Patient** (Hospital), or **Anonymous**. Everything on
+screen re-evaluates under the new identity. A stats bar under the header
+shows what each request actually did: how many adapter calls it made, to
+which systems, and how many ran at once against the per-request concurrency
+budget.
 
-- **Explorer** — browse the registered Types (click one for its full
-  definition: schema, relationships, actions, computed properties, policies).
-  Open `airforce.Aircraft` → `AF86-0147`, expand its `components` and
-  `maintenance` relationships, drill into a related object, and try the
-  **CreateMaintenanceWorkOrder** action. Switch the identity pill
-  (Maintainer / Viewer / Anonymous) top-right and reopen the object: the
-  `maintenanceStatus` property visibly locks for Viewer, and the Action
-  becomes "Not authorized" — the same object, filtered live by the policy
-  engine, not a different view.
-- **Query** — the structured query DSL (`SemanticQuery`) that also happens
-  to be the MCP `query` tool's input schema, with a couple of canned examples.
-- **MCP Console** — the exact same operations, run against a real MCP
-  `Server`/`Client` pair instead of the REST API. Call
-  `CreateMaintenanceWorkOrder` as Viewer (denied, `isError: true`) and then
-  as Maintainer (succeeds) to see the AI-agent path enforce the identical
-  governance as the human path above.
+Four tabs:
 
-The **Audit Log** drawer at the bottom is live across all three tabs —
-every policy decision (allow/deny) and Action execution appends a row in
-real time, regardless of which surface triggered it.
+- **Explorer:** browse the Types of both domains (click one for its schema,
+  relationships, actions, computed properties, and policies). Open an object
+  to see each property tagged with the system it came from; click a tag for
+  its provenance, or **trace** a computed property such as `needsAttention`
+  back to the values it was derived from. Redacted properties show which
+  policy hid them (`maintenanceStatus` for Viewer, `medicalRecordNumber` for
+  Patient). Actions check policy, then input, then preconditions: leave a
+  required field blank to see input validation.
+- **Query:** the structured query DSL, with its enforced limits shown and
+  examples for filters, paging (**Next page** follows `nextCursor`), nested
+  includes, include filters, and queries the runtime rejects by design.
+  Results render as a navigable object tree, or raw JSON.
+- **Guardrails:** thirteen one-click scenarios that each send a real request
+  and check the outcome against the design, including filtering on a hidden
+  or computed property, over-limit and malformed queries, bad action input
+  (from an allowed and a disallowed identity), a failed precondition,
+  cross-domain access, and redaction. **Run all** checks them together. Two
+  live panels fire a rate-limit burst at a dedicated identity and visualize
+  the concurrency budget for a nested query.
+- **MCP Console:** the same operations through the real MCP
+  `Server`/`Client`, including nested-include and invalid queries (which come
+  back as `isError`), plus a custom tool-call editor. Tool results are shown
+  raw and with their JSON text parsed.
+
+The **Audit Log** drawer at the bottom is live across every tab, filterable
+by decision and subject: every policy decision and Action execution appends
+a row, whichever surface triggered it.
 
 ## Documentation
 

@@ -1,7 +1,8 @@
 import type {
   SemanticRegistry,
   SemanticRuntime,
-  SemanticRuntimeOptions
+  SemanticRuntimeOptions,
+  PolicyRule
 } from "@typesys/core";
 import {
   requireRole,
@@ -39,6 +40,12 @@ export interface AirforceTestbed {
  * actually specific to this domain (which adapters, how they're seeded)
  * lives here now.
  */
+/** This domain's named policy rules — exported so a runtime hosting several domains (the demo web app) can register them alongside others'. */
+export const airforcePolicyRules: Record<string, PolicyRule> = {
+  "airforce.read-aircraft": requireRole("maintainer", "viewer"),
+  "airforce.maintainer-only": requireRole("maintainer")
+};
+
 /**
  * `runtimeOptions` (cache, rate limiter, concurrency, query limits) pass straight through to
  * `buildRuntime` — e.g. Redis-backed ones for a multi-instance run. `mockRestLatencyMs` sets the
@@ -63,10 +70,7 @@ export async function buildAirforceTestbed(
   const { registry, runtime, policyEngine } = await buildRuntime({
     manifests: [coreManifest, airforceManifest],
     adapters: [inMemoryAdapter, mockRestAdapter],
-    policyRules: {
-      "airforce.read-aircraft": requireRole("maintainer", "viewer"),
-      "airforce.maintainer-only": requireRole("maintainer")
-    },
+    policyRules: airforcePolicyRules,
     runtimeOptions: opts.runtimeOptions
   });
 
