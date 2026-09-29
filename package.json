@@ -24,6 +24,7 @@
     "smoke:mcp-http": "tsx scripts/smoke-test-mcp-http.ts",
     "mcp:http": "tsx packages/mcp-server/src/bin-http.ts",
     "benchmark": "tsx scripts/benchmark.ts",
+    "load-test": "tsx scripts/load-test.ts",
     "demo": "tsx packages/demo-web/src/server.ts",
     "clean": "tsc -b --clean",
     "changeset": "changeset",

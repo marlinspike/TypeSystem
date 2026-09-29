@@ -9,6 +9,7 @@
     { "path": "packages/mcp-server" },
     { "path": "packages/demo-web" },
     { "path": "packages/cli" },
-    { "path": "packages/auth-oidc" }
+    { "path": "packages/auth-oidc" },
+    { "path": "packages/redis" }
   ]
 }

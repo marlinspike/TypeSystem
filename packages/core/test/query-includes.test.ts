@@ -58,7 +58,7 @@ async function registerType(registry: SemanticRegistry, name: string, schema: Om
   const short = name.split(".")[1]!;
   await registry.registerType(
     { $id: `https://typesys.dev/types/test/${short}/1.0.0`, type: "object", ...schema } as SemanticTypeSchema,
-    { name, version: "1.0.0" }
+    { name, version: "1.0.0", computedImplementations: { isCat: async (ctx) => (await ctx.getProperty("species")) === "cat" } }
   );
   await registry.registerMapping({
     id: `map-${short}`,
@@ -84,6 +84,8 @@ async function setup() {
     "x-relationships": {
       toys: { target: "test.Toy", cardinality: "one-to-many", resolution: { dataSourceId: "graph-ds", operation: "byForeignKey:petId" } }
     },
+    // `isCat` is computed, so it only exists after resolution: fine for include filters, which run then.
+    "x-computed": { isCat: { dependsOn: ["species"], binding: "isCat" } },
     // `microchip` is visible only to vets — the property an include filter must not be able to probe.
     "x-policy": { objectPolicy: "public", propertyPolicies: { microchip: "vet-only" } }
   });
@@ -155,6 +157,15 @@ describe("Query include filters and nested includes (ADR-0011)", () => {
     // A caller who can't read `microchip` gets no match, not a yes/no oracle on its value.
     const asVisitor = await runtime.query(probe, visitor);
     expect(ids(asVisitor.items[0]!.values.pets)).toEqual([]);
+  });
+
+  it("can filter an include on a computed property, since include filters run after resolution", async () => {
+    const runtime = await setup();
+    const { items } = await runtime.query(
+      { type: "test.Owner", include: [{ relationship: "pets", filter: { property: "isCat", operator: "eq", value: true } }] },
+      vet
+    );
+    expect(ids(items[0]!.values.pets)).toEqual(["p1", "p3"]);
   });
 
   it("rejects the same relationship twice at one level (results are keyed by name)", async () => {

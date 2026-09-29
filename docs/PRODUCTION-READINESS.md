@@ -68,6 +68,13 @@ says so.
    (ADR-0016/ADR-0019) actually under contention, and cross-source
    computed properties have a measured ~10x cost cliff (ADR-0022) never
    stress-tested at scale.
+   *Partially addressed (2026-09-28, ADR-0025):* `npm run load-test`
+   drives N server processes with concurrent MCP clients (a mixed read,
+   relationship, and include-query workload, with simulated backend
+   latency), and CI runs a five-second two-process version with a shared
+   Redis rate limiter as a regression gate. Still open: numbers from
+   production-like hardware and real adapters, and the ADR-0022 cost cliff
+   at real scale.
 6. **Secrets management.** `DATABASE_URL`, JWKS endpoints, `NPM_TOKEN`:
    every credential is "an environment variable that is assumed to just
    be there." A real deployment needs a real secrets manager and a
@@ -78,6 +85,14 @@ says so.
    "unverified-at-scale multi-instance story." Running more than one
    replica today rests on an unverified assumption, not a tested
    guarantee.
+   *Addressed for the runtime's own state (2026-09-28, ADR-0025):*
+   `@typesys/redis` provides a shared `RedisCache` and `RedisRateLimiter`;
+   tests run two runtimes against one Redis and several registries against
+   one Postgres (concurrent migrations, now serialized by an advisory lock,
+   cross-instance reads and composition, an interleaved audit log); the
+   load test proves replicas sharing Redis admit one budget. Still open:
+   Redis and Postgres high availability and topology, and a rolling-deploy
+   playbook.
 8. **Per-instance authorization, if the real domain needs it.** Every
    policy rule here is role-based at the Type/property level ("any
    `clinician` can read any `Patient`"), never "this clinician can read
@@ -97,10 +112,12 @@ says so.
     alerts, or SLOs on the signals.
 11. **Migration and rollback discipline.**
     `adapter-postgres`/`registry-store-postgres` migrations are tested as
-    safely re-runnable (ADR-0015); there is no rollback story, no
+    safely re-runnable (ADR-0015) and, since ADR-0025, safe to run
+    concurrently from several replicas; there is no rollback story, no
     staging/prod parity check, no zero-downtime playbook.
-12. **Rate-limiter tuning.** `InMemoryRateLimiter`'s token-bucket
-    mechanics (ADR-0019) are correct; nobody has picked real
+12. **Rate-limiter tuning.** The token-bucket mechanics of
+    `InMemoryRateLimiter` (ADR-0019) and `RedisRateLimiter` (ADR-0025)
+    are tested; nobody has picked real
     capacity/refill numbers against real traffic. That is a tuning
     exercise against real load, not a code task.
 13. **On-call readiness.** No runbooks, no alerting on policy-deny spikes

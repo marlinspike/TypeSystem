@@ -1,12 +1,15 @@
 /**
  * A small, swappable rate-limiting seam (see ADR-0019) — the same pattern
- * as `Adapter`/`RegistryStore`/`PolicyEngine`/`Cache`: one interface, one
- * in-memory implementation built now, a distributed backend (Redis, etc.)
- * a documented-not-built extension point for a multi-process deployment.
+ * as `Adapter`/`RegistryStore`/`PolicyEngine`/`Cache`: one interface, an
+ * in-memory implementation for one process, and `@typesys/redis`'s
+ * `RedisRateLimiter` for a budget shared across instances (ADR-0025).
  */
 export interface RateLimiter {
-  /** Returns true if this call may proceed, false if the caller should be rejected. */
-  tryAcquire(key: string): boolean;
+  /**
+   * Returns true if this call may proceed, false if the caller should be rejected. May return a
+   * Promise, since a limiter shared across processes has to ask a shared store.
+   */
+  tryAcquire(key: string): boolean | Promise<boolean>;
 }
 
 /** Never limits — what every `SemanticRuntime` uses when no `RateLimiter` is supplied, preserving pre-ADR-0019 behavior exactly. */

@@ -30,6 +30,11 @@ const TRACKING_TABLE = "registry_postgres_schema_migrations";
  */
 export async function runMigrations(pool: Pool, migrationsDir: string = DEFAULT_MIGRATIONS_DIR): Promise<MigrationResult> {
   const client = await pool.connect();
+  // Serializes concurrent runs (e.g. one migrate step per replica during a rolling deploy): without
+  // it, two runs can both read "nothing applied" and race the same migration. Session-level, keyed
+  // by this package's tracking table, and taken before the applied set is read, so a run that
+  // waited sees what the winner applied.
+  await client.query("SELECT pg_advisory_lock(hashtext($1))", [TRACKING_TABLE]);
   try {
     await client.query(
       `CREATE TABLE IF NOT EXISTS ${TRACKING_TABLE} (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`
@@ -63,6 +68,11 @@ export async function runMigrations(pool: Pool, migrationsDir: string = DEFAULT_
 
     return { applied, alreadyApplied };
   } finally {
-    client.release();
+    const unlocked = await client.query("SELECT pg_advisory_unlock(hashtext($1))", [TRACKING_TABLE]).then(
+      () => true,
+      () => false
+    );
+    // A connection that may still hold the lock must not go back to the pool; destroying it releases the lock.
+    client.release(!unlocked);
   }
 }

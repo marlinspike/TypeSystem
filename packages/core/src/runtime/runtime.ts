@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
@@ -11,10 +12,10 @@ import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
+import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError } from "./errors.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
-import { mapWithConcurrency, mapWithConcurrencySettled } from "./concurrency.js";
+import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
@@ -48,7 +49,11 @@ export interface SemanticRuntimeOptions {
   defaultCacheTtlMs?: number;
   /** Omit to preserve pre-ADR-0019 "unlimited" behavior exactly — a `NoopRateLimiter` never rejects. Checked once per call, keyed by `identity.subjectId` (see ADR-0019). */
   rateLimiter?: RateLimiter;
-  /** Caps how many adapter calls a single relationship/query/provenance fan-out issues concurrently (see ADR-0019 and `mapWithConcurrency`). Default 20. */
+  /**
+   * Caps how many adapter calls one top-level runtime call (and everything it fans out into:
+   * relationships, include trees, computed properties) has in flight at once. Default 20.
+   * See ADR-0019 and `withRequestBudget`.
+   */
   maxConcurrency?: number;
   /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count and depth, filter depth/size (see `input-validation.ts`). */
   queryLimits?: Partial<QueryLimits>;
@@ -69,6 +74,8 @@ export class SemanticRuntime {
   private readonly defaultCacheTtlMs: number;
   private readonly rateLimiter: RateLimiter;
   private readonly maxConcurrency: number;
+  /** The concurrency budget of this runtime's call currently executing, if any (see `withRequestBudget`). */
+  private readonly requestBudget = new AsyncLocalStorage<Semaphore>();
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -95,14 +102,44 @@ export class SemanticRuntime {
     return this.inputValidator.limits;
   }
 
+  /**
+   * Returns the adapter gated by the current request's concurrency budget:
+   * each method call takes a permit for the duration of that one call. The
+   * same view is what computed properties and Actions get via
+   * `ctx.getAdapter`, so their adapter calls count against the budget too.
+   */
   private getAdapter(dataSourceId: string): Adapter {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
-    return adapter;
+    const store = this.requestBudget;
+    const budget = store.getStore();
+    if (!budget) return adapter;
+    return new Proxy(adapter, {
+      get(target, prop, receiver) {
+        const value: unknown = Reflect.get(target, prop, receiver);
+        if (typeof value !== "function") return value;
+        // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
+        // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
+        return (...args: unknown[]) =>
+          budget.run(() => store.exit(() => (value as (...a: unknown[]) => Promise<unknown>).apply(target, args)));
+      }
+    });
   }
 
-  private checkRateLimit(identity: Identity): void {
-    if (!this.rateLimiter.tryAcquire(identity.subjectId)) {
+  /**
+   * Runs `fn` inside one request-wide concurrency budget of `maxConcurrency`
+   * adapter calls. Nested runtime calls (getRelationship's per-object
+   * getObject, include trees, provenance recursion) find the budget already
+   * set and share it, so the cap holds for the whole request rather than
+   * per fan-out level, where nested levels would multiply it.
+   */
+  private withRequestBudget<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.requestBudget.getStore()) return fn();
+    return this.requestBudget.run(new Semaphore(this.maxConcurrency), fn);
+  }
+
+  private async checkRateLimit(identity: Identity): Promise<void> {
+    if (!(await this.rateLimiter.tryAcquire(identity.subjectId))) {
       throw new RateLimitExceededError(`Rate limit exceeded for subject "${identity.subjectId}"`);
     }
   }
@@ -329,12 +366,12 @@ export class SemanticRuntime {
     identity: Identity,
     opts: { includeProvenance?: boolean } = {}
   ): Promise<ResolvedObject> {
-    return instrumentOperation(
+    return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.getObject",
       typeName,
       { "typesys.object_id": objectId, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName, objectId });
@@ -344,7 +381,7 @@ export class SemanticRuntime {
         const { values, provenance } = await this.finalizeValues(typeDef, objectId, identity, resolved);
         return { typeName, objectId, values, ...(opts.includeProvenance ? { provenance } : {}) };
       }
-    );
+    ));
   }
 
   async getRelationship(
@@ -353,12 +390,12 @@ export class SemanticRuntime {
     relationshipName: string,
     identity: Identity
   ): Promise<ResolvedObject[]> {
-    return instrumentOperation(
+    return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.getRelationship",
       typeName,
       { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const resolvedName = this.registry.resolveAlias(typeDef, relationshipName);
         const relDef = typeDef.relationships.find((r) => r.name === resolvedName);
@@ -393,7 +430,7 @@ export class SemanticRuntime {
         }
         return results;
       }
-    );
+    ));
   }
 
   /**
@@ -404,18 +441,21 @@ export class SemanticRuntime {
    */
   async query(input: SemanticQuery, identity: Identity): Promise<QueryResult<ResolvedObject>> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return instrumentOperation(
+    return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.query",
       typeof claimedType === "string" ? claimedType : "unknown",
       { "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
         annotateActiveSpan({ "typesys.query.limit": q.limit });
         const typeDef = await this.requireType(q.type);
         const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
         await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
-        if (q.filter) await this.requireFilterableProperties(typeDef, q.filter, identity);
+        if (q.filter) {
+          this.rejectComputedFilterProperties(typeDef, q.filter);
+          await this.requireFilterableProperties(typeDef, q.filter, identity);
+        }
 
         // Listing/filtering/pagination is inherently single-source — only the base
         // mapping's adapter can answer "which objects match", so overrides (ADR-0023)
@@ -445,7 +485,25 @@ export class SemanticRuntime {
         });
         return { items, nextCursor: result.nextCursor };
       }
-    );
+    ));
+  }
+
+  /**
+   * The top-level filter runs in the adapter, which only has stored values;
+   * computed properties don't exist until after it returns, so a condition
+   * on one would silently match nothing. Reject it and point at the filter
+   * that does work: an include-level filter runs on fully resolved objects.
+   */
+  private rejectComputedFilterProperties(typeDef: TypeDefinition, filter: QueryFilter): void {
+    const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+    const used = [...filterProperties(filter)].filter((p) => computed.has(p));
+    if (used.length > 0) {
+      throw new InvalidInputError(
+        `Invalid query: cannot filter "${typeDef.name}" on computed ${used.length === 1 ? "property" : "properties"} ` +
+          `${used.map((p) => `"${p}"`).join(", ")} at the top level; computed values don't exist until after the ` +
+          `adapter has filtered. Filter on it in an include instead, or filter the results client-side.`
+      );
+    }
   }
 
   /**
@@ -500,12 +558,12 @@ export class SemanticRuntime {
     propertyPath: string,
     identity: Identity
   ): Promise<ProvenanceRef[]> {
-    return instrumentOperation(
+    return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.getProvenance",
       typeName,
       { "typesys.object_id": objectId, "typesys.property_path": propertyPath, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
         const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
         const policyName = propertyPolicies[propertyPath] ?? typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
@@ -524,16 +582,16 @@ export class SemanticRuntime {
         const resolved = await adapter.resolveProperties(typeName, objectId, [propertyPath]);
         return resolved.provenance.filter((p) => p.propertyPath === propertyPath);
       }
-    );
+    ));
   }
 
   async listActions(typeName: string, identity: Identity): Promise<{ action: ActionDefinition; authorized: boolean }[]> {
-    return instrumentOperation(
+    return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.listActions",
       typeName,
       { "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: { action: ActionDefinition; authorized: boolean }[] = [];
@@ -548,7 +606,7 @@ export class SemanticRuntime {
         }
         return results;
       }
-    );
+    ));
   }
 
   async invokeAction(actionName: string, input: unknown, identity: Identity): Promise<unknown> {
@@ -556,12 +614,12 @@ export class SemanticRuntime {
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
     const primaryType = action.applicableTypes[0] ?? "unknown";
 
-    return instrumentOperation(
+    return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.invokeAction",
       primaryType,
       { "typesys.action_name": action.name, "typesys.identity.subject_id": identity.subjectId },
       async () => {
-        this.checkRateLimit(identity);
+        await this.checkRateLimit(identity);
         await this.requireAllowed(identity, "invoke", action.authorizationPolicy, {
           typeName: primaryType,
           actionName: action.name
@@ -603,6 +661,6 @@ export class SemanticRuntime {
 
         return result;
       }
-    );
+    ));
   }
 }

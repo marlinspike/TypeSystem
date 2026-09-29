@@ -38,10 +38,11 @@ jobs:
       - name: MCP smoke test (real HTTP transport)
         run: npm run smoke:mcp-http
 
-  # A second job, with a real Postgres service container: proves the same suite
-  # passes against @typesys/registry-store-postgres and @typesys/adapter-postgres
-  # instead of skipping those tests (see docs/how-to/use-postgres.md).
-  test-with-postgres:
+  # A second job, with real Postgres and Redis service containers: proves the same
+  # suite passes against @typesys/registry-store-postgres, @typesys/adapter-postgres,
+  # and @typesys/redis instead of skipping those tests, including the multi-instance
+  # tests (docs/how-to/use-postgres.md, docs/how-to/run-multiple-instances.md).
+  test-with-postgres-and-redis:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -57,8 +58,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://typesys:typesys@localhost:5432/typesys_ci
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,3 +80,11 @@ jobs:
       - run: npm run build
       - run: npm run build:postgres
       - run: npm test
+      # Two server processes sharing Redis, under concurrent load with a per-identity limit: fails
+      # on any unexpected error, or if the instances admit more than one shared rate-limit budget.
+      - name: Multi-instance load test (2 processes, shared Redis)
+        run: npm run load-test
+        env:
+          LOAD_DURATION_S: "5"
+          RATE_LIMIT_CAPACITY: "200"
+          RATE_LIMIT_REFILL_PER_SECOND: "50"

@@ -81,13 +81,13 @@ ref list, and every cached computed-property value — all in one call.
 
 ## `InMemoryCache` is per-process
 
-Two runtime instances (two replicas) cache independently. A distributed
-`Cache` implementation (Redis, etc.) is a documented, not-built extension
-point — the same shape of seam `RegistryStore` was before
-[ADR-0015](../adr/0015-postgres-registry-store.md)'s Postgres
-implementation existed. Implement the four-method `Cache` interface
-(`packages/core/src/runtime/cache.ts`) and pass it in the same
-constructor slot.
+Two runtime instances (two replicas) cache independently, so one
+replica's `invalidateObject` never reaches the other. For more than one
+instance, use `RedisCache` from `@typesys/redis`: every replica shares
+the entries and the invalidations; see
+[`run-multiple-instances.md`](run-multiple-instances.md). Or implement the
+four-method `Cache` interface (`packages/core/src/runtime/cache.ts`)
+yourself.
 
 ## Verify it
 

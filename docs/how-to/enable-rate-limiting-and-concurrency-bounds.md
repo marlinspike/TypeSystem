@@ -7,17 +7,19 @@ arguments behaves exactly as it did before ADR-0019: fan-out bounded at
 a sane default (20), no rate limiting at all
 ([ADR-0019](../adr/0019-concurrency-bounds-and-rate-limiting.md)).
 
-## Bound how many adapter calls one fan-out can open at once
+## Bound how many adapter calls one request can have in flight
 
-The `maxConcurrency` option (in `SemanticRuntime`'s 4th argument). Every relationship
-resolution, query page, and computed-property provenance lookup fans out
-through this same limit:
+The `maxConcurrency` option (in `SemanticRuntime`'s 4th argument). It is
+one budget for a whole top-level call: a query page, each item's
+includes, each include's related objects, and every computed property's
+own `ctx.getAdapter` calls all draw from the same permits, so nesting
+can't multiply it ([ADR-0025](../adr/0025-multi-instance-deployment.md)):
 
 ```ts
 import { SemanticRuntime } from "@typesys/core";
 
 const runtime = new SemanticRuntime(registry, adapters, policyEngine, {
-  maxConcurrency: 5 // at most 5 adapter calls in flight at once from one fan-out
+  maxConcurrency: 5 // at most 5 adapter calls in flight at once for one request
 });
 ```
 
@@ -55,18 +57,21 @@ many times an external caller happened to invoke a method.
 
 ## `InMemoryRateLimiter` is per-process
 
-Same caveat as `InMemoryCache` ([ADR-0016](../adr/0016-caching.md)): two
-runtime instances (two replicas) each enforce their own independent
-budget for the same identity. A distributed rate limiter (Redis-backed
-token buckets) is a documented, not-built extension point — implement
-the one-method `RateLimiter` interface
-(`packages/core/src/runtime/rate-limiter.ts`) and pass it in the same
-constructor slot.
+Two runtime instances (two replicas) each enforce their own independent
+budget for the same identity, so N replicas grant N budgets. For more
+than one instance, use `RedisRateLimiter` from `@typesys/redis`, which
+evaluates the same token bucket atomically in Redis; see
+[`run-multiple-instances.md`](run-multiple-instances.md). Any other
+backend works too: implement the one-method `RateLimiter` interface
+(`packages/core/src/runtime/rate-limiter.ts`), whose `tryAcquire` may
+return a Promise.
 
 ## Verify it
 
 Follow [`packages/core/test/concurrency.test.ts`](../../packages/core/test/concurrency.test.ts)
-(bounded fan-out never exceeds its limit, still genuinely concurrent) and
+(bounded fan-out never exceeds its limit, still genuinely concurrent),
+[`packages/core/test/request-concurrency-budget.test.ts`](../../packages/core/test/request-concurrency-budget.test.ts)
+(one budget across nested fan-out and computed properties), and
 [`packages/core/test/rate-limiting.test.ts`](../../packages/core/test/rate-limiting.test.ts)
 (budget exhaustion throws, refills over time, tracked independently per
 identity, and omitting a `RateLimiter` entirely stays unlimited).
