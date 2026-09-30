@@ -2,6 +2,10 @@
 
 ## Status
 
+Accepted. *Amended by ADR-0041:* schemes now `decide` whole labels for whole
+subjects and `join` the labels of derived data, and the runtime decides the
+join and every marking on its own; `dominates` is gone.
+
 Accepted — implemented in `@typesys/core` (`runtime/classification.ts`:
 `ClassificationScheme`, `linearClassification`, `US_CLASSIFICATION`; the
 checks in `runtime/runtime.ts`; `Identity.clearance` and

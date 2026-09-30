@@ -115,7 +115,11 @@ document that gap rather than close it in this pass.
   markings, probes by filter/sort/search/aggregate refused, Actions on
   classified Types refused — all audited. The airforce demo's SECRET
   `deploymentLocation` shows it; `packages/core/test/data-classification.test.ts`
-  proves it with an attack suite. Not addressed: value-level markings inside
+  proves it with an attack suite. Schemes decide whole labels and join
+  derived ones (ADR-0041): the runtime decides the join and every marking on
+  its own, and the reference `securityLabels` scheme models levels,
+  compartments, releasability, CUI as its own regime, and accreditation
+  (`packages/core/test/security-labels.test.ts`). Not addressed: value-level markings inside
   adapter-side aggregation, per-record object markings, and write
   (`*`-property) rules — see the ADR.
 - A real, analyzable policy engine (ADR-0031): `@typesys/policy-cedar`'s

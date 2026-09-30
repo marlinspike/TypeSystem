@@ -117,6 +117,11 @@ export interface QueryPlanReport {
   };
 }
 
+/** What a scheme's `join` must answer for marked data: a non-empty list of markings (ADR-0041). */
+function isLabel(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every((m) => typeof m === "string");
+}
+
 /** A plan in an audit row or a span: its kind, exactness, and limitation codes — never predicate literals or identity values. */
 /** What adapters protect at rest (ADR-0036): `any` for a bundle's caching, `has` for one field. */
 interface ProtectedFields {
@@ -583,23 +588,48 @@ export class SemanticRuntime {
   }
 
   /**
-   * Whether the subject's clearance dominates `marking` (unmarked: always).
-   * Deny-biased: a scheme that throws denies. It does not audit: a decision
-   * about access goes through `clearedFor`, which does.
+   * What the scheme says about data under `markings` (ADR-0041): allowed only
+   * if it allows their join *and* each marking on its own, so a join can add
+   * restriction but never remove it. Unmarked data is allowed without asking
+   * (ADR-0034). Deny-biased: a scheme that throws, or answers a join that
+   * isn't a non-empty list of strings, or anything but `allow: true`, denies.
+   * It does not audit: a decision about access goes through `clearedFor`.
    */
-  private dominates(identity: Identity, marking: string): boolean {
+  private classify(
+    identity: Identity,
+    markings: readonly string[],
+    resource: PolicyResource,
+    action: "read" | "invoke"
+  ): { allow: boolean; label: readonly string[]; reason?: string } {
+    const marked = [...new Set(markings)];
+    if (marked.length === 0) return { allow: true, label: [] };
+    const context = { action, resource: { typeName: resource.typeName, objectId: resource.objectId, propertyPath: resource.propertyPath } };
     try {
-      return this.classification.dominates(identity.clearance, marking) === true;
+      const answer: unknown = this.classification.join(marked);
+      if (!isLabel(answer)) return { allow: false, label: marked, reason: "the scheme could not join the markings" };
+      const label = answer;
+      const joined = this.classification.decide({ subject: identity, markings: label, context });
+      const refusal = typeof joined?.reason === "string" ? joined.reason : undefined;
+      if (joined?.allow !== true) return { allow: false, label, ...(refusal ? { reason: refusal } : {}) };
+      // Every marking on its own too — a join is the scheme's to write, and it must never be what opens data —
+      // unless the label is that one marking, which was just decided.
+      const decided = marked.length === 1 && label.length === 1 && label[0] === marked[0];
+      for (const marking of decided ? [] : marked) {
+        const each = this.classification.decide({ subject: identity, markings: [marking], context });
+        if (each?.allow !== true) return { allow: false, label, reason: typeof each?.reason === "string" ? each.reason : `refused ${marking}` };
+      }
+      return { allow: true, label };
     } catch {
-      return false;
+      return { allow: false, label: marked, reason: "the scheme failed to decide" };
     }
   }
 
   /**
-   * Decides and audits one classification check (ADR-0032): the subject's
-   * clearance must dominate every marking. A mandatory control beside the
-   * policy engine, never through it, so no engine can relax it. Unmarked
-   * data — no markings — is no decision and writes nothing (ADR-0034).
+   * Decides and audits one classification check (ADR-0032, ADR-0041). A
+   * mandatory control beside the policy engine, never through it, so no
+   * engine can relax it. Unmarked data — no markings — is no decision and
+   * writes nothing (ADR-0034). The audit row keeps the inputs, the joined
+   * label, and the scheme's reason; the caller only ever sees a generic one.
    */
   private async clearedFor(
     identity: Identity,
@@ -609,8 +639,8 @@ export class SemanticRuntime {
   ): Promise<boolean> {
     const marked = [...new Set(markings)];
     if (marked.length === 0) return true;
-    const allow = marked.every((m) => this.dominates(identity, m));
-    const details = { control: "classification", scheme: this.classification.name, markings: marked, clearance: identity.clearance ?? null };
+    const { allow, label, reason } = this.classify(identity, marked, resource, action);
+    const details = { control: "classification", scheme: this.classification.name, markings: marked, label, clearance: identity.clearance ?? null, ...(reason ? { reason } : {}) };
     await this.audit(identity, action, resource, allow ? { allow } : { allow, reason: CLEARANCE_REASON }, details);
     return allow;
   }
@@ -1206,7 +1236,7 @@ export class SemanticRuntime {
     const declared = Object.keys(typeDef.schema.properties ?? {});
     // Query planning, not an access decision, so not audited: a skipped field is never read or matched, and
     // every value the search does return is decided (and audited) in finalizeValues (ADR-0032).
-    return declared.filter((p) => !computed.has(p) && !gated.has(p) && memberMarkings(typeDef, p).every((m) => this.dominates(identity, m)));
+    return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.classify(identity, memberMarkings(typeDef, p), { typeName: typeDef.name, propertyPath: p }, "read").allow);
   }
 
   private rejectComputedAggregateProperties(typeDef: TypeDefinition, names: Set<string>): void {

@@ -65,8 +65,7 @@ this is easy to spot.
 TOP_SECRET` for demos and tests. It is **not** the US classification model:
 real markings carry compartments and dissemination controls, and CUI is a
 separate regime, not a level between UNCLASSIFIED and SECRET. For your own
-levels pass `linearClassification([...], name)`, or implement
-`ClassificationScheme` directly:
+levels pass `linearClassification([...], name)`:
 
 ```ts
 new SemanticRuntime(registry, adapters, policyEngine, {
@@ -74,12 +73,43 @@ new SemanticRuntime(registry, adapters, policyEngine, {
 });
 ```
 
-Markings are exact strings. A scheme must return `false` for a marking it
-doesn't recognize, and one that throws denies.
+## Model more than a ladder
+
+A scheme answers two questions
+([ADR-0041](../adr/0041-security-labels-v2.md)): `decide({ subject,
+markings, context })` — may this whole subject have data under this whole
+label — and `join(markings)` — the label of data derived from all of them,
+which a computed property's value carries. The runtime decides the join
+*and* each marking on its own, so a join can add restriction (a compilation
+rule) but never remove it.
+
+`securityLabels` is a reference scheme with five dimensions — a
+demonstration, not the CAPCO register:
+
+```ts
+classification: securityLabels({ levels: ["UNCLASSIFIED", "CONFIDENTIAL", "SECRET", "TOP_SECRET"], homeCountry: "USA",
+                                  accreditation: { level: "SECRET", cui: true } })
+```
+
+| marking | the reader needs |
+|---|---|
+| `SECRET` | `clearance` at least SECRET |
+| `SECRET//ALPHA/BRAVO` | … and `attributes.compartments` holding ALPHA and BRAVO |
+| `SECRET//REL TO USA, GBR` · `SECRET//NOFORN` | … and `attributes.citizenship` in the list (NOFORN: the home country) |
+| `CUI//PRVCY` | `attributes.cuiCategories` holding PRVCY — CUI is its own regime, which no clearance reaches |
+
+The system itself must be accredited for the label, whoever reads. Joins
+take the highest level, union compartments and CUI categories, and
+intersect releasability. Markings are exact strings; one the scheme can't
+parse is refused, and a scheme that throws — or answers anything but
+`allow: true` — denies. Audit rows record the joined label and the scheme's
+own reason; the caller's reason stays generic.
 
 ## Verify it
 
 [`packages/core/test/data-classification.test.ts`](../../packages/core/test/data-classification.test.ts)
 exercises every read path against every kind of marking, and
 [`packages/domain-airforce/test/data-classification.test.ts`](../../packages/domain-airforce/test/data-classification.test.ts)
-the demo's SECRET `deploymentLocation`.
+the demo's SECRET `deploymentLocation`;
+[`packages/core/test/security-labels.test.ts`](../../packages/core/test/security-labels.test.ts)
+the multi-dimensional model, joins of derived values, and broken schemes.

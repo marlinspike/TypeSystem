@@ -194,12 +194,16 @@ const ids = (objs: unknown) => (objs as { objectId: string }[]).map((o) => o.obj
 const classificationRows = async (registry: SemanticRegistry): Promise<AuditEvent[]> =>
   (await registry.listAuditEvents({ limit: 5000 })).items.filter((e) => e.details?.control === "classification");
 
+/** Whether `scheme` lets a subject holding `clearance` read data under `marking` alone. */
+const allows = (scheme: ClassificationScheme, clearance: string | undefined, marking: string) =>
+  scheme.decide({ subject: { subjectId: "s", roles: [], attributes: {}, ...(clearance === undefined ? {} : { clearance }) }, markings: [marking], context: { action: "read", resource: { typeName: "T" } } }).allow;
+
 describe("Data classification (ADR-0032)", () => {
   describe("the scheme", () => {
     it("DEMO_LINEAR_CLASSIFICATION orders UNCLASSIFIED < CUI < SECRET < TOP_SECRET, and exposes that order", () => {
       const levels = ["UNCLASSIFIED", "CUI", "SECRET", "TOP_SECRET"];
       for (const [i, clearance] of levels.entries()) {
-        for (const [j, marking] of levels.entries()) expect(DEMO_LINEAR_CLASSIFICATION.dominates(clearance, marking)).toBe(i >= j);
+        for (const [j, marking] of levels.entries()) expect(allows(DEMO_LINEAR_CLASSIFICATION, clearance, marking)).toBe(i >= j);
       }
       expect(DEMO_LINEAR_CLASSIFICATION.levels).toEqual(levels);
       expect(Object.isFrozen(DEMO_LINEAR_CLASSIFICATION.levels)).toBe(true);
@@ -207,10 +211,16 @@ describe("Data classification (ADR-0032)", () => {
 
     it("fails closed: a missing or unknown clearance holds only the lowest level, and an unknown marking is readable by no one", () => {
       for (const clearance of [undefined, "ULTRA", "secret", "", "TOP SECRET"]) {
-        expect(DEMO_LINEAR_CLASSIFICATION.dominates(clearance, "UNCLASSIFIED")).toBe(true);
-        expect(DEMO_LINEAR_CLASSIFICATION.dominates(clearance, "CUI")).toBe(false);
+        expect(allows(DEMO_LINEAR_CLASSIFICATION, clearance, "UNCLASSIFIED")).toBe(true);
+        expect(allows(DEMO_LINEAR_CLASSIFICATION, clearance, "CUI")).toBe(false);
       }
-      for (const marking of ["SECERT", "secret", "", "__proto__", "constructor"]) expect(DEMO_LINEAR_CLASSIFICATION.dominates("TOP_SECRET", marking)).toBe(false);
+      for (const marking of ["SECERT", "secret", "", "__proto__", "constructor"]) expect(allows(DEMO_LINEAR_CLASSIFICATION, "TOP_SECRET", marking)).toBe(false);
+    });
+
+    it("joins to the highest level, keeping a marking it doesn't know so the decision refuses it (ADR-0041)", () => {
+      expect(DEMO_LINEAR_CLASSIFICATION.join(["CUI", "SECRET", "UNCLASSIFIED", "SECRET"])).toEqual(["SECRET"]);
+      expect(DEMO_LINEAR_CLASSIFICATION.join(["CUI", "SECERT"])).toEqual(["CUI", "SECERT"]);
+      expect(allows(DEMO_LINEAR_CLASSIFICATION, "TOP_SECRET", "SECERT")).toBe(false);
     });
 
     it("refuses an empty or ambiguous ordering", () => {
@@ -420,8 +430,12 @@ describe("Data classification (ADR-0032)", () => {
         control: "classification",
         scheme: "demo-linear",
         markings: ["SECRET"],
-        clearance: "CUI"
+        label: ["SECRET"],
+        clearance: "CUI",
+        reason: "clearance below SECRET"
       });
+      // The scheme's reason names the marking, so it stays in the audit log: the caller's is generic.
+      expect(rows.find((e) => e.resource.propertyPath === "briefing")?.reason).toBe("Requires a higher clearance");
 
       await runtime.getObject("test.Notice", "n2", cui);
       expect((await classificationRows(registry)).filter((e) => e.resource.typeName === "test.Notice")).toEqual([]);
@@ -505,7 +519,8 @@ describe("Data classification (ADR-0032)", () => {
     it("a scheme that throws denies every marked read", async () => {
       const broken: ClassificationScheme = {
         name: "broken",
-        dominates: () => {
+        join: (markings) => markings,
+        decide: () => {
           throw new Error("scheme unavailable");
         }
       };
@@ -524,10 +539,14 @@ describe("Data classification (ADR-0032)", () => {
       };
       const lattice: ClassificationScheme = {
         name: "compartmented",
-        dominates(clearance, marking) {
-          const need = parse(marking);
-          const have = parse(clearance ?? "UNCLASSIFIED");
-          return need.rank >= 0 && have.rank >= need.rank && need.compartments.every((c) => have.compartments.includes(c));
+        join: (markings) => [...new Set(markings)],
+        decide({ subject, markings }) {
+          const have = parse(subject.clearance ?? "UNCLASSIFIED");
+          const allow = markings.every((marking) => {
+            const need = parse(marking);
+            return need.rank >= 0 && have.rank >= need.rank && need.compartments.every((c) => have.compartments.includes(c));
+          });
+          return { allow };
         }
       };
       const { runtime } = await setup({ classification: lattice });

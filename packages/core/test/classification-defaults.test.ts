@@ -102,16 +102,22 @@ const keys = (o: { values: Record<string, unknown> }) => Object.keys(o.values).s
 
 describe("classification defaults (ADR-0034)", () => {
   describe("DENY_MARKED_DATA", () => {
-    it("dominates nothing: no clearance, however high or strange, reads any marking", () => {
+    it("allows nothing: no clearance, however high or strange, reads any marking", () => {
       const clearances = [undefined, "", "UNCLASSIFIED", "TOP_SECRET", "SECRET//NOFORN", "*", "__proto__"];
       const markings = ["UNCLASSIFIED", "CUI", "SECRET", "TOP_SECRET", "", "*", "constructor"];
-      for (const c of clearances) for (const m of markings) expect(DENY_MARKED_DATA.dominates(c, m)).toBe(false);
+      for (const c of clearances) {
+        for (const m of markings) {
+          const subject = { subjectId: "s", roles: [], attributes: {}, ...(c === undefined ? {} : { clearance: c }) };
+          expect(DENY_MARKED_DATA.decide({ subject, markings: [m], context: { action: "read", resource: { typeName: "T" } } }).allow).toBe(false);
+        }
+      }
+      expect(DENY_MARKED_DATA.join(["SECRET", "CUI", "SECRET"])).toEqual(["SECRET", "CUI"]);
     });
 
     it("is a named, frozen object — not a meaning attached to an absent option", () => {
       expect(DENY_MARKED_DATA.name).toBe("deny-marked-data");
       expect(Object.isFrozen(DENY_MARKED_DATA)).toBe(true);
-      expect(() => ((DENY_MARKED_DATA as { dominates: unknown }).dominates = () => true)).toThrow(TypeError);
+      expect(() => ((DENY_MARKED_DATA as { decide: unknown }).decide = () => ({ allow: true }))).toThrow(TypeError);
     });
   });
 
@@ -148,7 +154,7 @@ describe("classification defaults (ADR-0034)", () => {
       expect((await runtime.getObject("test.Plain", "p1", uncleared)).values.name).toBe("Nothing to hide");
     });
 
-    it("only a configured scheme that dominates the marking opens it", async () => {
+    it("only a configured scheme that allows the marking opens it", async () => {
       const { runtime } = await setup({ classification: DEMO_LINEAR_CLASSIFICATION });
       expect((await runtime.getObject("test.Dossier", "d1", topSecret)).values.codeword).toBe("KESTREL");
       expect(keys(await runtime.getObject("test.Memo", "m1", topSecret))).toEqual(["body", "gist", "id", "rating", "subject"]);
@@ -171,7 +177,7 @@ describe("classification defaults (ADR-0034)", () => {
 
     it("unmarked data never asks the scheme and writes no classification row", async () => {
       const asked: string[] = [];
-      const spy: ClassificationScheme = { name: "spy", dominates: (_c, m) => (asked.push(m), true) };
+      const spy: ClassificationScheme = { name: "spy", join: (markings) => markings, decide: ({ markings }) => (asked.push(...markings), { allow: true }) };
       const { runtime, registry } = await setup({ classification: spy });
       await runtime.getObject("test.Plain", "p1", uncleared);
       expect(asked).toEqual([]);
