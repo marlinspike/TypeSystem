@@ -1017,3 +1017,5 @@ select:focus, input[type="text"]:focus, textarea:focus {
 .control-pill { font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--bg-inset); color: var(--text-faint); }
 .control-pill.policy { background: rgba(124, 155, 255, 0.1); color: var(--accent-strong); }
 .control-pill.classification { background: var(--warning-wash); color: var(--warning); }
+.control-pill.plan { background: var(--success-wash); color: var(--success); }
+.audit-body td.operation { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; }
