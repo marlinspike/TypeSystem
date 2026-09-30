@@ -292,14 +292,15 @@
           <option value="">All controls</option>
           <option value="policy">Policy</option>
           <option value="classification">Classification</option>
+          <option value="plan">Row plan</option>
         </select>
       </div>
-      <span class="audit-hint">every policy and classification decision, live</span>
+      <span class="audit-hint">every policy, classification, and row-plan decision, with the operation that made it, live</span>
     </div>
     <div class="audit-body" id="auditBody" hidden>
       <table>
         <thead>
-          <tr><th>Time</th><th>Subject</th><th>Action</th><th>Resource</th><th>Control</th><th>Decision</th><th>Reason</th></tr>
+          <tr><th>Time</th><th>Subject</th><th>Operation</th><th>Action</th><th>Resource</th><th>Control</th><th>Decision</th><th>Reason</th></tr>
         </thead>
         <tbody id="auditRows"></tbody>
       </table>

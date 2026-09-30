@@ -1376,7 +1376,16 @@ async function refreshAudit() {
 
 function renderAudit() {
   const { events, decision, subject, control, seen } = state.audit;
-  const controlOf = (e) => (e.details?.control === "classification" ? "classification" : e.outcome ? "action" : "policy");
+  const controlOf = (e) => (e.details?.control === "classification" ? "classification" : e.details?.control === "row-plan" ? "plan" : e.outcome ? "action" : "policy");
+  // A row plan (ADR-0038) records its kind, exactness, and limitation codes — never the predicate's values.
+  const planText = (d) => `${d.defect ? "defect · " : ""}${d.plan}${d.plan === "predicate" ? (d.exact ? " · exact" : " · inexact") : ""}`;
+  const pillText = (e) => (controlOf(e) === "classification" ? `▲ ${(e.details.label ?? e.details.markings ?? []).join(", ")}` : controlOf(e) === "plan" ? `plan · ${planText(e.details)}` : controlOf(e));
+  const pillTitle = (e) =>
+    controlOf(e) === "classification"
+      ? `markings ${(e.details.markings ?? []).join(", ")} · label ${(e.details.label ?? []).join(", ")} · clearance ${e.details.clearance ?? "none"}${e.details.reason ? ` · ${e.details.reason}` : ""}`
+      : controlOf(e) === "plan"
+        ? `${e.details.operation === "explainQuery" ? "explained, not run · " : ""}limitations: ${(e.details.limitations ?? []).join(", ") || "none"}`
+        : "";
   $("#auditCount").textContent = events.length;
 
   const subjects = [...new Set(events.map((e) => e.subjectId))].sort();
@@ -1394,17 +1403,16 @@ function renderAudit() {
       return `<tr class="${fresh ? "fresh" : ""}">
         <td class="time">${new Date(e.timestamp).toLocaleTimeString()}</td>
         <td class="subject">${escapeHtml(e.subjectId)}</td>
+        <td class="operation">${escapeHtml(e.operation ?? "")}</td>
         <td>${escapeHtml(e.action)}</td>
         <td class="resource">${escapeHtml(e.resource.typeName)}${e.resource.objectId ? `/${escapeHtml(e.resource.objectId)}` : ""}${e.resource.propertyPath ? `.${escapeHtml(e.resource.propertyPath)}` : ""}</td>
-        <td><span class="control-pill ${controlOf(e)}" title="${
-          controlOf(e) === "classification" ? escapeHtml(`markings ${(e.details.markings ?? []).join(", ")} · clearance ${e.details.clearance ?? "none"}`) : ""
-        }">${controlOf(e) === "classification" ? `▲ ${escapeHtml((e.details.markings ?? []).join(", "))}` : controlOf(e)}</span></td>
+        <td><span class="control-pill ${controlOf(e)}" title="${escapeHtml(pillTitle(e))}">${escapeHtml(pillText(e))}</span></td>
         <td><span class="decision-pill ${e.decision}">${e.decision}</span></td>
         <td class="reason">${e.reason ? escapeHtml(e.reason) : e.outcome === "success" ? "action executed" : ""}</td>
       </tr>`;
     })
     .join("");
-  $("#auditRows").innerHTML = rows || '<tr><td colspan="7" class="muted">No events match.</td></tr>';
+  $("#auditRows").innerHTML = rows || '<tr><td colspan="8" class="muted">No events match.</td></tr>';
   events.forEach((e) => seen.add(e.id));
 }
 
