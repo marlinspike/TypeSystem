@@ -49,11 +49,13 @@ registered Type can use it without a bespoke migration.
 authorization plan the runtime pushed into it (ADR-0038) — to a
 parameterized `WHERE` over the JSONB column
 ([ADR-0040](../../docs/adr/0040-adapter-filter-capabilities-and-sql-pushdown.md)).
-Each condition compiles *exactly* (string, boolean, and `null` equality
-through the GIN index with `@>`; numbers compared as `float8`, the parse
-JavaScript applies) or as a *superset* (`contains`, `icontains`, narrowed by
-JSON type), and every row read is re-checked with `matchesFilter`, so a
-superset is only ever narrowed. When the whole filter is exact and there is
+Each condition compiles *exactly* — string, boolean, and `null` equality,
+through the GIN index with `@>` — or as a *superset*: numeric conditions,
+bounded in exact `numeric` arithmetic by the doubles neighboring the filter's
+number, so no stored decimal JavaScript would match is ever excluded
+([ADR-0044](../../docs/adr/0044-provable-numeric-pushdown.md)); and
+`contains`/`icontains`, narrowed by JSON type. Every row read is re-checked
+with `matchesFilter`, so a superset is only ever narrowed. When the whole filter is exact and there is
 no `sort`, `LIMIT`/`OFFSET` run in SQL and a page reads only its rows;
 otherwise the adapter sorts and pages the SQL-narrowed rows itself, with the
 same order and cursors. `resolveRelationship`'s `byForeignKey:<field>` case

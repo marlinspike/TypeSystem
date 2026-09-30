@@ -57,9 +57,15 @@ describe("the filter compiler (ADR-0040)", () => {
     expect(params.values.filter((v) => typeof v === "string" && v.includes("DROP")).length).toBeGreaterThan(0);
   });
 
-  it("marks exactly the operators whose SQL matches JavaScript as exact", () => {
+  it("marks exact only what needs no numeric parsing — string, boolean, and null equality (ADR-0044)", () => {
     const exact = (f: QueryFilter) => compileFilter(f, new SqlParams()).exact;
-    for (const operator of ["eq", "ne", "gt", "gte", "lt", "lte", "in"] as const) expect(exact({ property: "p", operator, value: operator === "in" ? ["a", 1] : 1 })).toBe(true);
+    for (const value of ["a", true, null]) {
+      for (const operator of ["eq", "ne"] as const) expect(exact({ property: "p", operator, value })).toBe(true);
+    }
+    expect(exact({ property: "p", operator: "in", value: ["a", false, null] })).toBe(true);
+    for (const operator of ["eq", "ne", "gt", "gte", "lt", "lte"] as const) expect(exact({ property: "p", operator, value: 1 })).toBe(false);
+    expect(exact({ property: "p", operator: "in", value: ["a", 1] })).toBe(false);
+    expect(compileFilter({ property: "p", operator: "gt", value: 1 }, new SqlParams()).sql).not.toContain("float8");
     expect(exact({ property: "p", operator: "contains", value: "a" })).toBe(false);
     expect(exact({ property: "p", operator: "icontains", value: "a" })).toBe(false);
     expect(exact({ property: "p", operator: "gt", value: Number.POSITIVE_INFINITY })).toBe(false);
@@ -167,7 +173,7 @@ describe.skipIf(!hasDb)("SQL pushdown against PostgreSQL (ADR-0040)", () => {
     }
   });
 
-  it("a number stored with more precision than a double compares as JavaScript reads it — float8, not numeric", async () => {
+  it("a number stored with more precision than a double compares as JavaScript reads it (ADR-0044)", async () => {
     await pool.query(`INSERT INTO objects (type_name, object_id, values) VALUES ($1, 'precise', '{"n": 0.1000000000000000000001}'::jsonb)`, [TYPE]);
     try {
       for (const f of [

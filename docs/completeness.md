@@ -168,7 +168,10 @@ document that gap rather than close it in this pass.
   field is pushed through its blind index; the Postgres adapter compiles
   filters to parameterized SQL — exact or a re-checked superset — proven by
   a differential test against `matchesFilter` on a real PostgreSQL
-  (`packages/adapter-postgres/test/sql-pushdown.test.ts`).
+  (`packages/adapter-postgres/test/sql-pushdown.test.ts`); numeric
+  conditions are supersets bounded in exact decimal arithmetic, so no claim
+  of exactness rests on Postgres's floating-point input (ADR-0044,
+  `packages/adapter-postgres/test/numeric-bounds.test.ts`).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is
