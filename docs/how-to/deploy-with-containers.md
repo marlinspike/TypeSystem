@@ -15,6 +15,29 @@ between this and real traffic: image scanning, secrets management, TLS, and more
 > shared `RedisCache`/`RedisRateLimiter`). `npm run load-test` is what exercises
 > the shared-Redis path across replicas today.
 
+## Topology
+
+`docker compose up --build --scale app=2` (and the reference Kubernetes
+manifests) stand up this shape — a load balancer over N stateless app replicas,
+a one-shot migration that runs first, and the shared Postgres/Redis a real
+domain build uses (ADR-0025):
+
+```mermaid
+flowchart TB
+    client["MCP client / app"] --> lb["nginx / k8s Service<br/>(load balancer)"]
+    lb --> app1["app replica<br/>/healthz · /readyz"]
+    lb --> app2["app replica<br/>/healthz · /readyz"]
+    migrate["migrate (one-shot)<br/>advisory-locked, runs first"] -->|creates schema| pg[("PostgreSQL")]
+    app1 --> pg
+    app2 --> pg
+    app1 --> redis[("Redis<br/>shared cache + rate limiter")]
+    app2 --> redis
+```
+
+Only the `app` replicas serve traffic; `migrate` runs to completion before they
+start, and Postgres/Redis are the shared state that makes several replicas
+behave as one (a real domain build reads them — the demo server is in-memory).
+
 ## Health endpoints
 
 The HTTP transport exposes two unauthenticated, side-effect-free endpoints an
