@@ -92,8 +92,12 @@ says so.
    ciphertext is bound to its record, so a swap between records is detected.
    Since ADR-0036 the runtime keeps encrypted and marked data out of any
    cache that isn't confidential, and `EncryptedCache` makes Redis one.
-   Still open: TLS in transit, a KMS-backed key provider and key management
-   (item 6), a cryptographic review of the construction, detection of
+   Since ADR-0037 keys can be data keys wrapped by a KMS key, unwrapped on
+   a lease (`WrappedKeyProvider`, AWS in `@typesys/kms-aws`) — tested
+   against an emulator, not AWS KMS. Still open: TLS in transit, key
+   policies, IAM, and audit on the KMS key (item 6), nothing yet refusing
+   `LocalKeyProvider` in production, a cryptographic review of the
+   construction, detection of
    deleted or replayed records (the store's own controls), and
    database-level encryption for everything not marked.
 5. **Real load testing.** `npm run benchmark` measures a synthetic
@@ -112,7 +116,11 @@ says so.
 6. **Secrets management.** `DATABASE_URL`, JWKS endpoints, `NPM_TOKEN`:
    every credential is "an environment variable that is assumed to just
    be there." A real deployment needs a real secrets manager and a
-   rotation story; neither exists here.
+   rotation story; neither exists here. *Partially addressed for
+   encryption keys (ADR-0037):* `WrappedKeyProvider` keeps only wrapped
+   data keys in configuration and unwraps them through a KMS, with a
+   two-phase rotation procedure; every other credential is still an
+   environment variable.
 7. **A real multi-instance story.** `InMemoryCache` and
    `InMemoryRateLimiter` are per-process by design (ADR-0016/ADR-0019),
    and `PostgresRegistryStore` (ADR-0015) accepted an

@@ -12,6 +12,7 @@
     { "path": "packages/auth-oidc" },
     { "path": "packages/redis" },
     { "path": "packages/policy-cedar" },
-    { "path": "packages/encryption" }
+    { "path": "packages/encryption" },
+    { "path": "packages/kms-aws" }
   ]
 }

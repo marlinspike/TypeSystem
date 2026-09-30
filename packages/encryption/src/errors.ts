@@ -33,3 +33,16 @@ export class EncryptionConfigError extends Error {
     this.name = "EncryptionConfigError";
   }
 }
+
+/**
+ * Key material that can't be had (ADR-0037): a KMS that is unreachable,
+ * denies access, or has disabled the key — at startup, or once a lease has
+ * run out without a successful refresh. Everything that needs the key fails
+ * closed. The message names the key id and KMS key, never material.
+ */
+export class KeyUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "KeyUnavailableError";
+  }
+}

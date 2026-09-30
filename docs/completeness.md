@@ -97,8 +97,11 @@ document that gap rather than close it in this pass.
   (ADR-0036): the runtime reads it live instead, and `EncryptedCache` seals
   a shared cache's values and hides its key names. Proven by
   `packages/core/test/sensitive-caching.test.ts` and
-  `packages/encryption/test/encrypted-cache.test.ts`. Not built: a
-  KMS-backed `KeyProvider` (the interface is the seam) — see the ADRs.
+  `packages/encryption/test/encrypted-cache.test.ts`. Keys can come from a
+  KMS (ADR-0037): `WrappedKeyProvider` unwraps data keys at startup or
+  refuses to start, and leases them so a revoked KMS key stops every use
+  within `maxKeyAgeMs`; `@typesys/kms-aws` is the AWS KMS key, tested
+  against a fake and, in CI, the `local-kms` emulator — not AWS itself.
 - Data classification enforcement (ADR-0032): `Identity.clearance` must
   dominate a Type's `x-provenance.defaultClassification`, a member's
   `x-provenance.properties[].classification`, and a value's
@@ -223,8 +226,10 @@ Not proven, and listed per ADR for human review: this code is
 machine-verified, not human-reviewed; the pagination inference channel
 (ADR-0030); Cedar's formal analysis of a real policy set (ADR-0031);
 value-level markings in adapter-side aggregation and write rules (ADR-0032);
-a KMS key provider, record-level ciphertext binding, and a cryptographic
-review (ADR-0033).
+a cryptographic review (ADR-0033); the legacy-migration window (ADR-0035);
+replay of an `EncryptedCache` entry within its TTL (ADR-0036); and
+`AwsKmsKey` against AWS KMS itself, with real key policies and IAM
+(ADR-0037).
 
 ## Real but narrow — the mechanism exists, exercised once
 

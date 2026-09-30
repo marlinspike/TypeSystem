@@ -19,8 +19,33 @@ import { LocalKeyProvider } from "@typesys/encryption";
 const keys = LocalKeyProvider.fromEnv();
 ```
 
-`LocalKeyProvider` is for development. In production, implement
-`KeyProvider` against your KMS.
+`LocalKeyProvider` is for development: the raw key sits in configuration.
+
+### In production: keys wrapped by a KMS
+
+Keep only *wrapped* data keys in configuration and let the KMS unwrap them
+([ADR-0037](../adr/0037-kms-backed-key-provider.md)). With AWS KMS
+([`@typesys/kms-aws`](../../packages/kms-aws/README.md)):
+
+```ts
+import { KMS } from "@aws-sdk/client-kms";
+import { newWrappedKey, WrappedKeyProvider } from "@typesys/encryption";
+import { AwsKmsKey } from "@typesys/kms-aws";
+
+const kek = new AwsKmsKey(new KMS({ region: "us-east-1" }), { keyId: "alias/typesys" });
+// Once, to mint an entry for TYPESYS_WRAPPED_KEYS (same id:base64 format, active first):
+console.log(`2026-09:${await newWrappedKey(kek, "2026-09")}`);
+// At startup: unwraps every key, or rejects — so a process without its keys doesn't start.
+const keys = await WrappedKeyProvider.fromEnv(kek);
+```
+
+Unwrapped keys are leased: after `refreshAfterMs` (5 minutes) the next use
+re-unwraps in the background; a failed refresh keeps the current keys; once
+`maxKeyAgeMs` (15 minutes) passes without a successful one, every use fails
+with `KeyUnavailableError`. So disabling the KMS key, or revoking an
+instance's access, stops encryption and decryption everywhere within 15
+minutes, and a shorter KMS outage goes unnoticed. For another KMS, implement
+`KeyEncryptionKey` (`generateWrappedKey`, `unwrap`).
 
 ## 2. Wrap the adapter
 
@@ -104,9 +129,18 @@ been tampered with, moved, or kept past its TTL reads as a miss.
 
 ## Rotate
 
-Add a new key at the front of `TYPESYS_ENCRYPTION_KEYS`, keep the old one
-behind it, and redeploy. Old values keep reading; new writes use the new key.
-Re-encrypt old records at your pace with `reseal`, then drop the old key.
+Every instance must hold a key before any instance writes under it, so a
+rotation across replicas takes two deploys:
+
+1. Add the new key to the keyring *behind* the active one
+   (`TYPESYS_ENCRYPTION_KEYS` or `TYPESYS_WRAPPED_KEYS`) and deploy
+   everywhere. Nothing is written under it yet.
+2. Move it to the front and deploy again. New writes use it; old values
+   keep reading.
+
+Then re-encrypt old records at your pace with `reseal`, and drop the old key
+once nothing is stored under it. Rotating the KMS key itself needs none of
+this: wrapped keys keep unwrapping.
 
 ## Verify it
 
@@ -116,4 +150,6 @@ indexes, uses the wrong key, rotates, and checks every hospital read path
 returns the same results encrypted as not;
 [`record-binding.test.ts`](../../packages/encryption/test/record-binding.test.ts)
 moves ciphertexts between records, attempts downgrades, and migrates with
-`reseal`.
+`reseal`;
+[`wrapped-keys.test.ts`](../../packages/encryption/test/wrapped-keys.test.ts)
+fails startup without the KMS, revokes the KMS key mid-lease, and recovers.

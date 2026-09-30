@@ -183,7 +183,10 @@ code is machine-verified, not human-reviewed.
   in process memory, from an environment variable; that is a development
   convenience, not a key management system. Production needs a KMS-backed
   provider, access control and audit on the keys, and a rotation schedule
-  (`PRODUCTION-READINESS.md` item 6).
+  (`PRODUCTION-READINESS.md` item 6). *Since ADR-0037:* `WrappedKeyProvider`
+  holds data keys wrapped by a KMS key on a lease, with AWS KMS in
+  `@typesys/kms-aws`; access control, audit, and the schedule remain the
+  deployment's.
 - **Record binding.** A ciphertext can be swapped between records of the
   same Type and field by someone with write access to the store (point 3).
   If that matters, bind a stable record id into the AAD where one exists
