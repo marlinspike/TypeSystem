@@ -1408,7 +1408,7 @@ function renderAudit() {
         <td class="resource">${escapeHtml(e.resource.typeName)}${e.resource.objectId ? `/${escapeHtml(e.resource.objectId)}` : ""}${e.resource.propertyPath ? `.${escapeHtml(e.resource.propertyPath)}` : ""}</td>
         <td><span class="control-pill ${controlOf(e)}" title="${escapeHtml(pillTitle(e))}">${escapeHtml(pillText(e))}</span></td>
         <td><span class="decision-pill ${e.decision}">${e.decision}</span></td>
-        <td class="reason">${e.reason ? escapeHtml(e.reason) : e.outcome === "success" ? "action executed" : ""}</td>
+        <td class="reason">${e.details?.faults ? `<span class="fault-pill" title="${escapeHtml(e.details.faults.join("; "))}">⚠ ${e.details.faults.length} fault${e.details.faults.length === 1 ? "" : "s"}</span> ` : ""}${e.reason ? escapeHtml(e.reason) : e.outcome === "success" ? "action executed" : ""}</td>
       </tr>`;
     })
     .join("");

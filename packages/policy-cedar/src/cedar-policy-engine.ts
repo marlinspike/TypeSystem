@@ -114,7 +114,7 @@ export class CedarPolicyEngine implements PolicyEngine {
       });
     } catch (err) {
       this.report(request, [err instanceof Error ? err.message : String(err)]);
-      return deny(`Cedar could not evaluate "${request.policyName}" (fail closed)`);
+      return { ...deny(`Cedar could not evaluate "${request.policyName}" (fail closed)`), faults: [`Cedar could not evaluate ${request.policyName}`] };
     }
 
     if (answer.type === "failure") {
@@ -124,7 +124,11 @@ export class CedarPolicyEngine implements PolicyEngine {
     const { decision, diagnostics } = answer.response;
     if (diagnostics.errors.length > 0) {
       this.report(request, diagnostics.errors.map((e) => `${e.policyId}: ${e.error.message}`));
-      return deny(`Cedar policy ${diagnostics.errors.map((e) => e.policyId).join(", ")} errored (fail closed)`);
+      // Which policies errored is a fault an operator must see (ADR-0043); Cedar's messages stay in onError.
+      return {
+        ...deny(`Cedar policy ${diagnostics.errors.map((e) => e.policyId).join(", ")} errored (fail closed)`),
+        faults: diagnostics.errors.map((e) => `Cedar policy ${e.policyId} errored`)
+      };
     }
     if (decision === "allow") return { allow: true, reason: `Permitted by ${diagnostics.reason.join(", ")}` };
     return deny(diagnostics.reason.length > 0 ? `Forbidden by ${diagnostics.reason.join(", ")}` : `No Cedar policy permits "${request.policyName}"`);

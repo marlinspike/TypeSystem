@@ -196,7 +196,9 @@ says so.
     operationally yet. For whoever builds that alerting: every audit row
     names the runtime operation it was written under (ADR-0042), so a
     `listActions` preview's deny is told apart from an `invokeAction`
-    gate's.
+    gate's; and a rule branch that fails to evaluate is a fault, counted in
+    `typesys.policy.faults` and audited even under an allow (ADR-0043) —
+    the first thing to alert on.
 
 ## Tier 3: packaging and domain
 

@@ -21,7 +21,7 @@ import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./conc
 import { filterProperties, matchesFilter } from "./filter.js";
 import { applyProjection, applySort } from "./query-ops.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
-import { recordPolicyDecision, recordCacheResult, recordPlanDefect } from "../observability/metrics.js";
+import { recordPolicyDecision, recordPolicyFaults, recordCacheResult, recordPlanDefect } from "../observability/metrics.js";
 import {
   allPlans,
   checkPlan,
@@ -118,6 +118,12 @@ export interface QueryPlanReport {
     /** The post-read check may drop objects — it always runs; this says whether it can matter. */
     postFilterRequired: boolean;
   };
+}
+
+/** At most 16 fault strings of at most 200 characters each, from whatever an engine answered (ADR-0043). */
+function boundedFaults(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((f): f is string => typeof f === "string").slice(0, 16).map((f) => f.slice(0, 200));
 }
 
 /** What a scheme's `join` must answer for marked data: a non-empty list of markings (ADR-0041). */
@@ -552,10 +558,19 @@ export class SemanticRuntime {
     try {
       decision = await this.policyEngine.evaluate(request);
     } catch {
-      return { allow: false, reason: `Policy "${request.policyName}" failed to evaluate (fail closed)` };
+      return { allow: false, reason: `Policy "${request.policyName}" failed to evaluate (fail closed)`, faults: [`policy ${request.policyName} failed to evaluate`] };
     }
-    if (decision?.allow === true) return decision;
-    return { allow: false, reason: typeof decision?.reason === "string" ? decision.reason : `Policy "${request.policyName}" did not allow (fail closed)` };
+    const faults = boundedFaults(decision?.faults);
+    if (decision?.allow === true) {
+      const allowed: PolicyDecision = { ...decision };
+      delete allowed.faults;
+      return faults.length > 0 ? { ...allowed, faults } : allowed;
+    }
+    return {
+      allow: false,
+      reason: typeof decision?.reason === "string" ? decision.reason : `Policy "${request.policyName}" did not allow (fail closed)`,
+      ...(faults.length > 0 ? { faults } : {})
+    };
   }
 
   /** Records one decision. The row names what was decided about, never `resource.attributes`. */
@@ -584,7 +599,8 @@ export class SemanticRuntime {
   /** Decides and audits one policy check. */
   private async evaluate(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<PolicyDecision> {
     const decision = await this.decide({ subject: identity, action, policyName, resource });
-    await this.audit(identity, action, resource, decision);
+    if (decision.faults) recordPolicyFaults(decision.faults.length);
+    await this.audit(identity, action, resource, decision, decision.faults ? { faults: decision.faults } : undefined);
     return decision;
   }
 

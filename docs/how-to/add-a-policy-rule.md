@@ -103,6 +103,11 @@ A rule that throws is a deny, audited like any other, so a rule reading an
 attribute of an unexpected shape fails closed rather than crashing the read.
 Inside `anyOf`, a throwing alternative is one that doesn't allow: the next
 one is still tried. Inside `allOf`, a throw denies the whole conjunction.
+Either way the failure is a *fault* — recorded on the decision, in the
+audit row's `details.faults`, and in the `typesys.policy.faults` metric —
+even when a later alternative allowed
+([ADR-0043](../adr/0043-policy-faults-are-observable.md)), so a broken
+branch can't hide behind a working one. Alert on that metric.
 
 ## Property-level redaction, not just allow/deny
 
