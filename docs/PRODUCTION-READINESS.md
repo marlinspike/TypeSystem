@@ -98,9 +98,12 @@ says so.
    cache that isn't confidential, and `EncryptedCache` makes Redis one.
    Since ADR-0037 keys can be data keys wrapped by a KMS key, unwrapped on
    a lease (`WrappedKeyProvider`, AWS in `@typesys/kms-aws`) — tested
-   against an emulator, not AWS KMS. Still open: TLS in transit, key
-   policies, IAM, and audit on the KMS key (item 6), nothing yet refusing
-   `LocalKeyProvider` in production, a cryptographic review of the
+   against an emulator, not AWS KMS. **Gate:** `AwsKmsKey` is not
+   production-ready until `packages/kms-aws/test/aws-kms.production-gate.test.ts`
+   has passed against real AWS KMS in the deployment's account and region.
+   `HIGH_ASSURANCE_V1` (ADR-0046) refuses `LocalKeyProvider`. Still open: TLS
+   in transit, key policies, IAM, and audit on the KMS key (item 6), a
+   cryptographic review of the
    construction, detection of
    deleted or replayed records (the store's own controls), and
    database-level encryption for everything not marked.
@@ -168,7 +171,9 @@ says so.
    one an adapter can't filter (a randomized encrypted field), makes a plan
    inexact; range and numeric conditions aren't indexed; a probed value's own provenance
    marking can still drop a row, and a custom planner is only as sound as
-   `checkPlanConformance` shows it to be.
+   `checkPlanConformance` shows it to be. Under `HIGH_ASSURANCE_V1`
+   (ADR-0046) row security is exact and aggregation is admitted only by
+   structurally derived plans.
 
 ## Tier 2: operational maturity
 

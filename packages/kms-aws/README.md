@@ -48,5 +48,13 @@ shared.
 
 A fake of the two calls modeled on AWS's documented behavior, and — through
 the real SDK client — the [`local-kms`](https://github.com/nsmithuk/local-kms)
-emulator in CI (`KMS_ENDPOINT`). Not against AWS KMS itself: key policies,
-IAM, CloudTrail, and multi-region keys are the deployment's to verify.
+emulator in CI (`KMS_ENDPOINT`).
+
+## The production gate
+
+`AwsKmsKey` is **not production-ready until `test/aws-kms.production-gate.test.ts`
+has passed against real AWS KMS**, in the account and region you will deploy
+to. Set `TYPESYS_AWS_KMS_KEY_ID` and `TYPESYS_AWS_KMS_OTHER_KEY_ID` to two
+symmetric keys your credentials may use, and run the package's tests; the gate
+creates, disables, and deletes nothing. Key policies, IAM, CloudTrail, and
+multi-region keys remain yours to verify.

@@ -4,6 +4,7 @@ import type { ResidualResponse } from "@cedar-policy/cedar-wasm/nodejs";
 import {
   ALWAYS,
   AuthorizationError,
+  HIGH_ASSURANCE_V1,
   NEVER,
   SemanticRuntime,
   checkPlanConformance,
@@ -391,5 +392,29 @@ describe("Cedar planning in the runtime (ADR-0039)", () => {
       plans.push((await runtime.explainQuery({ type: "airforce.Aircraft" }, subject)).plan);
     }
     expect(plans).toEqual([ALWAYS, NEVER]);
+  });
+});
+
+describe("Cedar under HIGH_ASSURANCE_V1 (ADR-0046)", () => {
+  const profile = { securityProfile: HIGH_ASSURANCE_V1 };
+  const clinician = hospitalDemoIdentities.clinician;
+  const count = { type: "hospital.Patient", aggregations: [{ name: "n", op: "count" as const }] };
+  async function world(e: CedarPolicyEngine) {
+    const tb = await buildHospitalTestbed();
+    return new SemanticRuntime(tb.registry, [tb.adapter], e, profile);
+  }
+
+  it("the profile never asserts schema conformance: without the operator's assertion, a Cedar query on an attribute-bearing Type is refused", async () => {
+    await expect((await world(engine())).query({ type: "hospital.Patient" }, clinician)).rejects.toBeInstanceOf(AuthorizationError);
+    expect((await (await world(engine(true))).query({ type: "hospital.Patient" }, clinician)).items.map((i) => i.objectId)).toEqual(["PT-1001"]);
+    // A Type with no declared attributes plans exactly either way.
+    expect((await (await world(engine())).query({ type: "hospital.Provider" }, clinician)).items.length).toBeGreaterThan(0);
+  });
+
+  it("attack: an exact Cedar plan still can't admit an aggregate — partial evaluation isn't structural — while reads use it", async () => {
+    const runtime = await world(engine(true));
+    await expect(runtime.aggregate(count, clinician)).rejects.toThrow(/was not derived structurally/);
+    const abac = await buildHospitalTestbed().then((tb) => new SemanticRuntime(tb.registry, [tb.adapter], tb.policyEngine, profile));
+    expect((await abac.aggregate(count, clinician)).groups[0]!.values.n).toBe(1);
   });
 });

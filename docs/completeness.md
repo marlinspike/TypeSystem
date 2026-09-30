@@ -52,6 +52,16 @@ document that gap rather than close it in this pass.
   `packages/core/test/audit-operation.test.ts`) — and any rule branch that
   failed to evaluate, even under an allow (ADR-0043,
   `packages/core/test/policy-faults.test.ts`).
+- Telemetry identity policy (ADR-0045): spans carry the caller in the clear
+  (the default), not at all, or as a keyed HMAC pseudonym
+  (`packages/core/test/observability.test.ts`).
+- A versioned security profile, `HIGH_ASSURANCE_V1` (ADR-0046): exact row
+  security, aggregation only through structurally derived plans, no clear
+  identity in telemetry, managed keys, no demonstration components, and
+  well-formed configuration, checked at construction with every violation
+  reported and every downgrade refused
+  (`packages/core/test/security-profile.test.ts`,
+  `packages/encryption/test/security-profile.test.ts`).
 - A TTL-based cache for `resolutionMode: "cached"` properties,
   relationships, and computed properties, opt-in per mapping, with a
   manual `invalidateObject` escape hatch (ADR-0016).

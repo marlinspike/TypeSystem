@@ -1,4 +1,5 @@
 import type { AuthorizationPlan } from "../policy/authorization-plan.js";
+import type { PlanAssurance } from "../runtime/security-profile.js";
 
 /**
  * Object- and property-level authorization boundary. Deliberately a small
@@ -70,4 +71,10 @@ export interface PolicyEngine {
    * would allow, the plan admits. An engine without it plans `unknown`.
    */
   plan?(request: PolicyRequest): Promise<AuthorizationPlan>;
+  /**
+   * Optional (ADR-0046): `"structural"` only when this engine derived the
+   * plan for `request` from the same rule structure it evaluates, by code it
+   * ships. A security profile admits aggregation only through such a plan.
+   */
+  planAssurance?(request: PolicyRequest): PlanAssurance | Promise<PlanAssurance>;
 }

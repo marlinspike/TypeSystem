@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { Cache } from "@typesys/core";
+import type { Cache, KeyManagement } from "@typesys/core";
 import { gcmOpen, gcmSeal, Subkeys } from "./cipher.js";
 import { DecryptionError } from "./errors.js";
 import type { KeyProvider, MasterKey } from "./keys.js";
@@ -35,6 +35,8 @@ export interface EncryptedCacheOptions {
  */
 export class EncryptedCache implements Cache {
   readonly confidential = true;
+  /** Where this cache's keys come from (ADR-0046), so a security profile can refuse local ones. */
+  readonly keyManagement: KeyManagement;
   private readonly subkeys = new Subkeys();
   private readonly onError: (err: DecryptionError) => void;
 
@@ -43,6 +45,7 @@ export class EncryptedCache implements Cache {
     private readonly keys: KeyProvider,
     opts: EncryptedCacheOptions = {}
   ) {
+    this.keyManagement = keys.management ?? "unknown";
     this.onError = opts.onError ?? ((err) => console.warn(`EncryptedCache: ${err.message}; treating it as a miss`));
   }
 

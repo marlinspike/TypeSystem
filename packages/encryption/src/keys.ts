@@ -13,6 +13,13 @@ export interface MasterKey {
  * wrapped by a KMS key and unwraps them on a lease.
  */
 export interface KeyProvider {
+  /**
+   * Where the keys come from (ADR-0046): `"managed"` when a KMS holds the
+   * material that protects them, `"local"` when they sit in this process's
+   * configuration. A provider that doesn't say counts as `"unknown"`, which a
+   * security profile refuses.
+   */
+  readonly management?: "local" | "managed";
   /** The key new values are encrypted, and their blind indexes computed, under. */
   activeKey(): Promise<MasterKey>;
   /** The key a stored envelope names — active or retired. `undefined` for a key no longer held, which fails the read closed. */
@@ -69,6 +76,8 @@ export function keyringFromEnv(env: Record<string, string | undefined>, variable
  * key management system — see ADR-0033.
  */
 export class LocalKeyProvider implements KeyProvider {
+  /** Raw key material from configuration: for development and tests, and refused by a security profile. */
+  readonly management = "local";
   private readonly keys: Map<string, MasterKey>;
   private readonly active: MasterKey;
 

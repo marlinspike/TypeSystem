@@ -372,6 +372,7 @@ describe("authorization planning in the runtime (ADR-0038)", () => {
       expect(report).toEqual({
         typeName: "test.Case",
         policyName: "case.read",
+        securityProfile: null,
         rowSecurity: "post-filter",
         plan: { kind: "predicate", exact: true, limitations: [], predicate: { or: [{ attribute: "ownerId", eq: "bob" }, { attribute: "reviewerId", eq: "bob" }] } },
         probes: [],

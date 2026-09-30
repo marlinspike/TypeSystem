@@ -1,4 +1,5 @@
 import type { PolicyEngine, PolicyRequest, PolicyDecision } from "../model/policy.js";
+import type { PlanAssurance } from "../runtime/security-profile.js";
 import { ALWAYS, NEVER, allPlans, anyPlan, isPlanIdentifier, predicatePlan, unknownPlan, type AuthorizationPlan } from "./authorization-plan.js";
 
 export type PolicyRule = (request: PolicyRequest) => PolicyDecision | Promise<PolicyDecision>;
@@ -14,8 +15,18 @@ export interface PlannableRule {
   plan(request: PolicyRequest): AuthorizationPlan | Promise<AuthorizationPlan>;
 }
 
-function plannable(rule: PolicyRule, plan: PlannableRule["plan"]): PlannableRule {
-  return Object.assign(rule, { plan });
+/**
+ * The rules whose plans are derived from the structure they evaluate, by the
+ * combinators in this module (ADR-0046). A rule with a hand-written `plan` is
+ * not among them, nor is a combinator over one; a plain function rule plans
+ * `unknown`, which trusts nothing, so it doesn't disqualify its parent.
+ */
+const STRUCTURAL = new WeakSet<PolicyRule>();
+
+function plannable(rule: PolicyRule, plan: PlannableRule["plan"], children: readonly PolicyRule[] = []): PlannableRule {
+  const planned = Object.assign(rule, { plan });
+  if (children.every((child) => STRUCTURAL.has(child) || typeof (child as Partial<PlannableRule>).plan !== "function")) STRUCTURAL.add(planned);
+  return planned;
 }
 
 /** A rule's plan: its own, or — for a plain function rule — `unknown`, which admits everything. */
@@ -43,6 +54,17 @@ export class AbacPolicyEngine implements PolicyEngine {
       return { allow: false, reason: `No policy rule registered for "${request.policyName}" (fail closed)` };
     }
     return rule(request);
+  }
+
+  /**
+   * `"structural"` when the registered rule's plan comes from this module's
+   * combinators alone (ADR-0046) — an unregistered policy plans `never`, which
+   * is structural too — and `"unverified"` when any part of it has a
+   * hand-written `plan`.
+   */
+  planAssurance(request: PolicyRequest): PlanAssurance {
+    const rule = this.rules.get(request.policyName);
+    return !rule || STRUCTURAL.has(rule) ? "structural" : "unverified";
   }
 
   /** From the registered rule's own structure (ADR-0038). An unregistered policy denies everything, so it plans `never`. */
@@ -140,7 +162,8 @@ export function anyOf(...rules: PolicyRule[]): PolicyRule {
       }
       return withFaults({ allow: false, reason: `No alternative allowed: ${reasons.join("; ")}` }, faults);
     },
-    async (request) => anyPlan(await Promise.all(rules.map((rule) => planOf(rule, request))))
+    async (request) => anyPlan(await Promise.all(rules.map((rule) => planOf(rule, request)))),
+    rules
   );
 }
 
@@ -158,6 +181,7 @@ export function allOf(...rules: PolicyRule[]): PolicyRule {
       }
       return withFaults({ allow: true }, faults);
     },
-    async (request) => allPlans(await Promise.all(rules.map((rule) => planOf(rule, request))))
+    async (request) => allPlans(await Promise.all(rules.map((rule) => planOf(rule, request)))),
+    rules
   );
 }
