@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. *Amended by ADR-0045:* how much caller identity spans carry is a
+policy — `"none"`, `"clear"` (the default), or a keyed pseudonym.
 
 ## Context
 

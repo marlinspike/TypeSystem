@@ -179,7 +179,9 @@ says so.
 10. **Observability wired to something real.** The OpenTelemetry hooks
     (ADR-0017) are tested to fire in isolation; nobody has pointed them at
     a real backend (Datadog, Honeycomb, Jaeger) and built dashboards,
-    alerts, or SLOs on the signals.
+    alerts, or SLOs on the signals. Before one is: choose a
+    `telemetryIdentity` (ADR-0045) — `"clear"` puts subject ids in every
+    span, which is the default only because it was the behavior before.
 11. **Migration and rollback discipline.**
     `adapter-postgres`/`registry-store-postgres` migrations are tested as
     safely re-runnable (ADR-0015) and, since ADR-0025, safe to run
