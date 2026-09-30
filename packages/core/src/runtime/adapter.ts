@@ -3,6 +3,7 @@ import type { ActionDefinition } from "../model/action.js";
 import type { ProvenanceRef } from "../model/provenance.js";
 import type { QueryFilter, QueryOperator, SortKey, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ActionContext } from "../model/context.js";
+import type { KeyManagement } from "./security-profile.js";
 
 export interface ResolvedProperties {
   values: Record<string, unknown>;
@@ -72,4 +73,6 @@ export interface Adapter {
    * A decorator around such an adapter must forward this.
    */
   canFilter?(typeName: string, property: string, operator: QueryOperator): boolean | Promise<boolean>;
+  /** Where this adapter's encryption keys come from, if it encrypts (ADR-0046). A security profile requires `"managed"`. */
+  readonly keyManagement?: KeyManagement;
 }

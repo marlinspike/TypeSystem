@@ -57,6 +57,8 @@ function duration(name: string, value: number): number {
  * stops every instance within that time.
  */
 export class WrappedKeyProvider implements KeyProvider {
+  /** Data keys wrapped by a KMS key: the KMS holds what protects them. */
+  readonly management = "managed";
   private readonly refreshAfterMs: number;
   private readonly maxKeyAgeMs: number;
   private readonly retryIntervalMs: number;

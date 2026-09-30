@@ -2,6 +2,10 @@
 
 ## Status
 
+*Amended by ADR-0046:* `securityLabels` and `DEMO_LINEAR_CLASSIFICATION` are
+marked `demonstration`, and a security profile refuses them: real marking
+schemes are governed implementations of `ClassificationScheme`, outside core.
+
 Accepted — implemented in `@typesys/core`: the `decide`/`join` interface,
 `linearClassification` and `DENY_MARKED_DATA` in the new shape, and the
 reference `securityLabels` scheme in `runtime/classification.ts`; the

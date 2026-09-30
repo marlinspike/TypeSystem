@@ -1,3 +1,5 @@
+import type { KeyManagement } from "./security-profile.js";
+
 /**
  * A small, swappable cache seam (see ADR-0016) — the same pattern as
  * `Adapter`/`RegistryStore`/`PolicyEngine`: one interface, one in-memory
@@ -12,6 +14,8 @@ export interface Cache {
    * `EncryptedCache` (`@typesys/encryption`) to make it confidential.
    */
   readonly confidential: boolean;
+  /** Where this cache's encryption keys come from, if it encrypts (ADR-0046). A security profile requires `"managed"`. */
+  readonly keyManagement?: KeyManagement;
   get<T>(key: string): Promise<T | undefined>;
   set<T>(key: string, value: T, ttlMs: number): Promise<void>;
   delete(key: string): Promise<void>;

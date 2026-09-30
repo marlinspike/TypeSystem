@@ -2,6 +2,10 @@
 
 ## Status
 
+*Amended by ADR-0046:* providers declare `management` (`"managed"` for
+`WrappedKeyProvider`, `"local"` for `LocalKeyProvider`), which a security
+profile checks; and `AwsKmsKey` has a real-AWS production gate.
+
 Accepted — implemented as `WrappedKeyProvider`, `KeyEncryptionKey`, and
 `newWrappedKey` in `@typesys/encryption` (`src/wrapped-keys.ts`), and
 `AwsKmsKey` in the new `@typesys/kms-aws`. Proven by:

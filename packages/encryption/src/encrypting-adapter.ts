@@ -7,6 +7,7 @@ import {
   type AdapterCallOptions,
   type AdapterQueryResult,
   type AggregateResult,
+  type KeyManagement,
   type ProvenanceRef,
   type QueryFilter,
   type QueryOperator,
@@ -86,12 +87,16 @@ export class EncryptingAdapter implements Adapter {
   private readonly actions: Readonly<Record<string, ActionWrite | null>>;
   private readonly acceptUnbound: boolean;
 
+  /** Where this adapter's keys come from (ADR-0046), so a security profile can refuse local ones. */
+  readonly keyManagement: KeyManagement;
+
   constructor(
     private readonly inner: Adapter,
     keys: KeyProvider,
     config: EncryptionConfig
   ) {
     this.dataSourceId = inner.dataSourceId;
+    this.keyManagement = keys.management ?? "unknown";
     this.cipher = new FieldCipher(keys);
     this.actions = config.actions ?? {};
     for (const [name, write] of Object.entries(this.actions)) {

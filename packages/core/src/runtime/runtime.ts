@@ -17,6 +17,7 @@ import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFound
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
+import { HIGH_ASSURANCE_V1, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
@@ -118,6 +119,8 @@ export type RowSecurity = "post-filter" | "require-exact";
 export interface QueryPlanReport {
   typeName: string;
   policyName: string;
+  /** The security profile in force (ADR-0046), or `null`. */
+  securityProfile: string | null;
   rowSecurity: RowSecurity;
   /** The plan as `query` would apply it, fitted to where the Type's data is. */
   plan: AuthorizationPlan;
@@ -222,6 +225,77 @@ export interface SemanticRuntimeOptions {
    * object after the read. `"require-exact"`: refuse such a query.
    */
   rowSecurity?: RowSecurity;
+  /**
+   * A versioned set of guarantees the runtime checks at construction and
+   * refuses to start without (ADR-0046), e.g. `HIGH_ASSURANCE_V1`. It
+   * supplies the settings its guarantees fix and refuses weaker ones.
+   */
+  securityProfile?: SecurityProfile;
+}
+
+/** Every option a runtime understands — under a security profile, anything else is refused as a likely typo. */
+const RUNTIME_OPTIONS: Readonly<Record<keyof SemanticRuntimeOptions, true>> = {
+  cache: true,
+  defaultCacheTtlMs: true,
+  rateLimiter: true,
+  maxConcurrency: true,
+  queryLimits: true,
+  resilience: true,
+  classification: true,
+  telemetryIdentity: true,
+  rowSecurity: true,
+  securityProfile: true
+};
+
+const isFunction = (value: unknown): boolean => typeof value === "function";
+
+/**
+ * `options` under `HIGH_ASSURANCE_V1` (ADR-0046): the settings its guarantees
+ * fix, supplied where omitted, and every violation collected — a weaker
+ * setting is refused, never overridden.
+ */
+function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly Adapter[], policyEngine: PolicyEngine): SemanticRuntimeOptions {
+  const violations: string[] = [];
+  for (const key of Object.keys(options)) if (!Object.hasOwn(RUNTIME_OPTIONS, key)) violations.push(`unknown option "${key}"`);
+
+  const rowSecurity = options.rowSecurity ?? "require-exact";
+  if (rowSecurity !== "require-exact") violations.push(`rowSecurity must be "require-exact", not ${JSON.stringify(rowSecurity)}`);
+
+  const telemetryIdentity = options.telemetryIdentity === undefined ? "none" : options.telemetryIdentity;
+  if (telemetryIdentity === "clear") violations.push('telemetryIdentity must not be "clear"');
+  else {
+    try {
+      telemetryIdentityOf(telemetryIdentity);
+    } catch (err) {
+      violations.push((err as Error).message);
+    }
+  }
+
+  const components: [string, unknown][] = [...adapters.map((a): [string, unknown] => [`adapter "${String(a?.dataSourceId)}"`, a]), ...(options.cache ? [["the cache", options.cache] as [string, unknown]] : [])];
+  for (const [label, component] of components) {
+    const keys = (component as { keyManagement?: unknown } | undefined)?.keyManagement;
+    if (keys !== undefined && keys !== "managed") violations.push(`${label} reports ${JSON.stringify(keys)} key management; keys must be managed`);
+  }
+
+  if (!isFunction((policyEngine as Partial<PolicyEngine> | undefined)?.evaluate)) violations.push("the policy engine has no evaluate()");
+  for (const method of ["plan", "planAssurance"] as const) {
+    const value = (policyEngine as unknown as Record<string, unknown> | undefined)?.[method];
+    if (value !== undefined && !isFunction(value)) violations.push(`the policy engine's ${method} is not a function`);
+  }
+
+  const scheme = options.classification as Partial<ClassificationScheme> | undefined;
+  if (scheme !== undefined) {
+    if (typeof scheme?.name !== "string" || !isFunction(scheme.join) || !isFunction(scheme.decide)) violations.push("the classification scheme is malformed");
+    else if (scheme.demonstration === true) violations.push(`the classification scheme "${scheme.name}" is a demonstration`);
+  }
+
+  const cache = options.cache as Partial<Cache> | undefined;
+  if (cache !== undefined && (typeof cache?.confidential !== "boolean" || !["get", "set", "delete", "clear"].every((m) => isFunction((cache as Record<string, unknown>)[m])))) {
+    violations.push("the cache is malformed");
+  }
+
+  if (violations.length > 0) throw new SecurityProfileError(HIGH_ASSURANCE_V1.id, violations);
+  return { ...options, rowSecurity, telemetryIdentity };
 }
 
 /**
@@ -244,6 +318,8 @@ export class SemanticRuntime {
   private readonly resilience: AdapterResilience;
   private readonly classification: ClassificationScheme;
   private readonly rowSecurity: RowSecurity;
+  /** The security profile in force, if any (ADR-0046). */
+  private readonly profile: SecurityProfile | undefined;
   /** The span attributes naming the caller, per the telemetry identity policy (ADR-0045). */
   private readonly identityAttributes: (identity: Identity) => Record<string, string>;
   /** The call currently executing, if any: its concurrency budget and the operation it is (see `withRequest`). */
@@ -260,6 +336,12 @@ export class SemanticRuntime {
     if (typeof (options as { get?: unknown }).get === "function") {
       throw new TypeError("SemanticRuntime's 4th argument is now an options object: pass { cache } instead of a Cache");
     }
+    if (options.securityProfile !== undefined) {
+      const profile = SECURITY_PROFILES.get((options.securityProfile as Partial<SecurityProfile> | null)?.id as string);
+      if (!profile) throw new SecurityProfileError(String((options.securityProfile as Partial<SecurityProfile> | null)?.id), ["this runtime implements no such security profile"]);
+      this.profile = profile;
+      options = underHighAssurance(options, adapters, policyEngine);
+    }
     this.cache = options.cache ?? new NoopCache();
     this.cacheConfidential = this.cache.confidential === true;
     this.defaultCacheTtlMs = options.defaultCacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
@@ -275,6 +357,11 @@ export class SemanticRuntime {
     this.identityAttributes = telemetryIdentityOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
+  }
+
+  /** The id of the security profile in force (ADR-0046), if any. */
+  get securityProfile(): string | undefined {
+    return this.profile?.id;
   }
 
   /** The effective query bounds — what a transport should advertise (e.g. the MCP `query` tool's inputSchema). */
@@ -717,6 +804,17 @@ export class SemanticRuntime {
       "typesys.authz.plan.limitations": limitationsOf(planned).map((l) => l.code).join(",")
     });
     return planned;
+  }
+
+  /** How far the engine vouches for its plan for this subject (ADR-0046); anything but a clear `"structural"` is unverified. */
+  private async planAssurance(typeDef: TypeDefinition, identity: Identity): Promise<PlanAssurance> {
+    if (typeof this.policyEngine.planAssurance !== "function") return "unverified";
+    try {
+      const answer = await this.policyEngine.planAssurance({ subject: identity, action: "read", policyName: objectPolicyOf(typeDef), resource: { typeName: typeDef.name } });
+      return answer === "structural" ? "structural" : "unverified";
+    } catch {
+      return "unverified";
+    }
   }
 
   /**
@@ -1171,6 +1269,13 @@ export class SemanticRuntime {
         if (!typeLevel.allow) {
           const plan = await this.planRead(typeDef, identity);
           if (!(plan.kind === "predicate" && plan.exact)) throw notAuthorized("read", typeResource, typeLevel.reason);
+          // An aggregate has no per-object check after it: under a profile, only a plan derived from the rule's
+          // own structure may admit one (ADR-0046).
+          if (this.profile && (await this.planAssurance(typeDef, identity)) !== "structural") {
+            const reason = `Refused under ${this.profile.id}: the exact plan for policy "${objectPolicyOf(typeDef)}" was not derived structurally, and an aggregate has no per-object check`;
+            await this.audit(identity, "read", typeResource, { allow: false, reason }, { control: "row-plan", assurance: "unverified", ...planSummary(plan) });
+            throw new AuthorizationPlanError(reason);
+          }
           await this.audit(identity, "read", typeResource, { allow: true }, { control: "row-plan", ...planSummary(plan) });
           rows = rows ? { and: [rows, predicateToFilter(plan.predicate)] } : predicateToFilter(plan.predicate);
         }
@@ -1221,6 +1326,7 @@ export class SemanticRuntime {
         return {
           typeName: q.type,
           policyName: objectPolicyOf(typeDef),
+          securityProfile: this.profile?.id ?? null,
           rowSecurity: this.rowSecurity,
           plan,
           probes,

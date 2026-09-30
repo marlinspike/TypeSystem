@@ -34,6 +34,8 @@ export interface ClassificationScheme {
   readonly name: string;
   /** The label of data derived from data under all of `markings` — never empty for a non-empty input. */
   join(markings: readonly string[]): readonly string[];
+  /** A demonstration, not a governed scheme for real markings — refused by a security profile (ADR-0046). */
+  readonly demonstration?: boolean;
   decide(request: ClassificationRequest): ClassificationDecision;
 }
 
@@ -81,7 +83,10 @@ export function linearClassification(levels: readonly string[], name = "linear")
  * with real markings needs its own reviewed scheme — `securityLabels` shows
  * the shape of one (ADR-0041).
  */
-export const DEMO_LINEAR_CLASSIFICATION = linearClassification(["UNCLASSIFIED", "CUI", "SECRET", "TOP_SECRET"], "demo-linear");
+export const DEMO_LINEAR_CLASSIFICATION: LinearClassificationScheme = Object.freeze({
+  ...linearClassification(["UNCLASSIFIED", "CUI", "SECRET", "TOP_SECRET"], "demo-linear"),
+  demonstration: true
+});
 
 /**
  * The runtime's default (ADR-0034): unmarked data is allowed — it never asks
@@ -208,6 +213,7 @@ export function securityLabels(options: SecurityLabelsOptions): ClassificationSc
 
   return Object.freeze({
     name: options.name ?? "security-labels",
+    demonstration: true,
     join(markings: readonly string[]) {
       const parsed = markings.map(parse);
       // A marking it can't parse is kept as it is, so the decision refuses it.
