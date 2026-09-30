@@ -156,8 +156,10 @@ says so.
    the ABAC helpers is pushed into the adapter's filter, so its pages are
    full and an exact plan admits aggregation over exactly the readable rows;
    `rowSecurity: "require-exact"` refuses queries that can't be planned
-   exactly. Still open: Cedar policies plan `unknown` until ADR-0039, a
-   protected or cross-source attribute makes a plan inexact until adapters
+   exactly. Since ADR-0039 Cedar policies plan too, but a Cedar plan on a
+   Type with declared attributes is exact only where the deployment asserts
+   `schemaConformantData`, and partial evaluation is experimental upstream.
+   Still open: a protected or cross-source attribute makes a plan inexact until adapters
    declare what they can filter (ADR-0040), a probed value's own provenance
    marking can still drop a row, and a custom planner is only as sound as
    `checkPlanConformance` shows it to be.

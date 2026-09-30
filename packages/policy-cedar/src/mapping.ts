@@ -54,11 +54,24 @@ export interface CedarRequest {
   entities: EntityJson[];
 }
 
-/** The Cedar request for one TypeS decision, per ADR-0031's mapping table. Throws when a declared attribute can't be represented. */
-export function toCedarRequest(request: PolicyRequest, attributeIndex: AttributeIndex): CedarRequest {
-  const { subject, resource } = request;
+/** The principal side of a request: the subject as a `TypeS::User` and its roles. Throws when a declared attribute can't be represented. */
+export function toCedarPrincipal(request: PolicyRequest, attributeIndex: AttributeIndex): { principal: EntityUidJson; entities: EntityJson[] } {
+  const { subject } = request;
   const principal = { type: PRINCIPAL_TYPE, id: subject.subjectId };
   const roles = [...new Set(subject.roles)].map((id) => ({ type: ROLE_TYPE, id }));
+  return {
+    principal,
+    entities: [
+      { uid: principal, attrs: declaredAttributes(subject.attributes, attributeIndex.get(PRINCIPAL_TYPE)), parents: roles },
+      ...roles.map((uid) => ({ uid, attrs: {}, parents: [] }))
+    ]
+  };
+}
+
+/** The Cedar request for one TypeS decision, per ADR-0031's mapping table. Throws when a declared attribute can't be represented. */
+export function toCedarRequest(request: PolicyRequest, attributeIndex: AttributeIndex): CedarRequest {
+  const { resource } = request;
+  const { principal, entities } = toCedarPrincipal(request, attributeIndex);
   const resourceType = cedarEntityType(resource.typeName);
   const resourceUid = { type: resourceType, id: resource.objectId ?? TYPE_LEVEL_RESOURCE_ID };
 
@@ -67,10 +80,6 @@ export function toCedarRequest(request: PolicyRequest, attributeIndex: Attribute
     action: { type: ACTION_TYPE, id: request.policyName },
     resource: resourceUid,
     context: {},
-    entities: [
-      { uid: principal, attrs: declaredAttributes(subject.attributes, attributeIndex.get(PRINCIPAL_TYPE)), parents: roles },
-      ...roles.map((uid) => ({ uid, attrs: {}, parents: [] })),
-      { uid: resourceUid, attrs: declaredAttributes(resource.attributes, attributeIndex.get(resourceType)), parents: [] }
-    ]
+    entities: [...entities, { uid: resourceUid, attrs: declaredAttributes(resource.attributes, attributeIndex.get(resourceType)), parents: [] }]
   };
 }

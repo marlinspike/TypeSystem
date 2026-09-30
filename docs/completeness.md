@@ -151,8 +151,12 @@ document that gap rather than close it in this pass.
   reports the plan and its guarantees. Proven by differential conformance
   (`checkPlanConformance`), generated-case properties, runtime attack
   suites, and a hospital-domain equivalence suite showing planning changes no
-  result. Not built: Cedar planning (ADR-0039), adapter filter capabilities
-  (ADR-0040).
+  result. Cedar plans through partial evaluation (ADR-0039): residuals
+  translated by shape, anything else weakened to `true`, exact for Types
+  with declared attributes only on the `schemaConformantData` assertion;
+  proven against a reference evaluator and Cedar's own decisions
+  (`packages/policy-cedar/test/planning.test.ts`). Not built: adapter filter
+  capabilities (ADR-0040).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is

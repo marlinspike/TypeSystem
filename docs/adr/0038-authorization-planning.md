@@ -2,6 +2,10 @@
 
 ## Status
 
+*Amended by ADR-0039:* `anyOf` now treats an alternative that throws as one
+that doesn't allow, so `always OR opaque` is exact in any order; before, a
+throwing alternative ended the OR, and the plan overclaimed exactness.
+
 Accepted — implemented in `@typesys/core`: the plan types, constructors,
 combinators, and checks in `policy/authorization-plan.ts`;
 `PolicyEngine.plan?` in `model/policy.ts`; ABAC planning from the combinator

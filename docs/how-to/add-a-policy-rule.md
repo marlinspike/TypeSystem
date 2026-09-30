@@ -101,6 +101,8 @@ reports every object the plan would hide.
 
 A rule that throws is a deny, audited like any other, so a rule reading an
 attribute of an unexpected shape fails closed rather than crashing the read.
+Inside `anyOf`, a throwing alternative is one that doesn't allow: the next
+one is still tried. Inside `allOf`, a throw denies the whole conjunction.
 
 ## Property-level redaction, not just allow/deny
 

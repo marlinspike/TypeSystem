@@ -26,7 +26,13 @@ export type AuthorizationPlanLimitation =
   | { readonly code: "opaque-rule"; readonly policyName: string }
   | { readonly code: "planner-failed"; readonly policyName: string }
   | { readonly code: "protected-attribute"; readonly attribute: string }
-  | { readonly code: "cross-source-attribute"; readonly attribute: string };
+  | { readonly code: "cross-source-attribute"; readonly attribute: string }
+  /** Part of the policy's condition has no predicate form, so it was replaced by `true` (ADR-0039). */
+  | { readonly code: "unrepresentable-condition"; readonly policyName: string }
+  /** A condition that excludes objects — a Cedar `forbid` — which a positive predicate can't say (ADR-0039). */
+  | { readonly code: "negated-condition"; readonly policyName: string }
+  /** The engine refuses objects whose declared attributes are mistyped, which no store filter can exclude (ADR-0039). */
+  | { readonly code: "unverified-attribute-types"; readonly typeName: string };
 
 export type AuthorizationPlan =
   | { readonly kind: "always" }
@@ -140,7 +146,17 @@ export function refitPredicate(predicate: AuthorizationPredicate, fit: (atom: { 
   return fit(predicate);
 }
 
-const LIMITATION_CODES = new Set(["engine-cannot-plan", "opaque-rule", "planner-failed", "protected-attribute", "cross-source-attribute"]);
+/** The field each limitation code names, if any. */
+const LIMITATION_FIELDS: Readonly<Record<AuthorizationPlanLimitation["code"], string | undefined>> = {
+  "engine-cannot-plan": undefined,
+  "opaque-rule": "policyName",
+  "planner-failed": "policyName",
+  "protected-attribute": "attribute",
+  "cross-source-attribute": "attribute",
+  "unrepresentable-condition": "policyName",
+  "negated-condition": "policyName",
+  "unverified-attribute-types": "typeName"
+};
 
 function isPredicate(value: unknown, depth = 0): value is AuthorizationPredicate {
   if (depth > 64 || typeof value !== "object" || value === null) return false;
@@ -156,8 +172,8 @@ function isPredicate(value: unknown, depth = 0): value is AuthorizationPredicate
 function isLimitation(value: unknown): value is AuthorizationPlanLimitation {
   if (typeof value !== "object" || value === null) return false;
   const l = value as Record<string, unknown>;
-  if (!LIMITATION_CODES.has(l.code as string)) return false;
-  const field = l.code === "engine-cannot-plan" ? undefined : l.code === "opaque-rule" || l.code === "planner-failed" ? "policyName" : "attribute";
+  if (typeof l.code !== "string" || !Object.hasOwn(LIMITATION_FIELDS, l.code)) return false;
+  const field = LIMITATION_FIELDS[l.code as AuthorizationPlanLimitation["code"]];
   return field === undefined || (typeof l[field] === "string" && l[field] !== "");
 }
 

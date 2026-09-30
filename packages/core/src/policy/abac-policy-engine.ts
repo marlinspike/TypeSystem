@@ -106,14 +106,26 @@ function requireSomeRules(combinator: string, rules: PolicyRule[]): void {
   if (rules.length === 0) throw new TypeError(`${combinator}() needs at least one rule`);
 }
 
-/** Allows when any rule allows, tried in order. Denies with every rule's reason otherwise. */
+/**
+ * Allows when any rule allows, tried in order. Denies with every rule's
+ * reason otherwise. A rule that throws is an alternative that doesn't allow
+ * — its error never surfaces — so a later alternative still can: a failure
+ * in one branch of an OR says nothing about the others, and it is what lets
+ * `always OR anything` plan exactly in any order (ADR-0038, ADR-0039).
+ */
 export function anyOf(...rules: PolicyRule[]): PolicyRule {
   requireSomeRules("anyOf", rules);
   return plannable(
     async (request) => {
       const reasons: string[] = [];
       for (const rule of rules) {
-        const decision = await rule(request);
+        let decision: PolicyDecision;
+        try {
+          decision = await rule(request);
+        } catch {
+          reasons.push("an alternative failed to evaluate");
+          continue;
+        }
         if (decision.allow === true) return decision;
         if (decision.reason) reasons.push(decision.reason);
       }
