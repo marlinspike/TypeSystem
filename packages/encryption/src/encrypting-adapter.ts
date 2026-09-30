@@ -9,6 +9,7 @@ import {
   type AggregateResult,
   type ProvenanceRef,
   type QueryFilter,
+  type QueryOperator,
   type RelatedRef,
   type RelationshipDefinition,
   type ResolvedProperties,
@@ -118,6 +119,19 @@ export class EncryptingAdapter implements Adapter {
   /** The fields of `typeName` this adapter encrypts, so the runtime keeps their plaintext out of any cache that isn't confidential (ADR-0036). */
   sensitiveFields(typeName: string): readonly string[] {
     return [...(this.fields.get(typeName)?.keys() ?? [])];
+  }
+
+  /**
+   * Whether this adapter filters on `property` exactly (ADR-0040): a
+   * deterministic field by `eq`, `ne`, and `in`, through its blind index; no
+   * other condition on an encrypted field; anything else as the adapter it
+   * wraps does.
+   */
+  async canFilter(typeName: string, property: string, operator: QueryOperator): Promise<boolean> {
+    const mode = this.modeOf({ typeName, field: property });
+    if (mode === "deterministic") return operator === "eq" || operator === "ne" || operator === "in";
+    if (mode) return false;
+    return typeof this.inner.canFilter === "function" ? (await this.inner.canFilter(typeName, property, operator)) === true : true;
   }
 
   private modeOf(ref: FieldRef): EncryptionMode | undefined {

@@ -236,8 +236,9 @@ flowchart TB
   `DATABASE_URL` (or `PGHOST`) is set.
 - **`packages/adapter-postgres`** (`@typesys/adapter-postgres`) — a real
   `Adapter` implementation backed by PostgreSQL (a generic JSONB `objects`
-  table, with a pushed-down indexed query for `byForeignKey` relationship
-  resolution), proving adapter substitution against a genuine database, not
+  table, with query filters — authorization plans included — compiled to
+  parameterized SQL and re-checked, and a pushed-down indexed query for
+  `byForeignKey` relationship resolution), proving adapter substitution against a genuine database, not
   just in-memory/mocked ones. See [`packages/adapter-postgres/README.md`](packages/adapter-postgres/README.md).
   Optional, same env-gating as `registry-store-postgres`.
 - **`packages/redis`** (`@typesys/redis`) — Redis-backed `Cache` and

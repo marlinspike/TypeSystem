@@ -30,6 +30,7 @@ import {
   planAdmits,
   predicatePlan,
   predicateToFilter,
+  predicateAttributes,
   refitPredicate,
   unknownPlan,
   type AuthorizationPlan
@@ -672,14 +673,37 @@ export class SemanticRuntime {
     const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
     const crossSource = new Set(overrides.map((m) => m.targetName));
     const protectedHere = await this.protectedFields(typeDef.name, [base.dataSourceId]);
+    const filterable = await this.filterableAttributes(typeDef.name, base.dataSourceId, predicateAttributes(plan.predicate), protectedHere);
     const fitted = refitPredicate(plan.predicate, (atom) =>
       crossSource.has(atom.attribute)
         ? unknownPlan([{ code: "cross-source-attribute", attribute: atom.attribute }])
-        : protectedHere.has(atom.attribute)
-          ? unknownPlan([{ code: "protected-attribute", attribute: atom.attribute }])
-          : predicatePlan(atom)
+        : filterable.has(atom.attribute)
+          ? predicatePlan(atom)
+          : unknownPlan([protectedHere.has(atom.attribute) ? { code: "protected-attribute", attribute: atom.attribute } : { code: "unfilterable-attribute", attribute: atom.attribute }])
     );
     return plan.exact ? fitted : allPlans([fitted, unknownPlan(plan.limitations)]);
+  }
+
+  /**
+   * The attributes the adapter listing the Type can filter by equality in its
+   * store (ADR-0040): those it says it can, through `canFilter` — asked of the
+   * registered adapter itself, possibly async, and only an answer of `true`
+   * counts — or, for an adapter that doesn't say, every one it doesn't
+   * protect at rest.
+   */
+  private async filterableAttributes(typeName: string, dataSourceId: string, attributes: ReadonlySet<string>, protectedHere: ProtectedFields): Promise<Set<string>> {
+    const adapter = this.adapters.get(dataSourceId);
+    const answers = await Promise.all(
+      [...attributes].map(async (attribute) => {
+        if (typeof adapter?.canFilter !== "function") return [attribute, !protectedHere.has(attribute)] as const;
+        try {
+          return [attribute, (await adapter.canFilter(typeName, attribute, "eq")) === true] as const;
+        } catch {
+          return [attribute, false] as const;
+        }
+      })
+    );
+    return new Set(answers.filter(([, can]) => can).map(([attribute]) => attribute));
   }
 
   /**

@@ -86,6 +86,19 @@ isn't confidential ([ADR-0036](../adr/0036-sensitive-data-caching.md)). A
 decorator around another adapter must forward it, or the protection is
 lost silently.
 
+## Optional: say what you can filter
+
+The runtime pushes authorization plans into `queryByType`'s filter
+([ADR-0038](../adr/0038-authorization-planning.md)). If your adapter can't
+evaluate some condition exactly — it refuses it, or approximates it —
+implement `canFilter(typeName, property, operator)` and answer `true` only
+where it evaluates exactly as `matchesFilter` would
+([ADR-0040](../adr/0040-adapter-filter-capabilities-and-sql-pushdown.md)).
+An atom you can't filter is weakened to `true` instead of pushed, so the
+plan stays sound. If you translate the filter to a query language of your
+own, re-check what you read with `matchesFilter`: a translation that drops a
+matching row hides data the caller may read.
+
 ## Wire it in
 
 ```ts

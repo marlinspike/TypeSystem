@@ -43,14 +43,21 @@ const runtime = new SemanticRuntime(registry, [adapter], policyEngine);
 ## The schema is generic on purpose, for now
 
 One table, `objects (type_name, object_id, values jsonb)` — any
-registered Type can use it without a bespoke migration. `queryByType`
-filters in application code via `@typesys/core`'s `matchesFilter` (same
-as the in-memory/mock-rest adapters); `resolveRelationship`'s
-`byForeignKey:<field>` case is pushed down as a real indexed JSONB query
-(`values ->> field = ...`, backed by the migration's GIN index) rather
-than fetching every row — the one place being backed by a real database
-changes *how* resolution should be implemented, not just where the bytes
-physically live.
+registered Type can use it without a bespoke migration.
+
+`queryByType` and `aggregate` compile the filter — the caller's, and any
+authorization plan the runtime pushed into it (ADR-0038) — to a
+parameterized `WHERE` over the JSONB column
+([ADR-0040](../../docs/adr/0040-adapter-filter-capabilities-and-sql-pushdown.md)).
+Each condition compiles *exactly* (string, boolean, and `null` equality
+through the GIN index with `@>`; numbers compared as `float8`, the parse
+JavaScript applies) or as a *superset* (`contains`, `icontains`, narrowed by
+JSON type), and every row read is re-checked with `matchesFilter`, so a
+superset is only ever narrowed. When the whole filter is exact and there is
+no `sort`, `LIMIT`/`OFFSET` run in SQL and a page reads only its rows;
+otherwise the adapter sorts and pages the SQL-narrowed rows itself, with the
+same order and cursors. `resolveRelationship`'s `byForeignKey:<field>` case
+is an indexed JSONB query too.
 
 **Graduate off this** for any Type with real production volume or a
 shape that benefits from real columns, indexes, and constraints —

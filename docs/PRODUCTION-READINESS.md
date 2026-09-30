@@ -159,8 +159,10 @@ says so.
    exactly. Since ADR-0039 Cedar policies plan too, but a Cedar plan on a
    Type with declared attributes is exact only where the deployment asserts
    `schemaConformantData`, and partial evaluation is experimental upstream.
-   Still open: a protected or cross-source attribute makes a plan inexact until adapters
-   declare what they can filter (ADR-0040), a probed value's own provenance
+   Since ADR-0040 adapters say what they filter exactly, and the Postgres
+   adapter compiles filters to SQL. Still open: a cross-source attribute, or
+   one an adapter can't filter (a randomized encrypted field), makes a plan
+   inexact; range and numeric conditions aren't indexed; a probed value's own provenance
    marking can still drop a row, and a custom planner is only as sound as
    `checkPlanConformance` shows it to be.
 

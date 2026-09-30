@@ -105,7 +105,11 @@ is accepted.
 On an encrypted field the store can't filter by range or substring, sort,
 aggregate, search, or resolve a relationship; each is refused with an
 `EncryptedFieldError` saying so. On a deterministic field `eq`, `ne`, and
-`in` filters keep working.
+`in` filters keep working — including the filters row-level authorization
+plans push down (ADR-0038, ADR-0040): a rule matching on a deterministic
+field, like a clinician's `assignedClinicianId`, is filtered through the
+blind index exactly. On a randomized field it can't be, so a plan testing
+one is weakened and decided after the read.
 
 ## Caching
 

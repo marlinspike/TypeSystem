@@ -247,6 +247,29 @@ describe("authorization planning in the runtime (ADR-0038)", () => {
       }
     });
 
+    it("an adapter that says it can filter a protected attribute gets it pushed — exactly (ADR-0040)", async () => {
+      const { runtime, cases } = await setup({ protects: ["reviewerId"] });
+      Object.assign(cases, { canFilter: async (_t: string, property: string, op: string) => op === "eq" && property === "reviewerId" });
+      expect(ids(await runtime.query({ type: "test.Case" }, bob))).toEqual(["c1", "c2", "c4", "c5"]);
+      // ownerId isn't protected, but the adapter answers for every field: it said no.
+      expect((await runtime.explainQuery({ type: "test.Case" }, bob)).plan).toEqual({ kind: "unknown", limitations: [{ code: "unfilterable-attribute", attribute: "ownerId" }] });
+      Object.assign(cases, { canFilter: () => true });
+      await runtime.query({ type: "test.Case" }, bob);
+      expect(cases.queried.at(-1)).toEqual({ or: [{ property: "ownerId", operator: "eq", value: "bob" }, { property: "reviewerId", operator: "eq", value: "bob" }] });
+      expect(isExact((await runtime.explainQuery({ type: "test.Case" }, bob)).plan)).toBe(true);
+    });
+
+    it("attack: a capability answer that isn't exactly true — junk, a truthy string, a throw — never pushes", async () => {
+      for (const canFilter of [() => "yes", () => 1, async () => ({}), () => {
+        throw new Error("down");
+      }]) {
+        const { runtime, cases } = await setup();
+        Object.assign(cases, { canFilter });
+        expect(ids(await runtime.query({ type: "test.Case" }, bob))).toEqual(["c1", "c2", "c4", "c5"]);
+        expect(cases.queried.at(-1)).toBeUndefined();
+      }
+    });
+
     it("an attribute from another data source is weakened too, and the merged value still decides", async () => {
       const rules = { "case.read": anyOf(requireAttributeMatch("ownerId", "userId"), requireAttributeMatch("escalatedTo", "userId")) };
       const { runtime, cases } = await setup({ rules, escalations: true });
