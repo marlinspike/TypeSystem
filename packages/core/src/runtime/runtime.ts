@@ -13,7 +13,7 @@ import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey, SearchSpec, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
+import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
@@ -965,7 +965,10 @@ export class SemanticRuntime {
    * The instance-level read check every path shares: the object's
    * classification first, before anything is read (ADR-0032), then its
    * stored values and the object policy decided on them (ADR-0030). Throws
-   * `AuthorizationError` on a deny, after auditing it.
+   * `AuthorizationError` on a deny, after auditing it, and — only once the
+   * caller is allowed — `ObjectNotFoundError` for an id no source holds
+   * (ADR-0048): the decision comes first, so a denied caller is told nothing
+   * about whether the id exists.
    */
   private async authorizeRead(
     typeDef: TypeDefinition,
@@ -976,6 +979,7 @@ export class SemanticRuntime {
     const stored = await this.resolveObjectProperties(typeDef, objectId);
     const attributes = snapshot(stored.values);
     await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
+    if (Object.keys(stored.values).length === 0) throw new ObjectNotFoundError(typeDef.name, objectId);
     return { stored, attributes };
   }
 
@@ -1165,19 +1169,23 @@ export class SemanticRuntime {
         // Fan out concurrently, not one sequential round trip per related object — the classic
         // N+1 pattern for a one-to-many relationship. Bounded by maxConcurrency (ADR-0019) rather
         // than a raw Promise.allSettled, and an unauthorized related object is silently omitted
-        // (existing behavior) without aborting the rest of a partially-authorized batch.
+        // (existing behavior) without aborting the rest of a partially-authorized batch. So is a
+        // dangling reference — one to an object no source holds (ADR-0048) — but only when the
+        // failure is for *that* reference, not a not-found raised while reading some other object.
         const settled = await mapWithConcurrencySettled(bounded, this.maxConcurrency, (ref) =>
           this.readObject(relDef.targetType, ref.objectId, identity)
         );
 
         const results: AuthorizedRead[] = [];
-        for (const outcome of settled) {
+        settled.forEach((outcome, i) => {
           if (outcome.status === "fulfilled") {
             results.push(outcome.value);
-          } else if (!(outcome.reason instanceof AuthorizationError)) {
-            throw outcome.reason;
+            return;
           }
-        }
+          const reason: unknown = outcome.reason;
+          const dangling = reason instanceof ObjectNotFoundError && reason.typeName === relDef.targetType && reason.objectId === bounded[i]!.objectId;
+          if (!(reason instanceof AuthorizationError) && !dangling) throw reason;
+        });
         return results;
       }
     ));

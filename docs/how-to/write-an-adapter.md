@@ -50,6 +50,12 @@ Real adapters typically ignore the `propertyNames` filter and return
 everything — that's fine, and is what both shipped adapters do (a real
 REST `GET` or DB read usually returns a whole row/document anyway).
 
+For an id your backend doesn't hold, return empty `values` and an empty
+`provenance` — don't throw. The runtime reads that as "no such object" and
+raises `ObjectNotFoundError` to the caller, after it has decided the read is
+allowed ([ADR-0048](../adr/0048-a-missing-object-is-not-found.md)). Return at
+least one value for an object that does exist.
+
 **`queryByType`** — same values shape, for every matching object; use
 `matchesFilter` from `@typesys/core` if your backend can't filter
 server-side (both shipped adapters do this):

@@ -54,6 +54,7 @@ async function memberWorld(keys = keyring("k1")) {
   const adapter = new EncryptingAdapter(inner, keys, MEMBER_CONFIG);
   inner.seed("test.Member", await Promise.all(Object.entries(MEMBERS).map(async ([objectId, values]) => ({ objectId, values: await adapter.seal("test.Member", objectId, values) }))));
   inner.seed("test.Badge", [{ objectId: "b1", values: { id: "b1", memberId: "m1" } }]);
+  inner.seed("test.Team", [{ objectId: "t1", values: { id: "t1" } }]);
   return { inner, adapter };
 }
 

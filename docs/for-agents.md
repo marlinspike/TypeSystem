@@ -172,9 +172,15 @@ them:
    actual object. Absent properties you expected to see are not a bug —
    they were likely redacted by a property-level policy your identity
    doesn't satisfy (see the Type definition's `x-policy.propertyPolicies`
-   from step 2).
+   from step 2). An object that doesn't exist fails the read with
+   `Not found: <typeName>/<objectId>`, not an empty object. You get that
+   only where your identity may read the Type's objects; otherwise it is
+   `Not authorized:` whether or not the id exists, so a refusal tells you
+   nothing about an id.
 4. `resources/read` on `.../relationships/<relName>` → navigate, using
-   relationship names from step 2, never invented ones.
+   relationship names from step 2, never invented ones. A related object
+   you may not read, or one the source system no longer holds, is left out
+   of the list.
 5. `resources/read` on `.../provenance/<propertyPath>` → which source
    system produced a value, when, and at what confidence — use this
    before repeating a value back to a user as fact, especially in a
