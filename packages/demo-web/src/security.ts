@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { SemanticRuntime, type Adapter, type Identity } from "@typesys/core";
+import { DEMO_LINEAR_CLASSIFICATION, SemanticRuntime, type Adapter, type Identity } from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { buildAirforceTestbed } from "@typesys/domain-airforce";
 import { buildHospitalTestbed } from "@typesys/domain-hospital";
@@ -126,9 +126,11 @@ export async function engineParity(identities: Record<string, Identity>) {
   );
   const [abac, cedarWorld] = worlds as [(typeof worlds)[0], (typeof worlds)[0]];
   const engine = cedarEngine();
+  // The same classification scheme the ABAC testbeds configure (ADR-0034), so only the engine differs.
+  const options = { classification: DEMO_LINEAR_CLASSIFICATION };
   const cedar = {
-    air: new SemanticRuntime(cedarWorld.air.registry, [cedarWorld.air.inMemoryAdapter, cedarWorld.air.mockRestAdapter], engine),
-    hospital: new SemanticRuntime(cedarWorld.hospital.registry, [cedarWorld.hospital.adapter], engine)
+    air: new SemanticRuntime(cedarWorld.air.registry, [cedarWorld.air.inMemoryAdapter, cedarWorld.air.mockRestAdapter], engine, options),
+    hospital: new SemanticRuntime(cedarWorld.hospital.registry, [cedarWorld.hospital.adapter], engine, options)
   };
 
   const targets: { domain: "air" | "hospital"; type: string; adapter: Adapter }[] = [

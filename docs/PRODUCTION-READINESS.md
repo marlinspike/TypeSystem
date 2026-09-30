@@ -72,11 +72,14 @@ says so.
    new per-member one, are enforced against `Identity.clearance` on every
    read path, beside the policy engine, fail-closed on anything
    unrecognized, derived data inheriting its inputs' markings, every check
-   audited (`packages/core/test/data-classification.test.ts`). Still open:
+   audited (`packages/core/test/data-classification.test.ts`). Since
+   ADR-0034 the default is `DENY_MARKED_DATA`, so an unconfigured
+   deployment can't read marked data, and the shipped ordering is named
+   `DEMO_LINEAR_CLASSIFICATION` because it is not the US model. Still open:
    a scheme matching the markings real data carries (dissemination
-   controls, compartments, CUI categories), value-level markings inside
-   adapter-side aggregation, per-record markings, write rules, and a human
-   review against the accreditation boundary.
+   controls, compartments, CUI as its own regime — ADR-0041), value-level
+   markings inside adapter-side aggregation, per-record markings, write
+   rules, and a human review against the accreditation boundary.
 4. **Encryption in transit and at rest.** Not addressed anywhere. Secrets
    management (item 6) is a subset of this, not a substitute: TLS
    termination, database-at-rest encryption, and key management each need

@@ -8,6 +8,7 @@ import {
   requireRole,
   buildRuntime,
   coreManifest,
+  DEMO_LINEAR_CLASSIFICATION,
   type Identity,
   type PolicyEngine
 } from "@typesys/core";
@@ -51,6 +52,10 @@ export const airforcePolicyRules: Record<string, PolicyRule> = {
  * `buildRuntime` — e.g. Redis-backed ones for a multi-instance run. `mockRestLatencyMs` sets the
  * simulated network latency of the maintenance system's REST calls (default 1ms), so a load test
  * can model a realistically slow backend.
+ *
+ * This domain marks `Aircraft.deploymentLocation` SECRET in the demo vocabulary, so the testbed
+ * configures `DEMO_LINEAR_CLASSIFICATION` explicitly; without it the runtime's `DENY_MARKED_DATA`
+ * default would hide the field from everyone (ADR-0034).
  */
 export async function buildAirforceTestbed(
   opts: { runtimeOptions?: SemanticRuntimeOptions; mockRestLatencyMs?: number } = {}
@@ -71,7 +76,7 @@ export async function buildAirforceTestbed(
     manifests: [coreManifest, airforceManifest],
     adapters: [inMemoryAdapter, mockRestAdapter],
     policyRules: airforcePolicyRules,
-    runtimeOptions: opts.runtimeOptions
+    runtimeOptions: { classification: DEMO_LINEAR_CLASSIFICATION, ...opts.runtimeOptions }
   });
 
   return { registry, runtime, policyEngine, inMemoryAdapter, mockRestAdapter };

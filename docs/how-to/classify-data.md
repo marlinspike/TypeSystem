@@ -26,6 +26,8 @@ wins. Unmarked data is unclassified.
 
 ## Give identities a clearance
 
+(And configure a scheme that understands both — see "Choose a scheme" below.)
+
 `Identity.clearance` holds the highest level a subject may read. From a real
 token, point `@typesys/auth-oidc` at the claim:
 
@@ -50,19 +52,30 @@ clearance `listActions` checks for an Action on a classified Type — with
 `details.control === "classification"`. Choosing which properties a default
 search ranges over is query planning, not a decision, and writes nothing.
 
-## Use another scheme
+## Choose a scheme — marked data is denied until you do
 
-The default, `US_CLASSIFICATION`, orders `UNCLASSIFIED < CUI < SECRET <
-TOP_SECRET`, and markings are exact strings. For other levels pass
-`linearClassification([...])`, or implement `ClassificationScheme` directly
-for compartments or caveats:
+With no scheme configured, the runtime uses `DENY_MARKED_DATA`
+([ADR-0034](../adr/0034-classification-scheme-defaults.md)): unmarked data
+reads as before, and marked data is denied whatever the reader's clearance.
+Classification can't be switched off by forgetting to configure it; audit
+rows name the scheme that decided (`details.scheme: "deny-marked-data"`), so
+this is easy to spot.
+
+`DEMO_LINEAR_CLASSIFICATION` orders `UNCLASSIFIED < CUI < SECRET <
+TOP_SECRET` for demos and tests. It is **not** the US classification model:
+real markings carry compartments and dissemination controls, and CUI is a
+separate regime, not a level between UNCLASSIFIED and SECRET. For your own
+levels pass `linearClassification([...], name)`, or implement
+`ClassificationScheme` directly:
 
 ```ts
-new SemanticRuntime(registry, adapters, policyEngine, { classification: linearClassification(["PUBLIC", "INTERNAL", "RESTRICTED"]) });
+new SemanticRuntime(registry, adapters, policyEngine, {
+  classification: linearClassification(["PUBLIC", "INTERNAL", "RESTRICTED"], "acme-internal")
+});
 ```
 
-A scheme must return `false` for a marking it doesn't recognize; one that
-throws denies.
+Markings are exact strings. A scheme must return `false` for a marking it
+doesn't recognize, and one that throws denies.
 
 ## Verify it
 

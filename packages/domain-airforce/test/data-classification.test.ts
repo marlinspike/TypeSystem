@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AuthorizationError, type Identity } from "@typesys/core";
+import { AuthorizationError, SemanticRuntime, type Identity } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "../src/setup.js";
 
 /**
@@ -21,6 +21,15 @@ describe("airforce domain: classified deploymentLocation (ADR-0032)", () => {
     expect(asViewer.values.tailNumber).toBe("AF86-0147");
     expect(asViewer.values).not.toHaveProperty("deploymentLocation"); // classification
     expect(asViewer.values).not.toHaveProperty("maintenanceStatus"); // policy
+  });
+
+  it("the same Types on a runtime with no scheme configured hide the field from everyone, the Maintainer included (ADR-0034)", async () => {
+    const tb = await buildAirforceTestbed();
+    const unconfigured = new SemanticRuntime(tb.registry, [tb.inMemoryAdapter, tb.mockRestAdapter], tb.policyEngine);
+    const read = await unconfigured.getObject("airforce.Aircraft", "AF86-0147", maintainer);
+    expect(read.values.tailNumber).toBe("AF86-0147");
+    expect(read.values).not.toHaveProperty("deploymentLocation");
+    expect((await tb.runtime.getObject("airforce.Aircraft", "AF86-0147", maintainer)).values).toHaveProperty("deploymentLocation");
   });
 
   it("a maintainer with no clearance fails closed: the policy allows, the classification doesn't", async () => {

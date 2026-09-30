@@ -14,7 +14,7 @@ import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
-import { US_CLASSIFICATION, memberMarking, objectMarking, type ClassificationScheme } from "./classification.js";
+import { DENY_MARKED_DATA, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
@@ -119,9 +119,10 @@ export interface SemanticRuntimeOptions {
    */
   resilience?: ResiliencePolicy;
   /**
-   * How a subject's clearance compares to data markings (ADR-0032). Defaults
-   * to `US_CLASSIFICATION`; there is no "off" — a marking an author or adapter
-   * writes is always enforced, and unmarked data is unclassified.
+   * How a subject's clearance compares to data markings (ADR-0032). Omitted,
+   * it is `DENY_MARKED_DATA` (ADR-0034): unmarked data reads as before and
+   * marked data is denied until a deployment chooses a scheme — so
+   * classification can't be switched off by forgetting to configure it.
    */
   classification?: ClassificationScheme;
 }
@@ -163,7 +164,7 @@ export class SemanticRuntime {
     this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
     this.inputValidator = new InputValidator(options.queryLimits);
     this.resilience = new AdapterResilience(options.resilience);
-    this.classification = options.classification ?? US_CLASSIFICATION;
+    this.classification = options.classification ?? DENY_MARKED_DATA;
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
   }
@@ -435,8 +436,7 @@ export class SemanticRuntime {
    * Deny-biased: a scheme that throws denies. It does not audit: a decision
    * about access goes through `clearedFor`, which does.
    */
-  private dominates(identity: Identity, marking: string | undefined): boolean {
-    if (marking === undefined) return true;
+  private dominates(identity: Identity, marking: string): boolean {
     try {
       return this.classification.dominates(identity.clearance, marking) === true;
     } catch {
@@ -448,25 +448,25 @@ export class SemanticRuntime {
    * Decides and audits one classification check (ADR-0032): the subject's
    * clearance must dominate every marking. A mandatory control beside the
    * policy engine, never through it, so no engine can relax it. Unmarked
-   * data is no decision and writes nothing.
+   * data — no markings — is no decision and writes nothing (ADR-0034).
    */
   private async clearedFor(
     identity: Identity,
-    markings: readonly (string | undefined)[],
+    markings: readonly string[],
     resource: PolicyResource,
     action: "read" | "invoke" = "read"
   ): Promise<boolean> {
-    const marked = [...new Set(markings.filter((m) => m !== undefined))];
+    const marked = [...new Set(markings)];
     if (marked.length === 0) return true;
     const allow = marked.every((m) => this.dominates(identity, m));
-    const details = { control: "classification", markings: marked, clearance: identity.clearance ?? null };
+    const details = { control: "classification", scheme: this.classification.name, markings: marked, clearance: identity.clearance ?? null };
     await this.audit(identity, action, resource, allow ? { allow } : { allow, reason: CLEARANCE_REASON }, details);
     return allow;
   }
 
   private async requireCleared(
     identity: Identity,
-    markings: readonly (string | undefined)[],
+    markings: readonly string[],
     resource: PolicyResource,
     action: "read" | "invoke" = "read"
   ): Promise<void> {
@@ -474,11 +474,9 @@ export class SemanticRuntime {
   }
 
   /** The markings of every Type an Action applies to — its result is data of those Types (ADR-0032). */
-  private async actionMarkings(action: ActionDefinition): Promise<(string | undefined)[]> {
-    return Promise.all(action.applicableTypes.map(async (t) => {
-      const typeDef = await this.registry.getType(t);
-      return typeDef ? objectMarking(typeDef) : undefined;
-    }));
+  private async actionMarkings(action: ActionDefinition): Promise<string[]> {
+    const typeDefs = await Promise.all(action.applicableTypes.map((t) => this.registry.getType(t)));
+    return typeDefs.flatMap((typeDef) => (typeDef ? objectMarkings(typeDef) : []));
   }
 
   /**
@@ -507,7 +505,7 @@ export class SemanticRuntime {
     objectId: string,
     identity: Identity
   ): Promise<{ stored: ResolvedProperties; attributes: Attributes }> {
-    await this.requireCleared(identity, [objectMarking(typeDef)], { typeName: typeDef.name, objectId });
+    await this.requireCleared(identity, objectMarkings(typeDef), { typeName: typeDef.name, objectId });
     const stored = await this.resolveObjectProperties(typeDef.name, objectId);
     const attributes = snapshot(stored.values);
     await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
@@ -526,7 +524,7 @@ export class SemanticRuntime {
     attributes: Attributes,
     identity: Identity
   ): Promise<void> {
-    await this.requireCleared(identity, [memberMarking(typeDef, member)], { typeName: typeDef.name, objectId, propertyPath: member });
+    await this.requireCleared(identity, memberMarkings(typeDef, member), { typeName: typeDef.name, objectId, propertyPath: member });
     const policyName = memberPolicyOf(typeDef, member);
     if (policyName) {
       await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, objectId, propertyPath: member, attributes });
@@ -547,13 +545,7 @@ export class SemanticRuntime {
     values: Record<string, unknown>,
     provenance: ProvenanceRef[]
   ): Promise<Set<string>> {
-    const own = (name: string): Set<string> => {
-      const markings = new Set<string>();
-      const declared = memberMarking(typeDef, name);
-      if (declared !== undefined) markings.add(declared);
-      for (const p of provenance) if (p.propertyPath === name && p.classification !== undefined) markings.add(p.classification);
-      return markings;
-    };
+    const own = (name: string) => new Set([...memberMarkings(typeDef, name), ...valueMarkings(provenance.filter((p) => p.propertyPath === name))]);
     const effective = new Map(Object.keys(values).map((name) => [name, own(name)]));
     // Declaration order: a computed property's computed dependencies are already known.
     for (const cp of typeDef.computedProperties) {
@@ -743,7 +735,7 @@ export class SemanticRuntime {
         // A classified Type is decided before the adapter runs: an uncleared caller gets an empty page, and
         // nothing of the Type is read on their behalf (ADR-0032). The object policy, by contrast, has no
         // type-level gate: it is decided per returned item, below (ADR-0030).
-        if (!(await this.clearedFor(identity, [objectMarking(typeDef)], { typeName: q.type }))) return { items: [] };
+        if (!(await this.clearedFor(identity, objectMarkings(typeDef), { typeName: q.type }))) return { items: [] };
         if (q.filter) {
           this.rejectComputedFilterProperties(typeDef, q.filter);
           await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
@@ -823,7 +815,7 @@ export class SemanticRuntime {
         const typeDef = await this.requireType(q.type);
         // A type-level request — the adapter aggregates every row, so a rule that depends on an
         // instance's attributes can't allow it, and aggregation fails closed (ADR-0030).
-        await this.requireCleared(identity, [objectMarking(typeDef)], { typeName: q.type });
+        await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
         await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: q.type });
 
         const referenced = new Set<string>();
@@ -894,7 +886,7 @@ export class SemanticRuntime {
     const declared = Object.keys(typeDef.schema.properties ?? {});
     // Query planning, not an access decision, so not audited: a skipped field is never read or matched, and
     // every value the search does return is decided (and audited) in finalizeValues (ADR-0032).
-    return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.dominates(identity, memberMarking(typeDef, p)));
+    return declared.filter((p) => !computed.has(p) && !gated.has(p) && memberMarkings(typeDef, p).every((m) => this.dominates(identity, m)));
   }
 
   private rejectComputedAggregateProperties(typeDef: TypeDefinition, names: Set<string>): void {
@@ -957,7 +949,7 @@ export class SemanticRuntime {
    */
   private async requireReadableProperties(typeDef: TypeDefinition, propertyNames: Iterable<string>, identity: Identity): Promise<void> {
     for (const property of propertyNames) {
-      await this.requireCleared(identity, [memberMarking(typeDef, property)], { typeName: typeDef.name, propertyPath: property });
+      await this.requireCleared(identity, memberMarkings(typeDef, property), { typeName: typeDef.name, propertyPath: property });
       const policyName = memberPolicyOf(typeDef, property);
       if (!policyName) continue;
       await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, propertyPath: property });
@@ -1050,7 +1042,7 @@ export class SemanticRuntime {
         const resolved = await adapter.resolveProperties(typeName, objectId, [propertyPath]);
         const refs = resolved.provenance.filter((p) => p.propertyPath === propertyPath);
         // The value's own marking, known only once it has been read (ADR-0032).
-        await this.requireCleared(identity, refs.map((p) => p.classification), { typeName, objectId, propertyPath });
+        await this.requireCleared(identity, valueMarkings(refs), { typeName, objectId, propertyPath });
         return refs;
       }
     ));
