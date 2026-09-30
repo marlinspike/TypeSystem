@@ -11,6 +11,12 @@ export interface Identity {
   attributes: Record<string, unknown>;
   /** Seam for RFC 9396 rich authorization requests; not enforced in v1. */
   tokenScopes?: string[];
+  /**
+   * The highest classification this subject may read (ADR-0032), as the
+   * runtime's `ClassificationScheme` names it. Missing or unrecognized, the
+   * subject holds only the scheme's lowest level.
+   */
+  clearance?: string;
 }
 
 /** What a policy decision is about: a Type, or one object of it, or one of that object's members or Actions. */

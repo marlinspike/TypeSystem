@@ -54,6 +54,17 @@ describe("createOidcIdentityResolver", () => {
     expect(identity.roles).toEqual(["admin"]);
   });
 
+  it("maps a clearance from a configured claim, and none otherwise (ADR-0032)", async () => {
+    const token = await mintToken({ sub: "user-1", ext: { clearance: "SECRET" }, clearance: "TOP_SECRET" });
+    const nested = createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks, clearanceClaim: "ext.clearance" });
+    expect((await nested(token)).clearance).toBe("SECRET");
+    // Without clearanceClaim, a `clearance` claim is just an attribute: never trusted as a clearance by default.
+    expect((await createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks })(token)).clearance).toBeUndefined();
+
+    const odd = await mintToken({ sub: "user-2", clearance: ["SECRET"] });
+    expect((await createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks, clearanceClaim: "clearance" })(odd)).clearance).toBeUndefined();
+  });
+
   it("fails closed to anonymous on a wrong issuer, by default", async () => {
     const token = await mintToken({ sub: "user-1" }, { issuer: "https://not-the-real-idp.example.com" });
     const resolver = createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks });

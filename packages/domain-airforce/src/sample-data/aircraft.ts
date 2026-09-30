@@ -12,7 +12,8 @@ export const sampleAircraft: InMemoryRecord[] = [
       trackingId: "TRK-0147",
       lastTrackedAt: "2026-09-20T14:00:00.000Z",
       maintenanceStatus: "degraded",
-      lastMaintainedAt: "2026-09-15T09:30:00.000Z"
+      lastMaintainedAt: "2026-09-15T09:30:00.000Z",
+      deploymentLocation: "FOB ALPHA (exercise designation)"
     }
   },
   {
@@ -26,7 +27,8 @@ export const sampleAircraft: InMemoryRecord[] = [
       trackingId: "TRK-0212",
       lastTrackedAt: "2026-09-20T14:00:00.000Z",
       maintenanceStatus: "operational",
-      lastMaintainedAt: "2026-09-10T09:30:00.000Z"
+      lastMaintainedAt: "2026-09-10T09:30:00.000Z",
+      deploymentLocation: "Home station"
     }
   }
 ];

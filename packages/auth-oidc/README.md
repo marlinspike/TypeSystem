@@ -34,6 +34,7 @@ in the codebase that threads an `IdentityResolver` as a parameter
 | `audience` | *(none)* | Checked against `aud` when set. |
 | `jwks` | remote JWKS at `${issuer}/.well-known/jwks.json` | Pass a `createLocalJWKSet(...)` result to test without a live IdP. |
 | `rolesClaim` | `"roles"` | Dot-path into the payload, e.g. `"realm_access.roles"` for Keycloak. |
+| `clearanceClaim` | *(none)* | Dot-path to a string claim holding the subject's classification clearance ([ADR-0032](../../docs/adr/0032-data-classification-enforcement.md)). Unset, no clearance is mapped and the subject reads only unclassified data. |
 | `failOpenToAnonymous` | `true` | On any verification failure (bad signature, wrong issuer/audience, expired), resolve to the anonymous identity rather than throwing — matching the rest of the runtime's fail-closed-to-deny-by-policy model rather than a hard 401. Set `false` to throw instead. |
 
 `scope` (RFC 9396), when present as a space-delimited string claim, is

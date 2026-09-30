@@ -50,8 +50,10 @@ export interface XPolicy {
 }
 
 export interface XProvenance {
+  /** The Type's own classification: the marking of every object of it (ADR-0032). */
   defaultClassification?: string;
-  properties?: Record<string, { authoritativeSource?: string }>;
+  /** Per member (property or relationship). `classification` marks that member, independently of the Type's (ADR-0032). */
+  properties?: Record<string, { authoritativeSource?: string; classification?: string }>;
 }
 
 export interface XMetadata {

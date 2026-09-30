@@ -68,6 +68,15 @@ says so.
    classification-aware handling (ADR-0008; `architecture.md` notes
    `x-provenance` is not yet wired into behavior). For classified or PHI
    data this is blocking, not a nice-to-have.
+   *Addressed as a mechanism (2026-09-29, ADR-0032):* both markings, plus a
+   new per-member one, are enforced against `Identity.clearance` on every
+   read path, beside the policy engine, fail-closed on anything
+   unrecognized, derived data inheriting its inputs' markings, every check
+   audited (`packages/core/test/data-classification.test.ts`). Still open:
+   a scheme matching the markings real data carries (dissemination
+   controls, compartments, CUI categories), value-level markings inside
+   adapter-side aggregation, per-record markings, write rules, and a human
+   review against the accreditation boundary.
 4. **Encryption in transit and at rest.** Not addressed anywhere. Secrets
    management (item 6) is a subset of this, not a substitute: TLS
    termination, database-at-rest encryption, and key management each need
