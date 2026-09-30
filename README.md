@@ -33,7 +33,7 @@ and a message queue.
 | **Multi-source objects** | One object's properties, relationships, and computed values can each come from a different system ([`combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)). | Consumers see one Aircraft, not a Postgres row plus a REST payload to reconcile themselves. |
 | **Relationships beyond foreign keys** | Foreign-key, own-field, many-to-many (`byJoinTable`), and composite-key relationships from one shared parser, with bounded, ordered traversal ([ADR-0028](docs/adr/0028-relationship-resolution-strategies.md)). | Model real associations (a provider's patients, an aircraft's crew) without a graph database or a synthetic join Type. |
 | **Pluggable adapters** | In-memory, REST, and PostgreSQL adapters ship; a new backend is one small interface ([`write-an-adapter.md`](docs/how-to/write-an-adapter.md)). | Swap or add systems of record without touching consumers. |
-| **Object-, row-, and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default; a rule can decide on the object's own attributes, so "this clinician, this patient" is expressible and a query returns only the rows you may read ([ADR-0030](docs/adr/0030-row-level-authorization.md), [`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields and records are hidden per caller, and the engine can be swapped for OPA or Cedar. |
+| **Object-, row-, and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default; a rule can decide on the object's own attributes, so "this clinician, this patient" is expressible and a query returns only the rows you may read ([ADR-0030](docs/adr/0030-row-level-authorization.md), [`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields and records are hidden per caller, and the engine is swappable — a Cedar engine ships ([ADR-0031](docs/adr/0031-cedar-policy-engine.md)). |
 | **Per-property provenance** | Every value can report which source produced it, when, and at what confidence ([ADR-0008](docs/adr/0008-provenance-model.md)). | Values a decision rests on come with their origin, which regulated environments require. |
 | **Append-only audit log** | Every policy decision and audited Action is recorded; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what. |
 | **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
@@ -236,6 +236,14 @@ flowchart TB
   replica ([ADR-0025](docs/adr/0025-multi-instance-deployment.md)). See
   [`packages/redis/README.md`](packages/redis/README.md). Optional, and its
   tests are skipped unless `REDIS_URL` is set.
+- **`packages/policy-cedar`** (`@typesys/policy-cedar`) — a
+  [Cedar](https://www.cedarpolicy.com/)-backed `PolicyEngine`, running the
+  Cedar authorizer in-process as WebAssembly: policies validated against a
+  Cedar schema at load, fail-closed on any evaluation error, and proven to
+  decide identically to the embedded ABAC engine on both demo domains
+  ([ADR-0031](docs/adr/0031-cedar-policy-engine.md)). See
+  [`packages/policy-cedar/README.md`](packages/policy-cedar/README.md).
+  Optional — never a dependency of `@typesys/core`.
 - **`packages/auth-oidc`** (`@typesys/auth-oidc`) — a real OIDC/JWT
   `IdentityResolver`: signature, issuer (RFC 9207), audience, and expiry
   verified via `jose` against a JWKS endpoint, scope claims mapped per
