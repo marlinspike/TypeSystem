@@ -230,6 +230,7 @@ export interface AuditEventRow {
   reason: string | null;
   outcome: "success" | "failure" | null;
   details: Record<string, unknown> | null;
+  operation: string | null;
 }
 
 export function auditEventRowToEvent(row: AuditEventRow): AuditEvent {
@@ -237,6 +238,7 @@ export function auditEventRowToEvent(row: AuditEventRow): AuditEvent {
     id: row.id,
     timestamp: row.timestamp,
     subjectId: row.subject_id,
+    ...(row.operation === null ? {} : { operation: row.operation }),
     action: row.action,
     resource: {
       typeName: row.resource_type_name,

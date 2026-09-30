@@ -203,7 +203,8 @@ code is machine-verified, not human-reviewed.
   preview writes the same rows an `invokeAction` gate does; they are told
   apart only by the outcome row an executed Action adds. Alerting on
   "invoke denials" must account for previews, or the rows must gain the
-  runtime operation that made them.
+  runtime operation that made them. *Closed by ADR-0042:* every row names
+  its operation.
 
 ## Alternatives Considered
 

@@ -89,6 +89,9 @@ function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undef
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
+/** The public runtime operations, as audit rows name them (ADR-0042). */
+export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction";
+
 /**
  * How `query` treats a read policy it can't plan exactly (ADR-0038):
  * `"post-filter"` reads with whatever plan there is and decides every object
@@ -166,7 +169,7 @@ export interface SemanticRuntimeOptions {
   /**
    * Caps how many adapter calls one top-level runtime call (and everything it fans out into:
    * relationships, include trees, computed properties) has in flight at once. Default 20.
-   * See ADR-0019 and `withRequestBudget`.
+   * See ADR-0019 and `withRequest`.
    */
   maxConcurrency?: number;
   /** Overrides for any of `DEFAULT_QUERY_LIMITS` — page size, include count and depth, filter depth/size (see `input-validation.ts`). */
@@ -213,8 +216,8 @@ export class SemanticRuntime {
   private readonly resilience: AdapterResilience;
   private readonly classification: ClassificationScheme;
   private readonly rowSecurity: RowSecurity;
-  /** The concurrency budget of this runtime's call currently executing, if any (see `withRequestBudget`). */
-  private readonly requestBudget = new AsyncLocalStorage<Semaphore>();
+  /** The call currently executing, if any: its concurrency budget and the operation it is (see `withRequest`). */
+  private readonly request = new AsyncLocalStorage<{ budget: Semaphore; operation: RuntimeOperation }>();
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -256,14 +259,14 @@ export class SemanticRuntime {
   private getAdapter(dataSourceId: string): Adapter {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
-    const store = this.requestBudget;
+    const store = this.request;
     const resilience = this.resilience;
 
     // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
     // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
     // Resolved per call (not once), so it holds across resilience retries and after backoff sleeps.
     const underBudget = (invoke: () => Promise<unknown>): Promise<unknown> => {
-      const budget = store.getStore();
+      const budget = store.getStore()?.budget;
       return budget ? budget.run(() => store.exit(invoke)) : invoke();
     };
 
@@ -294,15 +297,16 @@ export class SemanticRuntime {
   }
 
   /**
-   * Runs `fn` inside one request-wide concurrency budget of `maxConcurrency`
-   * adapter calls. Nested runtime calls (getRelationship's per-object
-   * getObject, include trees, provenance recursion) find the budget already
-   * set and share it, so the cap holds for the whole request rather than
-   * per fan-out level, where nested levels would multiply it.
+   * Runs `fn` as one request: one concurrency budget of `maxConcurrency`
+   * adapter calls, and one operation its audit rows name (ADR-0042). Nested
+   * runtime calls (getRelationship's per-object getObject, include trees,
+   * provenance recursion) find both already set and share them, so the cap
+   * holds for the whole request rather than per fan-out level, where nested
+   * levels would multiply it, and every row names what the caller asked for.
    */
-  private withRequestBudget<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.requestBudget.getStore()) return fn();
-    return this.requestBudget.run(new Semaphore(this.maxConcurrency), fn);
+  private withRequest<T>(operation: RuntimeOperation, fn: () => Promise<T>): Promise<T> {
+    if (this.request.getStore()) return fn();
+    return this.request.run({ budget: new Semaphore(this.maxConcurrency), operation }, fn);
   }
 
   private async checkRateLimit(identity: Identity): Promise<void> {
@@ -563,10 +567,12 @@ export class SemanticRuntime {
     details?: Record<string, unknown>
   ): Promise<void> {
     recordPolicyDecision(decision.allow ? "allow" : "deny");
+    const operation = this.request.getStore()?.operation;
     await this.registry.appendAuditEvent({
       id: ulid(),
       timestamp: new Date().toISOString(),
       subjectId: identity.subjectId,
+      ...(operation ? { operation } : {}),
       action: resource.actionName ?? action,
       resource: { typeName: resource.typeName, objectId: resource.objectId, propertyPath: resource.propertyPath },
       decision: decision.allow ? "allow" : "deny",
@@ -911,7 +917,7 @@ export class SemanticRuntime {
     identity: Identity,
     opts: { includeProvenance?: boolean } = {}
   ): Promise<AuthorizedRead> {
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("getObject", () => instrumentOperation(
       "SemanticRuntime.getObject",
       typeName,
       { "typesys.object_id": objectId, "typesys.identity.subject_id": identity.subjectId },
@@ -949,7 +955,7 @@ export class SemanticRuntime {
     identity: Identity,
     sourceAttributes?: Attributes
   ): Promise<AuthorizedRead[]> {
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("getRelationship", () => instrumentOperation(
       "SemanticRuntime.getRelationship",
       typeName,
       { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, "typesys.identity.subject_id": identity.subjectId },
@@ -999,7 +1005,7 @@ export class SemanticRuntime {
    */
   async query(input: SemanticQuery, identity: Identity): Promise<QueryResult<ResolvedObject>> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("query", () => instrumentOperation(
       "SemanticRuntime.query",
       typeof claimedType === "string" ? claimedType : "unknown",
       { "typesys.identity.subject_id": identity.subjectId },
@@ -1104,7 +1110,7 @@ export class SemanticRuntime {
    */
   async aggregate(input: SemanticAggregateQuery, identity: Identity): Promise<AggregateResult> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("aggregate", () => instrumentOperation(
       "SemanticRuntime.aggregate",
       typeof claimedType === "string" ? claimedType : "unknown",
       { "typesys.identity.subject_id": identity.subjectId },
@@ -1156,7 +1162,7 @@ export class SemanticRuntime {
    */
   async explainQuery(input: SemanticQuery, identity: Identity): Promise<QueryPlanReport> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("explainQuery", () => instrumentOperation(
       "SemanticRuntime.explainQuery",
       typeof claimedType === "string" ? claimedType : "unknown",
       { "typesys.identity.subject_id": identity.subjectId },
@@ -1369,7 +1375,7 @@ export class SemanticRuntime {
     identity: Identity,
     source?: { typeDef: TypeDefinition; attributes: Attributes }
   ): Promise<ProvenanceRef[]> {
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("getProvenance", () => instrumentOperation(
       "SemanticRuntime.getProvenance",
       typeName,
       { "typesys.object_id": objectId, "typesys.property_path": propertyPath, "typesys.identity.subject_id": identity.subjectId },
@@ -1399,7 +1405,7 @@ export class SemanticRuntime {
   }
 
   async listActions(typeName: string, identity: Identity): Promise<{ action: ActionDefinition; authorized: boolean }[]> {
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("listActions", () => instrumentOperation(
       "SemanticRuntime.listActions",
       typeName,
       { "typesys.identity.subject_id": identity.subjectId },
@@ -1423,7 +1429,7 @@ export class SemanticRuntime {
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
     const primaryType = action.applicableTypes[0] ?? "unknown";
 
-    return this.withRequestBudget(() => instrumentOperation(
+    return this.withRequest("invokeAction", () => instrumentOperation(
       "SemanticRuntime.invokeAction",
       primaryType,
       { "typesys.action_name": action.name, "typesys.identity.subject_id": identity.subjectId },
@@ -1459,6 +1465,7 @@ export class SemanticRuntime {
             id: ulid(),
             timestamp: new Date().toISOString(),
             subjectId: identity.subjectId,
+            operation: "invokeAction",
             action: action.name,
             resource: { typeName: primaryType },
             decision: "allow",
