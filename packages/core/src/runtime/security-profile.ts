@@ -15,10 +15,11 @@ export const HIGH_ASSURANCE_V1: SecurityProfile = Object.freeze({
   guarantees: Object.freeze([
     'Row security is exact: rowSecurity is "require-exact", and a query whose authorization plan is not exact is refused.',
     "Aggregation over row-scoped data is admitted only by an exact plan the engine derived structurally from the rule it evaluates.",
-    'Telemetry does not carry caller identity in the clear: telemetryIdentity is "none" or pseudonymous.',
+    'Telemetry carries no raw subject, resource, or object identifiers: telemetryIdentity is "none" or pseudonymous, and span errors carry only their class name.',
     "Keys are managed: no adapter or cache reports local or unknown key management.",
     "No demonstration components: demonstration classification schemes are refused.",
-    "Security configuration is well-formed: unknown options and malformed engines, schemes, or caches are refused."
+    "Security configuration is well-formed: unknown options and malformed engines, schemes, or caches are refused.",
+    'Engine faults in the audit log are enumerated: any fault but the combinators\' fixed form is recorded as "external-policy-fault".'
   ])
 });
 

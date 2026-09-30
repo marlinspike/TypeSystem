@@ -69,7 +69,7 @@ const violations = async (options: Parameters<typeof world>[0]) => {
 describe("HIGH_ASSURANCE_V1 (ADR-0046)", () => {
   it("is a frozen, versioned statement of guarantees", () => {
     expect(HIGH_ASSURANCE_V1.id).toBe("typesys:high-assurance:1");
-    expect(HIGH_ASSURANCE_V1.guarantees).toHaveLength(6);
+    expect(HIGH_ASSURANCE_V1.guarantees).toHaveLength(7);
     expect(Object.isFrozen(HIGH_ASSURANCE_V1) && Object.isFrozen(HIGH_ASSURANCE_V1.guarantees)).toBe(true);
   });
 

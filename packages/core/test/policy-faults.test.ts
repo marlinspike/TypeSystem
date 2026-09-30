@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { SemanticRegistry } from "../src/registry/registry.js";
 import { InMemoryRegistryStore } from "../src/registry/in-memory-registry-store.js";
-import { SemanticRuntime } from "../src/runtime/runtime.js";
+import { SemanticRuntime, type SemanticRuntimeOptions } from "../src/runtime/runtime.js";
+import { HIGH_ASSURANCE_V1 } from "../src/runtime/security-profile.js";
 import { matchesFilter } from "../src/runtime/filter.js";
 import { AbacPolicyEngine, allOf, allowAllRule, anyOf, requireAttributeMatch, requireRole, type PolicyRule } from "../src/policy/abac-policy-engine.js";
 import type { Adapter, AdapterQueryResult, ResolvedProperties } from "../src/runtime/adapter.js";
@@ -68,14 +69,14 @@ describe("policy faults (ADR-0043)", () => {
         return {};
       }
     }
-    async function setup(engine: PolicyEngine) {
+    async function setup(engine: PolicyEngine, options: SemanticRuntimeOptions = {}) {
       const registry = new SemanticRegistry(new InMemoryRegistryStore());
       await registry.registerType(
         { $id: "https://typesys.dev/types/test/Case/1.0.0", type: "object", title: "Case", properties: { id: { type: "string" }, ownerId: { type: "string" } }, "x-policy": { objectPolicy: "case.read" } },
         { name: "test.Case", version: "1.0.0" }
       );
       await registry.registerMapping({ id: "m", typeName: "test.Case", target: "property", targetName: "*", dataSourceId: "ds", operation: "get", resolutionMode: "live" });
-      return { runtime: new SemanticRuntime(registry, [new Store()], engine), registry };
+      return { runtime: new SemanticRuntime(registry, [new Store()], engine, options), registry };
     }
     const abac = (rule: PolicyRule) => {
       const engine = new AbacPolicyEngine();
@@ -111,6 +112,42 @@ describe("policy faults (ADR-0043)", () => {
       const oddWorld = await setup(odd);
       await oddWorld.runtime.getObject("test.Case", "c1", staff);
       expect((await rows(oddWorld.registry))[0]?.details).toBeUndefined();
+    });
+
+    describe("under HIGH_ASSURANCE_V1, engine fault text collapses to fixed codes (ADR-0047)", () => {
+      const HA = { securityProfile: HIGH_ASSURANCE_V1 };
+      const answered = [
+        "anyOf alternative 2 failed to evaluate", // the combinators' own form: kept
+        "record c1 belongs to carol, SSN 123-45-6789", // a custom engine's free text
+        "Cedar policy forbid-high-level errored", // Cedar's form names a policy id: collapsed too, the id stays in onError
+        "anyOf alternative 2 failed to evaluate: carol", // forged to look like the fixed form
+        "anyOf alternative 12345 failed to evaluate"
+      ];
+      const faultsOf = async (engine: PolicyEngine, options: SemanticRuntimeOptions) => {
+        const { runtime, registry } = await setup(engine, options);
+        await runtime.getObject("test.Case", "c1", staff).catch(() => undefined);
+        return (await rows(registry))[0]?.details?.faults;
+      };
+
+      it("attack: a custom engine's free text — even forged to look like the fixed form — is recorded as external-policy-fault", async () => {
+        for (const allow of [true, false]) {
+          const engine: PolicyEngine = { evaluate: async () => ({ allow, reason: "r", faults: answered }), plan: async () => ({ kind: "always" }) };
+          expect(await faultsOf(engine, HA)).toEqual([
+            "anyOf alternative 2 failed to evaluate",
+            "external-policy-fault",
+            "external-policy-fault",
+            "external-policy-fault",
+            "external-policy-fault"
+          ]);
+          // Outside the profile, ADR-0043's bounded text is unchanged.
+          expect(await faultsOf(engine, {})).toEqual(answered);
+        }
+      });
+
+      it("the combinators' faults and the runtime's own are kept", async () => {
+        expect(await faultsOf(abac(anyOf(throwsOnBob, throwing, requireRole("staff"))), HA)).toEqual(["anyOf alternative 2 failed to evaluate"]);
+        expect(await faultsOf(abac(throwing), HA)).toEqual(["policy case.read failed to evaluate"]);
+      });
     });
   });
 });

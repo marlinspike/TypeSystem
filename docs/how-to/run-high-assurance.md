@@ -21,15 +21,24 @@ What it guarantees, and what it therefore requires of you:
 |---|---|
 | Row security is exact: an inexact plan's query is refused | rules the planner can plan exactly — the ABAC helpers, or Cedar with `schemaConformantData` asserted *by you* for attribute-bearing Types |
 | Aggregation only through structurally derived plans | ABAC helper rules for any row-scoped Type you aggregate; Cedar-guarded aggregates are refused |
-| No caller identity in clear telemetry | `telemetryIdentity` `"none"` (the default here) or pseudonymous with a 32-byte key |
+| No raw identifiers in telemetry: no subject or object id in any span, errors by class name only | `telemetryIdentity` `"none"` (the default here) or pseudonymous with a 32-byte key |
 | Managed keys | `WrappedKeyProvider` over a KMS — `LocalKeyProvider` is refused |
 | No demonstration components | your own governed `ClassificationScheme`, not `DEMO_LINEAR_CLASSIFICATION` or `securityLabels` |
 | Well-formed configuration | no misspelled options; complete engines, schemes, and caches |
+| Enumerated engine faults: anything but the combinators' fixed form is audited as `external-policy-fault` | nothing; for a Cedar policy error, its id is in your `onError` log |
 
 A weaker explicit setting — `rowSecurity: "post-filter"`,
 `telemetryIdentity: "clear"` — isn't overridden; the runtime refuses to start
 and a `SecurityProfileError` lists every violation. `runtime.securityProfile`
 and `explainQuery` report the profile in force.
+
+**The trust boundary.** Custom policy engines, adapters, classification
+schemes, caches, decorators, and key providers are part of your trusted
+computing base ([ADR-0047](../adr/0047-no-raw-identifiers-in-telemetry.md)).
+The profile validates what they expose, such as their shape,
+`keyManagement`, `planAssurance`, and `demonstration`, and bounds what they
+return. It doesn't sandbox or attest them: a component that misreports
+itself defeats the checks that rely on it.
 
 The profile is necessary, not sufficient: TLS, the identity provider, the
 audit store's access controls, a real-AWS run of `AwsKmsKey`'s production

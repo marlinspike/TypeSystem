@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted — implemented in `@typesys/core` (`TelemetryIdentity` and the
+Accepted. *Amended by ADR-0047:* the same policy governs object ids
+(`typesys.object_pseudonym`) and span error messages, and the pseudonym
+input is tagged, `["subject", id]`, so pseudonyms from before it differ.
+
+Implemented in `@typesys/core` (`TelemetryIdentity` and the
 `telemetryIdentity` option in `runtime/runtime.ts`, resolved once, applied to
 every operation span). Proven by `packages/core/test/observability.test.ts`
 against a registered OpenTelemetry SDK: `"none"` leaving no identity on any
@@ -64,7 +68,8 @@ code is machine-verified, not human-reviewed.
   subject id against a pseudonym. Keep it out of the telemetry pipeline's
   configuration, and rotate it knowing that pseudonyms change with it.
 - **Other span attributes can identify too.** `typesys.object_id` names the
-  object read — sometimes a person's record. This ADR is about the caller.
+  object read — sometimes a person's record. This ADR is about the caller;
+  ADR-0047 extends the policy to objects and error messages.
 
 ## Alternatives Considered
 

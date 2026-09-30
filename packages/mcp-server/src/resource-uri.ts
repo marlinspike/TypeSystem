@@ -50,3 +50,24 @@ export function parseResourceUri(uri: string): ParsedResourceUri {
   const [category = "", ...segments] = allSegments;
   return { category, segments, token };
 }
+
+/**
+ * A resource URI as a span may record it (ADR-0047). Never its query or
+ * fragment — the bearer token rides in `?token=` — and, when the runtime
+ * redacts identifiers, no object id: the category, Type, and the shape of
+ * the rest.
+ */
+export function telemetryResourceUri(uri: string, redactIdentifiers: boolean): string {
+  const path = uri.split(/[?#]/, 1)[0] ?? "";
+  if (!redactIdentifiers) return path;
+  let parsed: ParsedResourceUri;
+  try {
+    parsed = parseResourceUri(path);
+  } catch {
+    return `${SCHEME}://{unparseable}`;
+  }
+  const { category, segments } = parsed;
+  if (!path.startsWith(`${SCHEME}://`) || (category !== "types" && category !== "objects")) return `${SCHEME}://{unrecognized}`;
+  const shown = segments.map((segment, i) => (category === "objects" && i === 1 ? "{objectId}" : encodeURIComponent(segment)));
+  return `${SCHEME}://${[category, ...shown].join("/")}`;
+}

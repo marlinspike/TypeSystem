@@ -1,6 +1,6 @@
-# TypeS
+# TypeSys
 
-TypeS is a domain-neutral enterprise semantic type system: a canonical
+TypeSys (or _TypeS_ as its affectionately known) is a domain-neutral enterprise semantic type system: a canonical
 layer between physical enterprise systems (databases, REST APIs, legacy
 platforms) and their consumers (applications and AI agents), so a consumer
 can ask for an object, its relationships, its provenance, and the actions
@@ -28,7 +28,7 @@ and a message queue.
 
 | Capability | What it does | Why it matters |
 |---|---|---|
-| **A versioned high-assurance profile** | `securityProfile: HIGH_ASSURANCE_V1` is a named set of guarantees — exact row security, aggregation only through structurally derived plans, no clear identity in traces, managed keys, no demonstration components, well-formed configuration — checked at start-up, with every downgrade refused ([ADR-0046](docs/adr/0046-security-profiles.md), [`run-high-assurance.md`](docs/how-to/run-high-assurance.md)). | An assessor signs off on a version, and a misconfigured deployment fails to start instead of running weaker. |
+| **A versioned high-assurance profile** | `securityProfile: HIGH_ASSURANCE_V1` is a named set of guarantees — exact row security, aggregation only through structurally derived plans, no raw subject or object identifiers in traces, managed keys, no demonstration components, well-formed configuration, enumerated engine faults — checked at start-up, with every downgrade refused ([ADR-0046](docs/adr/0046-security-profiles.md), [ADR-0047](docs/adr/0047-no-raw-identifiers-in-telemetry.md), [`run-high-assurance.md`](docs/how-to/run-high-assurance.md)). | An assessor signs off on a version, and a misconfigured deployment fails to start instead of running weaker. |
 | **One governed boundary** | Every read, query, and Action goes through `SemanticRuntime`, the only place policy, classification, audit, and provenance happen ([ADR-0009](docs/adr/0009-embedded-abac-policy-engine.md), [ADR-0032](docs/adr/0032-data-classification-enforcement.md)). | Human apps and AI agents get identical enforcement, because there is only one path to enforce. |
 | **Canonical types on open standards** | Types are JSON Schema 2020-12, composed from base types and traits, versioned and aliased ([`add-a-type.md`](docs/how-to/add-a-type.md)). | One object model across every backend, with no proprietary schema language to learn. |
 | **Multi-source objects** | One object's properties, relationships, and computed values can each come from a different system ([`combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)). | Consumers see one Aircraft, not a Postgres row plus a REST payload to reconcile themselves. |
@@ -422,7 +422,8 @@ even when the decision was an allow.
   defaults, record-bound envelopes, sensitive-data caching, KMS-backed keys,
   authorization planning, Cedar planning, adapter filter capabilities and
   SQL pushdown, security labels, audited operations, policy faults,
-  provable numeric pushdown, telemetry identity, and security profiles).
+  provable numeric pushdown, telemetry identity, security profiles, and no
+  raw identifiers in telemetry).
   [`docs/README.md`](docs/README.md) indexes all of them.
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying

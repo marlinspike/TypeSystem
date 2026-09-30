@@ -91,18 +91,37 @@ function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undef
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
-/** How much of the caller's identity telemetry carries (ADR-0045). */
+/** How identifiers — the caller's, and the objects it touches — reach telemetry (ADR-0045, ADR-0047). */
 export type TelemetryIdentity = "none" | "clear" | { mode: "pseudonymous"; key: Uint8Array };
 
-/** The span attributes a telemetry identity policy yields for a subject, resolved once per runtime. */
-function telemetryIdentityOf(policy: unknown): (identity: Identity) => Record<string, string> {
-  if (policy === "clear") return (identity) => ({ "typesys.identity.subject_id": identity.subjectId });
-  if (policy === "none") return () => ({});
+/**
+ * The one place identifiers enter a span (ADR-0047). Every subject and object
+ * id goes through it, and so does every error a span records: under anything
+ * but `"clear"`, only the error's class name, since runtime messages name
+ * objects and subjects.
+ */
+interface Telemetry {
+  subject(identity: Identity): Record<string, string>;
+  object(typeName: string, objectId: string): Record<string, string>;
+  readonly redactErrors: boolean;
+}
+
+function telemetryOf(policy: unknown): Telemetry {
+  if (policy === "clear") {
+    return { subject: (identity) => ({ "typesys.identity.subject_id": identity.subjectId }), object: (_type, objectId) => ({ "typesys.object_id": objectId }), redactErrors: false };
+  }
+  if (policy === "none") return { subject: () => ({}), object: () => ({}), redactErrors: true };
   const { mode, key } = (typeof policy === "object" && policy !== null ? policy : {}) as { mode?: unknown; key?: unknown };
   if (mode !== "pseudonymous") throw new TypeError(`telemetryIdentity must be "none", "clear", or { mode: "pseudonymous", key }`);
   if (!(key instanceof Uint8Array) || key.length < 32) throw new TypeError("telemetryIdentity's pseudonym key must be at least 32 bytes");
   const secret = Buffer.from(key);
-  return (identity) => ({ "typesys.identity.pseudonym": createHmac("sha256", secret).update(identity.subjectId, "utf8").digest().subarray(0, 16).toString("base64url") });
+  // Tagged, JSON-encoded inputs: a subject's pseudonym never equals an object's, and one id in two Types gives two.
+  const pseudonym = (parts: string[]) => createHmac("sha256", secret).update(JSON.stringify(parts), "utf8").digest().subarray(0, 16).toString("base64url");
+  return {
+    subject: (identity) => ({ "typesys.identity.pseudonym": pseudonym(["subject", identity.subjectId]) }),
+    object: (typeName, objectId) => ({ "typesys.object_pseudonym": pseudonym(["object", typeName, objectId]) }),
+    redactErrors: true
+  };
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
@@ -142,6 +161,18 @@ export interface QueryPlanReport {
 function boundedFaults(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((f): f is string => typeof f === "string").slice(0, 16).map((f) => f.slice(0, 200));
+}
+
+/** The ABAC combinators' own fault: fixed text and a number, so it can carry nothing else (ADR-0047). */
+const ANYOF_FAULT = /^anyOf alternative \d{1,4} failed to evaluate$/;
+
+/**
+ * Under a security profile, an engine's fault text is kept only in the
+ * combinators' fixed form; anything else — which a custom engine may have
+ * filled with whatever its error paths held — becomes one fixed code (ADR-0047).
+ */
+function enumeratedFaults(faults: string[]): string[] {
+  return faults.map((f) => (ANYOF_FAULT.test(f) ? f : "external-policy-fault"));
 }
 
 /** What a scheme's `join` must answer for marked data: a non-empty list of markings (ADR-0041). */
@@ -265,7 +296,7 @@ function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly 
   if (telemetryIdentity === "clear") violations.push('telemetryIdentity must not be "clear"');
   else {
     try {
-      telemetryIdentityOf(telemetryIdentity);
+      telemetryOf(telemetryIdentity);
     } catch (err) {
       violations.push((err as Error).message);
     }
@@ -320,8 +351,8 @@ export class SemanticRuntime {
   private readonly rowSecurity: RowSecurity;
   /** The security profile in force, if any (ADR-0046). */
   private readonly profile: SecurityProfile | undefined;
-  /** The span attributes naming the caller, per the telemetry identity policy (ADR-0045). */
-  private readonly identityAttributes: (identity: Identity) => Record<string, string>;
+  /** How identifiers and errors reach spans, per the telemetry identity policy (ADR-0045, ADR-0047). */
+  private readonly telemetry: Telemetry;
   /** The call currently executing, if any: its concurrency budget and the operation it is (see `withRequest`). */
   private readonly request = new AsyncLocalStorage<{ budget: Semaphore; operation: RuntimeOperation }>();
 
@@ -354,14 +385,28 @@ export class SemanticRuntime {
     if (rowSecurity !== "post-filter" && rowSecurity !== "require-exact") throw new TypeError(`rowSecurity must be "post-filter" or "require-exact"`);
     this.rowSecurity = rowSecurity;
     // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
-    this.identityAttributes = telemetryIdentityOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
+    this.telemetry = telemetryOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
+  }
+
+  /** `instrumentOperation`, recording errors as the telemetry policy allows (ADR-0047). */
+  private instrument<T>(operationName: string, typeName: string, attributes: Record<string, string | number | boolean>, fn: () => Promise<T>): Promise<T> {
+    return instrumentOperation(operationName, typeName, attributes, fn, { redactErrors: this.telemetry.redactErrors });
   }
 
   /** The id of the security profile in force (ADR-0046), if any. */
   get securityProfile(): string | undefined {
     return this.profile?.id;
+  }
+
+  /**
+   * Whether this runtime keeps raw identifiers out of telemetry — true unless
+   * `telemetryIdentity` is `"clear"` (ADR-0047). Code that opens its own spans
+   * around the runtime, like the MCP server, follows it.
+   */
+  get redactsTelemetryIdentifiers(): boolean {
+    return this.telemetry.redactErrors;
   }
 
   /** The effective query bounds — what a transport should advertise (e.g. the MCP `query` tool's inputSchema). */
@@ -673,7 +718,8 @@ export class SemanticRuntime {
     } catch {
       return { allow: false, reason: `Policy "${request.policyName}" failed to evaluate (fail closed)`, faults: [`policy ${request.policyName} failed to evaluate`] };
     }
-    const faults = boundedFaults(decision?.faults);
+    const bounded = boundedFaults(decision?.faults);
+    const faults = this.profile ? enumeratedFaults(bounded) : bounded;
     if (decision?.allow === true) {
       const allowed: PolicyDecision = { ...decision };
       delete allowed.faults;
@@ -1057,10 +1103,10 @@ export class SemanticRuntime {
     identity: Identity,
     opts: { includeProvenance?: boolean } = {}
   ): Promise<AuthorizedRead> {
-    return this.withRequest("getObject", () => instrumentOperation(
+    return this.withRequest("getObject", () => this.instrument(
       "SemanticRuntime.getObject",
       typeName,
-      { "typesys.object_id": objectId, ...this.identityAttributes(identity) },
+      { ...this.telemetry.object(typeName, objectId), ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
@@ -1095,10 +1141,10 @@ export class SemanticRuntime {
     identity: Identity,
     sourceAttributes?: Attributes
   ): Promise<AuthorizedRead[]> {
-    return this.withRequest("getRelationship", () => instrumentOperation(
+    return this.withRequest("getRelationship", () => this.instrument(
       "SemanticRuntime.getRelationship",
       typeName,
-      { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, ...this.identityAttributes(identity) },
+      { ...this.telemetry.object(typeName, objectId), "typesys.relationship_name": relationshipName, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
@@ -1145,10 +1191,10 @@ export class SemanticRuntime {
    */
   async query(input: SemanticQuery, identity: Identity): Promise<QueryResult<ResolvedObject>> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return this.withRequest("query", () => instrumentOperation(
+    return this.withRequest("query", () => this.instrument(
       "SemanticRuntime.query",
       typeof claimedType === "string" ? claimedType : "unknown",
-      this.identityAttributes(identity),
+      this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
@@ -1250,10 +1296,10 @@ export class SemanticRuntime {
    */
   async aggregate(input: SemanticAggregateQuery, identity: Identity): Promise<AggregateResult> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return this.withRequest("aggregate", () => instrumentOperation(
+    return this.withRequest("aggregate", () => this.instrument(
       "SemanticRuntime.aggregate",
       typeof claimedType === "string" ? claimedType : "unknown",
-      this.identityAttributes(identity),
+      this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateAggregateQuery(input);
@@ -1309,10 +1355,10 @@ export class SemanticRuntime {
    */
   async explainQuery(input: SemanticQuery, identity: Identity): Promise<QueryPlanReport> {
     const claimedType = (input as { type?: unknown } | null | undefined)?.type;
-    return this.withRequest("explainQuery", () => instrumentOperation(
+    return this.withRequest("explainQuery", () => this.instrument(
       "SemanticRuntime.explainQuery",
       typeof claimedType === "string" ? claimedType : "unknown",
-      this.identityAttributes(identity),
+      this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
@@ -1523,10 +1569,10 @@ export class SemanticRuntime {
     identity: Identity,
     source?: { typeDef: TypeDefinition; attributes: Attributes }
   ): Promise<ProvenanceRef[]> {
-    return this.withRequest("getProvenance", () => instrumentOperation(
+    return this.withRequest("getProvenance", () => this.instrument(
       "SemanticRuntime.getProvenance",
       typeName,
-      { "typesys.object_id": objectId, "typesys.property_path": propertyPath, ...this.identityAttributes(identity) },
+      { ...this.telemetry.object(typeName, objectId), "typesys.property_path": propertyPath, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = source?.typeDef ?? (await this.requireType(typeName));
@@ -1553,10 +1599,10 @@ export class SemanticRuntime {
   }
 
   async listActions(typeName: string, identity: Identity): Promise<{ action: ActionDefinition; authorized: boolean }[]> {
-    return this.withRequest("listActions", () => instrumentOperation(
+    return this.withRequest("listActions", () => this.instrument(
       "SemanticRuntime.listActions",
       typeName,
-      this.identityAttributes(identity),
+      this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
         const all = await this.registry.listActions();
@@ -1577,10 +1623,10 @@ export class SemanticRuntime {
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
     const primaryType = action.applicableTypes[0] ?? "unknown";
 
-    return this.withRequest("invokeAction", () => instrumentOperation(
+    return this.withRequest("invokeAction", () => this.instrument(
       "SemanticRuntime.invokeAction",
       primaryType,
-      { "typesys.action_name": action.name, ...this.identityAttributes(identity) },
+      { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const gate = await this.authorizeInvoke(identity, action, primaryType);

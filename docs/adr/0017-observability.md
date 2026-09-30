@@ -3,7 +3,9 @@
 ## Status
 
 Accepted. *Amended by ADR-0045:* how much caller identity spans carry is a
-policy — `"none"`, `"clear"` (the default), or a keyed pseudonym.
+policy — `"none"`, `"clear"` (the default), or a keyed pseudonym. *Amended
+by ADR-0047:* the same policy covers object ids and span error messages,
+and the tracer is looked up per span.
 
 ## Context
 

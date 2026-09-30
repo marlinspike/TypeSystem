@@ -54,11 +54,15 @@ document that gap rather than close it in this pass.
   `packages/core/test/policy-faults.test.ts`).
 - Telemetry identity policy (ADR-0045): spans carry the caller in the clear
   (the default), not at all, or as a keyed HMAC pseudonym
-  (`packages/core/test/observability.test.ts`).
+  (`packages/core/test/observability.test.ts`). Since ADR-0047 the same
+  policy covers object ids and span error messages, in the runtime's spans
+  and the MCP server's. The MCP spans never record the bearer token
+  (`packages/mcp-server/test/telemetry.test.ts`).
 - A versioned security profile, `HIGH_ASSURANCE_V1` (ADR-0046): exact row
-  security, aggregation only through structurally derived plans, no clear
-  identity in telemetry, managed keys, no demonstration components, and
-  well-formed configuration, checked at construction with every violation
+  security, aggregation only through structurally derived plans, no raw
+  identifiers in telemetry, managed keys, no demonstration components,
+  well-formed configuration, and enumerated engine faults (ADR-0047),
+  checked at construction with every violation
   reported and every downgrade refused
   (`packages/core/test/security-profile.test.ts`,
   `packages/encryption/test/security-profile.test.ts`).
