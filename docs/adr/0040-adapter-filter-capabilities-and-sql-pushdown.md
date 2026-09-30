@@ -2,6 +2,11 @@
 
 ## Status
 
+*Amended by ADR-0044:* numeric conditions no longer compare as `float8` or
+claim exactness; they are bounded in exact `numeric` arithmetic by the
+double's neighbors and re-checked in JavaScript. The `float8` rows of the
+table below are superseded.
+
 Accepted — implemented as `Adapter.canFilter?` and plan fitting in
 `@typesys/core`, `EncryptingAdapter.canFilter` in `@typesys/encryption`, and
 the filter compiler (`src/sql-filter.ts`) behind `queryByType` and
