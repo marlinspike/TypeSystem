@@ -55,6 +55,7 @@ const IDENTITIES = {
   maintainer: { identity: demoIdentities.maintainer, domain: "airforce", token: "demo-maintainer-token" },
   viewer: { identity: demoIdentities.viewer, domain: "airforce", token: "demo-viewer-token" },
   clinician: { identity: hospitalDemoIdentities.clinician, domain: "hospital", token: "demo-clinician-token" },
+  otherClinician: { identity: hospitalDemoIdentities.otherClinician, domain: "hospital", token: "demo-clinician-b-token" },
   patient: { identity: hospitalDemoIdentities.patient, domain: "hospital", token: "demo-patient-token" },
   anonymous: { identity: demoIdentities.anonymous, domain: "none", token: "" }
 } as const;

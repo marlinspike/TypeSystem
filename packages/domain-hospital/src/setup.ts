@@ -1,4 +1,17 @@
-import { requireRole, allowAllRule, buildRuntime, coreManifest, type SemanticRegistry, type SemanticRuntime, type Identity, type PolicyEngine, type PolicyRule } from "@typesys/core";
+import {
+  allOf,
+  allowAllRule,
+  anyOf,
+  buildRuntime,
+  coreManifest,
+  requireAttributeMatch,
+  requireRole,
+  type Identity,
+  type PolicyEngine,
+  type PolicyRule,
+  type SemanticRegistry,
+  type SemanticRuntime
+} from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { hospitalManifest } from "./manifest.js";
 import { HOSPITAL_DATA_SOURCE_ID } from "./types/patient.js";
@@ -25,11 +38,16 @@ export interface HospitalTestbed {
 export const hospitalPolicyRules: Record<string, PolicyRule> = {
   // Provider directory is not sensitive — anyone can browse clinicians.
   "hospital.read-provider": allowAllRule,
-  // A patient can see their own record/appointments (simplified here to "any
-  // patient-role identity", the same object-vs-property split ADR-0009's ABAC
-  // engine already demonstrates for airforce — per-instance ownership scoping
-  // is a documented, not-built extension point, not something this domain adds).
-  "hospital.read-patient": requireRole("clinician", "admin", "patient"),
+  // Per-instance (ADR-0030), decided on each Patient's own attributes: a
+  // clinician reads only the patients assigned to them, a patient only their
+  // own record, an admin every record.
+  "hospital.read-patient": anyOf(
+    requireRole("admin"),
+    allOf(requireRole("clinician"), requireAttributeMatch("assignedClinicianId", "providerId")),
+    allOf(requireRole("patient"), requireAttributeMatch("id", "patientId"))
+  ),
+  // Still role-level: which clinicians may see an appointment is a domain
+  // choice this demo doesn't make (see ADR-0030's review notes).
   "hospital.read-appointment": requireRole("clinician", "admin", "patient"),
   // Sensitive identifiers within an otherwise-readable Patient stay staff-only.
   "hospital.staff-only": requireRole("clinician", "admin")
@@ -50,9 +68,15 @@ export async function buildHospitalTestbed(): Promise<HospitalTestbed> {
   return { registry, runtime, policyEngine, adapter };
 }
 
-/** Canned demo identities for this domain (mirrors `demoIdentities` in `@typesys/domain-airforce`). */
-export const hospitalDemoIdentities: Record<"clinician" | "patient" | "anonymous", Identity> = {
-  clinician: { subjectId: "user-clinician-1", roles: ["clinician"], attributes: {} },
-  patient: { subjectId: "user-patient-1", roles: ["patient"], attributes: {} },
+/**
+ * Canned demo identities for this domain (mirrors `demoIdentities` in
+ * `@typesys/domain-airforce`). A clinician's `providerId` and a patient's
+ * `patientId` are what `hospital.read-patient` matches against each
+ * Patient's attributes (ADR-0030).
+ */
+export const hospitalDemoIdentities: Record<"clinician" | "otherClinician" | "patient" | "anonymous", Identity> = {
+  clinician: { subjectId: "user-clinician-1", roles: ["clinician"], attributes: { providerId: "PR-2001" } },
+  otherClinician: { subjectId: "user-clinician-2", roles: ["clinician"], attributes: { providerId: "PR-2002" } },
+  patient: { subjectId: "user-patient-1", roles: ["patient"], attributes: { patientId: "PT-1001" } },
   anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
 };

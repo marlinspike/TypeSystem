@@ -37,9 +37,48 @@ policyEngine.registerRule("fleet.own-region-only", (req) => {
 ```
 
 `req.resource` tells you what's being checked —
-`{typeName, objectId?, propertyPath?, actionName?}` — so one rule can
-branch on whether it's guarding a whole object, one property, or an
-Action.
+`{typeName, objectId?, propertyPath?, actionName?, attributes?}` — so one
+rule can branch on whether it's guarding a whole object, one property, or
+an Action.
+
+## Decide on the object itself (row-level)
+
+`req.resource.attributes` carries the object's stored values whenever the
+runtime is deciding about one object, so a rule can scope access per
+record ([ADR-0030](../adr/0030-row-level-authorization.md)). The hospital
+domain's own-patient rule is built from the shipped helpers:
+
+```ts
+import { allOf, anyOf, requireAttributeMatch, requireRole } from "@typesys/core";
+
+policyEngine.registerRule("hospital.read-patient", anyOf(
+  requireRole("admin"),
+  allOf(requireRole("clinician"), requireAttributeMatch("assignedClinicianId", "providerId")),
+  allOf(requireRole("patient"), requireAttributeMatch("id", "patientId"))
+));
+```
+
+`requireAttributeMatch(resourceAttribute, subjectAttribute)` allows only
+when `resource.attributes[resourceAttribute]` and
+`subject.attributes[subjectAttribute]` are the same non-empty string or
+finite number, so a value missing on both sides never matches. The runtime
+decides the object policy on every path that touches the object:
+`getObject`, **each item of a `query`** (denied items are dropped, not
+refused), the source and every target of a relationship, and the object
+behind a property's provenance.
+
+Two rules to write row-level rules by:
+
+- **No attributes means "every instance".** `aggregate` and the
+  filter/sort/search property checks ask about every row at once, without
+  attributes. A rule that depends on attributes must deny there (the
+  helpers do), which is what keeps a count from revealing rows the caller
+  can't read. Never allow *because* attributes are missing.
+- **Never echo a value into `reason`.** The reason is returned to the
+  caller and audited. Name the attribute, not its value.
+
+A rule that throws is a deny, audited like any other, so a rule reading an
+attribute of an unexpected shape fails closed rather than crashing the read.
 
 ## Property-level redaction, not just allow/deny
 
@@ -56,7 +95,9 @@ omitted from the response (see
 
 A viewer can read the Widget; `internalNotes` just won't be in `values`
 for them. This is deliberate — "you can retrieve an object" and "you can
-see every property of it" are different questions, always.
+see every property of it" are different questions, always. A property
+policy only ever *narrows* the object policy: a property, relationship, or
+provenance read needs both to allow.
 
 Filtering is the one place a property policy *does* fail the call. A
 `query` whose top-level `filter` references a property the caller can't

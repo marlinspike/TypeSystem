@@ -99,6 +99,15 @@ says so.
    *this* patient." Flagged as a deliberate simplification in
    `packages/domain-hospital/src/setup.ts`, not a proven-sufficient
    design. Most real deployments need the per-instance version.
+   *Addressed as a mechanism (2026-09-29, ADR-0030):* policies now decide
+   on the object's own stored attributes on every read path, `query`
+   decides per returned item, and the hospital domain ships an own-patient
+   rule proven by attack tests (`packages/core/test/row-level-authorization.test.ts`,
+   `packages/domain-hospital/test/row-level-authorization.test.ts`). Still
+   open, and listed in the ADR for human review: post-filtered pagination
+   leaks the existence of unreadable rows that match a filter (push-down is
+   the fix), Actions are not instance-scoped, and the code is
+   machine-verified, not human-reviewed.
 
 ## Tier 2: operational maturity
 

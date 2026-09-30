@@ -79,6 +79,19 @@ document that gap rather than close it in this pass.
   files are inspected reference artifacts — correct and runnable, but not built
   or run in CI, and not production-hardened (image scanning, secrets, TLS
   remain `PRODUCTION-READINESS.md` items).
+- Row-level (instance) authorization (ADR-0030): policies receive the
+  object's stored attributes and decide per instance on every read path —
+  `getObject`, each returned `query` item (denied items dropped silently,
+  audited), a relationship's source and targets, and provenance — with
+  property/relationship policies that narrow the object policy, aggregation
+  that fails closed under an instance rule, and a deny-biased enforcement
+  point (a throwing or malformed policy denies). Composable helpers
+  (`requireAttributeMatch`, `anyOf`, `allOf`) ship; the hospital domain's
+  own-patient rule uses them. Proven by
+  `packages/core/test/row-level-authorization.test.ts` and
+  `packages/domain-hospital/test/row-level-authorization.test.ts`, including
+  attack suites. Not addressed: the pagination inference channel and
+  instance-scoped Actions (see the ADR).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is

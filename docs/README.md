@@ -104,3 +104,4 @@ other reasonable way.
 | [0027](adr/0027-query-dsl-extensions.md) | Sort, projection (`select`), a separate `aggregate` query + tool, and full-text `search` desugaring to a uniform `icontains` operator — all optional, all fail-closed under policy. |
 | [0028](adr/0028-relationship-resolution-strategies.md) | Relationships beyond foreign keys: a closed, parsed strategy set (`byJoinTable`, `byCompositeKey`) plus bounded, ordered traversal (`maxRelatedPerObject`, include `sort`/`limit`). |
 | [0029](adr/0029-deployment-artifacts.md) | A multi-stage `Dockerfile`, `docker-compose` topology, reference Kubernetes manifests, and `/healthz`/`/readyz` — making ADR-0025's multi-replica design runnable. |
+| [0030](adr/0030-row-level-authorization.md) | Row-level authorization: policies decide on the object's own stored attributes, per item in `query` (denied rows dropped), with member policies that narrow rather than replace, and a deny-biased enforcement point. |

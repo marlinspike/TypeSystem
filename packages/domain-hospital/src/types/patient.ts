@@ -16,7 +16,11 @@ export const PatientType: DomainTypeEntry = {
     type: "object",
     properties: {
       medicalRecordNumber: { type: "string" },
-      dateOfBirth: { type: "string", format: "date" }
+      dateOfBirth: { type: "string", format: "date" },
+      assignedClinicianId: {
+        type: "string",
+        description: "The Provider responsible for this patient — what the per-instance read rule decides on (ADR-0030)."
+      }
     },
     required: ["medicalRecordNumber"],
     "x-relationships": {

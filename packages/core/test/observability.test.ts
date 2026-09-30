@@ -182,6 +182,16 @@ describe("OpenTelemetry instrumentation (ADR-0017) — with a real SDK registere
       "x-policy": { objectPolicy: "public" }
     };
     await registry.registerType(parentSchema, { name: "test.Parent", version: "1.0.0" });
+    // The parent's own stored values are what the relationship's read is authorized on (ADR-0030).
+    await registry.registerMapping({
+      id: "map-parent",
+      typeName: "test.Parent",
+      target: "property",
+      targetName: "*",
+      dataSourceId: "obs-ds",
+      operation: "get",
+      resolutionMode: "live"
+    });
 
     class OneChildAdapter extends StubAdapter {
       override async resolveRelationship(): Promise<RelatedRef[]> {

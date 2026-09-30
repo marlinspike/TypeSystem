@@ -110,6 +110,12 @@ the defaults below, since a deployment can change them:
   items. If the result has a `nextCursor`, pass it back as `cursor` (with
   the same `type`/`filter`) for the next page. Its absence means you have
   everything.
+- **Results contain only what you may read.** Read access is decided per
+  object, on that object's own data (a clinician reads only their own
+  patients), and objects you can't read are silently left out. So a page
+  can be shorter than `limit`, or even empty, and still carry a
+  `nextCursor` — keep following it. A query is never refused because you
+  can't read its Type; it just returns nothing you can't see.
 - **Unknown fields are rejected**, at the top level and inside filters and
   includes. A typo like `"operater"` fails the call; it isn't silently
   ignored. `authToken` is the one extra field every tool accepts.
