@@ -84,7 +84,7 @@ describe("authorization planning on the hospital domain (ADR-0038)", () => {
       }
     }
     expect(compared).toBe(Object.keys(identities).length * QUERIES.length * 3);
-  });
+  }, 60_000); // exhaustive by design: hundreds of paged walks
 
   it("…and its pages come back full: only the last page may be short", async () => {
     const { planned, postFiltered } = await worlds();

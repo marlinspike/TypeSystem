@@ -63,6 +63,11 @@ beforeAll(() => {
 
 afterAll(async () => {
   await meterProvider.shutdown();
+  // Test files share one process (vitest `isolate: false`): unregister the SDK so later files don't keep
+  // recording every span into this file's in-memory exporter for the rest of the run.
+  trace.disable();
+  metrics.disable();
+  context.disable();
 });
 
 beforeEach(() => {
