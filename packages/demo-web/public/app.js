@@ -280,15 +280,46 @@ async function loadTypes() {
 
 async function loadObjectOptions(typeName) {
   const objectPicker = $("#objectPicker");
+  const openBtn = $("#loadObjectBtn");
   objectPicker.innerHTML = "<option>Loading…</option>";
+  openBtn.disabled = true;
   try {
     const result = await api(withIdentity(`/api/objects/${typeName}`), undefined, false);
-    objectPicker.innerHTML = result.items.length
-      ? result.items.map((item) => `<option value="${escapeHtml(item.objectId)}">${escapeHtml(item.objectId)} — ${escapeHtml(friendlyLabel(item.values))}</option>`).join("")
-      : `<option value="">No objects visible to ${IDENTITY_LABEL[state.identity]}</option>`;
+    if (result.items.length === 0) {
+      objectPicker.innerHTML = `<option value="">No objects visible to ${IDENTITY_LABEL[state.identity]}</option>`;
+      showNothingToOpen(typeName, "none");
+      return;
+    }
+    objectPicker.innerHTML = result.items.map((item) => `<option value="${escapeHtml(item.objectId)}">${escapeHtml(item.objectId)} — ${escapeHtml(friendlyLabel(item.values))}</option>`).join("");
+    openBtn.disabled = false;
   } catch (err) {
     objectPicker.innerHTML = `<option value="">${err.status === 403 ? `Not visible to ${IDENTITY_LABEL[state.identity]}` : escapeHtml(err.message)}</option>`;
+    showNothingToOpen(typeName, err.status === 403 ? "denied" : "error", err.message);
   }
+}
+
+/**
+ * The Type in the picker has nothing this identity may open: clear whatever object was on screen — it may be
+ * another Type's, left over from before — and say why, so the panel never contradicts the picker.
+ */
+function showNothingToOpen(typeName, why, message = "") {
+  state.breadcrumb = [];
+  state.openRelationships = new Set();
+  renderBreadcrumbs();
+  renderActionsPanel(null);
+  const who = `<strong>${escapeHtml(IDENTITY_LABEL[state.identity])}</strong>`;
+  const type = `<code>${escapeHtml(typeName)}</code>`;
+  const body =
+    why === "none"
+      ? `<p><strong>Nothing to open</strong></p>
+         <p>No ${type} is visible to ${who}. The query ran; policy admits none of its objects for this identity, so it came back empty rather than refused.</p>
+         <p class="muted">Switch identity in the header, or pick another Type.</p>`
+      : why === "denied"
+        ? `<p><strong>Access denied</strong></p>
+           <p>${who} can't read ${type} at all. The refusal is in the audit log below.</p>
+           <p class="muted">Switch identity in the header, or pick another Type.</p>`
+        : `<p><strong>Couldn't list ${type}</strong></p><p>${escapeHtml(message)}</p>`;
+  $("#objectDetail").innerHTML = `<div class="empty-state"><div class="empty-icon">${why === "none" ? "◎" : why === "denied" ? "⛔" : "!"}</div>${body}</div>`;
 }
 
 function openTypeModal(name) {
@@ -391,12 +422,16 @@ async function renderCurrentObject() {
   if (!top) return;
   const container = $("#objectDetail");
   container.innerHTML = '<div class="empty-state small">Loading…</div>';
+  // A newer navigation, or the picker clearing the panel, may land while this read is in flight: don't paint over it.
+  const stillCurrent = () => state.breadcrumb[state.breadcrumb.length - 1] === top;
   try {
     const typeDef = state.typesByName.get(top.typeName) ?? (await api(`/api/types/${top.typeName}`, undefined, false));
     const object = await api(withIdentity(`/api/objects/${top.typeName}/${top.objectId}`));
+    if (!stillCurrent()) return;
     renderObjectCard(container, top.typeName, object, typeDef);
     renderActionsPanel(top.typeName);
   } catch (err) {
+    if (!stillCurrent()) return;
     renderObjectError(container, err);
     renderActionsPanel(null);
   }
