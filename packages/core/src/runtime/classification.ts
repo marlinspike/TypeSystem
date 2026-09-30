@@ -79,6 +79,12 @@ export function memberMarkings(typeDef: TypeDefinition, member: string): string[
   return marking === undefined ? [] : [marking];
 }
 
+/** Whether the Type or any of its members carries a marking. */
+export function isMarked(typeDef: TypeDefinition): boolean {
+  const properties = typeDef.schema["x-provenance"]?.properties ?? {};
+  return objectMarkings(typeDef).length > 0 || Object.keys(properties).some((member) => memberMarkings(typeDef, member).length > 0);
+}
+
 /** The markings stored values carry in their provenance (`ProvenanceRef.classification`). Empty when none do. */
 export function valueMarkings(provenance: readonly ProvenanceRef[]): string[] {
   return provenance.flatMap((p) => (p.classification === undefined ? [] : [p.classification]));

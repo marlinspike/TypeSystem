@@ -31,6 +31,9 @@ Both take any node-redis v5+ client (they rely only on the small
   `onError`, default `console.warn`); `delete`/`clear` failures throw.
 - `keyPrefix` (default `typesys:cache:`) namespaces keys; `clear()` removes
   only that prefix.
+- Not confidential (ADR-0036): the runtime keeps encrypted and marked data
+  out of it and reads those live. Wrap it in `EncryptedCache` from
+  `@typesys/encryption` to cache them too.
 
 ## `RedisRateLimiter`
 

@@ -33,6 +33,38 @@ function aad(version: EnvelopeVersion, ref: FieldRef, keyId: string, objectId: s
 const ENCRYPTION_INFO = JSON.stringify(["tsenc1", "aes-256-gcm"]);
 const indexInfo = (ref: FieldRef) => JSON.stringify(["tsenc1", "blind-index", ref.typeName, ref.field]);
 
+/** HKDF-SHA-256 subkeys of master keys, derived once per key object and label, so a provider handing back new key objects never gets a stale one. */
+export class Subkeys {
+  private readonly derived = new WeakMap<MasterKey, Map<string, Buffer>>();
+
+  of(key: MasterKey, info: string): Buffer {
+    let byInfo = this.derived.get(key);
+    if (!byInfo) this.derived.set(key, (byInfo = new Map<string, Buffer>()));
+    let subkey = byInfo.get(info);
+    if (!subkey) byInfo.set(info, (subkey = Buffer.from(hkdfSync("sha256", key.material, Buffer.alloc(0), info, 32))));
+    return subkey;
+  }
+}
+
+/** AES-256-GCM under a random IV: `<iv>.<ciphertext+tag>`, base64url. */
+export function gcmSeal(subkey: Buffer, additionalData: Buffer, plaintext: string): string {
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv("aes-256-gcm", subkey, iv, { authTagLength: TAG_BYTES });
+  cipher.setAAD(additionalData);
+  const body = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
+  return `${iv.toString("base64url")}.${body.toString("base64url")}`;
+}
+
+/** The plaintext `gcmSeal` sealed, or a throw if the IV, body, tag, key, or additional data don't all match. */
+export function gcmOpen(subkey: Buffer, additionalData: Buffer, iv: string, encoded: string): string {
+  const body = Buffer.from(encoded, "base64url");
+  if (body.length <= TAG_BYTES) throw new Error("truncated");
+  const decipher = createDecipheriv("aes-256-gcm", subkey, Buffer.from(iv, "base64url"), { authTagLength: TAG_BYTES });
+  decipher.setAAD(additionalData);
+  decipher.setAuthTag(body.subarray(body.length - TAG_BYTES));
+  return Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]).toString("utf8");
+}
+
 function where(ref: FieldRef, objectId: string): string {
   return `${ref.typeName}.${ref.field} of "${objectId}"`;
 }
@@ -44,27 +76,14 @@ function where(ref: FieldRef, objectId: string): string {
  * each under its own HKDF-SHA-256 subkey of a `KeyProvider` master key.
  */
 export class FieldCipher {
-  /** Derived subkeys per master key object, so a provider handing back new key objects never gets a stale subkey. */
-  private readonly subkeys = new WeakMap<MasterKey, Map<string, Buffer>>();
+  private readonly subkeys = new Subkeys();
 
   constructor(private readonly keys: KeyProvider) {}
-
-  private subkey(key: MasterKey, info: string): Buffer {
-    let derived = this.subkeys.get(key);
-    if (!derived) this.subkeys.set(key, (derived = new Map<string, Buffer>()));
-    let subkey = derived.get(info);
-    if (!subkey) derived.set(info, (subkey = Buffer.from(hkdfSync("sha256", key.material, Buffer.alloc(0), info, 32))));
-    return subkey;
-  }
 
   /** A fresh `tsenc2` envelope for `value`, under the active key and bound to record `objectId`: equal plaintexts never give equal envelopes. */
   async encrypt(ref: FieldRef, objectId: string, value: unknown): Promise<string> {
     const key = await this.keys.activeKey();
-    const iv = randomBytes(IV_BYTES);
-    const cipher = createCipheriv("aes-256-gcm", this.subkey(key, ENCRYPTION_INFO), iv, { authTagLength: TAG_BYTES });
-    cipher.setAAD(aad(CURRENT, ref, key.id, objectId));
-    const body = Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final(), cipher.getAuthTag()]);
-    return `${CURRENT}.${key.id}.${iv.toString("base64url")}.${body.toString("base64url")}`;
+    return `${CURRENT}.${key.id}.${gcmSeal(this.subkeys.of(key, ENCRYPTION_INFO), aad(CURRENT, ref, key.id, objectId), JSON.stringify(value))}`;
   }
 
   /**
@@ -82,21 +101,15 @@ export class FieldCipher {
     const key = await this.keys.keyById(keyId);
     if (!key) throw new DecryptionError(`${where(ref, objectId)} is under key "${keyId}", which the keyring doesn't hold`);
 
-    const body = Buffer.from(encoded, "base64url");
     try {
-      if (body.length <= TAG_BYTES) throw new Error("truncated");
-      const decipher = createDecipheriv("aes-256-gcm", this.subkey(key, ENCRYPTION_INFO), Buffer.from(iv, "base64url"), { authTagLength: TAG_BYTES });
-      decipher.setAAD(aad(version, ref, keyId, objectId));
-      decipher.setAuthTag(body.subarray(body.length - TAG_BYTES));
-      const plaintext = Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]);
-      return JSON.parse(plaintext.toString("utf8")) as unknown;
+      return JSON.parse(gcmOpen(this.subkeys.of(key, ENCRYPTION_INFO), aad(version, ref, keyId, objectId), iv, encoded)) as unknown;
     } catch {
       throw new DecryptionError(`${where(ref, objectId)} failed authentication: tampered, moved to another record, or under a different key`);
     }
   }
 
   private index(key: MasterKey, ref: FieldRef, value: unknown): string {
-    return createHmac("sha256", this.subkey(key, indexInfo(ref))).update(JSON.stringify(value), "utf8").digest("base64url");
+    return createHmac("sha256", this.subkeys.of(key, indexInfo(ref))).update(JSON.stringify(value), "utf8").digest("base64url");
   }
 
   /** The blind index a write stores beside a deterministic field: under the active key. */

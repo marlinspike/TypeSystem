@@ -80,8 +80,27 @@ is accepted.
 On an encrypted field the store can't filter by range or substring, sort,
 aggregate, search, or resolve a relationship; each is refused with an
 `EncryptedFieldError` saying so. On a deterministic field `eq`, `ne`, and
-`in` filters keep working. Don't set `resolutionMode: "cached"` on an
-encrypted Type: the cache holds decrypted values.
+`in` filters keep working.
+
+## Caching
+
+The runtime's cache holds decrypted values, so it keeps encrypted fields —
+and computed values derived from them — out of any cache that isn't
+confidential ([ADR-0036](../adr/0036-sensitive-data-caching.md)). An
+in-process `InMemoryCache` is fine. `RedisCache` isn't: a cached-mode read of
+an encrypted Type skips it and reads live (`typesys.cache.requests
+{result="bypass"}`). To share a cache across replicas, wrap it:
+
+```ts
+import { EncryptedCache } from "@typesys/encryption";
+
+const runtime = new SemanticRuntime(registry, [patients], policyEngine, {
+  cache: new EncryptedCache(new RedisCache(redis), keys)
+});
+```
+
+Redis then holds sealed values under HMAC'd key names. An entry that has
+been tampered with, moved, or kept past its TTL reads as a miss.
 
 ## Rotate
 

@@ -115,6 +115,11 @@ export class EncryptingAdapter implements Adapter {
     );
   }
 
+  /** The fields of `typeName` this adapter encrypts, so the runtime keeps their plaintext out of any cache that isn't confidential (ADR-0036). */
+  sensitiveFields(typeName: string): readonly string[] {
+    return [...(this.fields.get(typeName)?.keys() ?? [])];
+  }
+
   private modeOf(ref: FieldRef): EncryptionMode | undefined {
     return this.fields.get(ref.typeName)?.get(ref.field);
   }

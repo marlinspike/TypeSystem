@@ -1,8 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createClient } from "redis";
+import { EncryptedCache, LocalKeyProvider } from "@typesys/encryption";
 import { RedisCache, RedisRateLimiter, type RedisCommands } from "../src/index.js";
 
 const REDIS_URL = process.env.REDIS_URL;
+
+describe("RedisCache confidentiality (ADR-0036)", () => {
+  it("is not confidential, so the runtime keeps encrypted and marked data out of it", () => {
+    expect(new RedisCache({} as RedisCommands).confidential).toBe(false);
+  });
+});
 
 describe.skipIf(!REDIS_URL)("RedisCache and RedisRateLimiter (real Redis)", () => {
   const client = createClient({ url: REDIS_URL });
@@ -58,6 +65,21 @@ describe.skipIf(!REDIS_URL)("RedisCache and RedisRateLimiter (real Redis)", () =
       await tricky.clear();
       expect(await tricky.get("k")).toBeUndefined();
       expect(await bystander.get("k")).toBe(2);
+    });
+
+    it("wrapped in EncryptedCache (ADR-0036), round-trips values while Redis holds neither the value nor the key", async () => {
+      const keys = new LocalKeyProvider({ keys: { k1: Buffer.alloc(32, 7).toString("base64") }, active: "k1" });
+      const cache = new EncryptedCache(new RedisCache(client, { keyPrefix: `${run}c5:` }), keys);
+      await cache.set("prop:ds:hospital.Patient:PT-1001", { values: { ssn: "123-45-6789" }, provenance: [] }, 10_000);
+      expect(await cache.get("prop:ds:hospital.Patient:PT-1001")).toEqual({ values: { ssn: "123-45-6789" }, provenance: [] });
+      const stored: string[] = [];
+      for await (const batch of client.scanIterator({ MATCH: `${run}c5:*` })) {
+        for (const key of batch) stored.push(key, String(await client.get(key)));
+      }
+      expect(stored).toHaveLength(2);
+      expect(stored.join(" ")).not.toMatch(/123-45-6789|hospital|PT-1001/);
+      await cache.delete("prop:ds:hospital.Patient:PT-1001");
+      expect(await cache.get("prop:ds:hospital.Patient:PT-1001")).toBeUndefined();
     });
   });
 

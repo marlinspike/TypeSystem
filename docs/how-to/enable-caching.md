@@ -66,6 +66,22 @@ mapping's `resolutionMode`/`cacheTtlMs` is independent — the base bundle
 and each override cache (or don't) on their own terms, keyed by their own
 `dataSourceId`. `invalidateObject` clears all of them together.
 
+## Sensitive data stays out of shared caches
+
+Every `Cache` says whether it is `confidential`, and the runtime never puts
+sensitive values in one that isn't
+([ADR-0036](../adr/0036-sensitive-data-caching.md)). Sensitive means marked
+(the Type, the member, or the value's provenance, ADR-0032), in a field an
+adapter protects (an `EncryptingAdapter`'s encrypted fields), or computed
+from any of those through `dependsOn`. Such a read skips the cache and goes
+live; the metric `typesys.cache.requests` counts it as `result="bypass"`.
+
+`InMemoryCache` is confidential; `RedisCache` isn't. Wrap a shared cache in
+`EncryptedCache` from `@typesys/encryption` to cache sensitive Types in it
+(see [`encrypt-fields.md`](encrypt-fields.md#caching)). A computed property
+that reads sensitive data through `ctx.getAdapter` rather than `dependsOn`
+isn't seen by this rule — mark it.
+
 ## Invalidate manually
 
 TTL alone, not event-driven invalidation, is the whole story here — see
@@ -86,8 +102,8 @@ replica's `invalidateObject` never reaches the other. For more than one
 instance, use `RedisCache` from `@typesys/redis`: every replica shares
 the entries and the invalidations; see
 [`run-multiple-instances.md`](run-multiple-instances.md). Or implement the
-four-method `Cache` interface (`packages/core/src/runtime/cache.ts`)
-yourself.
+`Cache` interface (`packages/core/src/runtime/cache.ts`) yourself — four
+methods and the `confidential` flag.
 
 ## Verify it
 
@@ -95,3 +111,6 @@ Follow [`packages/core/test/caching.test.ts`](../../packages/core/test/caching.t
 a counting adapter proves the second call within the TTL never touches
 it, a short TTL + a real sleep proves expiry, and one test proves the
 per-identity-redaction-stays-fresh property directly.
+[`sensitive-caching.test.ts`](../../packages/core/test/sensitive-caching.test.ts)
+runs every read path against a non-confidential cache and checks it ends up
+holding nothing sensitive.

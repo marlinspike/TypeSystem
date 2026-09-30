@@ -17,8 +17,11 @@ export interface RedisCacheOptions {
  * Redis, so one instance's `invalidateObject` is seen by all of them
  * (ADR-0025). Values are stored as JSON: adapter output and computed values
  * must be JSON-serializable (a `Date`, for example, comes back as a string).
+ * Not confidential (ADR-0036): the runtime keeps encrypted and marked data
+ * out of it unless it is wrapped in `EncryptedCache`.
  */
 export class RedisCache implements Cache {
+  readonly confidential = false;
   private readonly prefix: string;
   private readonly onError: (err: unknown, operation: "get" | "set") => void;
 

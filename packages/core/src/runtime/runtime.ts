@@ -14,7 +14,7 @@ import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
-import { DENY_MARKED_DATA, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
+import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
@@ -97,7 +97,10 @@ function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reas
  * omitting the argument) is always safe.
  */
 export interface SemanticRuntimeOptions {
-  /** Omit to preserve pre-ADR-0016 "always live" behavior exactly — a `NoopCache` always misses. */
+  /**
+   * Omit to preserve pre-ADR-0016 "always live" behavior exactly — a `NoopCache` always misses. A
+   * cache that isn't `confidential` never receives encrypted or marked data (ADR-0036).
+   */
   cache?: Cache;
   /** Fallback TTL for any `resolutionMode: "cached"` Mapping/relationship/computed property with no `cacheTtlMs` of its own. Default 30s. */
   defaultCacheTtlMs?: number;
@@ -139,6 +142,8 @@ export class SemanticRuntime {
   private readonly adapters: Map<string, Adapter>;
   private readonly inputValidator: InputValidator;
   private readonly cache: Cache;
+  /** Resolved once (ADR-0036): only a cache declaring `confidential: true` may hold sensitive values. */
+  private readonly cacheConfidential: boolean;
   private readonly defaultCacheTtlMs: number;
   private readonly rateLimiter: RateLimiter;
   private readonly maxConcurrency: number;
@@ -159,6 +164,7 @@ export class SemanticRuntime {
       throw new TypeError("SemanticRuntime's 4th argument is now an options object: pass { cache } instead of a Cache");
     }
     this.cache = options.cache ?? new NoopCache();
+    this.cacheConfidential = this.cache.confidential === true;
     this.defaultCacheTtlMs = options.defaultCacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.rateLimiter = options.rateLimiter ?? new NoopRateLimiter();
     this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
@@ -251,23 +257,76 @@ export class SemanticRuntime {
   }
 
   /** Records the cache outcome as both a metric and a `typesys.cache.hit` attribute on whichever span is active. */
-  private noteCacheOutcome(hit: boolean): void {
-    recordCacheResult(hit ? "hit" : "miss");
-    annotateActiveSpan({ "typesys.cache.hit": hit });
+  private noteCacheOutcome(outcome: "hit" | "miss" | "bypass"): void {
+    recordCacheResult(outcome);
+    annotateActiveSpan({ "typesys.cache.hit": outcome === "hit" });
+  }
+
+  /** The fields the adapters behind `dataSourceIds` protect at rest (ADR-0036), asked of each registered adapter itself. */
+  private protectedFields(typeName: string, dataSourceIds: readonly string[]): Set<string> {
+    return new Set(dataSourceIds.flatMap((id) => this.adapters.get(id)?.sensitiveFields?.(typeName) ?? []));
+  }
+
+  /**
+   * Whether a property bundle from `dataSourceId` may go to this runtime's
+   * cache (ADR-0036). A bundle is everything that adapter returned for the
+   * object, so outside a confidential cache it may only if nothing about the
+   * Type is marked and the adapter protects none of its fields.
+   */
+  private mayCacheBundle(typeDef: TypeDefinition, dataSourceId: string): boolean {
+    return this.cacheConfidential || (!isMarked(typeDef) && this.protectedFields(typeDef.name, [dataSourceId]).size === 0);
+  }
+
+  /** Whether a relationship's ref list may go to this runtime's cache (ADR-0036): outside a confidential cache, only if neither end nor the relationship is marked. */
+  private async mayCacheRefs(typeDef: TypeDefinition, relDef: RelationshipDefinition): Promise<boolean> {
+    if (this.cacheConfidential) return true;
+    const target = await this.registry.getType(relDef.targetType);
+    return target !== undefined && objectMarkings(typeDef).length === 0 && memberMarkings(typeDef, relDef.name).length === 0 && objectMarkings(target).length === 0;
+  }
+
+  /**
+   * The computed properties whose values may not go to this runtime's cache
+   * (ADR-0036): none, for a confidential cache; otherwise every one that is
+   * sensitive or derives — through `dependsOn`, transitively — from a
+   * sensitive value: of a marked Type or member, marked in its provenance,
+   * or in a field an adapter protects.
+   */
+  private async uncacheableComputed(typeDef: TypeDefinition, resolved: ResolvedProperties): Promise<ReadonlySet<string>> {
+    const computed = typeDef.computedProperties;
+    if (this.cacheConfidential || !computed.some((cp) => cp.resolutionMode === "cached")) return new Set();
+    if (objectMarkings(typeDef).length > 0) return new Set(computed.map((cp) => cp.name));
+
+    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
+    const sensitive = this.protectedFields(typeDef.name, [base, ...overrides].map((m) => m.dataSourceId));
+    for (const member of Object.keys(typeDef.schema["x-provenance"]?.properties ?? {})) {
+      if (memberMarkings(typeDef, member).length > 0) sensitive.add(member);
+    }
+    for (const ref of resolved.provenance) if (valueMarkings([ref]).length > 0) sensitive.add(ref.propertyPath);
+    // Declaration order, the order they run in: a computed property's computed dependencies are already decided.
+    for (const cp of computed) if (cp.dependsOn.some((dep) => sensitive.has(dep))) sensitive.add(cp.name);
+    return new Set(computed.filter((cp) => sensitive.has(cp.name)).map((cp) => cp.name));
   }
 
   /** Cache is transparent here: same return shape whether it came from cache or the adapter (see ADR-0016). */
-  private async resolveProperties(adapter: Adapter, mapping: Mapping, typeName: string, objectId: string): Promise<ResolvedProperties> {
+  private async resolveProperties(adapter: Adapter, mapping: Mapping, typeDef: TypeDefinition, objectId: string): Promise<ResolvedProperties> {
+    const typeName = typeDef.name;
     if (mapping.resolutionMode !== "cached") return adapter.resolveProperties(typeName, objectId, []);
+    if (!this.mayCacheBundle(typeDef, mapping.dataSourceId)) {
+      this.noteCacheOutcome("bypass");
+      return adapter.resolveProperties(typeName, objectId, []);
+    }
     const key = this.propertyCacheKey(mapping.dataSourceId, typeName, objectId);
     const cached = await this.cache.get<ResolvedProperties>(key);
     if (cached) {
-      this.noteCacheOutcome(true);
+      this.noteCacheOutcome("hit");
       return cached;
     }
-    this.noteCacheOutcome(false);
+    this.noteCacheOutcome("miss");
     const resolved = await adapter.resolveProperties(typeName, objectId, []);
-    await this.cache.set(key, resolved, mapping.cacheTtlMs ?? this.defaultCacheTtlMs);
+    // A value marked in its own provenance is sensitive too: read, but not stored outside a confidential cache.
+    if (this.cacheConfidential || valueMarkings(resolved.provenance).length === 0) {
+      await this.cache.set(key, resolved, mapping.cacheTtlMs ?? this.defaultCacheTtlMs);
+    }
     return resolved;
   }
 
@@ -281,7 +340,7 @@ export class SemanticRuntime {
    * overrides — every Type that doesn't use this feature pays nothing for it.
    */
   private async mergeOverrides(
-    typeName: string,
+    typeDef: TypeDefinition,
     objectId: string,
     base: ResolvedProperties,
     overrides: Mapping[]
@@ -290,7 +349,7 @@ export class SemanticRuntime {
 
     const results = await mapWithConcurrency(overrides, this.maxConcurrency, async (mapping) => ({
       mapping,
-      resolved: await this.resolveProperties(this.getAdapter(mapping.dataSourceId), mapping, typeName, objectId)
+      resolved: await this.resolveProperties(this.getAdapter(mapping.dataSourceId), mapping, typeDef, objectId)
     }));
 
     const values = { ...base.values };
@@ -310,21 +369,25 @@ export class SemanticRuntime {
   }
 
   /** The base bundle plus any per-property overrides, merged (ADR-0023). What `getObject` and `query` both resolve properties through. */
-  private async resolveObjectProperties(typeName: string, objectId: string): Promise<ResolvedProperties> {
-    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeName);
-    const baseResolved = await this.resolveProperties(this.getAdapter(base.dataSourceId), base, typeName, objectId);
-    return this.mergeOverrides(typeName, objectId, baseResolved, overrides);
+  private async resolveObjectProperties(typeDef: TypeDefinition, objectId: string): Promise<ResolvedProperties> {
+    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
+    const baseResolved = await this.resolveProperties(this.getAdapter(base.dataSourceId), base, typeDef, objectId);
+    return this.mergeOverrides(typeDef, objectId, baseResolved, overrides);
   }
 
-  private async resolveRelationship(adapter: Adapter, relDef: RelationshipDefinition, objectId: string): Promise<RelatedRef[]> {
+  private async resolveRelationship(adapter: Adapter, typeDef: TypeDefinition, relDef: RelationshipDefinition, objectId: string): Promise<RelatedRef[]> {
     if (relDef.resolutionMode !== "cached") return adapter.resolveRelationship(relDef, objectId);
+    if (!(await this.mayCacheRefs(typeDef, relDef))) {
+      this.noteCacheOutcome("bypass");
+      return adapter.resolveRelationship(relDef, objectId);
+    }
     const key = this.relationshipCacheKey(relDef.resolution.dataSourceId, relDef.name, objectId);
     const cached = await this.cache.get<RelatedRef[]>(key);
     if (cached) {
-      this.noteCacheOutcome(true);
+      this.noteCacheOutcome("hit");
       return cached;
     }
-    this.noteCacheOutcome(false);
+    this.noteCacheOutcome("miss");
     const refs = await adapter.resolveRelationship(relDef, objectId);
     await this.cache.set(key, refs, relDef.cacheTtlMs ?? this.defaultCacheTtlMs);
     return refs;
@@ -334,16 +397,21 @@ export class SemanticRuntime {
     cp: ComputedPropertyDefinition,
     typeName: string,
     objectId: string,
-    ctx: ComputeContext
+    ctx: ComputeContext,
+    cacheable: boolean
   ): Promise<unknown> {
     if (cp.resolutionMode !== "cached") return cp.compute(ctx);
+    if (!cacheable) {
+      this.noteCacheOutcome("bypass");
+      return cp.compute(ctx);
+    }
     const key = this.computedCacheKey(typeName, objectId, cp.name);
     const cached = await this.cache.get(key);
     if (cached !== undefined) {
-      this.noteCacheOutcome(true);
+      this.noteCacheOutcome("hit");
       return cached;
     }
-    this.noteCacheOutcome(false);
+    this.noteCacheOutcome("miss");
     const value = await cp.compute(ctx);
     await this.cache.set(key, value, cp.cacheTtlMs ?? this.defaultCacheTtlMs);
     return value;
@@ -506,7 +574,7 @@ export class SemanticRuntime {
     identity: Identity
   ): Promise<{ stored: ResolvedProperties; attributes: Attributes }> {
     await this.requireCleared(identity, objectMarkings(typeDef), { typeName: typeDef.name, objectId });
-    const stored = await this.resolveObjectProperties(typeDef.name, objectId);
+    const stored = await this.resolveObjectProperties(typeDef, objectId);
     const attributes = snapshot(stored.values);
     await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
     return { stored, attributes };
@@ -590,8 +658,9 @@ export class SemanticRuntime {
       }
     };
 
+    const uncacheable = await this.uncacheableComputed(typeDef, resolved);
     for (const cp of typeDef.computedProperties) {
-      computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, ctx);
+      computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, ctx, !uncacheable.has(cp.name));
     }
     Object.assign(values, computedResults);
 
@@ -688,7 +757,7 @@ export class SemanticRuntime {
         await this.requireMemberReadable(typeDef, relDef.name, objectId, attributes, identity);
 
         const adapter = this.getAdapter(relDef.resolution.dataSourceId);
-        const relatedRefs = await this.resolveRelationship(adapter, relDef, objectId);
+        const relatedRefs = await this.resolveRelationship(adapter, typeDef, relDef, objectId);
         // Bound the *count* of the fan-out: a one-to-many with more related objects than
         // maxRelatedPerObject (ADR-0028) is truncated, the count-analogue of the maxConcurrency
         // bound on its concurrency (ADR-0019). The adapter's returned order is preserved.
@@ -763,7 +832,7 @@ export class SemanticRuntime {
         const objectPolicy = objectPolicyOf(typeDef);
         const probed = new Set([...(effectiveFilter ? filterProperties(effectiveFilter) : []), ...(q.sort ?? []).map((s) => s.property)]);
         const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
-          const stored = await this.mergeOverrides(q.type, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
+          const stored = await this.mergeOverrides(typeDef, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
           const attributes = snapshot(stored.values);
           // Decided on this item's own attributes (ADR-0030). A denied item is dropped silently (audited),
           // as getRelationship drops an unauthorized related object; it is never finalized or navigated.

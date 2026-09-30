@@ -78,10 +78,28 @@ name their key and keep decrypting, equality lookups match indexes written
 under any key in the ring, and new writes use the new key. Removing a key
 makes whatever is still under it unreadable.
 
+## A shared cache
+
+The runtime's cache holds decrypted values, so it keeps encrypted fields out
+of any cache that isn't confidential (ADR-0036) — `RedisCache` included.
+`EncryptedCache` makes one confidential under the same keys:
+
+```ts
+const runtime = new SemanticRuntime(registry, [patients], policyEngine, {
+  cache: new EncryptedCache(new RedisCache(redis), keys)
+});
+```
+
+Each value is sealed with AES-256-GCM bound to its cache key and expiry, and
+the cache key is replaced by an HMAC. An entry that fails to decrypt —
+tampered, moved, expired, or under a key the ring doesn't hold — is a miss
+reported to `onError`, never a served value. `delete` removes the entry under
+every key in the ring, so invalidation lands across a rotation.
+
 ## Before production
 
 Read the review lists in ADR-0033 and ADR-0035: the construction is
 unreviewed by a cryptographer, the legacy-migration window accepts
-downgrades while it's open, deleting or replaying a whole record isn't
-detected, and the runtime's cache holds decrypted values — don't cache
-encrypted Types.
+downgrades while it's open, and deleting or replaying a whole record isn't
+detected; and ADR-0036's: an `EncryptedCache` entry restored by someone who
+can write the store is served until its original expiry.

@@ -5,6 +5,13 @@
  * documented-not-built extension point for later.
  */
 export interface Cache {
+  /**
+   * Whether values held here are readable only by this process, or only
+   * under keys it holds (ADR-0036). The runtime never puts encrypted or
+   * marked data in a cache where this isn't `true`; wrap a shared cache in
+   * `EncryptedCache` (`@typesys/encryption`) to make it confidential.
+   */
+  readonly confidential: boolean;
   get<T>(key: string): Promise<T | undefined>;
   set<T>(key: string, value: T, ttlMs: number): Promise<void>;
   delete(key: string): Promise<void>;
@@ -16,7 +23,9 @@ interface Entry {
   expiresAt: number;
 }
 
+/** Per-process: confidential, since the plaintext is already in this process's memory while it serves the read. */
 export class InMemoryCache implements Cache {
+  readonly confidential = true;
   private readonly entries = new Map<string, Entry>();
 
   async get<T>(key: string): Promise<T | undefined> {
@@ -44,6 +53,8 @@ export class InMemoryCache implements Cache {
 
 /** Always misses, never stores — what every `SemanticRuntime` uses when no `Cache` is supplied, preserving pre-ADR-0016 "always live" behavior exactly. */
 export class NoopCache implements Cache {
+  /** It stores nothing, so nothing leaves the process. */
+  readonly confidential = true;
   async get<T>(): Promise<T | undefined> {
     return undefined;
   }
