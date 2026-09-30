@@ -128,7 +128,7 @@ describe.skipIf(!hasDb)("SQL pushdown against PostgreSQL (ADR-0040)", () => {
       if (ids.length < rows.length) narrowed++;
     }
     expect(narrowed).toBeGreaterThan(200); // not vacuous
-  });
+  }, 120_000); // 400 filters, each walked to the end against a real database
 
   it("…with a sort, too", async () => {
     const next = rng(8040);

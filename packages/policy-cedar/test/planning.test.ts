@@ -365,7 +365,7 @@ describe("Cedar planning in the runtime (ADR-0039)", () => {
         if (who !== identities.malformed) expect(await walk(abac, query, who)).toEqual(expected); // ABAC reads role-level Types for a malformed claim (ADR-0031)
       }
     }
-  });
+  }, 60_000); // exhaustive by design: four runtimes, every identity and query, walked page by page
 
   it("a clinician's aggregate: refused without the assertion, and equal to ABAC's with it", async () => {
     const count = { type: "hospital.Patient", aggregations: [{ name: "n", op: "count" as const }] };
