@@ -92,3 +92,22 @@ export const demoIdentities: Record<"maintainer" | "viewer" | "anonymous", Ident
   viewer: { subjectId: "user-viewer-1", roles: ["viewer"], attributes: {}, clearance: "CUI" },
   anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
 };
+
+const DEMO_TOKENS: Record<string, Identity> = {
+  "demo-maintainer-token": demoIdentities.maintainer,
+  "demo-viewer-token": demoIdentities.viewer
+};
+
+/**
+ * The demo's static bearer tokens (`demo-maintainer-token`, `demo-viewer-token`)
+ * as an identity resolver, for the demo servers and their tests; anything else,
+ * including no token, is `anonymous`. It has the shape of `@typesys/mcp-server`'s
+ * `IdentityResolver` without importing it. Constants in source grant a role, so
+ * this is for a demonstration, never a deployment (ADR-0050): a real one passes
+ * `@typesys/auth-oidc`'s resolver.
+ */
+export async function resolveDemoIdentity(token: string | undefined | null): Promise<Identity> {
+  // An own-property lookup: "constructor" and "__proto__" are not tokens.
+  if (!token || !Object.hasOwn(DEMO_TOKENS, token)) return demoIdentities.anonymous;
+  return DEMO_TOKENS[token]!;
+}

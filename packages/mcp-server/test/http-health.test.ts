@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
 import { startHttpServer, type RunningHttpServer } from "../src/http-transport.js";
 
 /** The `/healthz` and `/readyz` endpoints an orchestrator gates traffic on (ADR-0029). */
@@ -6,7 +7,7 @@ describe("HTTP health endpoints (ADR-0029)", () => {
   let server: RunningHttpServer;
 
   beforeAll(async () => {
-    server = await startHttpServer(0); // port 0 → any free port
+    server = await startHttpServer(0, { backend: await buildAirforceTestbed(), identityResolver: resolveDemoIdentity }); // port 0 → any free port
   });
   afterAll(async () => {
     await server.close();

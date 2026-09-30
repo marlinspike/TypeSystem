@@ -43,7 +43,7 @@ and a message queue.
 | **Data classification** | Types, properties, and individual values carry markings; the scheme you configure decides whole labels for whole subjects — levels, compartments, releasability, and CUI as its own regime in the reference scheme — and until you configure one, marked data is denied; enforced beside the policy engine, with derived values carrying the join of their inputs' labels ([ADR-0032](docs/adr/0032-data-classification-enforcement.md), [ADR-0034](docs/adr/0034-classification-scheme-defaults.md), [ADR-0041](docs/adr/0041-security-labels-v2.md), [`classify-data.md`](docs/how-to/classify-data.md)). | Classified and controlled data is redacted per reader by a mandatory control that no policy, and no engine swap, can relax. |
 | **Append-only audit log** | Every policy and classification decision — allow and deny, including the authorization preview `listActions` reports — and every audited Action is recorded, with which control decided and which runtime operation it was decided under; the Postgres store enforces append-only with a trigger ([ADR-0042](docs/adr/0042-audit-rows-name-the-operation.md)). | A tamper-resistant record of who read or changed what, and of every refusal. |
 | **Governed Actions** | Writes run a policy check and the clearance their Types require, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
-| **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP ([`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
+| **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
 | **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, per-adapter-call timeouts / retries / circuit-breaking, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [ADR-0026](docs/adr/0026-adapter-call-resilience.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost, latency, and resilience per deployment, and see what the runtime is doing. |
 | **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, a load test, and ready-to-run deployment artifacts — a `Dockerfile`, `docker-compose`, reference Kubernetes manifests, and `/healthz`/`/readyz` probes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md), [`deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)). | Scale out behind a load balancer with one cache and one budget per identity — and an image to actually ship. |
@@ -219,9 +219,11 @@ flowchart TB
 - **`packages/mcp-server`** (`@typesys/mcp-server`) — an MCP server exposing
   the semantic model as resources (browsing) and Actions as tools (governed
   invocation), with identity resolved fresh from a bearer token on every
-  call. Two transports: stdio (`bin.ts`) and a stateless Streamable HTTP
-  transport (`bin-http.ts`, identity from a real `Authorization` header —
-  see [ADR-0021](docs/adr/0021-http-transport.md)).
+  call. It serves any registry and runtime you give it, with an identity
+  resolver you supply ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md)),
+  over stdio (`createServer`) or a stateless Streamable HTTP transport
+  (`createHttpApp`, identity from a real `Authorization` header — see
+  [ADR-0021](docs/adr/0021-http-transport.md)).
 - **`packages/demo-web`** (`@typesys/demo-web`) — an interactive web demo
   running both domains on one registry: browse and navigate objects with
   per-property provenance, see row-level access, classification, and

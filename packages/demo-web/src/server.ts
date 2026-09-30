@@ -236,11 +236,8 @@ async function main(): Promise<void> {
   const tokenIdentities = new Map<string, Identity>(Object.values(IDENTITIES).filter((i) => i.token).map((i) => [i.token, i.identity]));
   const resolveToken = (token: string | null | undefined) => Promise.resolve((token && tokenIdentities.get(token)) || demoIdentities.anonymous);
   const mcpClients = {} as Record<Engine, Client>;
-  for (const [engine, policyEngine] of [["abac", abacEngine], ["cedar", cedarPolicyEngine]] as const) {
-    const bundle = await createMcpServer(
-      { registry, runtime: runtimes[engine], policyEngine, inMemoryAdapter: airforce.inMemoryAdapter, mockRestAdapter: airforce.mockRestAdapter },
-      resolveToken
-    );
+  for (const engine of ["abac", "cedar"] as const) {
+    const bundle = createMcpServer({ registry, runtime: runtimes[engine] }, resolveToken);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: `typesys-demo-web-${engine}`, version: "0.1.0" });
     await Promise.all([client.connect(clientTransport), bundle.server.connect(serverTransport)]);

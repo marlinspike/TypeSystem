@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Spawns the real MCP server over a real stdio subprocess (not the
+ * Spawns the demo MCP server (packages/demo-web/src/mcp-stdio.ts: the airforce
+ * testbed behind @typesys/mcp-server) over a real stdio subprocess (not the
  * in-memory transport used by packages/mcp-server/test/mcp-contract.test.ts)
  * and runs the exact 7-step discovery -> action script from
  * docs/initial_prompt.md end-to-end. Requires no external infrastructure.
@@ -11,7 +12,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const serverEntry = path.resolve(__dirname, "../packages/mcp-server/src/bin.ts");
+const serverEntry = path.resolve(__dirname, "../packages/demo-web/src/mcp-stdio.ts");
 // Invoke the resolved tsx binary directly, not via `npx` — npx can emit its
 // own diagnostic text on stdout, which would corrupt the JSON-RPC stream.
 const tsxBin = path.resolve(__dirname, "../node_modules/.bin/tsx");
@@ -47,9 +48,14 @@ async function main(): Promise<void> {
   await step("1. Discover an Aircraft", async () => {
     const { resources } = await client.listResources();
     assert(
-      resources.some((r) => r.uri.includes("objects/airforce.Aircraft/AF86-0147")),
-      "Aircraft AF86-0147 is discoverable via resources/list"
+      resources.some((r) => r.uri === "typesys://types/airforce.Aircraft"),
+      "the Aircraft Type is discoverable via resources/list"
     );
+    const found = await client.callTool({
+      name: "query",
+      arguments: { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "eq", value: "AF86-0147" }, authToken: "demo-maintainer-token" }
+    });
+    assert(!found.isError && JSON.stringify(found.content).includes("AF86-0147"), "Aircraft AF86-0147 is found with the query tool");
   });
 
   await step("2. Inspect its semantic definition", async () => {

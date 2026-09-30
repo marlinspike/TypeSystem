@@ -15,9 +15,16 @@ or embed it in your own process:
 ```ts
 import { createHttpApp } from "@typesys/mcp-server";
 
-const app = createHttpApp(); // Express app — mount it, add middleware, whatever you need
+// `backend` is what `buildRuntime` returns; `resolveIdentity` turns a bearer token into an Identity.
+const app = createHttpApp({ backend: await getTypeSys(), identityResolver: resolveIdentity }); // Express app — mount it, add middleware, whatever you need
 app.listen(8080);
 ```
+
+Both are required: the server serves any registry and runtime you give it, and
+assumes no identity of its own ([ADR-0050](../adr/0050-the-mcp-server-serves-any-registry.md)).
+`npm run mcp:http` runs the repository's demo, which is exactly this over the
+airforce testbed and its two static demo tokens
+(`packages/demo-web/src/mcp-http.ts`).
 
 ## Authenticate with a real header
 
@@ -42,12 +49,13 @@ import { createHttpApp } from "@typesys/mcp-server";
 import { createOidcIdentityResolver } from "@typesys/auth-oidc";
 
 const app = createHttpApp({
+  backend,
   identityResolver: createOidcIdentityResolver({ issuer: "https://your-idp.example.com", audience: "typesys-mcp" })
 });
 ```
 
-Same drop-in swap `createServer()` already supported (ADR-0018) — the
-HTTP transport doesn't add a second auth mechanism to configure.
+The same resolver `createServer()` takes (ADR-0018) — the HTTP transport
+doesn't add a second auth mechanism to configure.
 
 ## What it is, precisely
 
@@ -56,7 +64,7 @@ HTTP transport doesn't add a second auth mechanism to configure.
 `Server`+transport per request, no session ID, `GET`/`DELETE /mcp`
 rejected with 405 (they only have meaning in the stateful mode this
 deployment doesn't use). Every request shares one underlying
-registry/runtime (built once, lazily, on first request) — so state
+registry/runtime (the `backend` you built, once) — so state
 (the audit log, anything cached) is consistent across requests, only
 the MCP-protocol-level `Server` object is per-request.
 

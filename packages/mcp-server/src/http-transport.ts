@@ -1,14 +1,16 @@
 import express, { type Express, type Request, type Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { AirforceTestbed } from "@typesys/domain-airforce";
+import { requireBackend, requireIdentityResolver, type McpBackend, type McpServerInfo } from "./backend.js";
 import { createServer as createMcpServer } from "./server.js";
-import { resolveDemoIdentity, type IdentityResolver } from "./auth.js";
+import type { IdentityResolver } from "./auth.js";
 
 export interface HttpTransportOptions {
-  /** Shared with the stdio/in-memory paths so every transport enforces identical governance against identical state (see server.ts). Built fresh if omitted. */
-  testbed?: AirforceTestbed;
-  /** Defaults to the demo token map — pass `@typesys/auth-oidc`'s `createOidcIdentityResolver(...)` for real bearer-token verification. */
-  identityResolver?: IdentityResolver;
+  /** What every request is served from — built once by the caller, so every transport and every request enforces identical governance against identical state (see server.ts). */
+  backend: McpBackend;
+  /** The whole of authentication: a bearer token in, an `Identity` out. Required — there is no default (ADR-0050). Pass `@typesys/auth-oidc`'s `createOidcIdentityResolver(...)` for real verification. */
+  identityResolver: IdentityResolver;
+  /** What each per-request server announces in `initialize`. */
+  serverInfo?: McpServerInfo;
 }
 
 function bearerTokenFromHeader(req: Request): string | undefined {
@@ -23,13 +25,12 @@ function jsonRpcError(res: Response, status: number, code: number, message: stri
 }
 
 /**
- * A real HTTP transport for the same MCP server `bin.ts` exposes over
+ * A real HTTP transport for the same MCP server `createServer` builds for
  * stdio — `StreamableHTTPServerTransport` in stateless mode
  * (`sessionIdGenerator: undefined`), matching both the MCP 2026-07-28
  * spec generation and this codebase's own stateless-identity design
  * (ADR-0012): a fresh `Server`+transport pair per HTTP request, all
- * sharing one underlying registry/runtime instance built once at
- * startup (see ADR-0021).
+ * sharing the one backend the caller built (see ADR-0021, ADR-0050).
  *
  * Identity is resolved from a real `Authorization: Bearer <token>`
  * header — the standard place for it over HTTP — rather than the stdio
@@ -39,19 +40,13 @@ function jsonRpcError(res: Response, status: number, code: number, message: stri
  * only know the stdio convention (this repo's own smoke test, an older
  * agent integration) still work unchanged if pointed at this transport.
  */
-export function createHttpApp(opts: HttpTransportOptions = {}): Express {
-  const baseResolver = opts.identityResolver ?? resolveDemoIdentity;
+export function createHttpApp(opts: HttpTransportOptions): Express {
+  // Checked at runtime too: a JavaScript caller can leave either out, and the server never assumes a dataset or an identity.
+  const given = opts as Partial<HttpTransportOptions> | undefined;
+  const backend = requireBackend("createHttpApp", given?.backend);
+  const baseResolver = requireIdentityResolver("createHttpApp", given?.identityResolver);
   const app = express();
   app.use(express.json());
-
-  // Built once, lazily, and shared across every request — never per request,
-  // which would silently discard state (and the audit log) between calls.
-  let testbedPromise: Promise<AirforceTestbed> | undefined;
-  async function getTestbed(): Promise<AirforceTestbed> {
-    if (opts.testbed) return opts.testbed;
-    testbedPromise ??= import("@typesys/domain-airforce").then((m) => m.buildAirforceTestbed());
-    return testbedPromise;
-  }
 
   // Liveness (ADR-0029): the process is up and serving HTTP. Deliberately no
   // dependency checks, so a transient backend blip doesn't trigger a restart
@@ -66,8 +61,7 @@ export function createHttpApp(opts: HttpTransportOptions = {}): Express {
   // load balancer should stop routing here. Unauthenticated and side-effect-free.
   app.get("/readyz", async (_req: Request, res: Response) => {
     try {
-      const testbed = await getTestbed();
-      await testbed.registry.listActions();
+      await backend.registry.listActions();
       res.status(200).json({ status: "ready" });
     } catch (err) {
       res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) });
@@ -82,8 +76,7 @@ export function createHttpApp(opts: HttpTransportOptions = {}): Express {
     const perRequestResolver: IdentityResolver = (inBandToken) => baseResolver(headerToken ?? inBandToken);
 
     try {
-      const testbed = await getTestbed();
-      const { server } = await createMcpServer(testbed, perRequestResolver);
+      const { server } = createMcpServer(backend, perRequestResolver, given?.serverInfo);
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
@@ -113,7 +106,7 @@ export interface RunningHttpServer {
 }
 
 /** Returns the actual bound port (relevant when `port` is 0) and a `close()` for tests/scripts that need to shut the listener down. */
-export function startHttpServer(port: number, opts: HttpTransportOptions = {}): Promise<RunningHttpServer> {
+export function startHttpServer(port: number, opts: HttpTransportOptions): Promise<RunningHttpServer> {
   const app = createHttpApp(opts);
   return new Promise<RunningHttpServer>((resolve) => {
     const server = app.listen(port, () => {

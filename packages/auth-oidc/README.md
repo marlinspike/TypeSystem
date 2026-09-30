@@ -18,11 +18,13 @@ const resolveIdentity = createOidcIdentityResolver({
   audience: "typesys-mcp"
 });
 
-const { server } = await createServer(undefined, resolveIdentity);
+// `backend` is what `buildRuntime` returns: your registry and runtime.
+const { server } = createServer(backend, resolveIdentity);
 ```
 
 Same `IdentityResolver` shape (`(token) => Promise<Identity>`) as the
-demo resolver — nothing else about `mcp-server` changes. Anywhere else
+demo's resolver — nothing else about `mcp-server` changes. It is the only
+thing that decides who is asking: the server assumes no identity of its own. Anywhere else
 in the codebase that threads an `IdentityResolver` as a parameter
 (never mutable module state, see ADR-0018) can take this one instead.
 

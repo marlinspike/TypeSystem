@@ -9,6 +9,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
 import { startHttpServer } from "../packages/mcp-server/src/http-transport.js";
 
 let failures = 0;
@@ -35,15 +36,15 @@ function readJson(result: { contents: ({ text: string } | { blob: string })[] })
 }
 
 async function main(): Promise<void> {
-  const running = await startHttpServer(0);
+  const running = await startHttpServer(0, { backend: await buildAirforceTestbed(), identityResolver: resolveDemoIdentity });
 
   await step("1. Discover an Aircraft (anonymous — no Authorization header)", async () => {
     const client = new Client({ name: "smoke-test-http-client", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://localhost:${running.port}/mcp`)));
     const { resources } = await client.listResources();
     assert(
-      resources.some((r) => r.uri.includes("objects/airforce.Aircraft/AF86-0147")),
-      "Aircraft AF86-0147 is discoverable via resources/list"
+      resources.some((r) => r.uri === "typesys://types/airforce.Aircraft"),
+      "the Aircraft Type is discoverable via resources/list"
     );
     await client.close();
   });

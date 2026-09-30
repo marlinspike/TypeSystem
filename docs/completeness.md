@@ -222,14 +222,20 @@ document that gap rather than close it in this pass.
   registers a real SDK — verified both directions (ADR-0017).
 - MCP server on the real SDK, stateless per-call identity, proving the
   human and AI-agent paths get identical governance. Two real transports:
-  stdio (`bin.ts`) and Streamable HTTP (`bin-http.ts`/`createHttpApp`,
-  ADR-0021), the latter resolving identity from a real `Authorization`
-  header, verified by a real HTTP-client smoke test
-  (`npm run smoke:mcp-http`) alongside the stdio one.
+  stdio (`createServer`) and Streamable HTTP (`createHttpApp`, ADR-0021),
+  the latter resolving identity from a real `Authorization` header,
+  verified by a real HTTP-client smoke test (`npm run smoke:mcp-http`)
+  alongside the stdio one. Both serve any `{ registry, runtime }` with a
+  caller-supplied resolver and name no domain (ADR-0050), proven by
+  `packages/mcp-server/test/generic-backend.test.ts` over a fleet domain
+  built from core alone, plus a guard that fails if the package imports or
+  depends on a domain. Not addressed: a generic command-line server that
+  loads a backend from a module; the demo's entry points are
+  `packages/demo-web/src/mcp-stdio.ts` and `mcp-http.ts`.
 - Real OIDC/JWT identity resolution (`@typesys/auth-oidc`) — signature,
   issuer (RFC 9207), audience, and expiry verified via `jose`, scope
-  claims mapped per RFC 9396, drop-in replacement for `mcp-server`'s
-  demo token map via the same `IdentityResolver` parameter (ADR-0018).
+  claims mapped per RFC 9396, a drop-in for the demo's token map via the
+  same `IdentityResolver` parameter (ADR-0018).
 - A declarative YAML authoring path + `generate-types` codegen +
   `typesys init` scaffolding (`@typesys/cli`) — proven by actually
   compiling generated output with `tsc --strict`.

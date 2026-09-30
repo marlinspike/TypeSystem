@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. *Amended by ADR-0050:* `createServer(backend, resolveIdentity,
+info?)` takes any registry and runtime, and `resources/list` lists Types only.
 
 ## Context
 

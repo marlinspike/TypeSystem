@@ -10,7 +10,7 @@
  */
 import { createClient } from "redis";
 import { InMemoryRateLimiter, type SemanticRuntimeOptions } from "@typesys/core";
-import { buildAirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
 import { startHttpServer } from "@typesys/mcp-server";
 import { RedisCache, RedisRateLimiter } from "@typesys/redis";
 
@@ -36,7 +36,7 @@ const testbed = await buildAirforceTestbed({
   mockRestLatencyMs: env.MOCK_REST_LATENCY_MS ? Number(env.MOCK_REST_LATENCY_MS) : undefined
 });
 // startHttpServer logs its own banner; the parent process only reads the `ready` line.
-const running = await startHttpServer(Number(env.PORT ?? 0), { testbed });
+const running = await startHttpServer(Number(env.PORT ?? 0), { backend: testbed, identityResolver: resolveDemoIdentity });
 console.log(`ready ${running.port}`);
 
 process.on("SIGTERM", () => {

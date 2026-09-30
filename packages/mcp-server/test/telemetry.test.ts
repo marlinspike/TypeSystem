@@ -4,7 +4,7 @@ import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "
 import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { buildAirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
 import type { SemanticRuntimeOptions } from "@typesys/core";
 import { createServer } from "../src/server.js";
 import { buildObjectUri, buildProvenanceUri, buildRelationshipUri, buildTypeUri, telemetryResourceUri } from "../src/resource-uri.js";
@@ -32,7 +32,7 @@ const exported = () =>
   JSON.stringify(exporter.getFinishedSpans().map((s) => ({ name: s.name, attributes: s.attributes, status: s.status, events: s.events.map((e) => ({ name: e.name, attributes: e.attributes })) })));
 
 async function connect(runtimeOptions: SemanticRuntimeOptions) {
-  const bundle = await createServer(await buildAirforceTestbed({ runtimeOptions }));
+  const bundle = createServer(await buildAirforceTestbed({ runtimeOptions }), resolveDemoIdentity);
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), bundle.server.connect(serverTransport)]);

@@ -1,39 +1,41 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { buildAirforceTestbed, type AirforceTestbed } from "@typesys/domain-airforce";
+import { DEFAULT_SERVER_INFO, requireBackend, requireIdentityResolver, type McpBackend, type McpServerInfo } from "./backend.js";
 import { registerResourceHandlers } from "./resources.js";
 import { registerToolHandlers } from "./tools.js";
-import { resolveDemoIdentity, type IdentityResolver } from "./auth.js";
+import type { IdentityResolver } from "./auth.js";
 
-export interface TypeSysMcpServer extends AirforceTestbed {
-  server: Server;
-}
+/** The backend it was given, with the MCP `Server` built over it. */
+export type TypeSysMcpServer<B extends McpBackend = McpBackend> = B & { server: Server };
 
 /**
- * Wires the vertical slice into an MCP server: bootstraps the registry +
- * runtime (core + airforce domain, both adapter styles seeded), then
- * registers the resource and tool handlers against it. The bootstrap is
- * the only place a new domain package would need to be added (see
- * docs/developer-guide/adding-a-domain.md) — resources.ts/tools.ts stay
- * generic over whatever the registry holds.
+ * Wires any registry and runtime into an MCP server: registers the resource
+ * and tool handlers against it. `resources.ts` and `tools.ts` are generic
+ * over whatever the registry holds, so a new domain never touches them
+ * (docs/developer-guide/adding-a-domain.md) — and neither does this (ADR-0050).
  *
- * Accepts an already-built testbed so another process (e.g. the demo web
- * app) can share the exact same registry/runtime/audit-log instance as
- * the MCP server, proving both surfaces enforce identical governance
- * against identical state rather than merely similar-looking code. When
- * omitted, a fresh testbed is built (this is what every existing caller —
- * the CLI entrypoint, the contract test — still does).
+ * `backend` is what `buildRuntime` returns. Build it once per process and
+ * share it, so every server over it enforces the same governance against
+ * the same state (ADR-0021): this function builds nothing and keeps nothing.
  *
- * Accepts an `IdentityResolver`, defaulting to the static demo token map
- * (`resolveDemoIdentity`) — pass `@typesys/auth-oidc`'s
- * `createOidcIdentityResolver(...)` for real OIDC/JWT verification
- * (ADR-0018) without changing anything else about this server.
+ * `resolveIdentity` is the whole of authentication: it turns the token a
+ * call carries into an `Identity`, fresh on every call (ADR-0012). It is
+ * required — there is no default identity — so a server can't start by
+ * accident honouring tokens nobody chose. Pass `@typesys/auth-oidc`'s
+ * `createOidcIdentityResolver(...)` for real OIDC/JWT verification (ADR-0018).
+ *
+ * `info` is what the server announces to clients; it defaults to
+ * `typesys-mcp-server` 0.1.0.
  */
-export async function createServer(testbed?: AirforceTestbed, identityResolver: IdentityResolver = resolveDemoIdentity): Promise<TypeSysMcpServer> {
-  const bundle = testbed ?? (await buildAirforceTestbed());
-  const server = new Server({ name: "typesys-mcp-server", version: "0.1.0" }, { capabilities: { resources: {}, tools: {} } });
+export function createServer<B extends McpBackend>(backend: B, resolveIdentity: IdentityResolver, info: McpServerInfo = {}): TypeSysMcpServer<B> {
+  requireBackend("createServer", backend);
+  requireIdentityResolver("createServer", resolveIdentity);
+  const server = new Server(
+    { name: info.name ?? DEFAULT_SERVER_INFO.name, version: info.version ?? DEFAULT_SERVER_INFO.version },
+    { capabilities: { resources: {}, tools: {} } }
+  );
 
-  registerResourceHandlers(server, bundle.registry, bundle.runtime, identityResolver);
-  registerToolHandlers(server, bundle.registry, bundle.runtime, identityResolver);
+  registerResourceHandlers(server, backend.registry, backend.runtime, resolveIdentity);
+  registerToolHandlers(server, backend.registry, backend.runtime, resolveIdentity);
 
-  return { ...bundle, server };
+  return { ...backend, server };
 }
