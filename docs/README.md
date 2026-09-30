@@ -36,6 +36,7 @@ instead of re-explaining it.
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
 | [`add-a-policy-rule.md`](how-to/add-a-policy-rule.md) | Gate a Type/property/Action by role or attribute. |
 | [`classify-data.md`](how-to/classify-data.md) | Mark a Type, property, or value with a classification and enforce readers' clearances. |
+| [`encrypt-fields.md`](how-to/encrypt-fields.md) | Keep sensitive fields as ciphertext in the store, with equality lookups where you need them. |
 | [`enable-caching.md`](how-to/enable-caching.md) | Stop re-fetching data that doesn't change every request. |
 | [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, how many adapter calls one request can have in flight, and how much one query can ask for. |
 | [`enable-observability.md`](how-to/enable-observability.md) | See real traces/metrics for this runtime in your own OTel backend. |
@@ -108,3 +109,4 @@ other reasonable way.
 | [0030](adr/0030-row-level-authorization.md) | Row-level authorization: policies decide on the object's own stored attributes, per item in `query` (denied rows dropped), with member policies that narrow rather than replace, and a deny-biased enforcement point. |
 | [0031](adr/0031-cedar-policy-engine.md) | A Cedar `PolicyEngine` (`@typesys/policy-cedar`), in-process via WebAssembly: policy names as Cedar actions, the schema as the attribute allow-list, strict validation at load, fail-closed on any error — proven decision-for-decision identical to the ABAC engine on both demo domains. |
 | [0032](adr/0032-data-classification-enforcement.md) | Data classification: `Identity.clearance` must dominate a Type's, a member's, and a value's markings under a pluggable `ClassificationScheme`, enforced beside the policy engine on every read path, derived data inheriting its inputs' markings, fail-closed on anything unrecognized. |
+| [0033](adr/0033-field-level-encryption.md) | Field-level encryption at rest: an `EncryptingAdapter` decorator around any adapter (AES-256-GCM, HMAC blind indexes for equality), a `KeyProvider` seam with a keyring for rotation, and every operation that would need plaintext in the store refused. |

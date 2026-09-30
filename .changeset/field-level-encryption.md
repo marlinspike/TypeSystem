@@ -1,0 +1,5 @@
+---
+"@typesys/encryption": minor
+---
+
+New package: field-level encryption at rest (ADR-0033). `EncryptingAdapter` wraps any `Adapter` so the configured fields of each Type are AES-256-GCM ciphertext in the store (a self-describing `tsenc1` envelope, bound to its Type, field, and key id), while the runtime sees plaintext. A `deterministic` field also stores an HMAC-SHA-256 blind index, so `eq`/`ne`/`in` filters are rewritten to it; range, substring, search, sort, aggregation, and key-based relationships on an encrypted field are refused with `EncryptedFieldError`. Tampered, moved, wrong-key, or legacy-plaintext values fail the read with `DecryptionError`, and a blind index is verified against its decrypted value. Actions must be listed in the config (mapped to the Type their input writes, or `null`); bulk loads use `seal()`. Keys come from a `KeyProvider` (`activeKey` / `keyById` / `allKeys`, with HKDF subkeys per purpose and field); `LocalKeyProvider` holds an in-memory keyring, from code or `TYPESYS_ENCRYPTION_KEYS`, and rotation is adding a key and making it active.

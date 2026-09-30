@@ -1,0 +1,41 @@
+{
+  "name": "@typesys/encryption",
+  "version": "0.1.0",
+  "description": "Field-level encryption at rest for TypeS — an EncryptingAdapter decorator (AES-256-GCM, HMAC blind indexes for equality) around any Adapter, behind a KeyProvider seam.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/encryption"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/encryption#readme",
+  "keywords": [
+    "typesys",
+    "encryption",
+    "field-level-encryption",
+    "aes-gcm",
+    "blind-index"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/adapter-in-memory": "0.1.0",
+    "@typesys/adapter-mock-rest": "0.1.0",
+    "@typesys/adapter-postgres": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/domain-hospital": "0.1.0"
+  }
+}

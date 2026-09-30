@@ -11,6 +11,7 @@
     { "path": "packages/cli" },
     { "path": "packages/auth-oidc" },
     { "path": "packages/redis" },
-    { "path": "packages/policy-cedar" }
+    { "path": "packages/policy-cedar" },
+    { "path": "packages/encryption" }
   ]
 }

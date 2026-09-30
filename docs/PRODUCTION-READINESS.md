@@ -81,6 +81,14 @@ says so.
    management (item 6) is a subset of this, not a substitute: TLS
    termination, database-at-rest encryption, and key management each need
    a real answer.
+   *Partially addressed (2026-09-29, ADR-0033):* field-level encryption at
+   rest — `@typesys/encryption`'s `EncryptingAdapter` keeps configured
+   fields as AES-256-GCM ciphertext in any store, with blind indexes for
+   equality, a `KeyProvider` seam, and keyring rotation, proven by tests
+   that read the store directly and tamper with it. Still open: TLS in
+   transit, a KMS-backed key provider and key management (item 6), a
+   cryptographic review of the construction, and database-level encryption
+   for everything not marked.
 5. **Real load testing.** `npm run benchmark` measures a synthetic
    200-item fleet on one laptop. Nothing says what happens at real
    concurrency, with real adapter latency, with `Cache`/`RateLimiter`
