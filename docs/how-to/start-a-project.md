@@ -77,7 +77,6 @@ fleet-app/
     policy.ts              # step 5: named rules
     identity.ts            # step 6: credential -> Identity
     typesys.ts             # step 7: the bootstrap every consumer imports
-    mcp.ts                 # step 8c: MCP server factory (only if you use MCP)
   apps/                    # step 8: one entry point per consumer
     console.ts
     web.ts
@@ -139,8 +138,8 @@ Once the packages are published, replace either one with
 | `@typesys/core` | Always. |
 | `@typesys/cli` | You author Types in YAML (step 2), or want `typesys validate` in CI. |
 | `@typesys/adapter-in-memory` | Development and tests, or as a starting point for an adapter (step 4). |
-| `@typesys/mcp-server` and `@modelcontextprotocol/sdk@1.30.0` | AI agents over MCP (step 8c). From tarballs, also install `domain-airforce` and `adapter-mock-rest`: `mcp-server` depends on them today. |
-| `express` (or your web framework) | A web app or API (step 8b), or MCP over HTTP (step 8c). |
+| `@typesys/mcp-server` | AI agents over MCP (step 8c). It depends on no domain. |
+| `express` (or your web framework) | A web app or API (step 8b). |
 | `adapter-postgres`, `registry-store-postgres`, `auth-oidc`, `policy-cedar`, `encryption`, `kms-aws`, `redis` | Production (step 9). |
 
 The packages are ES modules. Set `"type": "module"` in `package.json`,
@@ -449,13 +448,20 @@ caller's identity, call the runtime. Pick the ones you're building.
 
 What every consumer gets back:
 
-- **`query` drops rows the caller may not read.** An anonymous caller
-  gets `{"items":[]}`, not an error.
+- **`query` drops rows the caller may not read.** A caller whose rows are
+  merely hidden gets an empty page: an error there would reveal that
+  hidden rows exist ([ADR-0030](../adr/0030-row-level-authorization.md)).
+  A caller who can read none of the Type, whatever the store holds, is
+  refused with `AuthorizationError` instead: their role doesn't qualify,
+  or the Type is classified above their clearance
+  ([ADR-0049](../adr/0049-a-query-the-caller-can-read-none-of-is-refused.md)).
 - **`getObject` throws `AuthorizationError`** when the caller may not read
-  the object.
-- **An id the store doesn't hold resolves to an object with empty
-  `values`**, not an error. `NotFoundError` means an unknown Type,
-  relationship, or Action.
+  the object, and `ObjectNotFoundError` (a `NotFoundError`) for an id the
+  store doesn't hold, but only to a caller the policy allows: a denied
+  caller gets the same `AuthorizationError` either way
+  ([ADR-0048](../adr/0048-a-missing-object-is-not-found.md)). A reference
+  to an object the store no longer holds is left out of a relationship.
+  `NotFoundError` also means an unknown Type, relationship, or Action.
 - **`invokeAction` throws** `AuthorizationError` (policy),
   `InvalidInputError` (input schema), or `PreconditionFailedError` before
   any side effect runs.
@@ -494,8 +500,9 @@ FLEET_TOKEN=dev-dispatcher npx tsx apps/console.ts
   veh-2  FLT-002  depot=south
 ```
 
-Without `FLEET_TOKEN` the same command prints `0 active vehicle(s)
-visible to anonymous`. The query language (filters, `sort`, `select`,
+Without `FLEET_TOKEN` the anonymous identity can read no Vehicle, so the
+query throws `Not authorized: read fleet.Vehicle`; catch `AuthorizationError`
+if your tool should say so nicely. The query language (filters, `sort`, `select`,
 `include`, `search`, `aggregate`) is in
 [ADR-0011](../adr/0011-query-dsl-not-graphql.md) and
 [ADR-0027](../adr/0027-query-dsl-extensions.md).
@@ -537,13 +544,8 @@ app.get("/vehicles", async (req, res) => {
 });
 
 app.get("/vehicles/:id", async (req, res) => {
-  const vehicle = await runtime.getObject("fleet.Vehicle", req.params.id, await identityOf(req));
-  // An id the store doesn't hold resolves to an object with no values, not an error.
-  if (Object.keys(vehicle.values).length === 0) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-  res.json(vehicle);
+  // An id the store doesn't hold throws ObjectNotFoundError, a NotFoundError: the handler below makes it a 404.
+  res.json(await runtime.getObject("fleet.Vehicle", req.params.id, await identityOf(req)));
 });
 
 app.post("/vehicles/:id/retire", async (req, res) => {
@@ -576,9 +578,12 @@ curl -X POST -H "Authorization: Bearer dev-mechanic" localhost:3000/vehicles/veh
 
 | Request | Response |
 |---|---|
+| `GET /vehicles` as `dev-dispatcher` | 200, the vehicles |
+| `GET /vehicles` with no token | 403 `Not authorized: read fleet.Vehicle` |
 | `GET /vehicles/veh-2` as `dev-dispatcher` | 200, the vehicle |
 | `GET /vehicles/veh-2` with no token | 403 `Not authorized: read fleet.Vehicle/veh-2` |
-| `GET /vehicles/nope` as `dev-dispatcher` | 404 |
+| `GET /vehicles/nope` as `dev-dispatcher` | 404 `Not found: fleet.Vehicle/nope` |
+| `GET /vehicles/nope` with no token | 403 `Not authorized: read fleet.Vehicle/nope`, the same as for `veh-2` |
 | `POST /vehicles/veh-2/retire` as `dev-dispatcher` | 403 `Not authorized: invoke fleet.Vehicle/RetireVehicle` |
 | `POST /vehicles/veh-2/retire` as `dev-mechanic` | 200, the retired vehicle |
 | the same again | 409 `Precondition failed … must exist and be active` |
@@ -588,28 +593,10 @@ curl -X POST -H "Authorization: Bearer dev-mechanic" localhost:3000/vehicles/veh
 An MCP server makes your domain available to any MCP client: a desktop
 or IDE assistant, or a hosted agent. Every registered Type becomes a
 resource and every Action a tool, plus generic `query` and `aggregate`
-tools. Build it once from your runtime:
-
-```ts
-// src/mcp.ts
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { registerResourceHandlers, registerToolHandlers } from "@typesys/mcp-server";
-import type { TypeSys } from "./typesys.js";
-import type { ResolveIdentity } from "./identity.js";
-
-// An MCP server over your registry and runtime: every Type becomes a
-// resource, every Action a tool, plus the generic `query` and `aggregate` tools.
-export function createFleetMcpServer({ registry, runtime }: TypeSys, resolveIdentity: ResolveIdentity): Server {
-  const server = new Server({ name: "fleet", version: "0.1.0" }, { capabilities: { resources: {}, tools: {} } });
-  registerResourceHandlers(server, registry, runtime, resolveIdentity);
-  registerToolHandlers(server, registry, runtime, resolveIdentity);
-  return server;
-}
-```
-
-Use the two handler functions rather than `@typesys/mcp-server`'s
-`createServer()` and `createHttpApp()`: those two are still typed to the
-shipped demo domain and build it when you don't pass one.
+tools. `@typesys/mcp-server` serves any registry and runtime, and
+assumes nothing else: you pass your bootstrap's result and your identity
+resolver, and it has no built-in identities
+([ADR-0050](../adr/0050-the-mcp-server-serves-any-registry.md)).
 
 **Local agents (stdio).** The client launches your server as a subprocess
 running as the local user. Over stdio a token travels in-band (`?token=`
@@ -619,14 +606,17 @@ to the operator's own token when a call carries none:
 ```ts
 // apps/mcp-stdio.ts
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createServer } from "@typesys/mcp-server";
 import { getTypeSys } from "../src/typesys.js";
 import { resolveIdentity } from "../src/identity.js";
-import { createFleetMcpServer } from "../src/mcp.js";
 
 // A local agent (a desktop or IDE assistant) launches this as a subprocess.
 // It runs as the local operator, so a call that carries no token falls back
 // to the operator's own token from the environment.
-const server = createFleetMcpServer(await getTypeSys(), (token) => resolveIdentity(token ?? process.env.FLEET_TOKEN));
+const { server } = createServer(await getTypeSys(), (token) => resolveIdentity(token ?? process.env.FLEET_TOKEN), {
+  name: "fleet",
+  version: "0.1.0"
+});
 await server.connect(new StdioServerTransport());
 ```
 
@@ -646,36 +636,22 @@ arguments, and its environment, in a shape like this `.mcp.json`:
 ```
 
 **Remote agents (HTTP).** A hosted agent sends
-`Authorization: Bearer <token>` on every request. The server is
-stateless: a fresh MCP server and transport for each request, over the
-one shared runtime
+`Authorization: Bearer <token>` on every request. `createHttpApp` is the
+server: stateless, a fresh MCP server and transport for each request over
+the one backend you built, with the header winning over any token sent
+in-band, and `/healthz` and `/readyz` included
 ([ADR-0021](../adr/0021-http-transport.md)):
 
 ```ts
 // apps/mcp-http.ts
-import express from "express";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createHttpApp } from "@typesys/mcp-server";
 import { getTypeSys } from "../src/typesys.js";
 import { resolveIdentity } from "../src/identity.js";
-import { createFleetMcpServer } from "../src/mcp.js";
 
-const typesys = await getTypeSys();
-const app = express();
-app.use(express.json());
-
-app.get("/healthz", (_req, res) => {
-  res.json({ status: "ok" });
-});
-
-// Stateless: a fresh server and transport per request, over the one shared runtime.
-// The request's Authorization header wins over any token sent in-band.
-app.post("/mcp", async (req, res) => {
-  const headerToken = req.header("authorization")?.replace(/^Bearer /i, "");
-  const server = createFleetMcpServer(typesys, (inBand) => resolveIdentity(headerToken ?? inBand));
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  res.on("close", () => void Promise.allSettled([transport.close(), server.close()]));
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+const app = createHttpApp({
+  backend: await getTypeSys(),
+  identityResolver: resolveIdentity,
+  serverInfo: { name: "fleet", version: "0.1.0" }
 });
 
 const port = Number(process.env.PORT ?? 3939);
@@ -685,15 +661,14 @@ app.listen(port, () => console.log(`fleet MCP on http://localhost:${port}/mcp`))
 Either way, `tools/list` returns `RetireVehicle`, `query`, and
 `aggregate`. A `RetireVehicle` call as a dispatcher comes back as a tool
 error, `Not authorized: invoke fleet.Vehicle/RetireVehicle`; as a
-mechanic, it retires the vehicle. The exact resource URIs and tool shapes
-an agent uses are in [`for-agents.md`](../for-agents.md). TLS, CORS, and
-an OAuth authorization server belong in a gateway in front of the HTTP
-server; see [`run-mcp-over-http.md`](run-mcp-over-http.md).
-
-Known issue: `resources/list` also lists a sample
-`typesys://objects/airforce.Aircraft/AF86-0147` resource, hardcoded in
-`@typesys/mcp-server`. Reading it from your server fails with
-`Unknown type "airforce.Aircraft"`. It's safe to ignore.
+mechanic, it retires the vehicle. A `query` with no token comes back as
+a tool error too, `Not authorized: read fleet.Vehicle`, rather than an
+empty result that would read as "there are no vehicles". `resources/list`
+lists your Types; an agent finds an object with `query` and reads it by
+URI. The exact resource URIs and tool shapes an agent uses are in
+[`for-agents.md`](../for-agents.md). TLS, CORS, and an OAuth
+authorization server belong in a gateway in front of the HTTP server; see
+[`run-mcp-over-http.md`](run-mcp-over-http.md).
 
 ### 8d. AI workflow in-process
 
