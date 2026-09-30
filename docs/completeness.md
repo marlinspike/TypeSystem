@@ -79,6 +79,20 @@ document that gap rather than close it in this pass.
   files are inspected reference artifacts — correct and runnable, but not built
   or run in CI, and not production-hardened (image scanning, secrets, TLS
   remain `PRODUCTION-READINESS.md` items).
+- Data classification enforcement (ADR-0032): `Identity.clearance` must
+  dominate a Type's `x-provenance.defaultClassification`, a member's
+  `x-provenance.properties[].classification`, and a value's
+  `ProvenanceRef.classification`, under a pluggable `ClassificationScheme`
+  (default `UNCLASSIFIED < CUI < SECRET < TOP_SECRET`, fail-closed on missing
+  or unknown labels). Enforced once, at `SemanticRuntime`, beside the policy
+  engine: classified objects are refused before any adapter call, values
+  redacted with their provenance, computed properties inherit their inputs'
+  markings, probes by filter/sort/search/aggregate refused, Actions on
+  classified Types refused — all audited. The airforce demo's SECRET
+  `deploymentLocation` shows it; `packages/core/test/data-classification.test.ts`
+  proves it with an attack suite. Not addressed: value-level markings inside
+  adapter-side aggregation, per-record object markings, and write
+  (`*`-property) rules — see the ADR.
 - A real, analyzable policy engine (ADR-0031): `@typesys/policy-cedar`'s
   `CedarPolicyEngine` runs the Cedar authorizer in-process as WebAssembly
   behind the unchanged `PolicyEngine` interface. Policies are strictly

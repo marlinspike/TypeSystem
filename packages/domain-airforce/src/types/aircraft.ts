@@ -13,7 +13,8 @@ export const AircraftType: DomainTypeEntry = {
     type: "object",
     properties: {
       tailNumber: { type: "string" },
-      model: { type: "string" }
+      model: { type: "string" },
+      deploymentLocation: { type: "string", description: "Where the aircraft is forward-deployed. Classified SECRET (ADR-0032)." }
     },
     required: ["tailNumber", "model"],
     "x-relationships": {
@@ -50,6 +51,10 @@ export const AircraftType: DomainTypeEntry = {
       propertyPolicies: {
         maintenanceStatus: "airforce.maintainer-only"
       }
+    },
+    // Enforced beside the policy above, never through it: only a subject cleared SECRET reads this field (ADR-0032).
+    "x-provenance": {
+      properties: { deploymentLocation: { classification: "SECRET" } }
     }
   },
   options: {

@@ -90,16 +90,19 @@ plain JSON Schema has no concept of:
 - `x-policy`: `{ objectPolicy?: string, propertyPolicies?: Record<name,
   policyName> }`.
 - `x-provenance`: `{ defaultClassification?: string, properties?:
-  Record<name, {authoritativeSource?: string}> }`.
+  Record<name, {authoritativeSource?: string, classification?: string}> }`.
+  `defaultClassification` marks every object of the Type and
+  `properties[name].classification` one member; the runtime enforces both
+  against `Identity.clearance` (ADR-0032).
 - `x-metadata`: `{ owner?: string, tags?: string[], [key: string]: unknown }`.
 
 These keywords are authoring sugar: the Registry parses them once at
 registration time into first-class records (`RelationshipDefinition[]`,
 `ComputedPropertyDefinition[]`, etc.) that the Runtime consumes directly.
-`x-provenance` and `x-metadata` are declared in the vocabulary and
-compiled without error, but the Runtime does not currently read them back
-out anywhere — they are present as authoring-time annotation space, not
-wired into a behavior in this pass.
+`x-metadata` is declared in the vocabulary and compiled without error, but
+the Runtime does not read it back out anywhere — authoring-time annotation
+space. `x-provenance`'s classification markings are enforced (ADR-0032);
+its `authoritativeSource` is still annotation only.
 
 Enforcement gotcha, and its fix: Ajv's default `strict: true` mode throws
 on unrecognized keywords, so the very first schema compile would fail on
@@ -238,7 +241,9 @@ for when to prefer this over a relationship.
 
 `Identity` (`model/policy.ts`): `subjectId`, `roles: string[]`,
 `attributes: Record<string, unknown>`, `tokenScopes?: string[]` (a seam for
-RFC 9396 rich authorization requests, not enforced in v1).
+RFC 9396 rich authorization requests, not enforced in v1), and
+`clearance?: string` — the highest classification the subject may read,
+checked by the runtime beside (never through) the policy engine (ADR-0032).
 
 `PolicyRequest`: `{subject: Identity, action: "read" | "invoke",
 policyName: string, resource: {typeName, objectId?, propertyPath?,

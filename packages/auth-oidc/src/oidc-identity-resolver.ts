@@ -11,6 +11,12 @@ export interface OidcIdentityResolverConfig {
   /** Dot-separated claim path to read roles from, e.g. "realm_access.roles". Defaults to "roles". */
   rolesClaim?: string;
   /**
+   * Dot-separated claim path to read the subject's classification clearance
+   * from (ADR-0032), e.g. "clearance". Unset — or a claim that isn't a
+   * string — maps no clearance, so the subject reads only unclassified data.
+   */
+  clearanceClaim?: string;
+  /**
    * Override JWKS resolution — the real production default is a remote
    * fetch against the issuer's own JWKS endpoint; tests supply a
    * `createLocalJWKSet`-built one instead, exercising the identical
@@ -66,11 +72,13 @@ export function createOidcIdentityResolver(config: OidcIdentityResolverConfig): 
       });
 
       const scope = payload.scope;
+      const clearance = config.clearanceClaim ? readClaimPath(payload, config.clearanceClaim) : undefined;
       return {
         subjectId: typeof payload.sub === "string" ? payload.sub : "unknown",
         roles: extractRoles(payload, rolesClaim),
         attributes: payload,
-        ...(typeof scope === "string" ? { tokenScopes: scope.split(" ").filter(Boolean) } : {})
+        ...(typeof scope === "string" ? { tokenScopes: scope.split(" ").filter(Boolean) } : {}),
+        ...(typeof clearance === "string" ? { clearance } : {})
       };
     } catch (err) {
       if (!failOpen) throw err;

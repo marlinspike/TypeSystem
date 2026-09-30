@@ -77,9 +77,13 @@ export async function buildAirforceTestbed(
   return { registry, runtime, policyEngine, inMemoryAdapter, mockRestAdapter };
 }
 
-/** Canned demo identities for the vertical slice (see ADR-0009). */
+/**
+ * Canned demo identities for the vertical slice (see ADR-0009). The
+ * maintainer is cleared SECRET and the viewer CUI, so the viewer reads an
+ * Aircraft without its SECRET `deploymentLocation` (ADR-0032).
+ */
 export const demoIdentities: Record<"maintainer" | "viewer" | "anonymous", Identity> = {
-  maintainer: { subjectId: "user-maintainer-1", roles: ["maintainer"], attributes: {} },
-  viewer: { subjectId: "user-viewer-1", roles: ["viewer"], attributes: {} },
+  maintainer: { subjectId: "user-maintainer-1", roles: ["maintainer"], attributes: {}, clearance: "SECRET" },
+  viewer: { subjectId: "user-viewer-1", roles: ["viewer"], attributes: {}, clearance: "CUI" },
   anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
 };

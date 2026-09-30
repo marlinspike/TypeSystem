@@ -154,6 +154,11 @@ function describeType(typeDef: TypeDefinition) {
     computedProperties: typeDef.computedProperties.map((c) => ({ name: c.name, dependsOn: c.dependsOn, resolutionMode: c.resolutionMode })),
     objectPolicy: typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny",
     propertyPolicies: typeDef.schema["x-policy"]?.propertyPolicies ?? {},
+    // Classification markings (ADR-0032): the Type's own, and each member's.
+    classification: typeDef.schema["x-provenance"]?.defaultClassification,
+    propertyClassifications: Object.fromEntries(
+      Object.entries(typeDef.schema["x-provenance"]?.properties ?? {}).flatMap(([name, spec]) => (spec.classification ? [[name, spec.classification]] : []))
+    ),
     schema: typeDef.schema
   };
 }
@@ -199,7 +204,14 @@ async function main(): Promise<void> {
     sendJson(
       res,
       200,
-      Object.entries(IDENTITIES).map(([key, { identity, domain, token }]) => ({ key, domain, token, subjectId: identity.subjectId, roles: identity.roles }))
+      Object.entries(IDENTITIES).map(([key, { identity, domain, token }]) => ({
+        key,
+        domain,
+        token,
+        subjectId: identity.subjectId,
+        roles: identity.roles,
+        clearance: identity.clearance ?? null
+      }))
     );
   });
 

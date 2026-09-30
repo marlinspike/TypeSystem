@@ -159,6 +159,14 @@ directly. For a computed property, `getProvenance` recurses into
 is the in-memory adapter's provenance record for `maintenanceStatus` (see
 `packages/domain-airforce/test/readiness-computed-property.test.ts`).
 
+`classification` is enforced, together with a Type's and a member's
+`x-provenance` markings (ADR-0032): a reader's `clearance` must dominate
+every marking on a value — and on every value a computed property derives
+from — or the value is redacted, with its provenance. An uncleared reader of
+a classified Type is refused before any adapter is called. This check sits
+beside the policy engine in `SemanticRuntime`, not inside it, so it holds
+whichever engine is plugged in.
+
 ## Resolution modes
 
 `Mapping.resolutionMode` and `ComputedPropertyDefinition.resolutionMode` are

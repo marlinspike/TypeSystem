@@ -115,7 +115,9 @@ the defaults below, since a deployment can change them:
   patients), and objects you can't read are silently left out. So a page
   can be shorter than `limit`, or even empty, and still carry a
   `nextCursor` — keep following it. A query is never refused because you
-  can't read its Type; it just returns nothing you can't see.
+  can't read its Type; it just returns nothing you can't see. Properties
+  can also be absent because they are classified above your identity's
+  clearance; filtering or sorting on one is refused with `Not authorized:`.
 - **Unknown fields are rejected**, at the top level and inside filters and
   includes. A typo like `"operater"` fails the call; it isn't silently
   ignored. `authToken` is the one extra field every tool accepts.

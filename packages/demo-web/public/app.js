@@ -24,9 +24,9 @@ const DOMAIN_LABEL = { airforce: "Air Force", hospital: "Hospital", none: "" };
 
 const IDENTITY_HINTS = {
   maintainer:
-    "Acting as <strong>Maintainer</strong> (Air Force): full read access to aircraft, and allowed to invoke <code>CreateMaintenanceWorkOrder</code>. Hospital data is off-limits: each domain's policies are its own.",
+    "Acting as <strong>Maintainer</strong> (Air Force, cleared SECRET): full read access to aircraft, including the SECRET <code>deploymentLocation</code>, and allowed to invoke <code>CreateMaintenanceWorkOrder</code>. Hospital data is off-limits: each domain's policies are its own.",
   viewer:
-    "Acting as <strong>Viewer</strong> (Air Force): can read aircraft, but <code>maintenanceStatus</code> is redacted, filtering on it is refused, and actions are denied.",
+    "Acting as <strong>Viewer</strong> (Air Force, cleared CUI): can read aircraft, but loses <code>maintenanceStatus</code> to a policy and the SECRET <code>deploymentLocation</code> to classification — two independent controls. Filtering on either is refused, and actions are denied.",
   clinician:
     "Acting as <strong>Clinician A</strong> (Hospital, Dr. Priya Nair): reads only the patients assigned to them — decided per record on its <code>assignedClinicianId</code> — including the staff-only <code>medicalRecordNumber</code>. Providers and appointments are role-level. Aircraft are off-limits.",
   otherClinician:
@@ -201,6 +201,7 @@ async function loadTypes() {
               <span class="name">${escapeHtml(t.name.split(".").slice(1).join("."))}</span>
               ${t.computedPropertyNames.length ? '<span class="mini-tag">computed</span>' : ""}
               ${Object.keys(t.propertyPolicies).length ? '<span class="mini-tag lock">🔒</span>' : ""}
+              ${t.classification || Object.keys(t.propertyClassifications).length ? '<span class="mini-tag lock" title="Carries classification markings">▲</span>' : ""}
               <span class="version">v${escapeHtml(t.version)}</span>
             </div>`
           )
@@ -266,9 +267,11 @@ function openTypeModal(name) {
         .join("")
     : '<span class="muted">None.</span>';
   const propertyPolicyChips =
-    Object.entries(t.propertyPolicies)
-      .map(([prop, policy]) => `<span class="chip">🔒 ${escapeHtml(prop)} → ${escapeHtml(policy)}</span>`)
-      .join("") || '<span class="muted">None: only the object-level policy applies.</span>';
+    [
+      ...Object.entries(t.propertyPolicies).map(([prop, policy]) => `<span class="chip">🔒 ${escapeHtml(prop)} → ${escapeHtml(policy)}</span>`),
+      ...(t.classification ? [`<span class="chip">▲ every object → classified ${escapeHtml(t.classification)}</span>`] : []),
+      ...Object.entries(t.propertyClassifications).map(([prop, marking]) => `<span class="chip">▲ ${escapeHtml(prop)} → classified ${escapeHtml(marking)}</span>`)
+    ].join("") || '<span class="muted">None: only the object-level policy applies.</span>';
 
   $("#typeModal").innerHTML = `
     <button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>
@@ -401,15 +404,25 @@ function renderObjectCard(container, typeName, object, typeDef) {
     )
     .join("");
 
-  const restrictedRows = Object.keys(typeDef.propertyPolicies)
-    .filter((k) => !(k in values))
-    .map(
-      (key) =>
-        `<tr class="restricted"><td class="k">🔒 ${escapeHtml(key)}</td><td class="v" colspan="2">redacted: policy <code>${escapeHtml(
-          typeDef.propertyPolicies[key]
-        )}</code> denies ${IDENTITY_LABEL[state.identity]}</td></tr>`
-    )
-    .join("");
+  const clearance = state.identities.find((i) => i.key === state.identity)?.clearance;
+  const restrictedRows = [
+    ...Object.entries(typeDef.propertyClassifications)
+      .filter(([k]) => !(k in values))
+      .map(
+        ([key, marking]) =>
+          `<tr class="restricted"><td class="k">▲ ${escapeHtml(key)}</td><td class="v" colspan="2">redacted: classified <code>${escapeHtml(marking)}</code>, above ${
+            IDENTITY_LABEL[state.identity]
+          }'s clearance (${escapeHtml(clearance ?? "none")})</td></tr>`
+      ),
+    ...Object.keys(typeDef.propertyPolicies)
+      .filter((k) => !(k in values))
+      .map(
+        (key) =>
+          `<tr class="restricted"><td class="k">🔒 ${escapeHtml(key)}</td><td class="v" colspan="2">redacted: policy <code>${escapeHtml(
+            typeDef.propertyPolicies[key]
+          )}</code> denies ${IDENTITY_LABEL[state.identity]}</td></tr>`
+      )
+  ].join("");
 
   const readiness = values.readinessStatus
     ? `<span class="badge ${READINESS_BADGE[values.readinessStatus] || "badge-warn"}">${escapeHtml(values.readinessStatus)}</span>`
@@ -941,6 +954,26 @@ const GUARDS = [
     expect: "200, field absent",
     run: () => request(withIdentity("/api/objects/hospital.Patient/PT-1001", "patient"), undefined, "getObject as patient"),
     pass: (r) => r.status === 200 && !("medicalRecordNumber" in r.body.values)
+  },
+  {
+    title: "A field classified above your clearance",
+    identity: "viewer vs maintainer",
+    why: "deploymentLocation is marked SECRET. Classification is enforced beside the policy engine, not through it: the CUI-cleared Viewer gets the Aircraft without it, the SECRET-cleared Maintainer sees it.",
+    expect: "viewer: absent · maintainer: shown",
+    run: async () => {
+      const read = (who) => request(withIdentity("/api/objects/airforce.Aircraft/AF86-0147", who), undefined, `getObject as ${who}`);
+      const [v, m] = await Promise.all([read("viewer"), read("maintainer")]);
+      return { status: v.status, body: { viewer: "deploymentLocation" in (v.body?.values ?? {}), maintainer: "deploymentLocation" in (m.body?.values ?? {}) } };
+    },
+    pass: (r) => r.body.viewer === false && r.body.maintainer === true
+  },
+  {
+    title: "…and probing it with a filter",
+    identity: "viewer",
+    why: "A filter runs in the adapter on unredacted values, so matching on a field classified above your clearance would reveal it. It's refused, and audited.",
+    expect: "403, audited",
+    run: () => queryAs("viewer", { type: "airforce.Aircraft", filter: { property: "deploymentLocation", operator: "icontains", value: "FOB" } }),
+    pass: (r) => r.status === 403
   },
   {
     title: "Another clinician's patient",
