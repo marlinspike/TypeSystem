@@ -9,9 +9,8 @@ export interface MasterKey {
 /**
  * Where keys come from (ADR-0033). The adapter never sees key
  * configuration, only these three answers. `LocalKeyProvider` holds a
- * keyring in memory; a KMS-backed provider implements the same interface,
- * typically keeping data keys wrapped under a KMS master key and unwrapping
- * each on first use.
+ * keyring in memory; `WrappedKeyProvider` (ADR-0037) holds data keys
+ * wrapped by a KMS key and unwraps them on a lease.
  */
 export interface KeyProvider {
   /** The key new values are encrypted, and their blind indexes computed, under. */
@@ -26,12 +25,40 @@ const KEY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 export const KEY_BYTES = 32;
 
-function masterKey(id: string, material: string | Uint8Array): MasterKey {
+/** A keyring as configured: key id to material (raw, or wrapped), and the active id. */
+export interface Keyring {
+  keys: Record<string, string | Uint8Array>;
+  active: string;
+}
+
+export function checkKeyId(id: string): void {
   if (!KEY_ID.test(id)) throw new EncryptionConfigError(`Key id "${id}" must be 1–64 characters of [A-Za-z0-9_-]`);
+}
+
+/** Base64 or raw bytes, as a Buffer. */
+export function keyBytes(id: string, material: string | Uint8Array): Buffer {
   if (typeof material === "string" && !BASE64.test(material)) throw new EncryptionConfigError(`Key "${id}" is not base64`);
-  const bytes = typeof material === "string" ? Buffer.from(material, "base64") : Buffer.from(material);
+  return typeof material === "string" ? Buffer.from(material, "base64") : Buffer.from(material);
+}
+
+export function masterKey(id: string, material: string | Uint8Array): MasterKey {
+  checkKeyId(id);
+  const bytes = keyBytes(id, material);
   if (bytes.length !== KEY_BYTES) throw new EncryptionConfigError(`Key "${id}" must be ${KEY_BYTES} bytes, got ${bytes.length}`);
   return { id, material: bytes };
+}
+
+/** A keyring from an environment variable of `id:base64` pairs separated by commas, the active key first. */
+export function keyringFromEnv(env: Record<string, string | undefined>, variable: string): Keyring {
+  const spec = env[variable]?.trim();
+  if (!spec) throw new EncryptionConfigError(`${variable} is not set`);
+  const pairs = spec.split(",").map((pair) => {
+    const separator = pair.indexOf(":");
+    if (separator < 1) throw new EncryptionConfigError(`${variable} entries must be id:base64`);
+    return [pair.slice(0, separator).trim(), pair.slice(separator + 1).trim()] as const;
+  });
+  if (new Set(pairs.map(([id]) => id)).size !== pairs.length) throw new EncryptionConfigError(`${variable} names a key id twice`);
+  return { keys: Object.fromEntries(pairs), active: pairs[0]![0] };
 }
 
 /**
@@ -45,7 +72,7 @@ export class LocalKeyProvider implements KeyProvider {
   private readonly keys: Map<string, MasterKey>;
   private readonly active: MasterKey;
 
-  constructor(keyring: { keys: Record<string, string | Uint8Array>; active: string }) {
+  constructor(keyring: Keyring) {
     this.keys = new Map(Object.entries(keyring.keys).map(([id, material]) => [id, masterKey(id, material)]));
     const active = this.keys.get(keyring.active);
     if (!active) throw new EncryptionConfigError(`The active key "${keyring.active}" is not in the keyring`);
@@ -58,15 +85,7 @@ export class LocalKeyProvider implements KeyProvider {
    * `2026-09:…,2026-06:…` while the June key is being retired.
    */
   static fromEnv(env: Record<string, string | undefined> = process.env, variable = "TYPESYS_ENCRYPTION_KEYS"): LocalKeyProvider {
-    const spec = env[variable]?.trim();
-    if (!spec) throw new EncryptionConfigError(`${variable} is not set`);
-    const pairs = spec.split(",").map((pair) => {
-      const separator = pair.indexOf(":");
-      if (separator < 1) throw new EncryptionConfigError(`${variable} entries must be id:base64`);
-      return [pair.slice(0, separator).trim(), pair.slice(separator + 1).trim()] as const;
-    });
-    if (new Set(pairs.map(([id]) => id)).size !== pairs.length) throw new EncryptionConfigError(`${variable} names a key id twice`);
-    return new LocalKeyProvider({ keys: Object.fromEntries(pairs), active: pairs[0]![0] });
+    return new LocalKeyProvider(keyringFromEnv(env, variable));
   }
 
   async activeKey(): Promise<MasterKey> {

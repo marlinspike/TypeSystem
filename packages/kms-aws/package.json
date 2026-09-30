@@ -1,0 +1,37 @@
+{
+  "name": "@typesys/kms-aws",
+  "version": "0.1.0",
+  "description": "An AWS KMS KeyEncryptionKey for @typesys/encryption's WrappedKeyProvider: data keys wrapped by a KMS key, unwrapped on a lease.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/kms-aws"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/kms-aws#readme",
+  "keywords": [
+    "typesys",
+    "encryption",
+    "kms",
+    "aws-kms",
+    "envelope-encryption"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/encryption": "0.1.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-kms": "3.1143.0"
+  }
+}

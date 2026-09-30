@@ -71,12 +71,17 @@ property, so on a Type with an encrypted field, name `search.properties`.
 
 A `KeyProvider` answers three questions — the active key, a key by id, and
 every key — and the adapter derives separate HKDF subkeys for encryption and
-for each field's blind index. `LocalKeyProvider` holds a keyring in memory
-(for development and tests; production wants a KMS-backed provider behind
-the same interface). To rotate, add a new key and make it active: old values
-name their key and keep decrypting, equality lookups match indexes written
-under any key in the ring, and new writes use the new key. Removing a key
-makes whatever is still under it unreadable.
+for each field's blind index. `LocalKeyProvider` holds a raw keyring in
+memory, for development and tests. `WrappedKeyProvider` (ADR-0037) holds
+data keys wrapped by a KMS key — a `KeyEncryptionKey`, `AwsKmsKey` from
+`@typesys/kms-aws` for AWS — unwraps them all at startup or rejects, and
+leases them: refreshed in the background, kept through a failed refresh,
+refused with `KeyUnavailableError` once `maxKeyAgeMs` passes without a
+successful one. To rotate, add a new key behind the active one on every
+instance, then make it active: old values name their key and keep
+decrypting, equality lookups match indexes written under any key in the
+ring, and new writes use the new key. Removing a key makes whatever is still
+under it unreadable.
 
 ## A shared cache
 

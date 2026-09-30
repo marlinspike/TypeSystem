@@ -43,7 +43,8 @@ jobs:
   # A second job, with real Postgres and Redis service containers: proves the same
   # suite passes against @typesys/registry-store-postgres, @typesys/adapter-postgres,
   # and @typesys/redis instead of skipping those tests, including the multi-instance
-  # tests (docs/how-to/use-postgres.md, docs/how-to/run-multiple-instances.md).
+  # tests (docs/how-to/use-postgres.md, docs/how-to/run-multiple-instances.md). A
+  # local-kms emulator runs @typesys/kms-aws against the real AWS SDK (ADR-0037).
   test-with-postgres-and-redis:
     runs-on: ubuntu-latest
     services:
@@ -69,9 +70,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      kms:
+        image: nsmithuk/local-kms:3.11.7
+        ports:
+          - 8080:8080
     env:
       DATABASE_URL: postgresql://typesys:typesys@localhost:5432/typesys_ci
       REDIS_URL: redis://localhost:6379
+      KMS_ENDPOINT: http://localhost:8080
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
