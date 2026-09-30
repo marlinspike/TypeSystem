@@ -5,7 +5,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerResourceHandlers, registerToolHandlers, type IdentityResolver } from "@typesys/mcp-server";
 import { buildHospitalTestbed, hospitalDemoIdentities } from "../src/setup.js";
 
-// mcp-server's own `resolveDemoIdentity` maps tokens onto *airforce's* demo
+// The airforce demo's `resolveDemoIdentity` maps tokens onto *airforce's* demo
 // identities (maintainer/viewer) — not usable here, since this domain's
 // policy rules require a "clinician"/"patient"/"admin" role instead. Supplying
 // a domain-appropriate `IdentityResolver` is exactly what a real deployment

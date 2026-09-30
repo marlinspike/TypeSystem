@@ -8,7 +8,7 @@ run — they are **not** a production-blessed deployment (see
 [`PRODUCTION-READINESS.md`](../PRODUCTION-READINESS.md) for what still stands
 between this and real traffic: image scanning, secrets management, TLS, and more).
 
-> **Honest scope note.** The shipped server (`bin-http.js`) uses the in-memory
+> **Honest scope note.** The shipped server (`packages/demo-web/dist/mcp-http.js`) uses the in-memory
 > airforce testbed, so it does not itself read Postgres or Redis. The Postgres
 > and Redis services below, and the migration step, are the infrastructure a
 > *real* domain build wires in (a Postgres `RegistryStore`/adapter and the
@@ -56,7 +56,7 @@ docker build -t typesys-mcp-server:latest .
 
 Multi-stage (`Dockerfile`): a build stage compiles every workspace (`npm ci &&
 npm run build`), and a slim non-root runtime stage runs
-`packages/mcp-server/dist/bin-http.js` with a `HEALTHCHECK` against `/healthz`.
+`packages/demo-web/dist/mcp-http.js` (the demo's HTTP entry point, ADR-0050) with a `HEALTHCHECK` against `/healthz`.
 
 ## Run locally with Docker Compose
 
@@ -95,7 +95,7 @@ Only what the code actually reads:
 
 | Variable | Read by | Default | Notes |
 |---|---|---|---|
-| `PORT` | `@typesys/mcp-server` (`bin-http`) | `3939` | The HTTP port — the only variable the shipped demo server reads. |
+| `PORT` | `packages/demo-web/src/mcp-http.ts` | `3939` | The HTTP port — the only variable the shipped demo server reads. |
 | `DATABASE_URL` | `@typesys/adapter-postgres` and `@typesys/registry-store-postgres` connection pools; the `migrate` step | — | Used by a Postgres-backed build and by migrations; the in-memory demo server ignores it. |
 | `PG_STATEMENT_TIMEOUT_MS` | `@typesys/adapter-postgres` pool ([ADR-0026](../adr/0026-adapter-call-resilience.md)) | unset (no DB-side limit) | Optional native query deadline. |
 | `REDIS_URL` | The multi-instance tests and `npm run load-test`; a real build passes it to `RedisCache`/`RedisRateLimiter` | — | Not read by library code directly — it's the conventional place to put the Redis URL. |

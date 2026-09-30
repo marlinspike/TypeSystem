@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildAirforceTestbed, resolveDemoIdentity, type AirforceTestbed } from "@typesys/domain-airforce";
 import { createServer, type TypeSysMcpServer } from "../src/server.js";
 import { buildTypeUri, buildObjectUri, buildRelationshipUri, buildProvenanceUri } from "../src/resource-uri.js";
 
@@ -12,11 +13,11 @@ function jsonOf(result: { contents: ({ text: string } | { blob: string })[] }): 
 }
 
 describe("MCP contract — the vertical slice's discover -> inspect -> retrieve -> navigate -> provenance -> act script", () => {
-  let bundle: TypeSysMcpServer;
+  let bundle: TypeSysMcpServer<AirforceTestbed>;
   let client: Client;
 
   beforeEach(async () => {
-    bundle = await createServer();
+    bundle = createServer(await buildAirforceTestbed(), resolveDemoIdentity);
     client = new Client({ name: "test-client", version: "0.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), bundle.server.connect(serverTransport)]);
@@ -26,9 +27,18 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
     await client.close();
   });
 
-  it("1. discovers an Aircraft via resources/list", async () => {
+  it("1. discovers the Aircraft Type via resources/list, and an Aircraft with the query tool", async () => {
     const { resources } = await client.listResources();
-    expect(resources.some((r) => r.uri === buildObjectUri("airforce.Aircraft", "AF86-0147"))).toBe(true);
+    expect(resources.some((r) => r.uri === buildTypeUri("airforce.Aircraft"))).toBe(true);
+    // Only Types are listed: which objects exist is for `query` to say, and no registry is handed a sample (ADR-0050).
+    expect(resources.filter((r) => r.uri.startsWith("typesys://objects/"))).toEqual([]);
+
+    const found = await client.callTool({
+      name: "query",
+      arguments: { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "eq", value: "AF86-0147" }, authToken: "demo-viewer-token" }
+    });
+    expect(found.isError).not.toBe(true);
+    expect(JSON.stringify(found.content)).toContain("AF86-0147");
   });
 
   it("2. inspects the Aircraft's semantic definition (relationships, computed properties)", async () => {

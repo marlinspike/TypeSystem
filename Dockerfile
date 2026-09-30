@@ -31,4 +31,4 @@ EXPOSE 3939
 # Liveness against /healthz (ADR-0029), using Node 22's global fetch — no extra tools in the image.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3939)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "packages/mcp-server/dist/bin-http.js"]
+CMD ["node", "packages/demo-web/dist/mcp-http.js"]

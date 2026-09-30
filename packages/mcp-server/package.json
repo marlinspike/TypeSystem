@@ -8,10 +8,6 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "bin": {
-    "typesys-mcp-server": "./dist/bin.js",
-    "typesys-mcp-server-http": "./dist/bin-http.js"
-  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -34,12 +30,12 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "@typesys/core": "0.1.0",
-    "@typesys/domain-airforce": "0.1.0",
     "express": "5.2.1"
   },
   "devDependencies": {
     "@opentelemetry/context-async-hooks": "2.11.0",
     "@opentelemetry/sdk-trace-base": "2.11.0",
-    "@types/express": "5.0.6"
+    "@types/express": "5.0.6",
+    "@typesys/domain-airforce": "0.1.0"
   }
 }

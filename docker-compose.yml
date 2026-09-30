@@ -6,7 +6,7 @@
 # balancer in front of them (reach the server at http://localhost:8080/mcp, health at
 # /healthz and /readyz).
 #
-# HONEST NOTE: the shipped demo server (bin-http.js) uses the in-memory airforce testbed,
+# HONEST NOTE: the shipped demo server (packages/demo-web/dist/mcp-http.js) uses the in-memory airforce testbed,
 # so it does not itself read Postgres or Redis. Those services, and the `migrate` step,
 # are the infrastructure a REAL domain build wires in (a Postgres RegistryStore/adapter and
 # the shared RedisCache/RedisRateLimiter — ADR-0025); `npm run load-test` is what actually

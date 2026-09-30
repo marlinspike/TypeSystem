@@ -48,9 +48,11 @@ treated as an anonymous identity with no roles — most reads and every
 write will be denied, not erroed. A denial is expected, normal behavior
 for the wrong identity, not a sign anything is broken.
 
-This demo server accepts two static demo tokens
-(`demo-maintainer-token`, `demo-viewer-token`) — see
-`packages/mcp-server/src/auth.ts`. A production deployment replaces only
+The demo server in this repository accepts two static demo tokens
+(`demo-maintainer-token`, `demo-viewer-token`) — see `resolveDemoIdentity`
+in `packages/domain-airforce/src/setup.ts`. A server built on
+`@typesys/mcp-server` always gets its resolver from whoever builds it
+(ADR-0050). A production deployment replaces only
 the token-verification step — `@typesys/auth-oidc`'s real OIDC/JWKS
 verification (ADR-0018) drops in behind the exact same `IdentityResolver`
 parameter — nothing about how you call the server changes.
@@ -231,10 +233,13 @@ Stdio (a locally-spawned agent process):
 
 ```bash
 npm install && npm run build   # from the repo root
-node packages/mcp-server/dist/bin.js   # stdio MCP server
+node packages/demo-web/dist/mcp-stdio.js   # stdio MCP server
 ```
 
-or, without a build step, `npx tsx packages/mcp-server/src/bin.ts`.
+or, without a build step, `npx tsx packages/demo-web/src/mcp-stdio.ts`. These
+are the demo's entry points (the airforce domain and its demo tokens); your
+own project builds its server with `createServer(backend, resolveIdentity)`,
+as [`start-a-project.md`](how-to/start-a-project.md) shows.
 
 Streamable HTTP (a network client — a hosted agent, a browser tool, a
 teammate's machine):
@@ -253,7 +258,8 @@ runs the same discover -> act script above end-to-end against a real
 ## If you are building a *new* domain for agents to use
 
 The MCP layer (`packages/mcp-server`) is entirely generic over whatever
-the registry holds — adding a domain never touches it. Point it at your
-own registry and it already speaks this same protocol correctly. Start at
+the registry holds — adding a domain never touches it. Give
+`createServer(backend, resolveIdentity)` your own registry and runtime and
+it speaks this same protocol correctly (ADR-0050). Start at
 [`docs/quickstart.md`](quickstart.md) or
 [`docs/how-to/add-a-type.md`](how-to/add-a-type.md).

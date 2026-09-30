@@ -22,7 +22,7 @@
     "typecheck": "node tools/eslint/node_modules/typescript/bin/tsc -p tools/eslint/tsconfig.lint.json",
     "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",
     "smoke:mcp-http": "tsx scripts/smoke-test-mcp-http.ts",
-    "mcp:http": "tsx packages/mcp-server/src/bin-http.ts",
+    "mcp:http": "tsx packages/demo-web/src/mcp-http.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "load-test": "tsx scripts/load-test.ts",
     "demo": "tsx packages/demo-web/src/server.ts",

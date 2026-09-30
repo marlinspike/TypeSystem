@@ -234,16 +234,17 @@ domain, both adapter styles seeded with sample data) and exposes it two ways:
 Both handlers resolve an `Identity` fresh from a bearer token on every
 call, via an `IdentityResolver` function threaded in as a parameter
 (never mutable module state) — MCP is stateless as of the 2026-07-28 spec
-revision, so identity is never cached on a connection. Defaults to a
-static demo token map (`resolveDemoIdentity` in `src/auth.ts`); pass
-`@typesys/auth-oidc`'s `createOidcIdentityResolver(...)` instead for real
-JWT/JWKS verification (ADR-0018), with no other code changing. See
-ADR-0012.
+revision, so identity is never cached on a connection. The resolver is
+always supplied by the caller — there is no default (ADR-0050); the demo
+passes its static token map (`resolveDemoIdentity` in
+`@typesys/domain-airforce`), a deployment
+`@typesys/auth-oidc`'s `createOidcIdentityResolver(...)` for real JWT/JWKS
+verification (ADR-0018), with no other code changing. See ADR-0012.
 
-Two real transports expose the identical resource/tool handlers: stdio
-(`bin.ts`, a locally-spawned agent process) and a stateless Streamable
-HTTP transport (`bin-http.ts`/`createHttpApp`, ADR-0021) for a real
-network client — the HTTP transport resolves identity from a real
+Two real transports expose the identical resource/tool handlers over any
+registry and runtime (ADR-0050): stdio (`createServer`, for a locally-spawned
+agent process) and a stateless Streamable HTTP transport (`createHttpApp`,
+ADR-0021) for a real network client — the HTTP transport resolves identity from a real
 `Authorization: Bearer` header, falling back to the stdio convention (a
 token embedded in a resource URI's query string or a tool call's
 argument) only when no header is present.

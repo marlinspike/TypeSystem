@@ -2,7 +2,7 @@ import { ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcon
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { withSpan, type SemanticRegistry, type SemanticRuntime, type TypeDefinition } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
-import { buildObjectUri, buildTypeListUri, buildTypeUri, parseResourceUri, telemetryResourceUri } from "./resource-uri.js";
+import { buildTypeListUri, buildTypeUri, parseResourceUri, telemetryResourceUri } from "./resource-uri.js";
 
 function describeType(typeDef: TypeDefinition) {
   return {
@@ -50,12 +50,9 @@ export function registerResourceHandlers(
           uri: buildTypeUri(t.name),
           name: t.name,
           description: t.description ?? `Semantic definition for ${t.name}`
-        })),
-        {
-          uri: buildObjectUri("airforce.Aircraft", "AF86-0147"),
-          name: "Aircraft AF86-0147",
-          description: "A sample Aircraft object (pass ?token=demo-maintainer-token or demo-viewer-token)."
-        }
+        }))
+        // No object is listed: the registry says what Types exist, not which objects do. An object is found
+        // with the `query` tool and read by URI (ADR-0050).
       ]
     };
   });

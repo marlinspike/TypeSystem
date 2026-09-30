@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
 import { createServer } from "../src/server.js";
 import { buildObjectUri, buildProvenanceUri } from "../src/resource-uri.js";
 
@@ -10,7 +11,7 @@ import { buildObjectUri, buildProvenanceUri } from "../src/resource-uri.js";
  */
 describe("MCP: classified values over the agent path (ADR-0032)", () => {
   it("the viewer's token never yields the SECRET deploymentLocation — by resource, provenance, or the query tool", async () => {
-    const { server } = await createServer();
+    const { server } = createServer(await buildAirforceTestbed(), resolveDemoIdentity);
     const client = new Client({ name: "classification-test", version: "0.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);

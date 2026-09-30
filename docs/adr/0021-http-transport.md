@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted. *Amended by ADR-0050:* `createHttpApp` and `startHttpServer` take
+the `backend` they serve and the `identityResolver` that authenticates it,
+both required, instead of building the airforce testbed; the demo's HTTP entry
+point moved to `@typesys/demo-web`.
 
 ## Context
 

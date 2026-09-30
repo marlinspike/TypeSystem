@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted. *Amended by ADR-0050:* `createServer` no longer has a default
+identity resolver; the demo's static token map moved to
+`@typesys/domain-airforce` (`resolveDemoIdentity`), and a server is always
+given its resolver.
 
 ## Context
 
