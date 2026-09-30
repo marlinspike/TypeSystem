@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { trace, metrics, context } from "@opentelemetry/api";
+import { trace, metrics, context, SpanStatusCode } from "@opentelemetry/api";
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { MeterProvider, InMemoryMetricExporter, PeriodicExportingMetricReader, AggregationTemporality } from "@opentelemetry/sdk-metrics";
 import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
@@ -8,6 +8,7 @@ import { SemanticRegistry } from "../src/registry/registry.js";
 import { InMemoryRegistryStore } from "../src/registry/in-memory-registry-store.js";
 import { SemanticRuntime, type SemanticRuntimeOptions } from "../src/runtime/runtime.js";
 import { InMemoryCache } from "../src/runtime/cache.js";
+import { HIGH_ASSURANCE_V1 } from "../src/runtime/security-profile.js";
 import { AbacPolicyEngine, allowAllRule, anyOf, requireAttributeMatch, requireRole } from "../src/policy/abac-policy-engine.js";
 import type { Adapter, ResolvedProperties, RelatedRef, AdapterQueryResult } from "../src/runtime/adapter.js";
 import type { ActionDefinition } from "../src/model/action.js";
@@ -317,6 +318,139 @@ describe("OpenTelemetry instrumentation (ADR-0017) — with a real SDK registere
       for (const policy of ["hashed", "CLEAR", { mode: "pseudonymous" }, { mode: "pseudonymous", key: new Uint8Array(31) }, { mode: "pseudonymous", key: "k".repeat(64) }, { mode: "hash", key: new Uint8Array(32) }, null]) {
         await expect(withPolicy(policy as never)).rejects.toThrow(/telemetryIdentity/);
       }
+    });
+  });
+
+  describe("no raw identifiers in telemetry (ADR-0047)", () => {
+    // Every identifier this world can put anywhere: the caller, each object, a field value, and the ids inside error messages.
+    const SECRETS = /PT-SUBJ-9|PT-1001|PT-1002|PT-4040|Jordan Lee|PT-OWNER/;
+    const RECORDS: Record<string, Record<string, unknown>> = {
+      "PT-1001": { id: "PT-1001", name: "Jordan Lee", ownerId: "PT-OWNER" },
+      "PT-1002": { id: "PT-1002", name: "Someone Else", ownerId: "other" }
+    };
+    class RecordStore implements Adapter {
+      readonly dataSourceId = "obs-ds";
+      async resolveProperties(_t: string, id: string): Promise<ResolvedProperties> {
+        const values = RECORDS[id];
+        // An adapter's own error, naming the id it couldn't find — as real stores' errors do.
+        if (!values) throw new Error(`record ${id} not found`);
+        return { values: { ...values }, provenance: [] };
+      }
+      async queryByType(): Promise<AdapterQueryResult> {
+        return { items: Object.entries(RECORDS).map(([objectId, v]) => ({ objectId, values: { ...v }, provenance: [] })) };
+      }
+      async resolveRelationship(): Promise<RelatedRef[]> {
+        return [{ objectId: "PT-1002" }];
+      }
+      async executeAction(_action: ActionDefinition, input: unknown): Promise<unknown> {
+        return input;
+      }
+    }
+    const caller: Identity = { subjectId: "PT-SUBJ-9", roles: [], attributes: { userId: "PT-OWNER" } };
+
+    async function recordWorld(options: SemanticRuntimeOptions) {
+      const registry = new SemanticRegistry(new InMemoryRegistryStore());
+      await registry.registerType(
+        {
+          $id: "https://typesys.dev/types/test/Record/1.0.0",
+          title: "Record",
+          type: "object",
+          properties: { id: { type: "string" }, name: { type: "string" }, ownerId: { type: "string" } },
+          "x-relationships": { related: { target: "test.Record", cardinality: "one-to-many", resolution: { dataSourceId: "obs-ds", operation: "byForeignKey:ownerId" } } },
+          "x-policy": { objectPolicy: "own" }
+        },
+        { name: "test.Record", version: "1.0.0" }
+      );
+      await registry.registerMapping({ id: "map-rec", typeName: "test.Record", target: "property", targetName: "*", dataSourceId: "obs-ds", operation: "get", resolutionMode: "live" });
+      await registry.registerAction({
+        id: "action-note", name: "AddNote", description: "test", applicableTypes: ["test.Record"],
+        inputSchema: { type: "object" }, outputSchema: { type: "object" }, authorizationPolicy: "own-action",
+        implementation: { dataSourceId: "obs-ds", operation: "noop" }, sideEffects: "none", idempotency: "none", auditRequired: false, version: "1.0.0"
+      });
+      const policyEngine = new AbacPolicyEngine();
+      policyEngine.registerRule("own", requireAttributeMatch("ownerId", "userId"));
+      policyEngine.registerRule("own-action", allowAllRule);
+      let calls = 0;
+      const runtime = new SemanticRuntime(registry, [new RecordStore()], policyEngine, {
+        ...options,
+        rateLimiter: { tryAcquire: () => ++calls <= 9 } // the tenth call is refused, naming the subject
+      });
+      return runtime;
+    }
+
+    /** Every operation, the successes and the failures, whose errors name objects and the subject. */
+    async function everything(runtime: SemanticRuntime) {
+      const settle = (p: Promise<unknown>) => p.then(() => "ok", (e: unknown) => (e as Error).name);
+      return [
+        await settle(runtime.getObject("test.Record", "PT-1001", caller)),
+        await settle(runtime.getObject("test.Record", "PT-1002", caller)), // denied: "Not authorized: read test.Record/PT-1002"
+        await settle(runtime.getObject("test.Record", "PT-4040", caller)), // the adapter's error names the id
+        await settle(runtime.getRelationship("test.Record", "PT-1001", "related", caller)),
+        await settle(runtime.getProvenance("test.Record", "PT-1001", "name", caller)),
+        await settle(runtime.query({ type: "test.Record" }, caller)),
+        await settle(runtime.explainQuery({ type: "test.Record" }, caller)),
+        await settle(runtime.listActions("test.Record", caller)),
+        await settle(runtime.invokeAction("AddNote", { note: "for PT-1001" }, caller)),
+        await settle(runtime.getObject("test.Record", "PT-1001", caller)) // rate-limited: names the subject
+      ];
+    }
+    /** Everything a span exports that could carry text: attributes, status, events and their attributes. */
+    const exported = () =>
+      JSON.stringify(spanExporter.getFinishedSpans().map((s) => ({ name: s.name, attributes: s.attributes, status: s.status, events: s.events.map((e) => ({ name: e.name, attributes: e.attributes })) })));
+
+    it("the world leaks everything in the clear — so the attack below is testing something", async () => {
+      const outcomes = await everything(await recordWorld({}));
+      expect(outcomes).toContain("AuthorizationError");
+      expect(outcomes).toContain("RateLimitExceededError");
+      const text = exported();
+      for (const id of ["PT-SUBJ-9", "PT-1001", "PT-1002", "PT-4040"]) expect(text).toContain(id);
+    });
+
+    for (const [label, options] of [
+      ['"none"', { telemetryIdentity: "none" }],
+      ["pseudonymous", { telemetryIdentity: { mode: "pseudonymous", key: new Uint8Array(32).fill(3) } }],
+      ["HIGH_ASSURANCE_V1", { securityProfile: HIGH_ASSURANCE_V1 }]
+    ] as [string, SemanticRuntimeOptions][]) {
+      it(`attack: under ${label}, no subject id, object id, or value reaches any span — not even inside an error`, async () => {
+        const outcomes = await everything(await recordWorld(options));
+        expect(outcomes.filter((o) => o !== "ok")).toEqual(expect.arrayContaining(["AuthorizationError", "Error", "RateLimitExceededError"]));
+        const spans = spanExporter.getFinishedSpans();
+        expect(spans.length).toBeGreaterThanOrEqual(10);
+        expect(exported()).not.toMatch(SECRETS);
+        // Failures are still visible, by class.
+        const denied = spans.filter((s) => s.status.code === SpanStatusCode.ERROR).map((s) => s.status.message);
+        expect(denied).toEqual(expect.arrayContaining(["AuthorizationError", "Error", "RateLimitExceededError"]));
+        expect(spans.every((s) => !("typesys.object_id" in s.attributes) && !("typesys.identity.subject_id" in s.attributes))).toBe(true);
+      });
+    }
+
+    it("pseudonymous: object pseudonyms are stable, differ by Type and object, and never equal a subject's", async () => {
+      const key = new Uint8Array(32).fill(3);
+      const runtime = await recordWorld({ telemetryIdentity: { mode: "pseudonymous", key } });
+      await runtime.getObject("test.Record", "PT-1001", caller);
+      await runtime.getObject("test.Record", "PT-1001", caller);
+      await runtime.getObject("test.Record", "PT-1002", caller).catch(() => undefined);
+      const [a, b, c] = spanExporter.getFinishedSpans().filter((s) => s.name === "SemanticRuntime.getObject").map((s) => s.attributes);
+      expect(a!["typesys.object_pseudonym"]).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      expect(b!["typesys.object_pseudonym"]).toBe(a!["typesys.object_pseudonym"]);
+      expect(c!["typesys.object_pseudonym"]).not.toBe(a!["typesys.object_pseudonym"]);
+      // The same id as a subject, or in another Type, is a different input: tagged, so it can't collide.
+      const hmac = (parts: string[]) => createHmac("sha256", key).update(JSON.stringify(parts), "utf8").digest().subarray(0, 16).toString("base64url");
+      expect(a!["typesys.object_pseudonym"]).toBe(hmac(["object", "test.Record", "PT-1001"]));
+      expect(hmac(["object", "test.Other", "PT-1001"])).not.toBe(a!["typesys.object_pseudonym"]);
+      expect(a!["typesys.identity.pseudonym"]).toBe(hmac(["subject", "PT-SUBJ-9"]));
+      expect(hmac(["subject", "PT-1001"])).not.toBe(a!["typesys.object_pseudonym"]);
+    });
+
+    it("attack: an error whose name is set to carry an identifier is recorded as plain Error", async () => {
+      const runtime = await recordWorld({ telemetryIdentity: "none" });
+      const sneaky = Object.assign(new Error("x"), { name: "Missing PT-1001" });
+      const store = (runtime as unknown as { adapters: Map<string, Adapter> }).adapters;
+      expect(store).toBeInstanceOf(Map);
+      store.get("obs-ds")!.resolveProperties = () => Promise.reject(sneaky);
+      await expect(runtime.getObject("test.Record", "PT-1001", caller)).rejects.toBe(sneaky);
+      expect(exported()).not.toMatch(SECRETS);
+      expect(spanExporter.getFinishedSpans()[0]!.status.message).toBe("Error");
     });
   });
 

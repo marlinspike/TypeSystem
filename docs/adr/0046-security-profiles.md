@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted — implemented in `@typesys/core` (`runtime/security-profile.ts`:
+Accepted. *Amended by ADR-0047 before any release:* guarantee 3 covers
+every subject, resource, and object identifier, including inside error
+messages. A seventh guarantee enumerates engine faults in the audit log,
+and the extension trust boundary is stated.
+
+Implemented in `@typesys/core` (`runtime/security-profile.ts`:
 `HIGH_ASSURANCE_V1`, `SecurityProfileError`, `KeyManagement`,
 `PlanAssurance`; the construction-time check and the aggregation assurance in
 `runtime/runtime.ts`; `planAssurance` in the ABAC engine; `demonstration` on
@@ -80,8 +85,10 @@ it can only be checked per request:
    such backstop, so a plan from Cedar's experimental partial evaluation
    (ADR-0039), or from a hand-written `plan`, is refused for aggregation,
    and used only for reads.
-3. **Telemetry doesn't carry identity in the clear.** `telemetryIdentity`
-   is `"none"` or pseudonymous (ADR-0045).
+3. **Telemetry carries no raw identifiers.** `telemetryIdentity` is
+   `"none"` or pseudonymous (ADR-0045). Under either, no subject, resource,
+   or object id reaches a span, and span errors carry only their class name
+   (ADR-0047).
 4. **Keys are managed.** No adapter or cache the runtime is given may report
    local or unknown key management: `LocalKeyProvider` is refused, and a
    `WrappedKeyProvider` over a KMS is required for encryption (ADR-0037).
@@ -92,6 +99,9 @@ it can only be checked per request:
 6. **Security configuration is well-formed.** Unknown option names are
    refused; the policy engine, the classification scheme, and the cache
    must have the shape their interfaces require.
+7. **Engine faults are enumerated.** In the audit log, any fault an engine
+   returns other than the combinators' fixed form is recorded as
+   `external-policy-fault` (ADR-0047).
 
 **3. Downgrades are refused, not overridden.** Where a guarantee fixes a
 setting, the profile supplies it if it is omitted, and a runtime given a
@@ -118,9 +128,12 @@ the operator has made that assertion.
 **What a human must review before this is trusted in production.** This
 code is machine-verified, not human-reviewed.
 
-- **A profile checks what it can see.** A decorator wrapped around an
-  `EncryptingAdapter` that doesn't forward `keyManagement` hides it; a
-  custom `PolicyEngine` that claims `"structural"` planning is believed.
+- **A profile checks what it can see.** Custom engines, adapters, schemes,
+  caches, decorators, and key providers are part of the trusted computing
+  base (ADR-0047). The profile validates what they expose and does not
+  sandbox or attest them. A decorator wrapped around an `EncryptingAdapter`
+  that doesn't forward `keyManagement` hides it, and a custom
+  `PolicyEngine` that claims `"structural"` planning is believed.
 - **The profile is necessary, not sufficient.** It says nothing about TLS,
   the identity provider, the audit store's access controls, or anything in
   `PRODUCTION-READINESS.md` beyond these guarantees.

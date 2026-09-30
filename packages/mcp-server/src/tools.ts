@@ -77,6 +77,6 @@ export function registerToolHandlers(
         const message = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text" as const, text: message }], isError: true };
       }
-    });
+    }, { redactErrors: runtime.redactsTelemetryIdentifiers });
   });
 }

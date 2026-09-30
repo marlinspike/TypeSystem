@@ -2,7 +2,7 @@ import { ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcon
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { withSpan, type SemanticRegistry, type SemanticRuntime, type TypeDefinition } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
-import { buildObjectUri, buildTypeListUri, buildTypeUri, parseResourceUri } from "./resource-uri.js";
+import { buildObjectUri, buildTypeListUri, buildTypeUri, parseResourceUri, telemetryResourceUri } from "./resource-uri.js";
 
 function describeType(typeDef: TypeDefinition) {
   return {
@@ -65,7 +65,8 @@ export function registerResourceHandlers(
     // One top-level span per MCP request, wrapping whichever SemanticRuntime call the
     // handler makes below — the runtime's own spans nest under this one automatically
     // (ADR-0017), rather than a second, MCP-specific instrumentation scheme.
-    return withSpan("mcp.resources/read", { "mcp.resource.uri": uri }, async () => {
+    const redactErrors = runtime.redactsTelemetryIdentifiers;
+    return withSpan("mcp.resources/read", { "mcp.resource.uri": telemetryResourceUri(uri, redactErrors) }, async () => {
       const { category, segments, token } = parseResourceUri(uri);
       const identity = await resolveIdentity(token);
 
@@ -98,7 +99,7 @@ export function registerResourceHandlers(
         return jsonContents(uri, provenance);
       }
 
-      throw new Error(`Unrecognized resource URI "${uri}"`);
-    });
+      throw new Error(`Unrecognized resource URI "${telemetryResourceUri(uri, false)}"`);
+    }, { redactErrors });
   });
 }

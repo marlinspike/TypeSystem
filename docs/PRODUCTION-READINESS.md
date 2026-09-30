@@ -101,7 +101,9 @@ says so.
    against an emulator, not AWS KMS. **Gate:** `AwsKmsKey` is not
    production-ready until `packages/kms-aws/test/aws-kms.production-gate.test.ts`
    has passed against real AWS KMS in the deployment's account and region.
-   `HIGH_ASSURANCE_V1` (ADR-0046) refuses `LocalKeyProvider`. Still open: TLS
+   It has not been run in this repository's CI or anywhere else yet.
+   `HIGH_ASSURANCE_V1` (ADR-0046) refuses `LocalKeyProvider`, but it
+   doesn't make `AwsKmsKey` production-ready. Still open: TLS
    in transit, key policies, IAM, and audit on the KMS key (item 6), a
    cryptographic review of the
    construction, detection of
@@ -185,8 +187,11 @@ says so.
     (ADR-0017) are tested to fire in isolation; nobody has pointed them at
     a real backend (Datadog, Honeycomb, Jaeger) and built dashboards,
     alerts, or SLOs on the signals. Before one is: choose a
-    `telemetryIdentity` (ADR-0045) — `"clear"` puts subject ids in every
-    span, which is the default only because it was the behavior before.
+    `telemetryIdentity` (ADR-0045, ADR-0047). `"clear"` puts subject and
+    object ids, and error messages that name them, in every span; it is the
+    default only because it was the behavior before. Under
+    `HIGH_ASSURANCE_V1` no raw identifier reaches a trace; type names a
+    caller asks for still do, and your own logs are yours.
 11. **Migration and rollback discipline.**
     `adapter-postgres`/`registry-store-postgres` migrations are tested as
     safely re-runnable (ADR-0015) and, since ADR-0025, safe to run

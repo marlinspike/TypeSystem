@@ -43,14 +43,21 @@ happened first.
 (`SemanticRuntime.getObject`, `.getRelationship`, `.query`,
 `.getProvenance`, `.listActions`, `.invokeAction`), each with:
 
-- `typesys.type_name`, `typesys.object_id` (when applicable)
-- the caller, per the `telemetryIdentity` option
-  ([ADR-0045](../adr/0045-telemetry-identity-policy.md)):
-  `typesys.identity.subject_id` under `"clear"` (the default), nothing under
-  `"none"`, or `typesys.identity.pseudonym` — an HMAC of the subject id
-  under a key you supply, at least 32 bytes — under
-  `{ mode: "pseudonymous", key }`. Traces travel further than the audit log;
-  choose accordingly. Audit rows always keep the subject id.
+- `typesys.type_name`
+- identifiers, per the `telemetryIdentity` option
+  ([ADR-0045](../adr/0045-telemetry-identity-policy.md),
+  [ADR-0047](../adr/0047-no-raw-identifiers-in-telemetry.md)):
+
+  | | `"clear"` (default) | `{ mode: "pseudonymous", key }` | `"none"` |
+  |---|---|---|---|
+  | caller | `typesys.identity.subject_id` | `typesys.identity.pseudonym` | — |
+  | object (when applicable) | `typesys.object_id` | `typesys.object_pseudonym` | — |
+  | error message | as thrown | class name only | class name only |
+
+  Pseudonyms are HMACs under a key you supply, at least 32 bytes, over a
+  tagged input, so a subject's never equals an object's. Traces travel
+  further than the audit log; choose accordingly. Audit rows always keep
+  the subject id.
 - `typesys.action_name` (for `invokeAction`)
 - `typesys.cache.hit` (`true`/`false`) on any cache-aware call
 - an `exception` event + ERROR status if the call threw
@@ -63,7 +70,10 @@ the actual N-way concurrency from
 MCP requests get one top-level span too —
 `mcp.resources/read`/`mcp.tools/call` — with the runtime's own spans
 nesting underneath, so a single trace shows the whole
-agent-call → runtime → adapter chain.
+agent-call → runtime → adapter chain. `mcp.resource.uri` never includes the
+URI's query, where the bearer token rides. Unless the runtime's policy is
+`"clear"`, it shows the object id as `{objectId}` and span errors carry
+only their class name.
 
 **Metrics**: `typesys.policy.decisions` (counter, by `decision`),
 `typesys.cache.requests` (counter, by `result`), and
