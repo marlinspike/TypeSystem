@@ -74,6 +74,28 @@ Two rules to write row-level rules by:
   attributes. A rule that depends on attributes must deny there (the
   helpers do), which is what keeps a count from revealing rows the caller
   can't read. Never allow *because* attributes are missing.
+- **Build rules from the helpers, and they plan themselves.**
+  `requireRole`, `requireAttributeMatch`, `anyOf`, `allOf`, and
+  `allowAllRule` also say what they admit, so `query` pushes the rule into
+  the adapter's filter — full pages, and nothing read that the caller can't
+  see — and `aggregate` counts exactly the rows the caller may read
+  ([ADR-0038](../adr/0038-authorization-planning.md)). A plain function rule
+  still works, decided after the read, but plans `unknown`.
+
+## See what a rule plans
+
+```ts
+const report = await runtime.explainQuery({ type: "hospital.Patient" }, clinician);
+report.plan;        // { kind: "predicate", predicate: { attribute: "assignedClinicianId", eq: "PR-2001" }, exact: true, … }
+report.guarantees;  // { exact, paginationPrivate, aggregationSafe, postFilterRequired }
+```
+
+`explainQuery` is for operators: it reads no data, is audited, and is not
+exposed over MCP, since a plan shows what the policy tests and the caller's
+own values. To refuse any query whose plan isn't exact rather than
+post-filtering it, construct the runtime with `rowSecurity: "require-exact"`.
+Check a custom planner with `checkPlanConformance(engine, cases)`, which
+reports every object the plan would hide.
 - **Never echo a value into `reason`.** The reason is returned to the
   caller and audited. Name the attribute, not its value.
 

@@ -12,7 +12,7 @@ import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey, SearchSpec, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
+import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
@@ -21,7 +21,19 @@ import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./conc
 import { filterProperties, matchesFilter } from "./filter.js";
 import { applyProjection, applySort } from "./query-ops.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
-import { recordPolicyDecision, recordCacheResult } from "../observability/metrics.js";
+import { recordPolicyDecision, recordCacheResult, recordPlanDefect } from "../observability/metrics.js";
+import {
+  allPlans,
+  checkPlan,
+  isExact,
+  limitationsOf,
+  planAdmits,
+  predicatePlan,
+  predicateToFilter,
+  refitPredicate,
+  unknownPlan,
+  type AuthorizationPlan
+} from "../policy/authorization-plan.js";
 
 const DEFAULT_CACHE_TTL_MS = 30_000;
 const DEFAULT_MAX_CONCURRENCY = 20;
@@ -76,6 +88,45 @@ function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undef
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
+/**
+ * How `query` treats a read policy it can't plan exactly (ADR-0038):
+ * `"post-filter"` reads with whatever plan there is and decides every object
+ * after the read; `"require-exact"` refuses the query instead.
+ */
+export type RowSecurity = "post-filter" | "require-exact";
+
+/** What `explainQuery` reports (ADR-0038). Runtime-only: it reveals what the policy tests and the subject's own values. */
+export interface QueryPlanReport {
+  typeName: string;
+  policyName: string;
+  rowSecurity: RowSecurity;
+  /** The plan as `query` would apply it, fitted to where the Type's data is. */
+  plan: AuthorizationPlan;
+  /** Properties the query selects or orders by: a value's own provenance marking on one can still drop a row (ADR-0032). */
+  probes: string[];
+  guarantees: {
+    /** The plan admits exactly the objects the policy allows. */
+    exact: boolean;
+    /** No page comes back short for a reason the caller can't see: exact, and nothing probed. */
+    paginationPrivate: boolean;
+    /** An aggregate by this subject would run over exactly the rows it may read. */
+    aggregationSafe: boolean;
+    /** The post-read check may drop objects — it always runs; this says whether it can matter. */
+    postFilterRequired: boolean;
+  };
+}
+
+/** A plan in an audit row or a span: its kind, exactness, and limitation codes — never predicate literals or identity values. */
+/** What adapters protect at rest (ADR-0036): `any` for a bundle's caching, `has` for one field. */
+interface ProtectedFields {
+  readonly any: boolean;
+  has(field: string): boolean;
+}
+
+function planSummary(plan: AuthorizationPlan): { plan: AuthorizationPlan["kind"]; exact: boolean; limitations: string[] } {
+  return { plan: plan.kind, exact: isExact(plan), limitations: limitationsOf(plan).map((l) => l.code) };
+}
+
 /** The reason a clearance check gives the caller: never the marking, which can itself be sensitive (ADR-0032). */
 const CLEARANCE_REASON = "Requires a higher clearance";
 
@@ -128,6 +179,12 @@ export interface SemanticRuntimeOptions {
    * classification can't be switched off by forgetting to configure it.
    */
   classification?: ClassificationScheme;
+  /**
+   * What `query` does with a read policy it can't plan exactly (ADR-0038).
+   * Default `"post-filter"`: read with the best plan there is, decide every
+   * object after the read. `"require-exact"`: refuse such a query.
+   */
+  rowSecurity?: RowSecurity;
 }
 
 /**
@@ -149,6 +206,7 @@ export class SemanticRuntime {
   private readonly maxConcurrency: number;
   private readonly resilience: AdapterResilience;
   private readonly classification: ClassificationScheme;
+  private readonly rowSecurity: RowSecurity;
   /** The concurrency budget of this runtime's call currently executing, if any (see `withRequestBudget`). */
   private readonly requestBudget = new AsyncLocalStorage<Semaphore>();
 
@@ -171,6 +229,9 @@ export class SemanticRuntime {
     this.inputValidator = new InputValidator(options.queryLimits);
     this.resilience = new AdapterResilience(options.resilience);
     this.classification = options.classification ?? DENY_MARKED_DATA;
+    const rowSecurity = options.rowSecurity ?? "post-filter";
+    if (rowSecurity !== "post-filter" && rowSecurity !== "require-exact") throw new TypeError(`rowSecurity must be "post-filter" or "require-exact"`);
+    this.rowSecurity = rowSecurity;
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
   }
@@ -262,9 +323,28 @@ export class SemanticRuntime {
     annotateActiveSpan({ "typesys.cache.hit": outcome === "hit" });
   }
 
-  /** The fields the adapters behind `dataSourceIds` protect at rest (ADR-0036), asked of each registered adapter itself. */
-  private protectedFields(typeName: string, dataSourceIds: readonly string[]): Set<string> {
-    return new Set(dataSourceIds.flatMap((id) => this.adapters.get(id)?.sensitiveFields?.(typeName) ?? []));
+  /**
+   * The fields the adapters behind `dataSourceIds` protect at rest (ADR-0036),
+   * asked of each registered adapter itself. A declaration may be async — a
+   * proxying decorator makes it so — but one that throws or answers anything
+   * other than a list of names protects every field: fail closed.
+   */
+  private async protectedFields(typeName: string, dataSourceIds: readonly string[]): Promise<ProtectedFields> {
+    const declared = await Promise.all(
+      dataSourceIds.map(async (id): Promise<readonly string[] | "all"> => {
+        const adapter = this.adapters.get(id);
+        if (typeof adapter?.sensitiveFields !== "function") return [];
+        try {
+          const fields: unknown = await adapter.sensitiveFields(typeName);
+          return Array.isArray(fields) && fields.every((f) => typeof f === "string") ? fields : "all";
+        } catch {
+          return "all";
+        }
+      })
+    );
+    if (declared.includes("all")) return { any: true, has: () => true };
+    const fields = new Set((declared as (readonly string[])[]).flat());
+    return { any: fields.size > 0, has: (field) => fields.has(field) };
   }
 
   /**
@@ -273,8 +353,8 @@ export class SemanticRuntime {
    * object, so outside a confidential cache it may only if nothing about the
    * Type is marked and the adapter protects none of its fields.
    */
-  private mayCacheBundle(typeDef: TypeDefinition, dataSourceId: string): boolean {
-    return this.cacheConfidential || (!isMarked(typeDef) && this.protectedFields(typeDef.name, [dataSourceId]).size === 0);
+  private async mayCacheBundle(typeDef: TypeDefinition, dataSourceId: string): Promise<boolean> {
+    return this.cacheConfidential || (!isMarked(typeDef) && !(await this.protectedFields(typeDef.name, [dataSourceId])).any);
   }
 
   /** Whether a relationship's ref list may go to this runtime's cache (ADR-0036): outside a confidential cache, only if neither end nor the relationship is marked. */
@@ -297,13 +377,15 @@ export class SemanticRuntime {
     if (objectMarkings(typeDef).length > 0) return new Set(computed.map((cp) => cp.name));
 
     const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
-    const sensitive = this.protectedFields(typeDef.name, [base, ...overrides].map((m) => m.dataSourceId));
+    const protectedHere = await this.protectedFields(typeDef.name, [base, ...overrides].map((m) => m.dataSourceId));
+    const sensitive = new Set<string>();
     for (const member of Object.keys(typeDef.schema["x-provenance"]?.properties ?? {})) {
       if (memberMarkings(typeDef, member).length > 0) sensitive.add(member);
     }
     for (const ref of resolved.provenance) if (valueMarkings([ref]).length > 0) sensitive.add(ref.propertyPath);
+    const isSensitive = (name: string) => sensitive.has(name) || protectedHere.has(name);
     // Declaration order, the order they run in: a computed property's computed dependencies are already decided.
-    for (const cp of computed) if (cp.dependsOn.some((dep) => sensitive.has(dep))) sensitive.add(cp.name);
+    for (const cp of computed) if (isSensitive(cp.name) || cp.dependsOn.some(isSensitive)) sensitive.add(cp.name);
     return new Set(computed.filter((cp) => sensitive.has(cp.name)).map((cp) => cp.name));
   }
 
@@ -311,7 +393,7 @@ export class SemanticRuntime {
   private async resolveProperties(adapter: Adapter, mapping: Mapping, typeDef: TypeDefinition, objectId: string): Promise<ResolvedProperties> {
     const typeName = typeDef.name;
     if (mapping.resolutionMode !== "cached") return adapter.resolveProperties(typeName, objectId, []);
-    if (!this.mayCacheBundle(typeDef, mapping.dataSourceId)) {
+    if (!(await this.mayCacheBundle(typeDef, mapping.dataSourceId))) {
       this.noteCacheOutcome("bypass");
       return adapter.resolveProperties(typeName, objectId, []);
     }
@@ -539,6 +621,77 @@ export class SemanticRuntime {
     action: "read" | "invoke" = "read"
   ): Promise<void> {
     if (!(await this.clearedFor(identity, markings, resource, action))) throw notAuthorized(action, resource, CLEARANCE_REASON);
+  }
+
+  /**
+   * What the Type's read policy admits for this subject (ADR-0038), fitted to
+   * where the data is. Planning decides no access — every object read is
+   * still decided after the read — so it isn't audited here; each path that
+   * acts on a plan audits what it did with it.
+   */
+  private async planRead(typeDef: TypeDefinition, identity: Identity): Promise<AuthorizationPlan> {
+    const plan = await this.askPlanner({ subject: identity, action: "read", policyName: objectPolicyOf(typeDef), resource: { typeName: typeDef.name } });
+    const planned = plan.kind === "predicate" ? await this.fitPlan(typeDef, plan) : plan;
+    annotateActiveSpan({
+      "typesys.authz.plan.kind": planned.kind,
+      "typesys.authz.plan.exact": isExact(planned),
+      "typesys.authz.plan.limitations": limitationsOf(planned).map((l) => l.code).join(",")
+    });
+    return planned;
+  }
+
+  /**
+   * The engine's plan, checked. An engine without a planner plans `unknown`;
+   * one that throws or returns anything malformed — or claims an exactness
+   * its limitations contradict — is a planner defect, and plans `unknown`
+   * too: sound, and never exact, so `require-exact` refuses it.
+   */
+  private async askPlanner(request: PolicyRequest): Promise<AuthorizationPlan> {
+    if (typeof this.policyEngine.plan !== "function") return unknownPlan([{ code: "engine-cannot-plan" }]);
+    let returned: unknown;
+    try {
+      returned = await this.policyEngine.plan(request);
+    } catch {
+      returned = undefined;
+    }
+    const plan = checkPlan(returned);
+    if (plan) return plan;
+    recordPlanDefect("planner-failed");
+    return unknownPlan([{ code: "planner-failed", policyName: request.policyName }]);
+  }
+
+  /**
+   * A predicate plan fitted to the adapter that lists the Type (ADR-0038),
+   * which filters on its own stored values — exactly what the policy decides
+   * on, except for an attribute that comes from an override source
+   * (ADR-0023) or one the adapter protects at rest (ADR-0036). Such an atom
+   * becomes `true`, with the reason: replaced, never dropped, since dropping
+   * a disjunct would admit less. The plan's own limitations carry over.
+   */
+  private async fitPlan(typeDef: TypeDefinition, plan: AuthorizationPlan & { kind: "predicate" }): Promise<AuthorizationPlan> {
+    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
+    const crossSource = new Set(overrides.map((m) => m.targetName));
+    const protectedHere = await this.protectedFields(typeDef.name, [base.dataSourceId]);
+    const fitted = refitPredicate(plan.predicate, (atom) =>
+      crossSource.has(atom.attribute)
+        ? unknownPlan([{ code: "cross-source-attribute", attribute: atom.attribute }])
+        : protectedHere.has(atom.attribute)
+          ? unknownPlan([{ code: "protected-attribute", attribute: atom.attribute }])
+          : predicatePlan(atom)
+    );
+    return plan.exact ? fitted : allPlans([fitted, unknownPlan(plan.limitations)]);
+  }
+
+  /**
+   * An object the post-read check denied although an exact plan admitted it
+   * (ADR-0038): the planner was wrong. Audited as its own deny row and
+   * counted; under `require-exact` it fails the query.
+   */
+  private async planDefect(identity: Identity, resource: PolicyResource, plan: AuthorizationPlan): Promise<void> {
+    recordPlanDefect("admitted-denied");
+    const reason = "An exact authorization plan admitted an object the policy denies";
+    await this.audit(identity, "read", resource, { allow: false, reason }, { control: "row-plan", defect: "admitted-denied", ...planSummary(plan) });
+    if (this.rowSecurity === "require-exact") throw new AuthorizationPlanError(`Refused under rowSecurity "require-exact": ${reason.toLowerCase()} (${resource.typeName})`);
   }
 
   /** The markings of every Type an Action applies to — its result is data of those Types (ADR-0032). */
@@ -817,12 +970,32 @@ export class SemanticRuntime {
         // properties, AND-combined with any explicit filter (ADR-0027).
         const effectiveFilter = await this.resolveSearchFilter(typeDef, q.filter, q.search, identity);
 
+        // The read policy as a filter the adapter applies before it reads (ADR-0038). A sound
+        // over-approximation: whatever it excludes, the policy would have denied. Every object it admits
+        // is still decided below.
+        const plan = await this.planRead(typeDef, identity);
+        const typeResource = { typeName: q.type };
+        if (this.rowSecurity === "require-exact" && !isExact(plan)) {
+          const codes = limitationsOf(plan).map((l) => l.code).join(", ");
+          const message = `Refused under rowSecurity "require-exact": policy "${objectPolicyOf(typeDef)}" has no exact plan for this subject (${codes})`;
+          await this.audit(identity, "read", typeResource, { allow: false, reason: message }, { control: "row-plan", ...planSummary(plan) });
+          throw new AuthorizationPlanError(message);
+        }
+        if (plan.kind === "never") {
+          await this.audit(identity, "read", typeResource, { allow: false, reason: "No object of this Type is readable by this subject" }, { control: "row-plan", ...planSummary(plan) });
+          return { items: [] };
+        }
+        // A predicate excludes objects without deciding them one by one, so the query records it once.
+        if (plan.kind === "predicate") await this.audit(identity, "read", typeResource, { allow: true }, { control: "row-plan", ...planSummary(plan) });
+        const plannedFilter: QueryFilter | undefined =
+          plan.kind !== "predicate" ? effectiveFilter : effectiveFilter ? { and: [effectiveFilter, predicateToFilter(plan.predicate)] } : predicateToFilter(plan.predicate);
+
         // Listing/filtering/pagination is inherently single-source — only the base
         // mapping's adapter can answer "which objects match", so overrides (ADR-0023)
         // are merged per item below, not folded into this call.
         const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
         const adapter = this.getAdapter(base.dataSourceId);
-        const result = await adapter.queryByType(q.type, effectiveFilter, q.limit, q.cursor, q.sort);
+        const result = await adapter.queryByType(q.type, plannedFilter, q.limit, q.cursor, q.sort);
 
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
@@ -837,7 +1010,10 @@ export class SemanticRuntime {
           // Decided on this item's own attributes (ADR-0030). A denied item is dropped silently (audited),
           // as getRelationship drops an unauthorized related object; it is never finalized or navigated.
           const decision = await this.evaluate(identity, "read", objectPolicy, { typeName: q.type, objectId: item.objectId, attributes });
-          if (!decision.allow) return undefined;
+          if (!decision.allow) {
+            if (isExact(plan) && planAdmits(plan, attributes)) await this.planDefect(identity, { typeName: q.type, objectId: item.objectId }, plan);
+            return undefined;
+          }
 
           const { values, provenance, classified } = await this.finalizeValues(typeDef, item.objectId, identity, stored, attributes);
           // An item selected or ordered by a value its provenance classified out would reveal that value through
@@ -883,9 +1059,19 @@ export class SemanticRuntime {
         const q = this.inputValidator.validateAggregateQuery(input);
         const typeDef = await this.requireType(q.type);
         // A type-level request — the adapter aggregates every row, so a rule that depends on an
-        // instance's attributes can't allow it, and aggregation fails closed (ADR-0030).
+        // instance's attributes can't allow it (ADR-0030) — unless the policy has an exact plan: then
+        // the adapter aggregates exactly the rows this subject may read (ADR-0038). Anything less than
+        // exact still fails closed: there is no post-read check on a sum.
         await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
-        await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: q.type });
+        const typeResource = { typeName: q.type };
+        const typeLevel = await this.evaluate(identity, "read", objectPolicyOf(typeDef), typeResource);
+        let rows = q.filter;
+        if (!typeLevel.allow) {
+          const plan = await this.planRead(typeDef, identity);
+          if (!(plan.kind === "predicate" && plan.exact)) throw notAuthorized("read", typeResource, typeLevel.reason);
+          await this.audit(identity, "read", typeResource, { allow: true }, { control: "row-plan", ...planSummary(plan) });
+          rows = rows ? { and: [rows, predicateToFilter(plan.predicate)] } : predicateToFilter(plan.predicate);
+        }
 
         const referenced = new Set<string>();
         if (q.filter) for (const p of filterProperties(q.filter)) referenced.add(p);
@@ -901,7 +1087,48 @@ export class SemanticRuntime {
             `Data source "${base.dataSourceId}" for type "${q.type}" does not support aggregation`
           );
         }
-        return adapter.aggregate(q);
+        return adapter.aggregate(rows === q.filter ? q : { ...q, filter: rows });
+      }
+    ));
+  }
+
+  /**
+   * How `query` would authorize `input` for `identity` (ADR-0038): the read
+   * policy's plan, fitted to where the data is, and the guarantees that
+   * follow. Reads no data and decides no access. Runtime-only by design —
+   * never an MCP tool — since a plan shows which attributes a policy tests
+   * and the subject's own values; audited, with only the plan's kind,
+   * exactness, and limitation codes.
+   */
+  async explainQuery(input: SemanticQuery, identity: Identity): Promise<QueryPlanReport> {
+    const claimedType = (input as { type?: unknown } | null | undefined)?.type;
+    return this.withRequestBudget(() => instrumentOperation(
+      "SemanticRuntime.explainQuery",
+      typeof claimedType === "string" ? claimedType : "unknown",
+      { "typesys.identity.subject_id": identity.subjectId },
+      async () => {
+        await this.checkRateLimit(identity);
+        const q = this.inputValidator.validateQuery(input);
+        const typeDef = await this.requireType(q.type);
+        const plan = await this.planRead(typeDef, identity);
+        const computed = new Set(typeDef.computedProperties.map((c) => c.name));
+        const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
+        const probes = [...new Set([...(q.filter ? filterProperties(q.filter) : []), ...(q.sort ?? []).map((s) => s.property), ...searched])];
+        const exact = isExact(plan);
+        await this.audit(identity, "read", { typeName: q.type }, { allow: true }, { control: "row-plan", operation: "explainQuery", ...planSummary(plan) });
+        return {
+          typeName: q.type,
+          policyName: objectPolicyOf(typeDef),
+          rowSecurity: this.rowSecurity,
+          plan,
+          probes,
+          guarantees: {
+            exact,
+            paginationPrivate: exact && probes.length === 0,
+            aggregationSafe: plan.kind === "always" || (plan.kind === "predicate" && plan.exact),
+            postFilterRequired: !exact
+          }
+        };
       }
     ));
   }

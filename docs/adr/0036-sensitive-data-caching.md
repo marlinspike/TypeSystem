@@ -77,6 +77,15 @@ memory while it serves the read); `NoopCache` stores nothing and says so;
 only `true` counts — a cache that omits it or says anything else is treated
 as not confidential.
 
+*Amended while verifying ADR-0038:* the runtime read `sensitiveFields`
+synchronously, and the web demo's call-counting Proxy — like any decorator
+that wraps methods as async — made it return a Promise, which the runtime
+took to mean "no protected fields": computed values derived from encrypted
+fields could have been cached in a non-confidential cache. A declaration may
+now be async, and one that throws or answers anything but a list of names
+protects every field of that adapter. Pinned by an **attack** block in
+`packages/core/test/sensitive-caching.test.ts`.
+
 **2. Adapters declare the fields they protect.** `Adapter` gains an optional
 `sensitiveFields?(typeName): readonly string[]` — the fields it keeps
 protected at rest. `EncryptingAdapter` returns its encrypted fields. An

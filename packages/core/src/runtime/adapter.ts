@@ -57,7 +57,10 @@ export interface Adapter {
    * Optional (ADR-0036): the fields of `typeName` this adapter protects at
    * rest — an `EncryptingAdapter`'s encrypted fields. The runtime never puts
    * them, or a computed value derived from them, in a cache that isn't
-   * confidential. A decorator around such an adapter must forward this.
+   * confidential, and never pushes an authorization filter on them
+   * (ADR-0038). A decorator around such an adapter must forward this; it may
+   * answer asynchronously, and an answer that isn't a list of names — or a
+   * throw — protects every field.
    */
-  sensitiveFields?(typeName: string): readonly string[];
+  sensitiveFields?(typeName: string): readonly string[] | Promise<readonly string[]>;
 }

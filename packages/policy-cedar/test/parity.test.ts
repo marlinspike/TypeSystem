@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { AuthorizationError, DEMO_LINEAR_CLASSIFICATION, SemanticRuntime, type Adapter, type AuditEvent, type Identity, type SemanticRegistry } from "@typesys/core";
+import { AuthorizationError, DEMO_LINEAR_CLASSIFICATION, SemanticRuntime, type Adapter, type AuditEvent, type Identity, type PolicyEngine, type SemanticRegistry } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
 import { buildHospitalTestbed, hospitalDemoIdentities } from "@typesys/domain-hospital";
 import { CedarPolicyEngine } from "../src/index.js";
@@ -70,9 +70,18 @@ interface Pair {
   domain: string;
 }
 
-async function pairOf(domain: string, build: () => Promise<{ registry: SemanticRegistry; runtime: SemanticRuntime; adapters: Adapter[] }>): Promise<Pair> {
+/**
+ * The ABAC engine with its planner hidden (ADR-0038). Cedar doesn't plan until
+ * ADR-0039, and a planning runtime reads fewer objects — so fewer decisions —
+ * than one that decides every row; parity is about the decisions, so both
+ * sides decide every row. That planning changes no result is proven on its own
+ * in `domain-hospital/test/authorization-planning.test.ts`.
+ */
+const withoutPlanner = (engine: PolicyEngine): PolicyEngine => ({ evaluate: (request) => engine.evaluate(request) });
+
+async function pairOf(domain: string, build: () => Promise<{ registry: SemanticRegistry; policyEngine: PolicyEngine; adapters: Adapter[] }>): Promise<Pair> {
   const [a, c] = [await build(), await build()];
-  const abac = { runtime: a.runtime, decisions: recordDecisions(a.registry) };
+  const abac = { runtime: new SemanticRuntime(a.registry, a.adapters, withoutPlanner(a.policyEngine), CLASSIFIED), decisions: recordDecisions(a.registry) };
   // Only the engine differs: the same classification scheme the ABAC testbeds configure (ADR-0034).
   const cedar = { runtime: new SemanticRuntime(c.registry, c.adapters, cedarEngine(), CLASSIFIED), decisions: recordDecisions(c.registry) };
 
@@ -93,13 +102,13 @@ const hospital = () =>
   pairOf("hospital", async () => {
     const tb = await buildHospitalTestbed();
     tb.adapter.seed("hospital.Patient", EDGE_PATIENTS);
-    return { registry: tb.registry, runtime: tb.runtime, adapters: [tb.adapter] };
+    return { registry: tb.registry, policyEngine: tb.policyEngine, adapters: [tb.adapter] };
   });
 
 const airforce = () =>
   pairOf("airforce", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
-    return { registry: tb.registry, runtime: tb.runtime, adapters: [tb.inMemoryAdapter, tb.mockRestAdapter] };
+    return { registry: tb.registry, policyEngine: tb.policyEngine, adapters: [tb.inMemoryAdapter, tb.mockRestAdapter] };
   });
 
 type Scenario = { label: string; run: (runtime: SemanticRuntime) => Promise<unknown> };

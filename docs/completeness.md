@@ -140,8 +140,19 @@ document that gap rather than close it in this pass.
   own-patient rule uses them. Proven by
   `packages/core/test/row-level-authorization.test.ts` and
   `packages/domain-hospital/test/row-level-authorization.test.ts`, including
-  attack suites. Not addressed: the pagination inference channel and
-  instance-scoped Actions (see the ADR).
+  attack suites. Not addressed: instance-scoped Actions (see the ADR).
+- Authorization planning (ADR-0038): a read policy's plan — `always`,
+  `never`, an `eq`/`and`/`or` predicate marked exact or not with structured
+  limitations, or `unknown` — is fitted to the Type's data sources and
+  pushed into `query`'s adapter filter, and an exact one admits `aggregate`
+  over exactly the readable rows; the post-read decision stays on every
+  object. The ABAC helpers plan from the structure they evaluate;
+  `rowSecurity: "require-exact"` refuses inexact plans; `explainQuery`
+  reports the plan and its guarantees. Proven by differential conformance
+  (`checkPlanConformance`), generated-case properties, runtime attack
+  suites, and a hospital-domain equivalence suite showing planning changes no
+  result. Not built: Cedar planning (ADR-0039), adapter filter capabilities
+  (ADR-0040).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is
@@ -223,8 +234,8 @@ tripwire test pins every call site of the non-auditing decision primitives
 (`packages/core/test/audit-completeness.test.ts`).
 
 Not proven, and listed per ADR for human review: this code is
-machine-verified, not human-reviewed; the pagination inference channel
-(ADR-0030); Cedar's formal analysis of a real policy set (ADR-0031);
+machine-verified, not human-reviewed; the pagination inference channel for
+rules that can't be planned exactly (ADR-0030, ADR-0038); Cedar's formal analysis of a real policy set (ADR-0031);
 value-level markings in adapter-side aggregation and write rules (ADR-0032);
 a cryptographic review (ADR-0033); the legacy-migration window (ADR-0035);
 replay of an `EncryptedCache` entry within its TTL (ADR-0036); and

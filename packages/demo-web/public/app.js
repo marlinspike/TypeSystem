@@ -1089,11 +1089,20 @@ const GUARDS = [
   {
     title: "Counting records you can't each see",
     identity: "clinician A",
-    why: "Aggregation runs over every row in the adapter, so a rule decided per record can't allow it: a count would reveal patients you can't read.",
+    why: "A count spans rows in the adapter, so a rule decided per record allows it only when its plan is exact (ADR-0038). The clinician's rule tests assignedClinicianId, which is encrypted here, so the plan is weakened and the count is refused.",
     expect: "403",
     run: () =>
       request(withIdentity("/api/aggregate", "clinician"), post({ type: "hospital.Patient", aggregations: [{ name: "patients", op: "count" }] }), "aggregate as clinician A"),
     pass: (r) => r.status === 403
+  },
+  {
+    title: "…but counting exactly what you can see",
+    identity: "patient",
+    why: "The patient's rule tests the record's own id, which the store can filter on, so its plan is exact: the count runs over exactly the rows this patient may read (ADR-0038). Cedar policies don't plan yet (ADR-0039), so under Cedar the count is still refused.",
+    expect: "200 and a count of 1 · 403 under Cedar",
+    run: () =>
+      request(withIdentity("/api/aggregate", "patient"), post({ type: "hospital.Patient", aggregations: [{ name: "patients", op: "count" }] }), "aggregate as the patient"),
+    pass: (r) => (state.engine === "cedar" ? r.status === 403 : r.status === 200 && r.body.groups?.[0]?.values?.patients === 1)
   }
 ];
 

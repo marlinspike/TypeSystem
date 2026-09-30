@@ -1,3 +1,5 @@
+import type { AuthorizationPlan } from "../policy/authorization-plan.js";
+
 /**
  * Object- and property-level authorization boundary. Deliberately a small
  * embedded interface rather than adopting OPA/Cedar wholesale for v1 (see
@@ -54,4 +56,11 @@ export interface PolicyDecision {
 
 export interface PolicyEngine {
   evaluate(request: PolicyRequest): Promise<PolicyDecision>;
+  /**
+   * Optional (ADR-0038): what `request`'s policy admits for its subject,
+   * across every object of `request.resource.typeName` — a type-level
+   * request. MUST be a sound over-approximation: every object `evaluate`
+   * would allow, the plan admits. An engine without it plans `unknown`.
+   */
+  plan?(request: PolicyRequest): Promise<AuthorizationPlan>;
 }

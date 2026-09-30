@@ -86,7 +86,17 @@ const cached = { resolutionMode: "cached" as const, cacheTtlMs: 60_000 };
 const rel = (target: string) => ({ target, cardinality: "one-to-many" as const, resolution: { dataSourceId: "ds", operation: "byForeignKey:parentId" }, ...cached });
 const strings = (names: string[]) => Object.fromEntries(names.map((n) => [n, { type: "string" }]));
 
-async function setup(cache: Cache) {
+/** A method-proxying decorator, like a call counter: every method it forwards comes back async. */
+function proxied<A extends Adapter>(adapter: A): A {
+  return new Proxy(adapter, {
+    get(target, prop, receiver) {
+      const value: unknown = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? async (...args: unknown[]) => (value as (...a: unknown[]) => unknown).apply(target, args) : value;
+    }
+  });
+}
+
+async function setup(cache: Cache, wrap: (ds: SourceAdapter) => Adapter = (ds) => ds) {
   const registry = new SemanticRegistry(new InMemoryRegistryStore());
   const register = async (name: string, schema: Omit<SemanticTypeSchema, "$id" | "type" | "title">, computed: Record<string, (get: (p: string) => Promise<unknown>) => Promise<unknown>> = {}) => {
     const short = name.split(".")[1]!;
@@ -124,7 +134,7 @@ async function setup(cache: Cache) {
   policyEngine.registerRule("public", allowAllRule);
   const ds = new SourceAdapter("ds", DATA, { "test.Protected": ["ssn"] });
   const warranty = new SourceAdapter("warranty", { "test.Composite": WARRANTY }, { "test.Composite": ["warranty"] });
-  const runtime = new SemanticRuntime(registry, [ds, warranty], policyEngine, { cache, classification: DEMO_LINEAR_CLASSIFICATION });
+  const runtime = new SemanticRuntime(registry, [wrap(ds), warranty], policyEngine, { cache, classification: DEMO_LINEAR_CLASSIFICATION });
   return { runtime, ds, warranty };
 }
 
@@ -198,6 +208,33 @@ describe("sensitive-data caching (ADR-0036)", () => {
         const { runtime } = await setup(cache);
         await readEverything(runtime);
         expect([...written.keys()].sort()).toEqual(NON_CONFIDENTIAL_KEYS);
+      });
+    }
+  });
+
+  describe("attack: a decorator that mangles the declaration", () => {
+    it("a proxy that makes sensitiveFields async still protects exactly the declared fields", async () => {
+      const { cache, written } = spyCache(false);
+      const { runtime } = await setup(cache, proxied);
+      await readEverything(runtime);
+      expect([...written.keys()].sort()).toEqual(NON_CONFIDENTIAL_KEYS);
+    });
+
+    for (const [label, answer] of [
+      ["answers something other than a list of names", () => "ssn"],
+      ["answers a list with a non-name in it", () => ["ssn", 7]],
+      ["throws", () => {
+        throw new Error("lookup failed");
+      }]
+    ] as const) {
+      it(`one that ${label} protects every field of that adapter: fail closed`, async () => {
+        const { cache, written } = spyCache(false);
+        const { runtime } = await setup(cache, (ds) => Object.assign(ds, { sensitiveFields: answer as unknown as SourceAdapter["sensitiveFields"] }));
+        await readEverything(runtime);
+        // Nothing from that adapter's bundles or anything computed on them; relationship ref lists carry no field values.
+        expect([...written.keys()].sort()).toEqual(["rel:ds:links:o1", "rel:ds:plainLinks:x1"]);
+        const stored = JSON.stringify([...written.values()]);
+        for (const secret of SENSITIVE_PLAINTEXT) expect(stored).not.toContain(secret);
       });
     }
   });
