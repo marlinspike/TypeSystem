@@ -1020,3 +1020,9 @@ select:focus, input[type="text"]:focus, textarea:focus {
 .fault-pill { font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--warning-wash); color: var(--warning); }
 .control-pill.plan { background: var(--success-wash); color: var(--success); }
 .audit-body td.operation { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+
+/* High-assurance profile card (ADR-0046) */
+.profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 12px; }
+.profile-grid h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 0 0 6px; }
+.profile-grid ol, .profile-grid ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.profile-violations li { color: var(--warning); }

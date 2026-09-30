@@ -100,6 +100,7 @@
           <a href="#secClassification"><strong>Classification</strong><span>ADR-0032</span></a>
           <a href="#secEncryption"><strong>Encrypted at rest</strong><span>ADR-0033</span></a>
           <a href="#secEngines"><strong>Two engines</strong><span>ADR-0031</span></a>
+          <a href="#secProfile"><strong>High assurance</strong><span>ADR-0046</span></a>
         </nav>
       </div>
 
@@ -174,6 +175,26 @@
               <div><h3>demo-domains.cedarschema</h3><pre class="code-view" id="cedarSchema"></pre></div>
             </div>
           </details>
+        </section>
+
+        <section class="panel sec-card sec-wide" id="secProfile">
+          <div class="sec-head">
+            <h2>A versioned high-assurance profile</h2>
+            <span class="adr-tag">ADR-0046</span>
+          </div>
+          <p class="panel-sub">
+            <code>HIGH_ASSURANCE_V1</code> is a named set of guarantees a runtime checks when it starts, refusing to run — with every violation
+            listed — rather than running weaker. This demo is built on demonstration components on purpose: a demonstration classification scheme and
+            keys held locally. Ask the profile to start this demo's own configuration and see what it says.
+          </p>
+          <div class="parity-row">
+            <button class="btn btn-primary btn-sm" id="profileBtn">Start this demo under HIGH_ASSURANCE_V1</button>
+            <div class="parity-result" id="profileResult"><span class="muted">Not run yet.</span></div>
+          </div>
+          <div class="profile-grid" id="profileDetail" hidden>
+            <div><h3>What it guarantees</h3><ol id="profileGuarantees"></ol></div>
+            <div><h3>Why this demo is refused</h3><ul class="profile-violations" id="profileViolations"></ul></div>
+          </div>
         </section>
       </div>
     </section>

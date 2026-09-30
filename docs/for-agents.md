@@ -112,10 +112,14 @@ the defaults below, since a deployment can change them:
   everything.
 - **Results contain only what you may read.** Read access is decided per
   object, on that object's own data (a clinician reads only their own
-  patients), and objects you can't read are silently left out. So a page
-  can be shorter than `limit`, or even empty, and still carry a
-  `nextCursor` — keep following it. A query is never refused because you
-  can't read its Type; it just returns nothing you can't see. Properties
+  patients), and objects you can't read are silently left out. Where the
+  read rule can be turned into a filter the store applies (an exact
+  authorization plan, ADR-0038), pages come back full; otherwise a page can
+  be shorter than `limit`, or even empty, and still carry a `nextCursor` —
+  keep following it. A query isn't refused because you can't read its
+  Type — it returns nothing you can't see — unless the deployment requires
+  exact plans, when a query whose rule can't be planned exactly is refused
+  (`Refused under …`, below). Properties
   can also be absent because they are classified above your identity's
   clearance; filtering or sorting on one is refused with `Not authorized:`.
 - **Unknown fields are rejected**, at the top level and inside filters and
@@ -152,6 +156,7 @@ The text tells you which kind of failure it was:
 | `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit, or a top-level filter used a computed property; the message names the problem. | Fix the arguments and retry. For a computed property, filter on it inside an include, or filter the results yourself. |
 | `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
 | `Cannot … encrypted field` | The field is stored encrypted, so the store can't range-filter, sort, search, aggregate, or join on it; the message says what does work. | Drop that part of the query, or name `search.properties` without the field. |
+| `Refused under` | The deployment requires exact authorization plans (`rowSecurity: "require-exact"` or the `HIGH_ASSURANCE_V1` profile, ADR-0038/0046), and this query's — or this aggregate's — couldn't be guaranteed. The message names the policy and why, never a value. | Not a transient error: don't retry the same query. Read objects one at a time with `getObject`, or ask an operator. |
 | `Rate limit exceeded` | Too many calls for this identity. | Back off and retry later. |
 
 ## The discovery sequence a well-behaved agent follows

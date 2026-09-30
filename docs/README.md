@@ -36,6 +36,7 @@ instead of re-explaining it.
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
 | [`add-a-policy-rule.md`](how-to/add-a-policy-rule.md) | Gate a Type/property/Action by role or attribute. |
 | [`classify-data.md`](how-to/classify-data.md) | Mark a Type, property, or value with a classification and enforce readers' clearances. |
+| [`run-high-assurance.md`](how-to/run-high-assurance.md) | Run under the versioned `HIGH_ASSURANCE_V1` security profile: what it guarantees, what each guarantee requires of you, and what it refuses. |
 | [`encrypt-fields.md`](how-to/encrypt-fields.md) | Keep sensitive fields as ciphertext in the store, with equality lookups where you need them. |
 | [`enable-caching.md`](how-to/enable-caching.md) | Stop re-fetching data that doesn't change every request. |
 | [`enable-rate-limiting-and-concurrency-bounds.md`](how-to/enable-rate-limiting-and-concurrency-bounds.md) | Cap how fast one caller can call, how many adapter calls one request can have in flight, and how much one query can ask for. |
