@@ -36,6 +36,20 @@ async function worlds() {
   return { planned: tb.runtime, postFiltered: new SemanticRuntime(tb.registry, [tb.adapter], withoutPlanner(tb.policyEngine)), tb };
 }
 
+/**
+ * A walk that ends in a refusal (ADR-0049) instead of a page: the read policy plans `never` for this identity, so the
+ * query is refused before the adapter runs.
+ */
+const REFUSED = "refused";
+
+/** `walk`, with a refusal as a value the caller can compare rather than an exception. */
+async function walkOrRefusal(runtime: SemanticRuntime, query: SemanticQuery, who: Identity): Promise<string[][] | typeof REFUSED> {
+  return walk(runtime, query, who).catch((err: unknown) => {
+    if (err instanceof AuthorizationError) return REFUSED;
+    throw err;
+  });
+}
+
 /** Every page of a query, walked to the end. */
 async function walk(runtime: SemanticRuntime, query: SemanticQuery, who: Identity) {
   const pages: string[][] = [];
@@ -71,19 +85,29 @@ describe("authorization planning on the hospital domain (ADR-0038)", () => {
     expect(violations).toEqual([]);
   });
 
-  it("planning changes no result: every query, walked page by page, returns the same objects in the same order", async () => {
+  it("planning changes no objects: every query, walked page by page, returns the same objects in the same order", async () => {
     const { planned, postFiltered } = await worlds();
     let compared = 0;
+    let refused = 0;
     for (const who of Object.values(identities)) {
       for (const query of QUERIES) {
         for (const limit of [1, 2, 100]) {
-          const [a, b] = [await walk(planned, { ...query, limit }, who), await walk(postFiltered, { ...query, limit }, who)];
-          expect(a.flat()).toEqual(b.flat());
+          const a = await walkOrRefusal(planned, { ...query, limit }, who);
+          const b = await walk(postFiltered, { ...query, limit }, who);
+          if (a === REFUSED) {
+            // The one thing planning may change (ADR-0049): a policy that plans `never` is refused where deciding
+            // every row yields nothing. It never hides an object a caller could have had.
+            expect(b.flat()).toEqual([]);
+            refused++;
+          } else {
+            expect(a.flat()).toEqual(b.flat());
+          }
           compared++;
         }
       }
     }
     expect(compared).toBe(Object.keys(identities).length * QUERIES.length * 3);
+    expect(refused).toBeGreaterThan(0); // the refusal path is exercised, not vacuous
   }, 60_000); // exhaustive by design: hundreds of paged walks
 
   it("…and its pages come back full: only the last page may be short", async () => {
@@ -94,7 +118,8 @@ describe("authorization planning on the hospital domain (ADR-0038)", () => {
     // Deciding every row, the same walk leaks how many patients sit between the clinician's.
     expect((await walk(postFiltered, { type: "hospital.Patient", limit: 1 }, clinician)).some((p) => p.length === 0)).toBe(true);
     for (const who of Object.values(identities)) {
-      const walked = await walk(planned, { type: "hospital.Patient", limit: 2 }, who);
+      const walked = await walkOrRefusal(planned, { type: "hospital.Patient", limit: 2 }, who);
+      if (walked === REFUSED) continue; // can read no Patient at all: refused, so there are no pages (ADR-0049)
       for (const page of walked.slice(0, -1)) expect(page).toHaveLength(2);
     }
   });

@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted. *Amended by ADR-0038:* a plannable read policy is now pushed into
+Accepted. *Amended by ADR-0049:* a `query` the caller can read none of, whatever the
+store holds, is refused rather than answered with an empty page; a denied row
+is still dropped silently, as decided here.
+
+*Amended by ADR-0038:* a plannable read policy is now pushed into
 the adapter's filter, closing the pagination channel for exact plans and
 letting an exact plan admit aggregation over exactly the readable rows; the
 per-object decision after the read stays. — implemented in `@typesys/core` (`PolicyResource.attributes` in

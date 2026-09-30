@@ -257,7 +257,8 @@ describe("row-level authorization under Cedar (ADR-0030 + ADR-0031)", () => {
         await expect(cedar.getObject("hospital.Patient", "PT-1001", malformed)).rejects.toBeInstanceOf(AuthorizationError);
         // Role-level reads: ABAC allows them; Cedar can't reason about the subject at all.
         expect((await abac.query({ type: "hospital.Appointment" }, malformed)).items).toHaveLength(3);
-        expect((await cedar.query({ type: "hospital.Appointment" }, malformed)).items).toEqual([]);
+        // Its plan is `never`, so the query is refused (ADR-0049) rather than answered with an empty page.
+        await expect(cedar.query({ type: "hospital.Appointment" }, malformed)).rejects.toBeInstanceOf(AuthorizationError);
         await expect(cedar.getObject("hospital.Provider", "PR-2001", malformed)).rejects.toBeInstanceOf(AuthorizationError);
       }
     });

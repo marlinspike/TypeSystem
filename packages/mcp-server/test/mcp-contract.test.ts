@@ -119,4 +119,26 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toMatch(/assignedTo/);
   });
+
+  it("10. tells an agent it may not read a Type, rather than returning a result that reads as 'nothing exists' (ADR-0049)", async () => {
+    // No token: the anonymous identity holds no role, so the Aircraft read policy admits nothing of the Type for it.
+    const refused = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft" } });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain("Not authorized: read airforce.Aircraft");
+    expect(JSON.stringify(refused.content)).not.toContain("items");
+
+    const allowed = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft", authToken: "demo-viewer-token" } });
+    expect(allowed.isError).not.toBe(true);
+    expect(JSON.stringify(allowed.content)).toContain("AF86-0147");
+  });
+
+  it("11. an object that does not exist is an error naming it, not an empty object — and only for a caller who may read the Type (ADR-0048)", async () => {
+    await expect(client.readResource({ uri: buildObjectUri("airforce.Aircraft", "NOPE-0000", "demo-maintainer-token") })).rejects.toThrow(/Not found: airforce\.Aircraft\/NOPE-0000/);
+    // Anonymous is refused before the runtime says whether the id exists, so the refusal tells it nothing about an id.
+    const messageOf = (read: Promise<unknown>) => read.then(() => "(read succeeded)", (e: Error) => e.message);
+    const refusedExisting = await messageOf(client.readResource({ uri: buildObjectUri("airforce.Aircraft", "AF86-0147") }));
+    const refusedMissing = await messageOf(client.readResource({ uri: buildObjectUri("airforce.Aircraft", "NOPE-0000") }));
+    expect(refusedExisting).toMatch(/Not authorized/);
+    expect(refusedMissing.replace("NOPE-0000", "ID")).toBe(refusedExisting.replace("AF86-0147", "ID"));
+  });
 });

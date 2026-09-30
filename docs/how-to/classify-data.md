@@ -41,7 +41,7 @@ A missing or unrecognized clearance holds only the lowest level.
 
 | Marked | Uncleared reader |
 |---|---|
-| a Type | `getObject` is refused; `query` returns an empty page, and the adapter is never called; `aggregate` and Actions are refused; related objects of that Type are left out |
+| a Type | `getObject` and `query` are refused, and the adapter is never called ([ADR-0049](../adr/0049-a-query-the-caller-can-read-none-of-is-refused.md)); `aggregate` and Actions are refused; related objects of that Type are left out |
 | a property | the object comes back without it, and without its provenance |
 | a value (by its adapter) | the same, for that one object |
 | a computed property's dependency | the computed property is redacted too — derived data inherits its inputs' markings |

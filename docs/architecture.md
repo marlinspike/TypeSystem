@@ -311,7 +311,7 @@ flowchart TB
     fit -->|exact predicate| agg
 ```
 
-`never` returns an empty page without calling the adapter; `always` and
+`never` refuses the query without calling the adapter (ADR-0049), because it holds for every possible dataset; `always` and
 `unknown` filter nothing; a predicate is ANDed into the caller's filter. An
 atom the adapter can't evaluate exactly — a randomized encrypted field, an
 attribute from another data source — becomes `true`, never dropped, so the

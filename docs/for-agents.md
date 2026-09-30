@@ -116,10 +116,15 @@ the defaults below, since a deployment can change them:
   read rule can be turned into a filter the store applies (an exact
   authorization plan, ADR-0038), pages come back full; otherwise a page can
   be shorter than `limit`, or even empty, and still carry a `nextCursor` —
-  keep following it. A query isn't refused because you can't read its
-  Type — it returns nothing you can't see — unless the deployment requires
-  exact plans, when a query whose rule can't be planned exactly is refused
-  (`Refused under …`, below). Properties
+  keep following it. An empty result can therefore mean "nothing matches"
+  or "nothing you may read matches"; you can't tell which, by design. What
+  you *can* tell is a refusal: if your identity can read no object of the
+  Type at all — its role doesn't qualify, or the Type is classified above
+  your clearance — the call fails with `Not authorized: read <Type>`
+  (ADR-0049), so a refusal is not an empty result and "there are none" is
+  not the conclusion to draw. A deployment that requires exact plans also
+  refuses a query whose rule can't be planned exactly (`Refused under …`,
+  below). Properties
   can also be absent because they are classified above your identity's
   clearance; filtering or sorting on one is refused with `Not authorized:`.
 - **Unknown fields are rejected**, at the top level and inside filters and
@@ -152,7 +157,7 @@ The text tells you which kind of failure it was:
 
 | `content[0].text` starts with | Meaning | What to do |
 |---|---|---|
-| `Not authorized:` | Policy denied this identity, including filtering on a property it can't read (the message names the property). | Don't retry with the same token; drop the hidden property from the filter, or accept the denial. |
+| `Not authorized:` | Policy denied this identity: a query of a Type it can read none of, an Action, or filtering on a property it can't read (the message names the property). | Don't retry with the same token; drop the hidden property from the filter, or accept the denial. |
 | `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit, or a top-level filter used a computed property; the message names the problem. | Fix the arguments and retry. For a computed property, filter on it inside an include, or filter the results yourself. |
 | `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
 | `Cannot … encrypted field` | The field is stored encrypted, so the store can't range-filter, sort, search, aggregate, or join on it; the message says what does work. | Drop that part of the query, or name `search.properties` without the field. |

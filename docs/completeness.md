@@ -163,6 +163,16 @@ document that gap rather than close it in this pass.
   `packages/core/test/row-level-authorization.test.ts` and
   `packages/domain-hospital/test/row-level-authorization.test.ts`, including
   attack suites. Not addressed: instance-scoped Actions (see the ADR).
+- A query the caller can read none of is refused (ADR-0049): a `never` plan
+  or a classified Type above the caller's clearance throws
+  `AuthorizationError`, where `query` used to return an empty page — both
+  hold for every possible dataset, so the refusal says nothing about the
+  data — while a denied row is still dropped silently, since an error there
+  would reveal that hidden rows exist. Proven by
+  `packages/core/test/query-wholesale-denial.test.ts`, including an attack
+  block showing that a Type whose rows are all hidden answers exactly like
+  a Type with none. Not addressed: a rule that can't plan never refuses,
+  so the same policy written as a plain function gives an empty page.
 - A missing object is not found (ADR-0048): `getObject`, and the source of
   `getRelationship` and `getProvenance`, raise `ObjectNotFoundError` (a
   `NotFoundError`) for an id no source holds, where they used to return an

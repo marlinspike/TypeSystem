@@ -2,6 +2,10 @@
 
 ## Status
 
+*Amended by ADR-0049:* a `never` plan refuses the query (`AuthorizationError`,
+still one audited deny, still no adapter call) rather than returning an empty
+page.
+
 *Amended by ADR-0043:* an `anyOf` alternative that throws is recorded as a
 fault on the decision and in the audit row, even when a later alternative
 allows.

@@ -132,7 +132,7 @@ describe("classification defaults (ADR-0034)", () => {
         const { runtime } = await setup(options);
         // Marked object: refused before any read.
         await expect(runtime.getObject("test.Dossier", "d1", topSecret)).rejects.toBeInstanceOf(AuthorizationError);
-        expect((await runtime.query({ type: "test.Dossier" }, topSecret)).items).toEqual([]);
+        await expect(runtime.query({ type: "test.Dossier" }, topSecret)).rejects.toBeInstanceOf(AuthorizationError); // ADR-0049
         await expect(runtime.aggregate({ type: "test.Dossier", aggregations: [{ name: "n", op: "count" }] }, topSecret)).rejects.toBeInstanceOf(AuthorizationError);
         // Marked member, marked value, and what derives from them: redacted.
         const memo = await runtime.getObject("test.Memo", "m1", topSecret);

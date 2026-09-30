@@ -252,9 +252,16 @@ describe("Row-level authorization (ADR-0030)", () => {
       ]);
     });
 
-    it("an unauthorized caller gets an empty page, not an error — the object policy never refuses the query itself", async () => {
+    it("a denied row is an empty page, not an error — only a denial that holds for every dataset refuses the query (ADR-0049)", async () => {
       const { runtime } = await setup();
-      await expect(runtime.query({ type: "test.Case" }, mallory)).resolves.toEqual({ items: [], nextCursor: undefined });
+      // mallory has no userId, so the rule can match nothing for them whatever the data: refused.
+      await expect(runtime.query({ type: "test.Case" }, mallory)).rejects.toBeInstanceOf(AuthorizationError);
+      // dave has a userId and owns no Case: what he may read depends on the data, so a hidden row is not an error.
+      const dave: Identity = { subjectId: "dave", roles: ["staff"], attributes: { userId: "dave" } };
+      await expect(runtime.query({ type: "test.Case" }, dave)).resolves.toEqual({ items: [], nextCursor: undefined });
+      // A rule that can't plan can't tell those apart, so it never refuses: the page is empty for mallory too.
+      const opaque = await setup({ rules: OPAQUE });
+      await expect(opaque.runtime.query({ type: "test.Case" }, mallory)).resolves.toEqual({ items: [], nextCursor: undefined });
     });
 
     it("a denied item is never finalized (no computed properties) and never navigated (no includes)", async () => {
@@ -324,7 +331,7 @@ describe("Row-level authorization (ADR-0030)", () => {
       const { runtime } = await setup({ rules: { ...RULES, public: requireRole("staff") } });
       expect(ids((await runtime.query({ type: "test.Note" }, alice)).items)).toEqual(["n1", "n2", "n3", "n4"]);
       await expect(runtime.getObject("test.Note", "n1", auditor)).rejects.toBeInstanceOf(AuthorizationError);
-      expect((await runtime.query({ type: "test.Note" }, auditor)).items).toEqual([]);
+      await expect(runtime.query({ type: "test.Note" }, auditor)).rejects.toBeInstanceOf(AuthorizationError); // ADR-0049
     });
   });
 
@@ -380,7 +387,7 @@ describe("Row-level authorization (ADR-0030)", () => {
       const { runtime } = await setup();
       await expect(runtime.getObject("test.Case", "c2", mallory)).rejects.toBeInstanceOf(AuthorizationError);
       await expect(runtime.getObject("test.Case", "c3", mallory)).rejects.toBeInstanceOf(AuthorizationError);
-      expect((await runtime.query({ type: "test.Case" }, mallory)).items).toEqual([]);
+      await expect(runtime.query({ type: "test.Case" }, mallory)).rejects.toBeInstanceOf(AuthorizationError); // plans `never`, ADR-0049
     });
 
     it("an identity attribute of the wrong shape never matches", async () => {

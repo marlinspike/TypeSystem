@@ -149,9 +149,9 @@ describe("authorization planning in the runtime (ADR-0038)", () => {
       expect(await walk((await setup()).runtime)).toEqual([["c1"], ["c2"], ["c4"], ["c5"]]);
     });
 
-    it("a never plan returns an empty page without calling the adapter, and audits one deny for the Type", async () => {
+    it("a never plan refuses the query without calling the adapter, and audits one deny for the Type (ADR-0049)", async () => {
       const { runtime, registry, cases } = await setup();
-      expect(await runtime.query({ type: "test.Case" }, mallory)).toEqual({ items: [] });
+      await expect(runtime.query({ type: "test.Case" }, mallory)).rejects.toBeInstanceOf(AuthorizationError);
       expect(cases.queried).toEqual([]);
       const [row] = await planRows(registry);
       expect(row).toMatchObject({ decision: "deny", resource: { typeName: "test.Case" }, details: { plan: "never", exact: true, limitations: [] } });
@@ -317,9 +317,11 @@ describe("authorization planning in the runtime (ADR-0038)", () => {
       expect(defects.every((e) => e.decision === "deny")).toBe(true);
     });
 
-    it("pinned: a plan that admits too little hides authorized rows, and nothing at runtime can notice — only the conformance check can", async () => {
+    it("pinned: a plan that admits too little refuses a caller the policy admits, and nothing at runtime can notice — only the conformance check can", async () => {
+      // Before ADR-0049 this hid alice's own row behind an empty page; it now reaches her as a refusal. Either way
+      // the runtime has no second opinion on a `never` plan: it is the planner's word, so a planner is trusted code.
       const { runtime } = await setup({ engine: lyingEngine(async () => NEVER) });
-      expect(ids(await runtime.query({ type: "test.Case" }, alice))).toEqual([]);
+      await expect(runtime.query({ type: "test.Case" }, alice)).rejects.toBeInstanceOf(AuthorizationError);
     });
   });
 
@@ -330,7 +332,10 @@ describe("authorization planning in the runtime (ADR-0038)", () => {
       const { runtime } = await setup(strict);
       expect(ids(await runtime.query({ type: "test.Case" }, bob))).toEqual(["c1", "c2", "c4", "c5"]);
       expect(ids(await runtime.query({ type: "test.Case" }, auditor))).toHaveLength(5);
-      expect(await runtime.query({ type: "test.Case" }, mallory)).toEqual({ items: [] });
+      // A never plan is exact, so it passes the requirement; what it yields is the plain refusal (ADR-0049).
+      const refused = await runtime.query({ type: "test.Case" }, mallory).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(AuthorizationError);
+      expect(refused).not.toBeInstanceOf(AuthorizationPlanError);
     });
 
     it("attack: an inexact plan is refused — opaque rule, no planner, failed planner, weakened attribute — and audited", async () => {

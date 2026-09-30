@@ -245,7 +245,7 @@ describe("Data classification (ADR-0032)", () => {
     it("an uncleared caller never causes a classified object to be read — getObject or query", async () => {
       const { runtime, adapter } = await setup();
       await expect(runtime.getObject("test.Annex", "a1", uncleared)).rejects.toBeInstanceOf(AuthorizationError);
-      await expect(runtime.query({ type: "test.Annex" }, cui)).resolves.toEqual({ items: [] });
+      await expect(runtime.query({ type: "test.Annex" }, cui)).rejects.toBeInstanceOf(AuthorizationError); // ADR-0049: refused, not an empty page
       expect(adapter.reads).not.toContain("test.Annex");
       expect(ids((await runtime.query({ type: "test.Annex" }, secret)).items)).toEqual(["a1"]);
     });
@@ -444,7 +444,7 @@ describe("Data classification (ADR-0032)", () => {
     it("a denied classified object is audited once, before any read", async () => {
       const { runtime, registry } = await setup();
       await runtime.getObject("test.Annex", "a1", cui).catch(() => undefined);
-      await runtime.query({ type: "test.Annex" }, cui);
+      await runtime.query({ type: "test.Annex" }, cui).catch(() => undefined);
       const rows = (await classificationRows(registry)).filter((e) => e.resource.typeName === "test.Annex");
       expect(rows.map((e) => [e.resource.objectId ?? "(type)", e.decision])).toEqual([
         ["(type)", "deny"],
