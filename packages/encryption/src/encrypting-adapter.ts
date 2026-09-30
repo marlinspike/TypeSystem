@@ -27,17 +27,34 @@ import type { KeyProvider } from "./keys.js";
  */
 export type EncryptionMode = "randomized" | "deterministic";
 
+/**
+ * What an Action writes (ADR-0035): the Type whose encrypted fields its input
+ * may carry, and the input field holding the record's id — which the
+ * ciphertext is bound to, so it must exist before the adapter runs.
+ */
+export interface ActionWrite {
+  type: string;
+  idField: string;
+}
+
 export interface EncryptionConfig {
   /** The encrypted fields of each Type: `{ "hospital.Patient": { medicalRecordNumber: { mode: "deterministic" }, dateOfBirth: {} } }`. */
   fields: Record<string, Record<string, { mode?: EncryptionMode }>>;
   /**
-   * Every Action the wrapped adapter executes, mapped to the Type whose
-   * fields its input writes (encrypted before the adapter sees them, and
-   * decrypted in its result) — or to `null` if it writes no encrypted field.
-   * An Action not listed is refused: it could write a protected field in
+   * Every Action the wrapped adapter executes: what it writes (encrypted
+   * before the adapter sees it, bound to the record id in `idField`, and
+   * decrypted in its result), or `null` if it writes no encrypted field. An
+   * Action not listed is refused: it could write a protected field in
    * plaintext.
    */
-  actions?: Record<string, string | null>;
+  actions?: Record<string, ActionWrite | null>;
+  /**
+   * Whether unbound `tsenc1` envelopes (ADR-0033) are readable. `"refuse"`
+   * (the default): accepting them lets anyone with write access to the store
+   * swap in another record's old ciphertext. `"read"` only for a migration,
+   * while every record is `reseal`ed (ADR-0035).
+   */
+  legacyUnboundEnvelopes?: "refuse" | "read";
 }
 
 /** Stored beside a deterministic field, and never shown: `__bidx_<field>`. Reserved — no write or filter may name it. */
@@ -65,7 +82,8 @@ export class EncryptingAdapter implements Adapter {
   readonly dataSourceId: string;
   private readonly cipher: FieldCipher;
   private readonly fields: ReadonlyMap<string, ReadonlyMap<string, EncryptionMode>>;
-  private readonly actions: Readonly<Record<string, string | null>>;
+  private readonly actions: Readonly<Record<string, ActionWrite | null>>;
+  private readonly acceptUnbound: boolean;
 
   constructor(
     private readonly inner: Adapter,
@@ -75,6 +93,14 @@ export class EncryptingAdapter implements Adapter {
     this.dataSourceId = inner.dataSourceId;
     this.cipher = new FieldCipher(keys);
     this.actions = config.actions ?? {};
+    for (const [name, write] of Object.entries(this.actions)) {
+      if (write !== null && !(typeof write?.type === "string" && write.type && typeof write.idField === "string" && write.idField)) {
+        throw new EncryptionConfigError(`Action "${name}" must map to { type, idField } or to null`);
+      }
+    }
+    const legacy = config.legacyUnboundEnvelopes ?? "refuse";
+    if (legacy !== "refuse" && legacy !== "read") throw new EncryptionConfigError(`legacyUnboundEnvelopes must be "refuse" or "read"`);
+    this.acceptUnbound = legacy === "read";
     this.fields = new Map(
       Object.entries(config.fields).map(([typeName, fields]) => [
         typeName,
@@ -97,31 +123,52 @@ export class EncryptingAdapter implements Adapter {
     throw new EncryptedFieldError(`Cannot ${what} encrypted field ${ref.typeName}.${ref.field}: the store holds only its ciphertext. ${hint}`);
   }
 
+  /** Whether `values` carries any of `typeName`'s encrypted fields. */
+  private carriesEncrypted(typeName: string, values: Record<string, unknown>): boolean {
+    return [...(this.fields.get(typeName)?.keys() ?? [])].some((field) => Object.hasOwn(values, field) && values[field] !== undefined);
+  }
+
   /**
-   * A record's stored form: each encrypted field replaced by its envelope,
-   * and a blind index beside each deterministic one. What a bulk load must
-   * write through an adapter's own method (`seed`, `put`), so no plaintext
-   * reaches the store.
+   * Record `objectId`'s stored form: each encrypted field replaced by an
+   * envelope bound to that record (ADR-0035), and a blind index beside each
+   * deterministic one. What a bulk load must write through an adapter's own
+   * method (`seed`, `put`), so no plaintext reaches the store.
    */
-  async seal(typeName: string, values: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async seal(typeName: string, objectId: string, values: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (typeof objectId !== "string" || objectId === "") throw new EncryptedFieldError(`A write to ${typeName} must name its record: ciphertext is bound to the record's id`);
     refuseReserved(Object.keys(values), `A write to ${typeName}`);
     const sealed = { ...values };
     for (const [field, mode] of this.fields.get(typeName) ?? []) {
       if (!Object.hasOwn(values, field) || values[field] === undefined) continue;
       const ref = { typeName, field };
-      sealed[field] = await this.cipher.encrypt(ref, values[field]);
+      sealed[field] = await this.cipher.encrypt(ref, objectId, values[field]);
       if (mode === "deterministic") sealed[blindIndexOf(field)] = await this.cipher.activeIndex(ref, values[field]);
     }
     return sealed;
   }
 
-  /** The plaintext form of a stored record: fields decrypted (and deterministic ones' indexes verified), every reserved field removed. */
-  private async unseal(typeName: string, objectId: string, stored: Record<string, unknown>): Promise<Record<string, unknown>> {
+  /**
+   * An already-stored record, re-encrypted under the active key, bound to its
+   * id, with fresh blind indexes — for a key rotation, and for migrating
+   * unbound `tsenc1` envelopes, which it reads whatever
+   * `legacyUnboundEnvelopes` says (ADR-0035). Returns ciphertext only.
+   */
+  async reseal(typeName: string, objectId: string, stored: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.seal(typeName, objectId, await this.unseal(typeName, objectId, stored, true));
+  }
+
+  /** The plaintext form of stored record `objectId`: fields decrypted (and deterministic ones' indexes verified), every reserved field removed. */
+  private async unseal(
+    typeName: string,
+    objectId: string,
+    stored: Record<string, unknown>,
+    acceptUnbound = this.acceptUnbound
+  ): Promise<Record<string, unknown>> {
     const open = Object.fromEntries(Object.entries(stored).filter(([name]) => !isReserved(name)));
     for (const [field, mode] of this.fields.get(typeName) ?? []) {
       if (!Object.hasOwn(stored, field)) continue;
       const ref = { typeName, field };
-      const value = await this.cipher.decrypt(ref, stored[field], objectId);
+      const value = await this.cipher.decrypt(ref, objectId, stored[field], acceptUnbound);
       if (mode === "deterministic") await this.cipher.verifyIndex(ref, value, stored[blindIndexOf(field)], objectId);
       open[field] = value;
     }
@@ -236,9 +283,24 @@ export class EncryptingAdapter implements Adapter {
           `map it to the Type its input writes, or to null if it writes none`
       );
     }
-    const typeName = this.actions[action.name];
-    if (typeName === null || typeName === undefined) return this.inner.executeAction(action, input, ctx, opts);
-    const result = await this.inner.executeAction(action, isRecord(input) ? await this.seal(typeName, input) : input, ctx, opts);
-    return isRecord(result) ? this.unseal(typeName, typeof result.id === "string" ? result.id : "(action result)", result) : result;
+    const write = this.actions[action.name];
+    if (!write) return this.inner.executeAction(action, input, ctx, opts);
+
+    let stored = input;
+    if (isRecord(input) && this.carriesEncrypted(write.type, input)) {
+      const id = input[write.idField];
+      if (typeof id !== "string" || id === "") {
+        throw new EncryptedFieldError(
+          `Action "${action.name}" writes encrypted fields of ${write.type} but its input carries no record id in "${write.idField}": ` +
+            `ciphertext is bound to its record, so the id must exist before the adapter runs (ADR-0035)`
+        );
+      }
+      stored = await this.seal(write.type, id, input);
+    }
+    const result = await this.inner.executeAction(action, stored, ctx, opts);
+    if (!isRecord(result)) return result;
+    // The result is read as the record it names: an adapter that ignored the caller's id fails here, loudly.
+    const resultId = result[write.idField];
+    return this.unseal(write.type, typeof resultId === "string" ? resultId : "", result);
   }
 }

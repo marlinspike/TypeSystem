@@ -27,7 +27,7 @@ const keys = LocalKeyProvider.fromEnv();
 ```ts
 const adapter = new EncryptingAdapter(innerAdapter, keys, {
   fields: { "hospital.Patient": { medicalRecordNumber: { mode: "deterministic" }, dateOfBirth: {} } },
-  actions: { RegisterPatient: "hospital.Patient" }
+  actions: { RegisterPatient: { type: "hospital.Patient", idField: "id" } }
 });
 ```
 
@@ -37,7 +37,16 @@ identifier); it lets the store see which records share a value. Everything
 else stays randomized.
 
 List every Action the adapter executes under `actions` — mapped to the Type
-its input writes, or `null`. An unlisted Action is refused.
+its input writes and the input field holding the record's id, or to `null`
+if it writes no encrypted field. An unlisted Action is refused.
+
+Every ciphertext is bound to its record
+([ADR-0035](../adr/0035-record-bound-encryption-envelope.md)): moved to
+another record, it no longer decrypts. So a write must know the record's id
+*before* it runs — an Action writing encrypted fields without an id in its
+input is refused. If your adapter assigns ids itself, generate them
+client-side (a ULID) for encrypted Types, or keep encrypted fields out of
+those creates.
 
 ## 3. Load data through `seal`
 
@@ -45,11 +54,26 @@ A seed or bulk import that calls an adapter's own write method (`seed`,
 `put`) must write the sealed form:
 
 ```ts
-await pg.put(type, id, await adapter.seal(type, values));
+await pg.put(type, id, await adapter.seal(type, id, values));
 ```
 
 Existing plaintext in a field you start encrypting fails to read until it
 is re-written this way.
+
+## Migrate a store sealed before record binding
+
+Values written before ADR-0035 are unbound `tsenc1` envelopes, and they are
+refused by default — accepting them would let anyone with write access to the
+store plant another record's old ciphertext. To migrate, set
+`legacyUnboundEnvelopes: "read"` briefly, rewrite every record through
+`reseal`, and set it back:
+
+```ts
+await pg.put(type, id, await adapter.reseal(type, id, storedValues));
+```
+
+Keep that window short: while it's open, a downgrade to an unbound ciphertext
+is accepted.
 
 ## What stops working
 
@@ -63,11 +87,14 @@ encrypted Type: the cache holds decrypted values.
 
 Add a new key at the front of `TYPESYS_ENCRYPTION_KEYS`, keep the old one
 behind it, and redeploy. Old values keep reading; new writes use the new key.
-Re-write old records at your pace, then drop the old key.
+Re-encrypt old records at your pace with `reseal`, then drop the old key.
 
 ## Verify it
 
 [`packages/encryption/test/encrypting-adapter.test.ts`](../../packages/encryption/test/encrypting-adapter.test.ts)
 reads the store directly to show no plaintext, tampers with ciphertexts and
 indexes, uses the wrong key, rotates, and checks every hospital read path
-returns the same results encrypted as not.
+returns the same results encrypted as not;
+[`record-binding.test.ts`](../../packages/encryption/test/record-binding.test.ts)
+moves ciphertexts between records, attempts downgrades, and migrates with
+`reseal`.

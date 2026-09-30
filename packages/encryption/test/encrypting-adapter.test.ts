@@ -40,7 +40,7 @@ const MEMBER_CONFIG: EncryptionConfig = {
   fields: {
     "test.Member": { ssn: { mode: "deterministic" }, email: { mode: "deterministic" }, teamId: { mode: "deterministic" }, dob: {}, profile: {} }
   },
-  actions: { EnrollMember: "test.Member", Ping: null }
+  actions: { EnrollMember: { type: "test.Member", idField: "id" }, Ping: null }
 };
 
 const MEMBERS: Record<string, Record<string, unknown>> = {
@@ -52,7 +52,7 @@ const MEMBERS: Record<string, Record<string, unknown>> = {
 async function memberWorld(keys = keyring("k1")) {
   const inner = new InMemoryRepositoryAdapter("members-ds");
   const adapter = new EncryptingAdapter(inner, keys, MEMBER_CONFIG);
-  inner.seed("test.Member", await Promise.all(Object.entries(MEMBERS).map(async ([objectId, values]) => ({ objectId, values: await adapter.seal("test.Member", values) }))));
+  inner.seed("test.Member", await Promise.all(Object.entries(MEMBERS).map(async ([objectId, values]) => ({ objectId, values: await adapter.seal("test.Member", objectId, values) }))));
   inner.seed("test.Badge", [{ objectId: "b1", values: { id: "b1", memberId: "m1" } }]);
   return { inner, adapter };
 }
@@ -80,6 +80,20 @@ async function memberRuntime(adapter: Adapter) {
     },
     "x-policy": { objectPolicy: "public" }
   });
+  await registry.registerAction({
+    id: "action-enroll-member",
+    name: "EnrollMember",
+    description: "Creates or replaces a Member under the id its input names.",
+    applicableTypes: ["test.Member"],
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    outputSchema: { type: "object" },
+    authorizationPolicy: "public",
+    implementation: { dataSourceId: "members-ds", operation: "enroll" },
+    sideEffects: "creates",
+    idempotency: "none",
+    auditRequired: false,
+    version: "1.0.0"
+  });
   const policyEngine = new AbacPolicyEngine();
   policyEngine.registerRule("public", allowAllRule);
   return new SemanticRuntime(registry, [adapter], policyEngine);
@@ -105,7 +119,7 @@ describe("EncryptingAdapter (ADR-0033)", () => {
 
     it("a randomized field never repeats a ciphertext; a deterministic one repeats only its index", async () => {
       const { adapter } = await memberWorld();
-      const [a, b] = [await adapter.seal("test.Member", { dob: "1990-01-01", ssn: "123-45-6789" }), await adapter.seal("test.Member", { dob: "1990-01-01", ssn: "123-45-6789" })];
+      const [a, b] = [await adapter.seal("test.Member", "m9", { dob: "1990-01-01", ssn: "123-45-6789" }), await adapter.seal("test.Member", "m9", { dob: "1990-01-01", ssn: "123-45-6789" })];
       expect(a.dob).not.toBe(b.dob);
       expect(a.ssn).not.toBe(b.ssn);
       expect(a[`${BLIND_INDEX_PREFIX}ssn`]).toBe(b[`${BLIND_INDEX_PREFIX}ssn`]);
@@ -113,9 +127,9 @@ describe("EncryptingAdapter (ADR-0033)", () => {
 
     it("the same value has unrelated indexes in different fields, and under different keys", async () => {
       const { adapter } = await memberWorld();
-      const sealed = await adapter.seal("test.Member", { ssn: "same", email: "same" });
+      const sealed = await adapter.seal("test.Member", "m9", { ssn: "same", email: "same" });
       expect(sealed[`${BLIND_INDEX_PREFIX}ssn`]).not.toBe(sealed[`${BLIND_INDEX_PREFIX}email`]);
-      const other = await new EncryptingAdapter(new InMemoryRepositoryAdapter("x"), keyring("k2"), MEMBER_CONFIG).seal("test.Member", { ssn: "same" });
+      const other = await new EncryptingAdapter(new InMemoryRepositoryAdapter("x"), keyring("k2"), MEMBER_CONFIG).seal("test.Member", "m9", { ssn: "same" });
       expect(other[`${BLIND_INDEX_PREFIX}ssn`]).not.toBe(sealed[`${BLIND_INDEX_PREFIX}ssn`]);
     });
   });
@@ -175,7 +189,7 @@ describe("EncryptingAdapter (ADR-0033)", () => {
       await expect(query(adapter, { property: reserved, operator: "eq", value: "x" })).rejects.toThrow(/reserved/);
       await expect(adapter.queryByType("test.Member", undefined, 10, undefined, [{ property: reserved, direction: "asc" }])).rejects.toThrow(/reserved/);
       await expect(adapter.aggregate({ type: "test.Member", groupBy: [reserved], aggregations: [{ name: "n", op: "count" }] })).rejects.toThrow(/reserved/);
-      await expect(adapter.seal("test.Member", { ssn: "1", [reserved]: "forged" })).rejects.toThrow(/reserved/);
+      await expect(adapter.seal("test.Member", "m9", { ssn: "1", [reserved]: "forged" })).rejects.toThrow(/reserved/);
     });
 
     it("an unusable configuration is refused up front", () => {
@@ -186,24 +200,57 @@ describe("EncryptingAdapter (ADR-0033)", () => {
   });
 
   describe("writes through an Action", () => {
-    async function encryptedAirforce() {
+    /** An in-memory store whose one Action creates or replaces a Member under the id its input names. */
+    class EnrollingAdapter extends InMemoryRepositoryAdapter {
+      override async executeAction(_action: ActionDefinition, input: unknown): Promise<unknown> {
+        const values = input as Record<string, unknown>;
+        this.seed("test.Member", [{ objectId: String(values.id), values }]);
+        return values;
+      }
+    }
+    async function enrollingRuntime() {
+      const inner = new EnrollingAdapter("members-ds");
+      const adapter = new EncryptingAdapter(inner, keyring("k1"), MEMBER_CONFIG);
+      return { inner, adapter, runtime: await memberRuntime(adapter) };
+    }
+
+    it("round-trips through the runtime's write path, bound to the record the input names, with only ciphertext stored", async () => {
+      const { inner, runtime } = await enrollingRuntime();
+      const created = (await runtime.invokeAction("EnrollMember", { id: "m7", name: "Dee", ssn: "555-00-1111", dob: "1988-08-08" }, anyone)) as Record<string, unknown>;
+      expect(created).toEqual({ id: "m7", name: "Dee", ssn: "555-00-1111", dob: "1988-08-08" });
+      expect((await runtime.getObject("test.Member", "m7", anyone)).values.dob).toBe("1988-08-08");
+
+      const raw = await stored(inner, "test.Member", "m7");
+      expect(raw.ssn).toMatch(/^tsenc2\.k1\./);
+      expect(JSON.stringify(raw)).not.toMatch(/555-00-1111|1988-08-08/);
+    });
+
+    it("an Action that would write encrypted fields without the record's id is refused before the adapter runs", async () => {
       const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
       const encrypted = new EncryptingAdapter(tb.mockRestAdapter, keyring("k1"), {
         fields: { "airforce.WorkOrder": { assignedTo: {} } },
-        actions: { CreateMaintenanceWorkOrder: "airforce.WorkOrder" }
+        actions: { CreateMaintenanceWorkOrder: { type: "airforce.WorkOrder", idField: "id" } }
       });
-      return { tb, runtime: new SemanticRuntime(tb.registry, [tb.inMemoryAdapter, encrypted], tb.policyEngine) };
-    }
+      const runtime = new SemanticRuntime(tb.registry, [tb.inMemoryAdapter, encrypted], tb.policyEngine);
+      const before = (await tb.mockRestAdapter.queryByType("airforce.WorkOrder")).items.length;
+      await expect(
+        runtime.invokeAction("CreateMaintenanceWorkOrder", { maintenanceEventId: "EVT-9001", assignedTo: "SSgt Rivera" }, demoIdentities.maintainer)
+      ).rejects.toThrow(/carries no record id in "id"/);
+      expect((await tb.mockRestAdapter.queryByType("airforce.WorkOrder")).items).toHaveLength(before);
+    });
 
-    it("round-trips through the runtime's real write path, and the store holds only ciphertext", async () => {
-      const { tb, runtime } = await encryptedAirforce();
-      const created = (await runtime.invokeAction("CreateMaintenanceWorkOrder", { maintenanceEventId: "EVT-9001", assignedTo: "SSgt Rivera" }, demoIdentities.maintainer)) as { id: string; assignedTo: string };
-      expect(created.assignedTo).toBe("SSgt Rivera");
-      expect((await runtime.getObject("airforce.WorkOrder", created.id, demoIdentities.maintainer)).values.assignedTo).toBe("SSgt Rivera");
-
-      const raw = await tb.mockRestAdapter.resolveProperties("airforce.WorkOrder", created.id, []);
-      expect(raw.values.assignedTo).toMatch(/^tsenc1\.k1\./);
-      expect(JSON.stringify(raw)).not.toContain("Rivera");
+    it("an adapter that ignores the caller's id and assigns its own fails loudly on the result, never binding silently", async () => {
+      const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
+      const encrypted = new EncryptingAdapter(tb.mockRestAdapter, keyring("k1"), {
+        fields: { "airforce.WorkOrder": { assignedTo: {} } },
+        actions: { CreateMaintenanceWorkOrder: { type: "airforce.WorkOrder", idField: "id" } }
+      });
+      const runtime = new SemanticRuntime(tb.registry, [tb.inMemoryAdapter, encrypted], tb.policyEngine);
+      // The mock REST system mints WO-0001 whatever id it is given: the ciphertext was bound to WO-CLIENT.
+      await expect(
+        runtime.invokeAction("CreateMaintenanceWorkOrder", { id: "WO-CLIENT", maintenanceEventId: "EVT-9001", assignedTo: "SSgt Rivera" }, demoIdentities.maintainer)
+      ).rejects.toThrow(/WO-0001" failed authentication/);
+      await expect(runtime.getObject("airforce.WorkOrder", "WO-0001", demoIdentities.maintainer)).rejects.toBeInstanceOf(DecryptionError);
     });
 
     it("an Action the config doesn't account for is refused before it runs; one mapped to null passes through", async () => {
@@ -215,11 +262,10 @@ describe("EncryptingAdapter (ADR-0033)", () => {
     });
 
     it("existing plaintext in a newly encrypted field fails closed until it is re-written through seal", async () => {
-      const { tb, runtime } = await encryptedAirforce();
-      // Written before encryption was turned on: through the testbed's own, unencrypted runtime.
-      const legacy = (await tb.runtime.invokeAction("CreateMaintenanceWorkOrder", { maintenanceEventId: "EVT-9001", assignedTo: "Legacy" }, demoIdentities.maintainer)) as { id: string };
-      await expect(runtime.getObject("airforce.WorkOrder", legacy.id, demoIdentities.maintainer)).rejects.toThrow(/is not an encrypted value/);
-      await expect(runtime.query({ type: "airforce.WorkOrder" }, demoIdentities.maintainer)).rejects.toBeInstanceOf(DecryptionError);
+      const { inner, adapter } = await memberWorld();
+      inner.seed("test.Member", [{ objectId: "m8", values: { id: "m8", name: "Legacy", ssn: "000-11-2222" } }]);
+      await expect(adapter.resolveProperties("test.Member", "m8", [])).rejects.toThrow(/is not an encrypted value/);
+      await expect(adapter.queryByType("test.Member")).rejects.toBeInstanceOf(DecryptionError);
     });
   });
 
@@ -227,12 +273,12 @@ describe("EncryptingAdapter (ADR-0033)", () => {
     it("old values keep decrypting, new ones use the new key, and equality spans both — until the old key leaves the ring", async () => {
       const inner = new InMemoryRepositoryAdapter("members-ds");
       const before = new EncryptingAdapter(inner, keyring("k1"), MEMBER_CONFIG);
-      inner.seed("test.Member", [{ objectId: "m1", values: await before.seal("test.Member", MEMBERS.m1!) }]);
+      inner.seed("test.Member", [{ objectId: "m1", values: await before.seal("test.Member", "m1", MEMBERS.m1!) }]);
 
       const rotated = new EncryptingAdapter(inner, keyring("k2", "k1"), MEMBER_CONFIG);
-      inner.seed("test.Member", [{ objectId: "m3", values: await rotated.seal("test.Member", MEMBERS.m3!) }]);
-      expect((await stored(inner, "test.Member", "m1")).ssn).toMatch(/^tsenc1\.k1\./);
-      expect((await stored(inner, "test.Member", "m3")).ssn).toMatch(/^tsenc1\.k2\./);
+      inner.seed("test.Member", [{ objectId: "m3", values: await rotated.seal("test.Member", "m3", MEMBERS.m3!) }]);
+      expect((await stored(inner, "test.Member", "m1")).ssn).toMatch(/^tsenc2\.k1\./);
+      expect((await stored(inner, "test.Member", "m3")).ssn).toMatch(/^tsenc2\.k2\./);
       expect((await rotated.resolveProperties("test.Member", "m1", [])).values).toEqual(MEMBERS.m1);
       expect(await query(rotated, { property: "ssn", operator: "eq", value: "123-45-6789" })).toEqual(["m1", "m3"]); // one value, two keys' indexes
 
@@ -263,7 +309,7 @@ describe("EncryptingAdapter (ADR-0033)", () => {
     const encrypted = new EncryptingAdapter(inner, keys, HOSPITAL_CONFIG);
     for (const type of ["hospital.Patient", "hospital.Provider", "hospital.Appointment"]) {
       const { items } = await plain.adapter.queryByType(type);
-      inner.seed(type, await Promise.all(items.map(async (i) => ({ objectId: i.objectId, values: await encrypted.seal(type, i.values) }))));
+      inner.seed(type, await Promise.all(items.map(async (i) => ({ objectId: i.objectId, values: await encrypted.seal(type, i.objectId, i.values) }))));
     }
     const { runtime } = await buildRuntime({ manifests: [coreManifest, hospitalManifest], adapters: [encrypted], policyRules: hospitalPolicyRules });
     return { plain: plain.runtime, runtime, inner, encrypted, keys };
@@ -275,7 +321,7 @@ describe("EncryptingAdapter (ADR-0033)", () => {
       const dump = JSON.stringify((await inner.queryByType("hospital.Patient")).items);
       for (const value of PHI) for (const encoded of encodings(value)) expect(dump).not.toContain(encoded);
       // assignedClinicianId values appear elsewhere in the store as Provider ids, so check the Patient rows' field itself.
-      for (const item of (await inner.queryByType("hospital.Patient")).items) expect(item.values.assignedClinicianId).toMatch(/^tsenc1\./);
+      for (const item of (await inner.queryByType("hospital.Patient")).items) expect(item.values.assignedClinicianId).toMatch(/^tsenc2\./);
     });
 
     it("a tampered ciphertext fails its tag — body, IV, key id, truncation — and the read fails, never returning plaintext", async () => {
@@ -312,11 +358,11 @@ describe("EncryptingAdapter (ADR-0033)", () => {
       await expect(elsewhere.resolveProperties("hospital.Provider", "PR-2001", [])).rejects.toBeInstanceOf(DecryptionError);
     });
 
-    it("pinned residual: a ciphertext swapped between two records of the same Type and field is NOT detected (ADR-0033 review item)", async () => {
+    it("a ciphertext swapped between two records of the same Type and field is detected (the ADR-0033 residual, closed by ADR-0035)", async () => {
       const { inner, encrypted } = await hospitalWorlds();
       const [a, b] = [await stored(inner, "hospital.Patient", "PT-1001"), await stored(inner, "hospital.Patient", "PT-1002")];
       inner.seed("hospital.Patient", [{ objectId: "PT-1002", values: { ...b, dateOfBirth: a.dateOfBirth } }]);
-      expect((await encrypted.resolveProperties("hospital.Patient", "PT-1002", [])).values.dateOfBirth).toBe("1985-03-14");
+      await expect(encrypted.resolveProperties("hospital.Patient", "PT-1002", [])).rejects.toThrow(/dateOfBirth of "PT-1002" failed authentication/);
     });
 
     it("an edited blind index can't redirect an equality lookup to the wrong record", async () => {
@@ -348,7 +394,7 @@ describe("EncryptingAdapter (ADR-0033)", () => {
       const original = await stored(inner, "hospital.Patient", "PT-1001");
       inner.seed("hospital.Patient", [{ objectId: "PT-1001", values: { ...original, dateOfBirth: `${String(original.dateOfBirth).slice(0, -3)}AAA` } }]);
       const err = (await encrypted.resolveProperties("hospital.Patient", "PT-1001", []).catch((e: unknown) => e)) as Error;
-      expect(err.message).not.toMatch(/tsenc1|1985|MRN/);
+      expect(err.message).not.toMatch(/tsenc\d\.[A-Za-z0-9_-]|1985|MRN/); // no envelope, no plaintext
       expect(err.message).toContain("hospital.Patient.dateOfBirth");
     });
   });

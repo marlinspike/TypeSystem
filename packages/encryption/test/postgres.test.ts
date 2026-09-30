@@ -33,8 +33,8 @@ describe.skipIf(!hasDb)("EncryptingAdapter over PostgresRepositoryAdapter", () =
 
   beforeEach(async () => {
     await pool.query(`DELETE FROM objects WHERE type_name = 'fleet.Pilot'`);
-    await put("fleet.Pilot", "p1", await adapter.seal("fleet.Pilot", { id: "p1", callsign: "MAVERICK", homeAddress: "12 Runway Rd" }));
-    await put("fleet.Pilot", "p2", await adapter.seal("fleet.Pilot", { id: "p2", callsign: "ICEMAN", homeAddress: "34 Hangar Ln" }));
+    await put("fleet.Pilot", "p1", await adapter.seal("fleet.Pilot", "p1", { id: "p1", callsign: "MAVERICK", homeAddress: "12 Runway Rd" }));
+    await put("fleet.Pilot", "p2", await adapter.seal("fleet.Pilot", "p2", { id: "p2", callsign: "ICEMAN", homeAddress: "34 Hangar Ln" }));
   });
 
   it("the row in the database holds no plaintext", async () => {
@@ -47,6 +47,13 @@ describe.skipIf(!hasDb)("EncryptingAdapter over PostgresRepositoryAdapter", () =
     expect((await adapter.resolveProperties("fleet.Pilot", "p1", [])).values).toEqual({ id: "p1", callsign: "MAVERICK", homeAddress: "12 Runway Rd" });
     const found = await adapter.queryByType("fleet.Pilot", { property: "callsign", operator: "eq", value: "ICEMAN" });
     expect(found.items.map((i) => i.objectId)).toEqual(["p2"]);
+  });
+
+  it("a ciphertext moved between rows in the database fails closed (ADR-0035)", async () => {
+    await pool.query(
+      `UPDATE objects SET values = jsonb_set(values, '{homeAddress}', (SELECT values->'homeAddress' FROM objects WHERE object_id = 'p1')) WHERE object_id = 'p2'`
+    );
+    await expect(adapter.resolveProperties("fleet.Pilot", "p2", [])).rejects.toThrow(/homeAddress of "p2" failed authentication/);
   });
 
   it("a ciphertext tampered with in the database fails closed", async () => {

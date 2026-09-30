@@ -20,7 +20,7 @@ const patients = new EncryptingAdapter(new PostgresRepositoryAdapter(pool, "hosp
     }
   },
   // Every Action this adapter executes: the Type its input writes, or null.
-  actions: { RegisterPatient: "hospital.Patient" }
+  actions: { RegisterPatient: { type: "hospital.Patient", idField: "id" } }
 });
 
 const { runtime } = await buildRuntime({ manifests, adapters: [patients], policyRules });
@@ -29,7 +29,7 @@ const { runtime } = await buildRuntime({ manifests, adapters: [patients], policy
 Bulk loads that use an adapter's own write method encrypt first:
 
 ```ts
-await pg.put("hospital.Patient", id, await patients.seal("hospital.Patient", record));
+await pg.put("hospital.Patient", id, await patients.seal("hospital.Patient", id, record));
 ```
 
 ## What you get, and what you give up
@@ -48,10 +48,17 @@ property, so on a Type with an encrypted field, name `search.properties`.
 ## It fails closed
 
 - A value that isn't a valid envelope, names a key the keyring doesn't
-  hold, or fails the GCM tag — tampered, truncated, moved to another field or
-  Type, or read with the wrong key — throws `DecryptionError`; the read
-  fails and nothing is returned. The message names the Type, field, and
-  object, never a value.
+  hold, or fails the GCM tag — tampered, truncated, moved to another record,
+  field, or Type, or read with the wrong key — throws `DecryptionError`; the
+  read fails and nothing is returned. The message names the Type, field, and
+  object, never a value. Every envelope (`tsenc2`) is bound to its record
+  ([ADR-0035](../../docs/adr/0035-record-bound-encryption-envelope.md)), so a
+  write must name the record: `seal(type, id, values)`, and an Action names
+  the input field that carries the id.
+- Unbound `tsenc1` envelopes from before record binding are refused unless
+  `legacyUnboundEnvelopes: "read"` is set for a migration; `reseal(type, id,
+  stored)` rewrites them bound, and re-encrypts under the active key after a
+  rotation.
 - A deterministic field's blind index is checked against its decrypted value
   on every read, so an edited index can't make a lookup return another
   record.
@@ -73,7 +80,8 @@ makes whatever is still under it unreadable.
 
 ## Before production
 
-Read the review list in ADR-0033: the construction is unreviewed by a
-cryptographer, a ciphertext can be swapped between records of the same Type
-and field, and the runtime's cache holds decrypted values — don't cache
+Read the review lists in ADR-0033 and ADR-0035: the construction is
+unreviewed by a cryptographer, the legacy-migration window accepts
+downgrades while it's open, deleting or replaying a whole record isn't
+detected, and the runtime's cache holds decrypted values — don't cache
 encrypted Types.

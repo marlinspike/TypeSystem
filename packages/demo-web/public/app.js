@@ -1493,7 +1493,7 @@ async function renderClassification() {
       .join("")}</tbody></table>`;
 }
 
-const keyIdOf = (envelope) => (typeof envelope === "string" && envelope.startsWith("tsenc1.") ? envelope.split(".")[1] : null);
+const keyIdOf = (envelope) => (typeof envelope === "string" && /^tsenc\d\./.test(envelope) ? envelope.split(".")[1] : null);
 const clip = (s, head = 22, tail = 6) => (s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s);
 
 async function renderEncryption() {
@@ -1569,6 +1569,19 @@ async function runEncTamper() {
   </div>`);
 }
 
+async function runEncSwap() {
+  const r = await api("/api/security/swap", post({}), "swap between records (sandbox copy)");
+  showEncResult(`<div class="tamper">
+    <div><span class="store-label">moved</span><code class="cipher-line">${escapeHtml(clip(r.moved, 30, 12))}</code> <span class="muted">from ${escapeHtml(r.from)} into ${escapeHtml(r.to)}</span></div>
+    <div class="tamper-outcome ${r.decrypted ? "bad" : "good"}">${
+      r.decrypted ? "Decrypted — this should never happen." : `Read refused: <strong>${escapeHtml(r.error)}</strong> <span class="muted">${escapeHtml(r.message)}</span>`
+    }</div>
+    <p class="muted small">A perfectly valid ciphertext, under a key the ring holds — but bound to ${escapeHtml(r.from)}. Moved into ${escapeHtml(
+      r.to
+    )}'s record, it no longer authenticates (ADR-0035). The real store is untouched.</p>
+  </div>`);
+}
+
 async function runParity() {
   const btn = $("#parityBtn");
   btn.disabled = true;
@@ -1626,6 +1639,7 @@ function initSecurityTab() {
   $("#encLookup").addEventListener("click", runEncLookup);
   $("#encSort").addEventListener("click", runEncSort);
   $("#encTamper").addEventListener("click", runEncTamper);
+  $("#encSwap").addEventListener("click", runEncSwap);
   $("#parityBtn").addEventListener("click", runParity);
   $(".cedar-source").addEventListener("toggle", (e) => {
     if (e.target.open) void loadCedarSource();
