@@ -154,20 +154,27 @@ async function setup(opts: { policyEngine?: PolicyEngine; classification?: Class
     }
   });
   await registerType(registry, "test.Notice", { title: "Notice", properties: strings(["id", "title", "location"]), "x-policy": { objectPolicy: "public" } });
-  await registry.registerAction({
-    id: "action-file-annex",
-    name: "FileAnnex",
-    description: "Files an annex against a report.",
-    applicableTypes: ["test.Annex"],
-    inputSchema: { type: "object", properties: { reportId: { type: "string" } }, required: ["reportId"] },
-    outputSchema: { type: "object" },
-    authorizationPolicy: "public",
-    implementation: { dataSourceId: "marked-ds", operation: "fileAnnex" },
-    sideEffects: "creates",
-    idempotency: "none",
-    auditRequired: true,
-    version: "1.0.0"
-  });
+  // FileAnnex and SealAnnex act on the SECRET Annex (one open to all, one analysts-only); PinNotice on the unmarked Notice.
+  for (const [name, applicableType, authorizationPolicy] of [
+    ["FileAnnex", "test.Annex", "public"],
+    ["SealAnnex", "test.Annex", "analysts-only"],
+    ["PinNotice", "test.Notice", "public"]
+  ] as const) {
+    await registry.registerAction({
+      id: `action-${name}`,
+      name,
+      description: `${name}.`,
+      applicableTypes: [applicableType],
+      inputSchema: { type: "object", properties: { reportId: { type: "string" } }, required: ["reportId"] },
+      outputSchema: { type: "object" },
+      authorizationPolicy,
+      implementation: { dataSourceId: "marked-ds", operation: name },
+      sideEffects: "creates",
+      idempotency: "none",
+      auditRequired: true,
+      version: "1.0.0"
+    });
+  }
 
   let policyEngine = opts.policyEngine;
   if (!policyEngine) {
@@ -361,8 +368,9 @@ describe("Data classification (ADR-0032)", () => {
       const { runtime, adapter } = await setup();
       await expect(runtime.invokeAction("FileAnnex", { reportId: "r1" }, cui)).rejects.toBeInstanceOf(AuthorizationError);
       expect(adapter.actions).toEqual([]);
-      expect((await runtime.listActions("test.Annex", cui)).map((a) => a.authorized)).toEqual([false]);
-      expect((await runtime.listActions("test.Annex", secret)).map((a) => a.authorized)).toEqual([true]);
+      const authorized = async (who: Identity) => Object.fromEntries((await runtime.listActions("test.Annex", who)).map((a) => [a.action.name, a.authorized]));
+      expect(await authorized(cui)).toEqual({ FileAnnex: false, SealAnnex: false });
+      expect(await authorized(secret)).toEqual({ FileAnnex: true, SealAnnex: false });
       await expect(runtime.invokeAction("FileAnnex", { reportId: "r1" }, secret)).resolves.toMatchObject({ id: "a1" });
     });
 
@@ -420,6 +428,68 @@ describe("Data classification (ADR-0032)", () => {
         ["(type)", "deny"],
         ["a1", "deny"]
       ]);
+    });
+  });
+
+  describe("listActions audits every decision it reports", () => {
+    /** The audit rows `run` writes, oldest first, as comparable tuples: what was decided, by which control, and why. */
+    async function rowsWrittenBy(registry: SemanticRegistry, run: () => Promise<unknown>) {
+      const before = (await registry.listAuditEvents({ limit: 100_000 })).items.length;
+      await run().catch(() => undefined);
+      const all = (await registry.listAuditEvents({ limit: 100_000 })).items;
+      return all
+        .slice(0, all.length - before)
+        .reverse()
+        .filter((e) => e.outcome === undefined) // an executed Action's outcome row is not a decision
+        .map((e) => [e.subjectId, e.action, e.resource.typeName, e.details?.control ?? "policy", e.decision, e.reason ?? null]);
+    }
+
+    it("writes the policy row and the classification row for each Action on a marked Type — allow and deny", async () => {
+      const { runtime, registry } = await setup();
+      const listed = (who: Identity) => rowsWrittenBy(registry, () => runtime.listActions("test.Annex", who));
+
+      expect(await listed(secretAnalyst)).toEqual([
+        ["secret-analyst", "FileAnnex", "test.Annex", "policy", "allow", null],
+        ["secret-analyst", "FileAnnex", "test.Annex", "classification", "allow", null],
+        ["secret-analyst", "SealAnnex", "test.Annex", "policy", "allow", null],
+        ["secret-analyst", "SealAnnex", "test.Annex", "classification", "allow", null]
+      ]);
+      // Policy denies SealAnnex, so — exactly as invokeAction would — its clearance is never asked.
+      expect(await listed(secret)).toEqual([
+        ["secret", "FileAnnex", "test.Annex", "policy", "allow", null],
+        ["secret", "FileAnnex", "test.Annex", "classification", "allow", null],
+        ["secret", "SealAnnex", "test.Annex", "policy", "deny", "Requires one of roles [analyst], subject has [reader]"]
+      ]);
+      expect(await listed(cuiAnalyst)).toEqual([
+        ["cui-analyst", "FileAnnex", "test.Annex", "policy", "allow", null],
+        ["cui-analyst", "FileAnnex", "test.Annex", "classification", "deny", "Requires a higher clearance"],
+        ["cui-analyst", "SealAnnex", "test.Annex", "policy", "allow", null],
+        ["cui-analyst", "SealAnnex", "test.Annex", "classification", "deny", "Requires a higher clearance"]
+      ]);
+    });
+
+    it("writes exactly the decision rows invokeAction's gates write for the same identity and Action", async () => {
+      for (const who of [uncleared, cui, secret, secretAnalyst, cuiAnalyst, topSecret]) {
+        for (const actionName of ["FileAnnex", "SealAnnex"]) {
+          const listing = await setup();
+          const listed = await rowsWrittenBy(listing.registry, () => listing.runtime.listActions("test.Annex", who));
+          const invoking = await setup();
+          const invoked = await rowsWrittenBy(invoking.registry, () => invoking.runtime.invokeAction(actionName, { reportId: "r1" }, who));
+          expect(listed.filter((row) => row[1] === actionName)).toEqual(invoked);
+        }
+      }
+    });
+
+    it("writes policy rows but no classification row for an Action on an unmarked Type", async () => {
+      const { runtime, registry } = await setup();
+      expect(await rowsWrittenBy(registry, () => runtime.listActions("test.Notice", cui))).toEqual([["cui", "PinNotice", "test.Notice", "policy", "allow", null]]);
+    });
+
+    it("choosing a default search's properties is query planning, not an access decision, and writes no row for the fields it skips", async () => {
+      const { runtime, registry } = await setup();
+      const rows = await rowsWrittenBy(registry, () => runtime.query({ type: "test.Report", search: { text: "no such text" } }, cui));
+      // Nothing matched, so nothing was read: no classification row at all, not a deny per unsearched field.
+      expect(rows.filter((row) => row[3] === "classification")).toEqual([]);
     });
   });
 
