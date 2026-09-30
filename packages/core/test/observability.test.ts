@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { trace, metrics, context } from "@opentelemetry/api";
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
@@ -5,7 +6,7 @@ import { MeterProvider, InMemoryMetricExporter, PeriodicExportingMetricReader, A
 import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
 import { SemanticRegistry } from "../src/registry/registry.js";
 import { InMemoryRegistryStore } from "../src/registry/in-memory-registry-store.js";
-import { SemanticRuntime } from "../src/runtime/runtime.js";
+import { SemanticRuntime, type SemanticRuntimeOptions } from "../src/runtime/runtime.js";
 import { InMemoryCache } from "../src/runtime/cache.js";
 import { AbacPolicyEngine, allowAllRule, anyOf, requireAttributeMatch, requireRole } from "../src/policy/abac-policy-engine.js";
 import type { Adapter, ResolvedProperties, RelatedRef, AdapterQueryResult } from "../src/runtime/adapter.js";
@@ -266,6 +267,57 @@ describe("OpenTelemetry instrumentation (ADR-0017) — with a real SDK registere
     const span = spanExporter.getFinishedSpans().find((s) => s.name === "SemanticRuntime.query")!;
     expect(span.attributes).toMatchObject({ "typesys.authz.plan.kind": "predicate", "typesys.authz.plan.exact": true, "typesys.authz.plan.limitations": "" });
     expect(JSON.stringify(spanExporter.getFinishedSpans().map((s) => s.attributes))).not.toMatch(/PR-SECRET-77|ownerId/);
+  });
+
+  describe("telemetry identity policy (ADR-0045)", () => {
+    const withPolicy = async (telemetryIdentity: SemanticRuntimeOptions["telemetryIdentity"]) => {
+      const { registry } = await buildTestbed();
+      const policyEngine = new AbacPolicyEngine();
+      policyEngine.registerRule("public", allowAllRule);
+      return new SemanticRuntime(registry, [new StubAdapter()], policyEngine, { telemetryIdentity });
+    };
+    const spanAttributes = () => spanExporter.getFinishedSpans().map((s) => s.attributes);
+    const alice: Identity = { subjectId: "alice@example.mil", roles: [], attributes: {} };
+
+    it('"none" puts no identity on any span', async () => {
+      const runtime = await withPolicy("none");
+      await runtime.getObject("test.Thing", "obj-1", alice);
+      await runtime.query({ type: "test.Thing" }, alice);
+      expect(spanAttributes().length).toBeGreaterThan(0);
+      expect(JSON.stringify(spanAttributes())).not.toContain("alice");
+      expect(spanAttributes().every((a) => !("typesys.identity.subject_id" in a) && !("typesys.identity.pseudonym" in a))).toBe(true);
+    });
+
+    it("pseudonymous: a keyed pseudonym, stable per subject and key, that isn't the id or its plain hash", async () => {
+      const key = new Uint8Array(32).fill(7);
+      const runtime = await withPolicy({ mode: "pseudonymous", key });
+      await runtime.getObject("test.Thing", "obj-1", alice);
+      await runtime.getObject("test.Thing", "obj-1", alice);
+      await runtime.getObject("test.Thing", "obj-1", { ...alice, subjectId: "bob@example.mil" });
+      const pseudonyms = spanAttributes().map((a) => a["typesys.identity.pseudonym"]);
+      expect(pseudonyms[0]).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      expect(pseudonyms[1]).toBe(pseudonyms[0]);
+      expect(pseudonyms[2]).not.toBe(pseudonyms[0]);
+      expect(pseudonyms[0]).not.toBe(createHash("sha256").update("alice@example.mil").digest().subarray(0, 16).toString("base64url"));
+      expect(JSON.stringify(spanAttributes())).not.toContain("alice");
+      spanExporter.reset();
+      await (await withPolicy({ mode: "pseudonymous", key: new Uint8Array(32).fill(8) })).getObject("test.Thing", "obj-1", alice);
+      expect(spanAttributes()[0]!["typesys.identity.pseudonym"]).not.toBe(pseudonyms[0]);
+    });
+
+    it("the audit log keeps the attributable subject id whatever telemetry does", async () => {
+      const { registry } = await buildTestbed();
+      const policyEngine = new AbacPolicyEngine();
+      policyEngine.registerRule("public", allowAllRule);
+      await new SemanticRuntime(registry, [new StubAdapter()], policyEngine, { telemetryIdentity: "none" }).getObject("test.Thing", "obj-1", alice);
+      expect((await registry.listAuditEvents({ limit: 5 })).items[0]?.subjectId).toBe("alice@example.mil");
+    });
+
+    it("attack: a malformed policy fails at construction — an unknown mode, a short or non-byte key", async () => {
+      for (const policy of ["hashed", "CLEAR", { mode: "pseudonymous" }, { mode: "pseudonymous", key: new Uint8Array(31) }, { mode: "pseudonymous", key: "k".repeat(64) }, { mode: "hash", key: new Uint8Array(32) }, null]) {
+        await expect(withPolicy(policy as never)).rejects.toThrow(/telemetryIdentity/);
+      }
+    });
   });
 
   it("records policy decisions and operation duration on the registered MeterProvider without throwing", async () => {

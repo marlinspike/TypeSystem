@@ -44,7 +44,13 @@ happened first.
 `.getProvenance`, `.listActions`, `.invokeAction`), each with:
 
 - `typesys.type_name`, `typesys.object_id` (when applicable)
-- `typesys.identity.subject_id`
+- the caller, per the `telemetryIdentity` option
+  ([ADR-0045](../adr/0045-telemetry-identity-policy.md)):
+  `typesys.identity.subject_id` under `"clear"` (the default), nothing under
+  `"none"`, or `typesys.identity.pseudonym` — an HMAC of the subject id
+  under a key you supply, at least 32 bytes — under
+  `{ mode: "pseudonymous", key }`. Traces travel further than the audit log;
+  choose accordingly. Audit rows always keep the subject id.
 - `typesys.action_name` (for `invokeAction`)
 - `typesys.cache.hit` (`true`/`false`) on any cache-aware call
 - an `exception` event + ERROR status if the call threw

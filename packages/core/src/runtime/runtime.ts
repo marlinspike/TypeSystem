@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHmac } from "node:crypto";
 import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
@@ -87,6 +88,20 @@ function objectPolicyOf(typeDef: TypeDefinition): string {
 /** A property's or relationship's own policy, if it declares one — which narrows the object policy, never replaces it (ADR-0030). */
 function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undefined {
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
+}
+
+/** How much of the caller's identity telemetry carries (ADR-0045). */
+export type TelemetryIdentity = "none" | "clear" | { mode: "pseudonymous"; key: Uint8Array };
+
+/** The span attributes a telemetry identity policy yields for a subject, resolved once per runtime. */
+function telemetryIdentityOf(policy: unknown): (identity: Identity) => Record<string, string> {
+  if (policy === "clear") return (identity) => ({ "typesys.identity.subject_id": identity.subjectId });
+  if (policy === "none") return () => ({});
+  const { mode, key } = (typeof policy === "object" && policy !== null ? policy : {}) as { mode?: unknown; key?: unknown };
+  if (mode !== "pseudonymous") throw new TypeError(`telemetryIdentity must be "none", "clear", or { mode: "pseudonymous", key }`);
+  if (!(key instanceof Uint8Array) || key.length < 32) throw new TypeError("telemetryIdentity's pseudonym key must be at least 32 bytes");
+  const secret = Buffer.from(key);
+  return (identity) => ({ "typesys.identity.pseudonym": createHmac("sha256", secret).update(identity.subjectId, "utf8").digest().subarray(0, 16).toString("base64url") });
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
@@ -195,6 +210,13 @@ export interface SemanticRuntimeOptions {
    */
   classification?: ClassificationScheme;
   /**
+   * How much of the caller's identity spans carry (ADR-0045). Default
+   * `"clear"`: `typesys.identity.subject_id`. `"none"`: nothing.
+   * Pseudonymous: `typesys.identity.pseudonym`, an HMAC-SHA-256 of the subject
+   * id under `key` (at least 32 bytes). Audit rows keep the subject id either way.
+   */
+  telemetryIdentity?: TelemetryIdentity;
+  /**
    * What `query` does with a read policy it can't plan exactly (ADR-0038).
    * Default `"post-filter"`: read with the best plan there is, decide every
    * object after the read. `"require-exact"`: refuse such a query.
@@ -222,6 +244,8 @@ export class SemanticRuntime {
   private readonly resilience: AdapterResilience;
   private readonly classification: ClassificationScheme;
   private readonly rowSecurity: RowSecurity;
+  /** The span attributes naming the caller, per the telemetry identity policy (ADR-0045). */
+  private readonly identityAttributes: (identity: Identity) => Record<string, string>;
   /** The call currently executing, if any: its concurrency budget and the operation it is (see `withRequest`). */
   private readonly request = new AsyncLocalStorage<{ budget: Semaphore; operation: RuntimeOperation }>();
 
@@ -247,6 +271,8 @@ export class SemanticRuntime {
     const rowSecurity = options.rowSecurity ?? "post-filter";
     if (rowSecurity !== "post-filter" && rowSecurity !== "require-exact") throw new TypeError(`rowSecurity must be "post-filter" or "require-exact"`);
     this.rowSecurity = rowSecurity;
+    // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
+    this.identityAttributes = telemetryIdentityOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
     this.adapters = new Map(adapters.map((a) => [a.dataSourceId, a]));
   }
@@ -936,7 +962,7 @@ export class SemanticRuntime {
     return this.withRequest("getObject", () => instrumentOperation(
       "SemanticRuntime.getObject",
       typeName,
-      { "typesys.object_id": objectId, "typesys.identity.subject_id": identity.subjectId },
+      { "typesys.object_id": objectId, ...this.identityAttributes(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
@@ -974,7 +1000,7 @@ export class SemanticRuntime {
     return this.withRequest("getRelationship", () => instrumentOperation(
       "SemanticRuntime.getRelationship",
       typeName,
-      { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, "typesys.identity.subject_id": identity.subjectId },
+      { "typesys.object_id": objectId, "typesys.relationship_name": relationshipName, ...this.identityAttributes(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
@@ -1024,7 +1050,7 @@ export class SemanticRuntime {
     return this.withRequest("query", () => instrumentOperation(
       "SemanticRuntime.query",
       typeof claimedType === "string" ? claimedType : "unknown",
-      { "typesys.identity.subject_id": identity.subjectId },
+      this.identityAttributes(identity),
       async () => {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
@@ -1129,7 +1155,7 @@ export class SemanticRuntime {
     return this.withRequest("aggregate", () => instrumentOperation(
       "SemanticRuntime.aggregate",
       typeof claimedType === "string" ? claimedType : "unknown",
-      { "typesys.identity.subject_id": identity.subjectId },
+      this.identityAttributes(identity),
       async () => {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateAggregateQuery(input);
@@ -1181,7 +1207,7 @@ export class SemanticRuntime {
     return this.withRequest("explainQuery", () => instrumentOperation(
       "SemanticRuntime.explainQuery",
       typeof claimedType === "string" ? claimedType : "unknown",
-      { "typesys.identity.subject_id": identity.subjectId },
+      this.identityAttributes(identity),
       async () => {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
@@ -1394,7 +1420,7 @@ export class SemanticRuntime {
     return this.withRequest("getProvenance", () => instrumentOperation(
       "SemanticRuntime.getProvenance",
       typeName,
-      { "typesys.object_id": objectId, "typesys.property_path": propertyPath, "typesys.identity.subject_id": identity.subjectId },
+      { "typesys.object_id": objectId, "typesys.property_path": propertyPath, ...this.identityAttributes(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = source?.typeDef ?? (await this.requireType(typeName));
@@ -1424,7 +1450,7 @@ export class SemanticRuntime {
     return this.withRequest("listActions", () => instrumentOperation(
       "SemanticRuntime.listActions",
       typeName,
-      { "typesys.identity.subject_id": identity.subjectId },
+      this.identityAttributes(identity),
       async () => {
         await this.checkRateLimit(identity);
         const all = await this.registry.listActions();
@@ -1448,7 +1474,7 @@ export class SemanticRuntime {
     return this.withRequest("invokeAction", () => instrumentOperation(
       "SemanticRuntime.invokeAction",
       primaryType,
-      { "typesys.action_name": action.name, "typesys.identity.subject_id": identity.subjectId },
+      { "typesys.action_name": action.name, ...this.identityAttributes(identity) },
       async () => {
         await this.checkRateLimit(identity);
         const gate = await this.authorizeInvoke(identity, action, primaryType);
