@@ -37,14 +37,18 @@ describe("audit completeness: the non-auditing decision primitives stay behind t
     ]);
   });
 
-  it("only dominates() asks the classification scheme", () => {
-    expect(callSites("this.classification.dominates(")).toEqual(["return this.classification.dominates(identity.clearance, marking) === true;"]);
+  it("only classify() asks the classification scheme (ADR-0041)", () => {
+    expect(callSites("this.classification.join(")).toEqual(["const answer: unknown = this.classification.join(marked);"]);
+    expect(callSites("this.classification.decide(")).toEqual([
+      "const joined = this.classification.decide({ subject: identity, markings: label, context });",
+      "const each = this.classification.decide({ subject: identity, markings: [marking], context });"
+    ]);
   });
 
-  it("dominates() is called by clearedFor(), which audits, and by default-search planning, which decides no access", () => {
-    expect(callSites("this.dominates(")).toEqual([
-      "const allow = marked.every((m) => this.dominates(identity, m));",
-      "return declared.filter((p) => !computed.has(p) && !gated.has(p) && memberMarkings(typeDef, p).every((m) => this.dominates(identity, m)));"
+  it("classify() is called by clearedFor(), which audits, and by default-search planning, which decides no access", () => {
+    expect(callSites("this.classify(")).toEqual([
+      "const { allow, label, reason } = this.classify(identity, marked, resource, action);",
+      'return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.classify(identity, memberMarkings(typeDef, p), { typeName: typeDef.name, propertyPath: p }, "read").allow);'
     ]);
   });
 });

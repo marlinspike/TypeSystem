@@ -75,9 +75,13 @@ says so.
    audited (`packages/core/test/data-classification.test.ts`). Since
    ADR-0034 the default is `DENY_MARKED_DATA`, so an unconfigured
    deployment can't read marked data, and the shipped ordering is named
-   `DEMO_LINEAR_CLASSIFICATION` because it is not the US model. Still open:
-   a scheme matching the markings real data carries (dissemination
-   controls, compartments, CUI as its own regime — ADR-0041), value-level
+   `DEMO_LINEAR_CLASSIFICATION` because it is not the US model. Since
+   ADR-0041 schemes decide whole labels for whole subjects and join derived
+   labels, and the reference `securityLabels` models compartments,
+   releasability, CUI as its own regime, and accreditation. Still open:
+   a scheme reviewed against the marking guide real data follows (the
+   dissemination-control register, CUI limited-dissemination controls,
+   declassification), value-level
    markings inside adapter-side aggregation, per-record markings, write
    rules, and a human review against the accreditation boundary.
 4. **Encryption in transit and at rest.** Not addressed anywhere. Secrets

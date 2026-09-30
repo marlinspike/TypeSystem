@@ -2,6 +2,10 @@
 
 ## Status
 
+*Amended by ADR-0041:* `DENY_MARKED_DATA` and the linear schemes now
+implement `decide` and `join` in place of `dominates`; the default and its
+semantics are unchanged.
+
 Accepted — implemented in `@typesys/core` (`runtime/classification.ts`:
 `DEMO_LINEAR_CLASSIFICATION`, `DENY_MARKED_DATA`, named schemes, and
 list-valued `objectMarkings` / `memberMarkings` / `valueMarkings`; the
