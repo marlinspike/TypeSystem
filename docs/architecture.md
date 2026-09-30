@@ -36,7 +36,7 @@ flowchart TB
     subgraph Core["@typesys/core"]
         MODEL["Semantic Model\n(Type / Relationship / Action /\nPolicy / Provenance / DataSource / Mapping)"]
         REGISTRY["Semantic Registry\n(validates + composes + stores TypeDefinitions)"]
-        RUNTIME["Semantic Runtime\n(getObject / getRelationship / query /\ngetProvenance / listActions / invokeAction)"]
+        RUNTIME["Semantic Runtime\n(getObject / getRelationship / query / aggregate /\ngetProvenance / listActions / invokeAction)"]
         POLICY["Policy Engine (ABAC)"]
         AUDIT["Audit Log"]
     end
@@ -67,6 +67,7 @@ flowchart TB
     AUDIT -. written by .- RUNTIME
     CACHE["Cache (ADR-0016)"] -. consulted by .- RUNTIME
     RATELIMIT["RateLimiter (ADR-0019)"] -. checked by .- RUNTIME
+    RESILIENCE["Resilience: timeout / retry / breaker (ADR-0026)"] -. wraps adapter calls of .- RUNTIME
 ```
 
 Three adapter styles, not two: `InMemoryRepositoryAdapter` (a
@@ -74,9 +75,10 @@ database-shaped stand-in), `MockRestAdapter` (an external-system-shaped
 stand-in with its own field names), and `PostgresRepositoryAdapter`
 (`@typesys/adapter-postgres`) — a real PostgreSQL-backed implementation
 of the identical `Adapter` interface, proven against actual rows, not
-mocks. `Cache` and `RateLimiter` sit at the same Runtime boundary
-`Policy`/`Audit` do — consulted/checked once, in `SemanticRuntime`,
-never re-implemented per transport.
+mocks. `Cache`, `RateLimiter`, and the per-call resilience policy
+(timeouts / retries / circuit-breaking, ADR-0026) sit at the same Runtime
+boundary `Policy`/`Audit` do — consulted/checked/applied once, in
+`SemanticRuntime`, never re-implemented per transport.
 
 Reading the diagram: a **Type** (defined in the Semantic Model) is validated
 and composed by the **Semantic Registry** at registration time. The
