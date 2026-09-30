@@ -1098,7 +1098,7 @@ const GUARDS = [
   {
     title: "…but counting exactly what you can see",
     identity: "patient",
-    why: "The patient's rule tests the record's own id, which the store can filter on, so its plan is exact: the count runs over exactly the rows this patient may read (ADR-0038). Cedar policies don't plan yet (ADR-0039), so under Cedar the count is still refused.",
+    why: "The patient's rule tests the record's own id, which the store can filter on, so its plan is exact: the count runs over exactly the rows this patient may read (ADR-0038). Cedar plans it too (ADR-0039), but can't call the plan exact: Cedar refuses a record whose declared attributes are mistyped, which no filter can exclude, and this demo doesn't assert its store enforces the schema. So under Cedar the count is refused.",
     expect: "200 and a count of 1 · 403 under Cedar",
     run: () =>
       request(withIdentity("/api/aggregate", "patient"), post({ type: "hospital.Patient", aggregations: [{ name: "patients", op: "count" }] }), "aggregate as the patient"),

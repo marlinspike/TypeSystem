@@ -80,6 +80,24 @@ when {
   quote Cedar's messages, which can contain attribute values — those go to
   `onError`.
 
+## Planning
+
+`plan()` (ADR-0039) asks Cedar's partial evaluation what the policy set
+admits with the resource unknown, and translates the residuals into an
+[authorization plan](../../docs/adr/0038-authorization-planning.md): the
+runtime pushes it into the adapter's filter and, when it is exact, lets an
+aggregate span exactly the readable rows. Shapes the positive predicate
+language can't hold — `like`, comparisons, `in`, a remaining `!` or `has` —
+become `true`, so a plan only ever admits more than Cedar allows, and a
+`forbid` that could exclude objects leaves the plan inexact.
+
+Cedar refuses any object whose declared attributes are mistyped, which no
+filter can express. So for a Type that declares resource attributes a plan
+is exact only if the engine is built with `schemaConformantData: true` —
+your assertion that the store only holds values of the schema's types. Set
+it only where the store enforces them: with it, a malformed row is still
+dropped after the read, but an aggregate would count it.
+
 ## Tests
 
 `test/cedar-policy-engine.test.ts` covers the engine itself: the mapping,
@@ -88,3 +106,6 @@ path. `test/parity.test.ts` runs both demo domains on `AbacPolicyEngine`
 and on this engine over identical data and requires the same result and the
 same audited decision at every policy checkpoint — every read path, object,
 property, relationship, and the Action, for fifteen identities.
+`test/planning.test.ts` holds the planner to soundness and exactness against
+a reference evaluator and Cedar's own decisions, and shows planning changes
+no query result.

@@ -170,6 +170,10 @@ describe("the ABAC planner (ADR-0038)", () => {
   };
   const planFor = (rule: PolicyRule, subject: Identity) => engineWith({ p: rule }).plan(request(subject));
   const opaque: PolicyRule = () => ({ allow: false });
+  const throwsOnNumbers: PolicyRule = (r) => {
+    if (typeof r.resource.attributes?.ownerId === "number") throw new Error("unexpected shape");
+    return { allow: false };
+  };
 
   it("each combinator plans from the structure it evaluates", async () => {
     const alice = who({ userId: "alice" });
@@ -197,6 +201,21 @@ describe("the ABAC planner (ADR-0038)", () => {
     expect(await planFor(allOf(requireRole("auditor"), opaque), alice)).toBe(NEVER);
     expect(await planFor(allOf(opaque, requireAttributeMatch("ownerId", "userId")), alice)).toEqual(predicatePlan(atom("ownerId", "alice"), [{ code: "opaque-rule", policyName: "p" }]));
     expect(await planFor(anyOf(opaque, requireAttributeMatch("ownerId", "userId")), alice)).toEqual(u);
+  });
+
+  it("anyOf: an alternative that throws doesn't allow, and doesn't stop a later one — so always OR opaque is exact in any order", async () => {
+    const throwing: PolicyRule = () => {
+      throw new Error("lookup failed");
+    };
+    const staff = who({ userId: "alice" });
+    const request = { subject: staff, action: "read" as const, policyName: "p", resource: { typeName: "T", objectId: "o", attributes: {} } };
+    await expect(Promise.resolve(anyOf(throwing, requireRole("staff"))(request))).resolves.toMatchObject({ allow: true });
+    const denied = await anyOf(throwing, requireRole("auditor"))(request);
+    expect(denied.allow).toBe(false);
+    expect(denied.reason).toContain("an alternative failed to evaluate");
+    expect(await planFor(anyOf(throwing, requireRole("staff")), staff)).toBe(ALWAYS);
+    // allOf still fails closed on a throw: the whole conjunction is refused.
+    await expect(Promise.resolve(allOf(requireRole("staff"), throwing)(request))).rejects.toThrow("lookup failed");
   });
 
   it("an unregistered policy denies everything, so it plans never", async () => {
@@ -227,6 +246,11 @@ describe("the ABAC planner (ADR-0038)", () => {
       "staff-owner": allOf(requireRole("staff"), requireAttributeMatch("ownerId", "userId")),
       "nested": anyOf(allOf(requireRole("auditor"), requireAttributeMatch("reviewerId", "userId")), allOf(requireRole("staff"), anyOf(requireAttributeMatch("ownerId", "userId"), requireRole("admin")))),
       "with-opaque-and": allOf(opaque, requireAttributeMatch("ownerId", "userId")),
+      // Opaque rules that throw on some objects — before and after an alternative that always allows, and inside an AND.
+      "throwing-first": anyOf(throwsOnNumbers, requireRole("staff")),
+      "throwing-last": anyOf(requireRole("staff"), throwsOnNumbers),
+      "throwing-and": anyOf(allOf(throwsOnNumbers, requireRole("auditor")), requireRole("staff")),
+      "throwing-and-first": allOf(throwsOnNumbers, requireAttributeMatch("ownerId", "userId")),
       "with-opaque-or": anyOf((req) => ({ allow: req.resource.attributes?.reviewerId === "bob" }), requireAttributeMatch("ownerId", "userId"))
     };
     const cases = { typeName: "T", policyNames: [...Object.keys(rules), "unregistered"], subjects, objects };

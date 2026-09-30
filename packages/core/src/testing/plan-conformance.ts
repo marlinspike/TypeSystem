@@ -42,8 +42,9 @@ export async function checkPlanConformance(engine: PolicyEngine, cases: PlanConf
         continue;
       }
       for (const [index, attributes] of cases.objects.entries()) {
-        const decision = await engine.evaluate({ subject, action: "read", policyName, resource: { typeName: cases.typeName, objectId: `o${index}`, attributes } });
-        const allowed = decision.allow === true;
+        // As the runtime decides: only an explicit allow allows, and a throw denies.
+        const decision = await engine.evaluate({ subject, action: "read", policyName, resource: { typeName: cases.typeName, objectId: `o${index}`, attributes } }).catch(() => undefined);
+        const allowed = decision?.allow === true;
         const admitted = planAdmits(plan, attributes);
         if (allowed && !admitted) violations.push({ violation: "unsound", subjectId: subject.subjectId, policyName, object: index });
         else if (!allowed && admitted && isExact(plan)) violations.push({ violation: "overclaimed-exactness", subjectId: subject.subjectId, policyName, object: index });

@@ -71,11 +71,11 @@ interface Pair {
 }
 
 /**
- * The ABAC engine with its planner hidden (ADR-0038). Cedar doesn't plan until
- * ADR-0039, and a planning runtime reads fewer objects — so fewer decisions —
- * than one that decides every row; parity is about the decisions, so both
- * sides decide every row. That planning changes no result is proven on its own
- * in `domain-hospital/test/authorization-planning.test.ts`.
+ * An engine with its planner hidden (ADR-0038). A planning runtime reads fewer
+ * objects — so makes fewer decisions — than one that decides every row, and
+ * the two engines plan differently (ADR-0039); parity is about the decisions,
+ * so both sides decide every row. What planning does to results is compared in
+ * `planning-parity.test.ts`.
  */
 const withoutPlanner = (engine: PolicyEngine): PolicyEngine => ({ evaluate: (request) => engine.evaluate(request) });
 
@@ -83,7 +83,7 @@ async function pairOf(domain: string, build: () => Promise<{ registry: SemanticR
   const [a, c] = [await build(), await build()];
   const abac = { runtime: new SemanticRuntime(a.registry, a.adapters, withoutPlanner(a.policyEngine), CLASSIFIED), decisions: recordDecisions(a.registry) };
   // Only the engine differs: the same classification scheme the ABAC testbeds configure (ADR-0034).
-  const cedar = { runtime: new SemanticRuntime(c.registry, c.adapters, cedarEngine(), CLASSIFIED), decisions: recordDecisions(c.registry) };
+  const cedar = { runtime: new SemanticRuntime(c.registry, c.adapters, withoutPlanner(cedarEngine()), CLASSIFIED), decisions: recordDecisions(c.registry) };
 
   const objects = new Map<string, { id: string; properties: string[] }[]>();
   for (const typeDef of (await a.registry.listTypes()).filter((t) => t.name.startsWith(`${domain}.`))) {
