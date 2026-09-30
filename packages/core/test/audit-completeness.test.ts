@@ -32,7 +32,7 @@ describe("audit completeness: the non-auditing decision primitives stay behind t
   it("dominates() is called by clearedFor(), which audits, and by default-search planning, which decides no access", () => {
     expect(callSites("this.dominates(")).toEqual([
       "const allow = marked.every((m) => this.dominates(identity, m));",
-      "return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.dominates(identity, memberMarking(typeDef, p)));"
+      "return declared.filter((p) => !computed.has(p) && !gated.has(p) && memberMarkings(typeDef, p).every((m) => this.dominates(identity, m)));"
     ]);
   });
 });

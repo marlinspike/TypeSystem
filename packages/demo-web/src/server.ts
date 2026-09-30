@@ -14,7 +14,7 @@ import {
   SemanticRuntime,
   buildRuntime,
   coreManifest,
-  linearClassification,
+  DEMO_LINEAR_CLASSIFICATION,
   type Adapter,
   type Identity,
   type RateLimiter,
@@ -58,11 +58,6 @@ const DEMO_RESILIENCE: ResiliencePolicy = {
   circuitBreaker: { failureThreshold: 5, cooldownMs: 10_000 }
 };
 
-/**
- * The classification ordering the demo enforces (ADR-0032) — a linear demonstration scheme, passed
- * explicitly so the UI can draw it. Real markings add compartments and dissemination controls.
- */
-const CLASSIFICATION_LEVELS = ["UNCLASSIFIED", "CUI", "SECRET", "TOP_SECRET"];
 
 /**
  * Rate limiting applies to one dedicated identity, so the burst demo can exhaust a budget without
@@ -216,7 +211,8 @@ async function main(): Promise<void> {
     maxConcurrency: DEMO_MAX_CONCURRENCY,
     rateLimiter,
     resilience: DEMO_RESILIENCE,
-    classification: linearClassification(CLASSIFICATION_LEVELS)
+    // A demonstration ordering, configured explicitly (ADR-0034): not the US model.
+    classification: DEMO_LINEAR_CLASSIFICATION
   };
   const { registry, runtime: abacRuntime, policyEngine: abacEngine } = await buildRuntime({
     manifests: [coreManifest, airforceManifest, hospitalManifest],
@@ -293,7 +289,8 @@ async function main(): Promise<void> {
       rateLimit: { subjectId: BURST_IDENTITY.subjectId, ...BURST_LIMIT },
       dataSources: [airforce.inMemoryAdapter.dataSourceId, airforce.mockRestAdapter.dataSourceId, encrypted.adapter.dataSourceId],
       engines: ["abac", "cedar"],
-      classificationLevels: CLASSIFICATION_LEVELS,
+      classificationScheme: DEMO_LINEAR_CLASSIFICATION.name,
+      classificationLevels: DEMO_LINEAR_CLASSIFICATION.levels,
       encryption: {
         fields: encryptedFieldModes(),
         keyring: [

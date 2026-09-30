@@ -39,6 +39,12 @@ derivation, probe, search, query-gate, aggregate, provenance, or Action
 checks, letting a throwing scheme allow, or deciding classification after
 policies instead of before, fails the suite.
 
+**Amended by ADR-0034:** `US_CLASSIFICATION` is renamed
+`DEMO_LINEAR_CLASSIFICATION` (it is not the US model), and the runtime's
+default is now the explicit `DENY_MARKED_DATA` — marked data is denied until
+a scheme is configured — rather than the demo ordering. Point 2 below
+describes the original default.
+
 **Amended 2026-09-30 — an audit-completeness defect, found in review and
 fixed.** `listActions` computed its `authorized` flags correctly but through
 the non-auditing primitives: the clearance check through `dominates()`

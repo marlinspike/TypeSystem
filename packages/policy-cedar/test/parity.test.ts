@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { AuthorizationError, SemanticRuntime, type Adapter, type AuditEvent, type Identity, type SemanticRegistry } from "@typesys/core";
+import { AuthorizationError, DEMO_LINEAR_CLASSIFICATION, SemanticRuntime, type Adapter, type AuditEvent, type Identity, type SemanticRegistry } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
 import { buildHospitalTestbed, hospitalDemoIdentities } from "@typesys/domain-hospital";
 import { CedarPolicyEngine } from "../src/index.js";
@@ -16,6 +16,7 @@ import { CedarPolicyEngine } from "../src/index.js";
 const SCHEMA = readFileSync(new URL("../examples/demo-domains.cedarschema", import.meta.url), "utf8");
 const POLICIES = readFileSync(new URL("../examples/demo-domains.cedar", import.meta.url), "utf8");
 const cedarEngine = () => new CedarPolicyEngine({ schema: SCHEMA, policies: POLICIES });
+const CLASSIFIED = { classification: DEMO_LINEAR_CLASSIFICATION };
 
 const identity = (subjectId: string, roles: string[], attributes: Record<string, unknown> = {}): Identity => ({ subjectId, roles, attributes });
 
@@ -72,7 +73,8 @@ interface Pair {
 async function pairOf(domain: string, build: () => Promise<{ registry: SemanticRegistry; runtime: SemanticRuntime; adapters: Adapter[] }>): Promise<Pair> {
   const [a, c] = [await build(), await build()];
   const abac = { runtime: a.runtime, decisions: recordDecisions(a.registry) };
-  const cedar = { runtime: new SemanticRuntime(c.registry, c.adapters, cedarEngine()), decisions: recordDecisions(c.registry) };
+  // Only the engine differs: the same classification scheme the ABAC testbeds configure (ADR-0034).
+  const cedar = { runtime: new SemanticRuntime(c.registry, c.adapters, cedarEngine(), CLASSIFIED), decisions: recordDecisions(c.registry) };
 
   const objects = new Map<string, { id: string; properties: string[] }[]>();
   for (const typeDef of (await a.registry.listTypes()).filter((t) => t.name.startsWith(`${domain}.`))) {
@@ -200,7 +202,7 @@ describe("parity: CedarPolicyEngine decides exactly as AbacPolicyEngine (ADR-003
 describe("row-level authorization under Cedar (ADR-0030 + ADR-0031)", () => {
   async function cedarHospital() {
     const tb = await buildHospitalTestbed();
-    return { registry: tb.registry, runtime: new SemanticRuntime(tb.registry, [tb.adapter], cedarEngine()) };
+    return { registry: tb.registry, runtime: new SemanticRuntime(tb.registry, [tb.adapter], cedarEngine(), CLASSIFIED) };
   }
   const { clinician: clinicianA, otherClinician: clinicianB } = hospitalDemoIdentities;
   const ids = (objs: { objectId: string }[]) => objs.map((o) => o.objectId).sort();
@@ -235,7 +237,7 @@ describe("row-level authorization under Cedar (ADR-0030 + ADR-0031)", () => {
     async function worlds(extra: { objectId: string; values: Record<string, unknown> }[] = []) {
       const [a, c] = [await buildHospitalTestbed(), await buildHospitalTestbed()];
       for (const tb of [a, c]) tb.adapter.seed("hospital.Patient", extra);
-      return { abac: a.runtime, cedar: new SemanticRuntime(c.registry, [c.adapter], cedarEngine()) };
+      return { abac: a.runtime, cedar: new SemanticRuntime(c.registry, [c.adapter], cedarEngine(), CLASSIFIED) };
     }
 
     it("an identity whose declared claim has the wrong type is refused everything under Cedar", async () => {

@@ -96,8 +96,10 @@ document that gap rather than close it in this pass.
   dominate a Type's `x-provenance.defaultClassification`, a member's
   `x-provenance.properties[].classification`, and a value's
   `ProvenanceRef.classification`, under a pluggable `ClassificationScheme`
-  (default `UNCLASSIFIED < CUI < SECRET < TOP_SECRET`, fail-closed on missing
-  or unknown labels). Enforced once, at `SemanticRuntime`, beside the policy
+  (default `DENY_MARKED_DATA` — marked data denied until a scheme is
+  configured, ADR-0034 — with `DEMO_LINEAR_CLASSIFICATION`'s `UNCLASSIFIED <
+  CUI < SECRET < TOP_SECRET` for demos; fail-closed on missing or unknown
+  labels). Enforced once, at `SemanticRuntime`, beside the policy
   engine: classified objects are refused before any adapter call, values
   redacted with their provenance, computed properties inherit their inputs'
   markings, probes by filter/sort/search/aggregate refused, Actions on

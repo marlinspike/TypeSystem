@@ -5,7 +5,7 @@ import { SemanticRuntime } from "../src/runtime/runtime.js";
 import { matchesFilter } from "../src/runtime/filter.js";
 import { applySort, computeAggregations } from "../src/runtime/query-ops.js";
 import { parseResolution } from "../src/runtime/resolution.js";
-import { US_CLASSIFICATION, linearClassification, type ClassificationScheme } from "../src/runtime/classification.js";
+import { DEMO_LINEAR_CLASSIFICATION, linearClassification, type ClassificationScheme } from "../src/runtime/classification.js";
 import { AbacPolicyEngine, allowAllRule, requireRole } from "../src/policy/abac-policy-engine.js";
 import { AuthorizationError } from "../src/runtime/errors.js";
 import type { Adapter, AdapterQueryResult, RelatedRef, ResolvedProperties } from "../src/runtime/adapter.js";
@@ -184,7 +184,8 @@ async function setup(opts: { policyEngine?: PolicyEngine; classification?: Class
     policyEngine = abac;
   }
   const adapter = new MarkedAdapter();
-  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, opts.classification ? { classification: opts.classification } : {});
+  // The fixture's markings are in the demo vocabulary, so it configures that scheme explicitly (ADR-0034).
+  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, { classification: opts.classification ?? DEMO_LINEAR_CLASSIFICATION });
   return { runtime, registry, adapter };
 }
 
@@ -195,19 +196,21 @@ const classificationRows = async (registry: SemanticRegistry): Promise<AuditEven
 
 describe("Data classification (ADR-0032)", () => {
   describe("the scheme", () => {
-    it("US_CLASSIFICATION orders UNCLASSIFIED < CUI < SECRET < TOP_SECRET", () => {
+    it("DEMO_LINEAR_CLASSIFICATION orders UNCLASSIFIED < CUI < SECRET < TOP_SECRET, and exposes that order", () => {
       const levels = ["UNCLASSIFIED", "CUI", "SECRET", "TOP_SECRET"];
       for (const [i, clearance] of levels.entries()) {
-        for (const [j, marking] of levels.entries()) expect(US_CLASSIFICATION.dominates(clearance, marking)).toBe(i >= j);
+        for (const [j, marking] of levels.entries()) expect(DEMO_LINEAR_CLASSIFICATION.dominates(clearance, marking)).toBe(i >= j);
       }
+      expect(DEMO_LINEAR_CLASSIFICATION.levels).toEqual(levels);
+      expect(Object.isFrozen(DEMO_LINEAR_CLASSIFICATION.levels)).toBe(true);
     });
 
     it("fails closed: a missing or unknown clearance holds only the lowest level, and an unknown marking is readable by no one", () => {
       for (const clearance of [undefined, "ULTRA", "secret", "", "TOP SECRET"]) {
-        expect(US_CLASSIFICATION.dominates(clearance, "UNCLASSIFIED")).toBe(true);
-        expect(US_CLASSIFICATION.dominates(clearance, "CUI")).toBe(false);
+        expect(DEMO_LINEAR_CLASSIFICATION.dominates(clearance, "UNCLASSIFIED")).toBe(true);
+        expect(DEMO_LINEAR_CLASSIFICATION.dominates(clearance, "CUI")).toBe(false);
       }
-      for (const marking of ["SECERT", "secret", "", "__proto__", "constructor"]) expect(US_CLASSIFICATION.dominates("TOP_SECRET", marking)).toBe(false);
+      for (const marking of ["SECERT", "secret", "", "__proto__", "constructor"]) expect(DEMO_LINEAR_CLASSIFICATION.dominates("TOP_SECRET", marking)).toBe(false);
     });
 
     it("refuses an empty or ambiguous ordering", () => {
@@ -413,7 +416,12 @@ describe("Data classification (ADR-0032)", () => {
         briefingLength: "deny",
         notesDigest: "deny"
       });
-      expect(rows.find((e) => e.resource.propertyPath === "briefing")?.details).toEqual({ control: "classification", markings: ["SECRET"], clearance: "CUI" });
+      expect(rows.find((e) => e.resource.propertyPath === "briefing")?.details).toEqual({
+        control: "classification",
+        scheme: "demo-linear",
+        markings: ["SECRET"],
+        clearance: "CUI"
+      });
 
       await runtime.getObject("test.Notice", "n2", cui);
       expect((await classificationRows(registry)).filter((e) => e.resource.typeName === "test.Notice")).toEqual([]);
@@ -496,6 +504,7 @@ describe("Data classification (ADR-0032)", () => {
   describe("the scheme is pluggable, and fails closed", () => {
     it("a scheme that throws denies every marked read", async () => {
       const broken: ClassificationScheme = {
+        name: "broken",
         dominates: () => {
           throw new Error("scheme unavailable");
         }
@@ -514,6 +523,7 @@ describe("Data classification (ADR-0032)", () => {
         return { rank: levels.indexOf(level!), compartments: compartments.split(",").filter(Boolean) };
       };
       const lattice: ClassificationScheme = {
+        name: "compartmented",
         dominates(clearance, marking) {
           const need = parse(marking);
           const have = parse(clearance ?? "UNCLASSIFIED");
