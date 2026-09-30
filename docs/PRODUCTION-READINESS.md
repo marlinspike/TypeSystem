@@ -159,7 +159,10 @@ says so.
 13. **On-call readiness.** No runbooks, no alerting on policy-deny spikes
     or audit-log anomalies, no operator-facing error taxonomy beyond the
     thrown error's class name. `AuditEvent` exists; nothing consumes it
-    operationally yet.
+    operationally yet. Note for whoever builds that alerting: an audit row
+    records the decision, not the runtime operation that made it, so a
+    `listActions` preview's deny looks like an `invokeAction` gate's
+    (ADR-0032's review items).
 
 ## Tier 3: packaging and domain
 

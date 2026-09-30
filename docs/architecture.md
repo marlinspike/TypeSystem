@@ -38,12 +38,14 @@ flowchart TB
         REGISTRY["Semantic Registry\n(validates + composes + stores TypeDefinitions)"]
         RUNTIME["Semantic Runtime\n(getObject / getRelationship / query / aggregate /\ngetProvenance / listActions / invokeAction)"]
         POLICY["Policy Engine (ABAC, or Cedar via @typesys/policy-cedar)"]
+        CLASSIFICATION["Classification (ADR-0032)\nclearance vs markings, beside the engine"]
         AUDIT["Audit Log"]
     end
 
     subgraph Adapters["Adapters"]
         INMEM["InMemoryRepositoryAdapter"]
         REST["MockRestAdapter"]
+        ENC["EncryptingAdapter (ADR-0033)\noptional decorator, any adapter"]
         PG["PostgresRepositoryAdapter"]
     end
 
@@ -59,11 +61,12 @@ flowchart TB
     MODEL -.defines shape of.-> REGISTRY
     RUNTIME --> INMEM
     RUNTIME --> REST
-    RUNTIME --> PG
+    RUNTIME --> ENC --> PG
     INMEM --> DB
     REST --> EXT
     PG --> PGDB
     POLICY -. enforced by .- RUNTIME
+    CLASSIFICATION -. enforced by .- RUNTIME
     AUDIT -. written by .- RUNTIME
     CACHE["Cache (ADR-0016)"] -. consulted by .- RUNTIME
     RATELIMIT["RateLimiter (ADR-0019)"] -. checked by .- RUNTIME
@@ -285,41 +288,45 @@ the same `getObject` for `AF86-0147` returns a materially different result
 per identity, with no separate code path. The object gate runs
 `airforce.read-aircraft` (maintainer or viewer); both the
 `maintenanceStatus` field and the work-order action run
-`airforce.maintainer-only`. The anonymous identity has no roles, so it is
-refused at the gate and never reaches the field or the action. Each column
-below summarizes what that identity gets back: the object read, the
-sensitive field, and the separate `invokeAction` for the work order.
+`airforce.maintainer-only`. `deploymentLocation` is marked SECRET, so it
+is decided by classification instead: the Maintainer is cleared SECRET,
+the Viewer only CUI (ADR-0032). The anonymous identity has no roles, so it
+is refused at the gate and never reaches the fields or the action. Each
+column below summarizes what that identity gets back: the object read, the
+two sensitive fields, and the separate `invokeAction` for the work order.
 
 ```mermaid
 flowchart TB
     req["getObject: AF86-0147"]
-    subgraph m["Maintainer (role: maintainer)"]
+    subgraph m["Maintainer (role: maintainer, cleared SECRET)"]
         m1["read object: allow"]
         m2["maintenanceStatus: shown"]
+        m4["deploymentLocation: shown"]
         m3["work-order action: allowed"]
     end
-    subgraph v["Viewer (role: viewer)"]
+    subgraph v["Viewer (role: viewer, cleared CUI)"]
         v1["read object: allow"]
-        v2["maintenanceStatus: redacted"]
+        v2["maintenanceStatus: redacted by policy"]
+        v4["deploymentLocation: classified out"]
         v3["work-order action: denied"]
     end
-    subgraph an["Anonymous (no roles)"]
+    subgraph an["Anonymous (no roles, no clearance)"]
         a1["read object: denied at gate"]
-        a2["maintenanceStatus: not reached"]
+        a2["fields: not reached"]
         a3["work-order action: not reached"]
     end
     req --> m
     req --> v
     req --> an
-    m1 --> m2 --> m3
-    v1 --> v2 --> v3
+    m1 --> m2 --> m4 --> m3
+    v1 --> v2 --> v4 --> v3
     a1 --> a2 --> a3
     classDef ok fill:#eaf3de,stroke:#3b6d11,color:#173404;
     classDef no fill:#fcebeb,stroke:#a32d2d,color:#501313;
     classDef na fill:#f1efe8,stroke:#5f5e5a,color:#2c2c2a;
-    class m1,m2,m3 ok;
+    class m1,m2,m3,m4 ok;
     class v1 ok;
-    class v2,v3 no;
+    class v2,v3,v4 no;
     class a1 no;
     class a2,a3 na;
 ```
@@ -327,33 +334,43 @@ flowchart TB
 ### The governed write path
 
 Writes go through `invokeAction`, a governed capability rather than a
-plain call. It runs the same kind of policy gate, enforces the action's
-business preconditions before it will dispatch, executes through an
-adapter, and audits twice: once for the policy decision, once for the
-outcome. A denied attempt is audited too, so a refusal is as accountable
-as a success. `CreateMaintenanceWorkOrder` is the worked example; its
-precondition is that the referenced maintenance event actually exists,
-checked live against the REST system before any write happens.
+plain call. It runs the same kind of policy gate, then the clearance the
+Action's Types require (ADR-0032), validates the input, enforces the
+action's business preconditions before it will dispatch, executes through
+an adapter, and audits each decision and the outcome. A denied attempt is
+audited too, so a refusal is as accountable as a success. `listActions`
+runs the same two gates through the same audited path, so how an Action is
+listed and what invoking it does can't drift apart.
+`CreateMaintenanceWorkOrder` is the worked example; its precondition is
+that the referenced maintenance event actually exists, checked live
+against the REST system before any write happens.
 
 ```mermaid
 flowchart TB
     inv["invokeAction<br/>CreateMaintenanceWorkOrder"]
     gate["policy: invoke gate<br/>maintainer-only, writes audit"]
+    clear["classification: clearance gate<br/>the Action's Types, writes audit if marked"]
     authz["AuthorizationError<br/>on deny: audit + throw"]
+    input["input validation<br/>against the inputSchema"]
+    bad["InvalidInputError<br/>on mismatch: throw"]
     pre["precondition check<br/>maintenance event exists?"]
     pf["PreconditionFailed<br/>on missing: throw"]
     exec["adapter.executeAction<br/>REST createWorkOrder"]
-    aud["audit: success<br/>second audit event"]
+    aud["audit: success<br/>outcome row"]
     ret["return WorkOrder<br/>canonical shape"]
     inv --> gate
     gate -->|deny| authz
-    gate -->|allow| pre
+    gate -->|allow| clear
+    clear -->|deny| authz
+    clear -->|allow| input
+    input -->|invalid| bad
+    input -->|valid| pre
     pre -->|missing| pf
     pre -->|exists| exec
     exec --> aud
     aud --> ret
     classDef err fill:#fcebeb,stroke:#a32d2d,color:#501313;
-    class authz,pf err;
+    class authz,bad,pf err;
 ```
 
 ## Sequence: `runtime.query()` spanning both adapter styles
@@ -432,6 +449,8 @@ sequenceDiagram
     else authorized
         PE-->>RT: allow
         RT->>REG: appendAuditEvent(decision=allow)
+        Note over RT: clearance for the Action's Types (ADR-0032) —<br/>MaintenanceEvent is unmarked, so no decision here
+        RT->>RT: validate input against the Action's inputSchema
         RT->>PRE: check("the referenced maintenance event must exist")
         PRE->>REST: resolveProperties(MaintenanceEvent, maintenanceEventId)
         REST->>EXT: getMaintenanceEvent(id)

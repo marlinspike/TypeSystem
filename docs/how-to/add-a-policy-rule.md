@@ -112,7 +112,9 @@ this: they run after redaction.
 traced
 
 You never have to log a decision yourself — `SemanticRuntime` calls
-`registry.appendAuditEvent` on every single policy evaluation, and (see
+`registry.appendAuditEvent` on every single policy evaluation, including
+the authorization preview `listActions` reports (it runs the same audited
+gate as `invokeAction`), and (see
 [`enable-observability.md`](enable-observability.md)) increments a
 `typesys.policy.decisions` counter too. Check
 `registry.listAuditEvents({limit, before})` to see what actually happened.

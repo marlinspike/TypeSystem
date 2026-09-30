@@ -45,8 +45,10 @@ A missing or unrecognized clearance holds only the lowest level.
 | a computed property's dependency | the computed property is redacted too — derived data inherits its inputs' markings |
 | anything a filter, sort, search, or aggregation names | the query is refused (or, for a value marked only by its adapter, the item is dropped) |
 
-Every check on marked data is audited, with `details.control ===
-"classification"`.
+Every classification decision on marked data is audited — including the
+clearance `listActions` checks for an Action on a classified Type — with
+`details.control === "classification"`. Choosing which properties a default
+search ranges over is query planning, not a decision, and writes nothing.
 
 ## Use another scheme
 
