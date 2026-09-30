@@ -163,6 +163,16 @@ document that gap rather than close it in this pass.
   `packages/core/test/row-level-authorization.test.ts` and
   `packages/domain-hospital/test/row-level-authorization.test.ts`, including
   attack suites. Not addressed: instance-scoped Actions (see the ADR).
+- A missing object is not found (ADR-0048): `getObject`, and the source of
+  `getRelationship` and `getProvenance`, raise `ObjectNotFoundError` (a
+  `NotFoundError`) for an id no source holds, where they used to return an
+  object with empty `values`. It is raised only after the policy decision, so
+  a caller the policy denies gets the same refusal for a missing id as for a
+  forbidden one; a dangling reference is left out of a relationship or
+  include. Proven by `packages/core/test/object-not-found.test.ts`, including
+  an id-probing attack block. Not addressed: a rule that admits an object
+  with no attributes lets a caller it denies on real rows tell missing from
+  denied, and a cached miss lasts until its TTL (see the ADR).
 - Authorization planning (ADR-0038): a read policy's plan — `always`,
   `never`, an `eq`/`and`/`or` predicate marked exact or not with structured
   limitations, or `unknown` — is fitted to the Type's data sources and

@@ -139,8 +139,9 @@ relationshipName, identity)` looks up the `RelationshipDefinition`, applies
 the property-level (or falling back to object-level) policy, calls
 `adapter.resolveRelationship(relDef, objectId)` on the adapter named by
 `relDef.resolution.dataSourceId`, then resolves each related object through
-`getObject` (silently dropping any the caller isn't authorized to read,
-rather than failing the whole navigation).
+`getObject` (silently dropping any the caller isn't authorized to read, and
+any reference to an object no source holds (ADR-0048), rather than failing
+the whole navigation).
 
 **Worked example** — `Person.affiliations` / `Organization.members`
 (`packages/core/src/base/types/person.ts`,

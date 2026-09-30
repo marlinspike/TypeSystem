@@ -73,7 +73,13 @@ Two rules to write row-level rules by:
   filter/sort/search property checks ask about every row at once, without
   attributes. A rule that depends on attributes must deny there (the
   helpers do), which is what keeps a count from revealing rows the caller
-  can't read. Never allow *because* attributes are missing.
+  can't read. Never allow *because* attributes are missing. This is also
+  what keeps an id probe honest: an id nothing holds is decided on an empty
+  attribute set and reported as not found only if the rule allowed that, so
+  a rule that needs an attribute refuses a missing id exactly as it refuses
+  a forbidden one, while a deny-list rule that admits an empty record lets a
+  caller tell the two apart
+  ([ADR-0048](../adr/0048-a-missing-object-is-not-found.md)).
 - **Build rules from the helpers, and they plan themselves.**
   `requireRole`, `requireAttributeMatch`, `anyOf`, `allOf`, and
   `allowAllRule` also say what they admit, so `query` pushes the rule into

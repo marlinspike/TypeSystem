@@ -5,6 +5,22 @@ export class NotFoundError extends Error {
   }
 }
 
+/**
+ * An object that no source holds (ADR-0048), raised only after the caller was
+ * allowed to read an object of that Type, so a denied caller learns nothing
+ * from it. A `NotFoundError`, so a caller that maps that class needs no
+ * change. It carries the Type and id the caller supplied, and nothing stored.
+ */
+export class ObjectNotFoundError extends NotFoundError {
+  constructor(
+    public readonly typeName: string,
+    public readonly objectId: string
+  ) {
+    super(`Not found: ${typeName}/${objectId}`);
+    this.name = "ObjectNotFoundError";
+  }
+}
+
 export class AuthorizationError extends Error {
   constructor(
     message: string,

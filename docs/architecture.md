@@ -271,17 +271,21 @@ flowchart TB
     k["classification: object marking<br/>before anything is read, writes audit"]
     c["resolve stored values<br/>mappings then adapter (+cache)"]
     b["policy: object gate<br/>decided on this object's attributes, writes audit"]
+    n["not found<br/>only if no source held a value (ADR-0048)"]
     d["computed properties<br/>may reach other adapters"]
     e["classification, then policy: field redaction<br/>drop classified and denied fields, writes audit"]
     f["return object<br/>plus provenance if requested"]
-    a --> k --> c --> b --> d --> e --> f
+    a --> k --> c --> b --> n --> d --> e --> f
 ```
 
 The object gate is decided on the object's own stored values, so a rule can
 allow "this clinician, this patient" rather than "any clinician, any
 patient" (ADR-0030). In `query` it runs per returned item, and a denied
 item is dropped silently; computed properties and includes run only for
-objects that passed it. Before the adapter reads anything, `query` also
+objects that passed it. An id that no source holds is reported as not found
+(`ObjectNotFoundError`) only after that gate has allowed the read, so a
+caller the policy denies is refused exactly as for an object that exists
+(ADR-0048). Before the adapter reads anything, `query` also
 asks for the policy's *authorization plan* and pushes it into the adapter's
 filter, so objects the caller can't read are never read at all — the next
 section traces that chain.
