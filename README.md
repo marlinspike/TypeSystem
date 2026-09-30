@@ -31,15 +31,16 @@ and a message queue.
 | **One governed boundary** | Every read, query, and Action goes through `SemanticRuntime`, the only place policy, audit, and provenance happen ([ADR-0009](docs/adr/0009-embedded-abac-policy-engine.md)). | Human apps and AI agents get identical enforcement, because there is only one path to enforce. |
 | **Canonical types on open standards** | Types are JSON Schema 2020-12, composed from base types and traits, versioned and aliased ([`add-a-type.md`](docs/how-to/add-a-type.md)). | One object model across every backend, with no proprietary schema language to learn. |
 | **Multi-source objects** | One object's properties, relationships, and computed values can each come from a different system ([`combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)). | Consumers see one Aircraft, not a Postgres row plus a REST payload to reconcile themselves. |
+| **Relationships beyond foreign keys** | Foreign-key, own-field, many-to-many (`byJoinTable`), and composite-key relationships from one shared parser, with bounded, ordered traversal ([ADR-0028](docs/adr/0028-relationship-resolution-strategies.md)). | Model real associations (a provider's patients, an aircraft's crew) without a graph database or a synthetic join Type. |
 | **Pluggable adapters** | In-memory, REST, and PostgreSQL adapters ship; a new backend is one small interface ([`write-an-adapter.md`](docs/how-to/write-an-adapter.md)). | Swap or add systems of record without touching consumers. |
 | **Object- and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default ([`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields are redacted per caller, and the engine can be swapped for OPA or Cedar. |
 | **Per-property provenance** | Every value can report which source produced it, when, and at what confidence ([ADR-0008](docs/adr/0008-provenance-model.md)). | Values a decision rests on come with their origin, which regulated environments require. |
 | **Append-only audit log** | Every policy decision and audited Action is recorded; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what. |
 | **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
 | **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP ([`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
-| **Structured, bounded queries** | A JSON query DSL with filters, includes, and paging, schema-validated with size limits ([`enable-rate-limiting-and-concurrency-bounds.md`](docs/how-to/enable-rate-limiting-and-concurrency-bounds.md)). | Callers get expressive reads, and one caller can't request unbounded work. |
-| **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost and latency per mapping and see what the runtime is doing. |
-| **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, and a load test that runs several processes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md)). | Scale out behind a load balancer and keep one cache and one budget per identity. |
+| **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
+| **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, per-adapter-call timeouts / retries / circuit-breaking, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [ADR-0026](docs/adr/0026-adapter-call-resilience.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost, latency, and resilience per deployment, and see what the runtime is doing. |
+| **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, a load test, and ready-to-run deployment artifacts — a `Dockerfile`, `docker-compose`, reference Kubernetes manifests, and `/healthz`/`/readyz` probes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md), [`deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)). | Scale out behind a load balancer with one cache and one budget per identity — and an image to actually ship. |
 | **Real identity and persistence** | OIDC/JWT identity resolution ([ADR-0018](docs/adr/0018-oidc-identity-resolution.md)) and a durable PostgreSQL registry ([`use-postgres.md`](docs/how-to/use-postgres.md)). | Drop-in pieces for moving beyond the demo tokens and in-memory store. |
 | **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
@@ -284,7 +285,8 @@ Switch identity top-right: **Maintainer** and **Viewer** (Air Force),
 screen re-evaluates under the new identity. A stats bar under the header
 shows what each request actually did: how many adapter calls it made, to
 which systems, and how many ran at once against the per-request concurrency
-budget.
+budget. A health dot in the header reflects the server's `/healthz` and
+`/readyz` probes (ADR-0029).
 
 Four tabs:
 
@@ -298,15 +300,20 @@ Four tabs:
   required field blank to see input validation.
 - **Query:** the structured query DSL, with its enforced limits shown and
   examples for filters, paging (**Next page** follows `nextCursor`), nested
-  includes, include filters, and queries the runtime rejects by design.
-  Results render as a navigable object tree, or raw JSON.
+  includes, include filters, `sort`, projection (`select`), full-text
+  `search`, grouped **aggregation** (rendered as a table of groups), and a
+  many-to-many `byJoinTable` traversal (ADR-0027/0028) — plus queries the
+  runtime rejects by design. Results render as a navigable object tree, an
+  aggregation table, or raw JSON.
 - **Guardrails:** thirteen one-click scenarios that each send a real request
   and check the outcome against the design, including filtering on a hidden
   or computed property, over-limit and malformed queries, bad action input
   (from an allowed and a disallowed identity), a failed precondition,
-  cross-domain access, and redaction. **Run all** checks them together. Two
-  live panels fire a rate-limit burst at a dedicated identity and visualize
-  the concurrency budget for a nested query.
+  cross-domain access, and redaction. **Run all** checks them together. The
+  config panel lists the live query limits, concurrency budget, and per-call
+  resilience policy (timeout / retries / breaker — ADR-0026); two live panels
+  fire a rate-limit burst at a dedicated identity and visualize the
+  concurrency budget for a nested query.
 - **MCP Console:** the same operations through the real MCP
   `Server`/`Client`, including nested-include and invalid queries (which come
   back as `isError`), plus a custom tool-call editor. Tool results are shown

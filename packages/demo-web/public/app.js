@@ -623,6 +623,16 @@ const QUERY_EXAMPLES = [
     ]
   },
   {
+    group: "Sort · project · search · aggregate",
+    items: [
+      ["Sort by tail number", { type: "airforce.Aircraft", sort: [{ property: "tailNumber", direction: "asc" }] }],
+      ["Projection (select)", { type: "airforce.Aircraft", select: ["tailNumber", "model"] }],
+      ["Full-text search", { type: "airforce.Aircraft", search: { text: "AF" } }],
+      ["Aggregate: aircraft by model", { type: "airforce.Aircraft", groupBy: ["model"], aggregations: [{ name: "count", op: "count" }] }],
+      ["Many-to-many join (as clinician)", { type: "hospital.Provider", include: [{ relationship: "patients", limit: 5 }] }]
+    ]
+  },
+  {
     group: "Rejected by design",
     items: [
       ["Filter on computed", { type: "airforce.Aircraft", filter: { property: "needsAttention", operator: "eq", value: true } }],
@@ -651,7 +661,7 @@ function initQueryTab() {
 
   $("#queryExamples").innerHTML = QUERY_EXAMPLES.map(
     (g, gi) => `<div class="example-group"><span class="example-label">${g.group}</span>${g.items
-      .map(([label], ii) => `<button class="btn btn-sm btn-ghost${gi === 2 ? " btn-warnish" : ""}" data-example="${gi}:${ii}">${escapeHtml(label)}</button>`)
+      .map(([label], ii) => `<button class="btn btn-sm btn-ghost${g.group === "Rejected by design" ? " btn-warnish" : ""}" data-example="${gi}:${ii}">${escapeHtml(label)}</button>`)
       .join("")}</div>`
   ).join("");
   $("#queryExamples").addEventListener("click", (e) => {
@@ -688,7 +698,10 @@ function initQueryTab() {
 async function runQuery(query) {
   $("#queryOutput").innerHTML = '<div class="empty-state small">Running…</div>';
   $("#resultMeta").innerHTML = "";
-  const res = await request(withIdentity("/api/query"), post(query), "query");
+  // A body carrying `aggregations` is a SemanticAggregateQuery — a separate endpoint and result
+  // shape (groups, not objects), per ADR-0027.
+  const isAggregate = query && typeof query === "object" && Array.isArray(query.aggregations);
+  const res = await request(withIdentity(isAggregate ? "/api/aggregate" : "/api/query"), post(query), isAggregate ? "aggregate" : "query");
   state.query.last = query;
   if (res.ok) {
     state.query.lastResult = { result: res.body, stats: res.stats };
@@ -705,6 +718,7 @@ function renderQueryResult() {
   if (state.query.lastError) return renderQueryError(state.query.lastError);
   if (!state.query.lastResult) return;
   const { result, stats } = state.query.lastResult;
+  if (result && Array.isArray(result.groups)) return renderAggregateResult(result, stats);
   const total = stats ? Object.values(stats.calls).reduce((a, b) => a + b, 0) : 0;
   $("#resultMeta").innerHTML = `
     <span class="status-pill s2">200</span>
@@ -719,6 +733,37 @@ function renderQueryResult() {
   } else {
     out.innerHTML = result.items.length ? `<div class="obj-tree">${result.items.map((o) => renderTreeNode(o, 0)).join("")}</div>` : '<div class="empty-state small">No matching objects visible to this identity.</div>';
   }
+}
+
+/** Renders a SemanticAggregateQuery result (ADR-0027): one row per group, key columns then aggregation columns. */
+function renderAggregateResult(result, stats) {
+  const groups = result.groups ?? [];
+  const total = stats ? Object.values(stats.calls).reduce((a, b) => a + b, 0) : 0;
+  $("#resultMeta").innerHTML = `
+    <span class="status-pill s2">200</span>
+    <span><strong>${groups.length}</strong> group${groups.length === 1 ? "" : "s"}</span>
+    ${stats ? `<span class="muted">${total} adapter calls · peak ${stats.peakInFlight} in flight · ${stats.durationMs} ms</span>` : ""}`;
+  const out = $("#queryOutput");
+  if (state.query.view === "json") {
+    out.innerHTML = `<pre class="json-view">${prettyJson(result)}</pre>`;
+    return;
+  }
+  if (!groups.length) {
+    out.innerHTML = '<div class="empty-state small">No groups.</div>';
+    return;
+  }
+  const keyCols = Object.keys(groups[0].key);
+  const valCols = Object.keys(groups[0].values);
+  const head = [...keyCols.map((k) => `<th>${escapeHtml(k)}</th>`), ...valCols.map((v) => `<th class="num">${escapeHtml(v)}</th>`)].join("");
+  const rows = groups
+    .map(
+      (g) =>
+        `<tr>${keyCols.map((k) => `<td>${escapeHtml(String(g.key[k] ?? "—"))}</td>`).join("")}${valCols
+          .map((v) => `<td class="num mono">${escapeHtml(String(g.values[v]))}</td>`)
+          .join("")}</tr>`
+    )
+    .join("");
+  out.innerHTML = `<table class="agg-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function isObjectList(value) {
@@ -906,6 +951,7 @@ function renderRuntimeConfig() {
     ["Includes", `${l.maxIncludes} in total, ${l.maxIncludeDepth} levels deep`],
     ["Filters", `${l.maxFilterDepth} levels, ${l.maxFilterConditions} conditions`],
     ["Concurrency", `${r.maxConcurrency} adapter calls in flight per request`],
+    ["Resilience", r.resilience ? `${r.resilience.callTimeoutMs} ms call timeout · retry ×${r.resilience.retry?.maxAttempts ?? 1} · breaker after ${r.resilience.circuitBreaker?.failureThreshold ?? "∞"} fails` : "off"],
     ["Rate limit", `${r.rateLimit.capacity} burst + ${r.rateLimit.refillPerSecond}/s for ${r.rateLimit.subjectId}`],
     ["Data sources", r.dataSources.join(", ")]
   ]
@@ -1182,6 +1228,23 @@ function renderAudit() {
   events.forEach((e) => seen.add(e.id));
 }
 
+/** Pings the server's liveness/readiness endpoints (ADR-0029) and reflects the result in the topbar dot. */
+async function checkHealth() {
+  const dot = $("#healthDot");
+  if (!dot) return;
+  try {
+    const [h, r] = await Promise.all([fetch("/healthz"), fetch("/readyz")]);
+    const ok = h.ok && r.ok;
+    dot.classList.toggle("health-ok", ok);
+    dot.classList.toggle("health-bad", !ok);
+    dot.title = ok ? "Server healthy — /healthz ok, /readyz ready (ADR-0029)" : "Server not ready (/readyz failed)";
+  } catch {
+    dot.classList.remove("health-ok");
+    dot.classList.add("health-bad");
+    dot.title = "Server unreachable";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
@@ -1209,6 +1272,7 @@ async function init() {
   $("#loadObjectBtn").addEventListener("click", () => openRoot($("#typePicker").value, $("#objectPicker").value));
 
   await Promise.all([loadTypes(), initMcpTab()]);
+  void checkHealth();
 }
 
 init();
