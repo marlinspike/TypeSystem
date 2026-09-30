@@ -1,0 +1,7 @@
+---
+"@typesys/core": minor
+---
+
+Authorization planning (ADR-0038). `PolicyEngine` gains an optional `plan(request)` returning an `AuthorizationPlan` — `always`, `never`, a positive `eq`/`and`/`or` predicate marked `exact` with structured `limitations`, or `unknown` — that MUST soundly over-approximate what the policy allows. Plans are built through `predicatePlan`, `unknownPlan`, `ALWAYS`, `NEVER`, and the simplifying combinators `allPlans`/`anyPlan`; `checkPlan` validates engine output. `AbacPolicyEngine` and its helpers (`allowAllRule`, `requireRole`, `requireAttributeMatch`, `anyOf`, `allOf`) plan from the same structure they evaluate; a plain function rule plans `unknown`. `query` fits the plan to the Type's data sources (weakening protected and cross-source attributes to `true`), pushes it into the adapter's filter, short-circuits `never`, and still decides every returned object; an exact plan admits `aggregate` over exactly the readable rows. New `rowSecurity: "post-filter" | "require-exact"` runtime option, `AuthorizationPlanError`, runtime-only audited `runtime.explainQuery()` with `QueryPlanReport` guarantees, the `typesys.authz.plan.defects` metric, and `checkPlanConformance` for testing any planner.
+
+Fix (ADR-0036): `Adapter.sensitiveFields` may now answer asynchronously — a method-proxying decorator makes it so — and an answer that isn't a list of field names, or a throw, protects every field of that adapter instead of none.

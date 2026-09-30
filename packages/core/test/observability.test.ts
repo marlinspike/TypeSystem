@@ -7,7 +7,7 @@ import { SemanticRegistry } from "../src/registry/registry.js";
 import { InMemoryRegistryStore } from "../src/registry/in-memory-registry-store.js";
 import { SemanticRuntime } from "../src/runtime/runtime.js";
 import { InMemoryCache } from "../src/runtime/cache.js";
-import { AbacPolicyEngine, allowAllRule, requireRole } from "../src/policy/abac-policy-engine.js";
+import { AbacPolicyEngine, allowAllRule, anyOf, requireAttributeMatch, requireRole } from "../src/policy/abac-policy-engine.js";
 import type { Adapter, ResolvedProperties, RelatedRef, AdapterQueryResult } from "../src/runtime/adapter.js";
 import type { ActionDefinition } from "../src/model/action.js";
 import type { Identity } from "../src/model/policy.js";
@@ -242,6 +242,25 @@ describe("OpenTelemetry instrumentation (ADR-0017) — with a real SDK registere
     const spans = spanExporter.getFinishedSpans().filter((s) => s.name === "SemanticRuntime.getObject");
     expect(spans[0]!.attributes["typesys.cache.hit"]).toBe(false);
     expect(spans[1]!.attributes["typesys.cache.hit"]).toBe(true);
+  });
+
+  it("a query's span carries its authorization plan's kind, exactness, and limitation codes — never a predicate literal or an identity attribute (ADR-0038)", async () => {
+    const { registry } = await buildTestbed();
+    const policyEngine = new AbacPolicyEngine();
+    policyEngine.registerRule("owned", anyOf(requireAttributeMatch("ownerId", "providerId"), requireAttributeMatch("id", "providerId")));
+    await registry.registerType(
+      { $id: "https://typesys.dev/types/test/Owned/1.0.0", title: "Owned", type: "object", properties: { id: { type: "string" }, ownerId: { type: "string" } }, "x-policy": { objectPolicy: "owned" } },
+      { name: "test.Owned", version: "1.0.0" }
+    );
+    await registry.registerMapping({ id: "map-owned", typeName: "test.Owned", target: "property", targetName: "*", dataSourceId: "obs-ds", operation: "get", resolutionMode: "live" });
+    const runtime = new SemanticRuntime(registry, [new StubAdapter()], policyEngine);
+    const owner: Identity = { subjectId: "u-owner", roles: [], attributes: { providerId: "PR-SECRET-77" } };
+
+    await runtime.query({ type: "test.Owned" }, owner);
+
+    const span = spanExporter.getFinishedSpans().find((s) => s.name === "SemanticRuntime.query")!;
+    expect(span.attributes).toMatchObject({ "typesys.authz.plan.kind": "predicate", "typesys.authz.plan.exact": true, "typesys.authz.plan.limitations": "" });
+    expect(JSON.stringify(spanExporter.getFinishedSpans().map((s) => s.attributes))).not.toMatch(/PR-SECRET-77|ownerId/);
   });
 
   it("records policy decisions and operation duration on the registered MeterProvider without throwing", async () => {

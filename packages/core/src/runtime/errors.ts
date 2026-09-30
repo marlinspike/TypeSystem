@@ -15,6 +15,19 @@ export class AuthorizationError extends Error {
   }
 }
 
+/**
+ * A query refused under `rowSecurity: "require-exact"` (ADR-0038): its read
+ * policy has no exact plan for this subject, or an object the plan claimed
+ * authorized was denied after the read. The message names the policy and
+ * the limitation codes, never an attribute value.
+ */
+export class AuthorizationPlanError extends AuthorizationError {
+  constructor(message: string) {
+    super(message, message);
+    this.name = "AuthorizationPlanError";
+  }
+}
+
 export class PreconditionFailedError extends Error {
   constructor(message: string) {
     super(message);

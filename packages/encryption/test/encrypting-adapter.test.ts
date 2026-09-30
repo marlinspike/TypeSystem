@@ -412,7 +412,6 @@ describe("EncryptingAdapter (ADR-0033)", () => {
         (rt, who) => rt.query({ type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "in", value: ["PR-2002"] } }, who),
         (rt, who) => rt.query({ type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "ne", value: "PR-2002" } }, who),
         (rt, who) => rt.query({ type: "hospital.Provider", include: [{ relationship: "patients" }, { relationship: "appointments", include: [{ relationship: "patient" }] }] }, who),
-        (rt, who) => rt.aggregate({ type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "eq", value: "PR-2001" }, aggregations: [{ name: "n", op: "count" }] }, who),
         ...["PT-1001", "PT-1002"].flatMap((id) => [
           (rt: SemanticRuntime, who: Identity) => rt.getObject("hospital.Patient", id, who, { includeProvenance: true }),
           (rt: SemanticRuntime, who: Identity) => rt.getRelationship("hospital.Patient", id, "appointments", who),
@@ -429,6 +428,24 @@ describe("EncryptingAdapter (ADR-0033)", () => {
       expect(compared).toBe(identities.length * reads.length);
       // Not vacuous: the encrypted world did hand back real plaintext PHI to the one who may see it.
       expect((await runtime.getObject("hospital.Patient", "PT-1001", hospitalDemoIdentities.clinician)).values.medicalRecordNumber).toBe("MRN-1001");
+    });
+
+    it("aggregation matches wherever the policy allows it outright; a clinician's, which only an exact plan allows, is refused over the encrypted attribute (pinned, ADR-0038)", async () => {
+      const { plain, runtime } = await hospitalWorlds();
+      const count = (rt: SemanticRuntime, who: Identity) =>
+        settle(rt.aggregate({ type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "eq", value: "PR-2001" }, aggregations: [{ name: "n", op: "count" }] }, who));
+      const { clinician } = hospitalDemoIdentities;
+      for (const who of identities.filter((i) => i !== clinician && i !== hospitalDemoIdentities.otherClinician)) {
+        expect(await count(runtime, who)).toEqual(await count(plain, who));
+      }
+      // Plain: the plan pushes assignedClinicianId = PR-2001 and the aggregate spans exactly the clinician's rows.
+      expect(await count(plain, clinician)).toEqual({ ok: { groups: [{ key: {}, values: { n: 1 } }] } });
+      // Encrypted: the adapter protects assignedClinicianId, so its one atom is weakened to `true` and the
+      // aggregate fails closed, as before ADR-0038. Saying the blind index can filter it is ADR-0040's.
+      expect(await count(runtime, clinician)).toMatchObject({ error: "AuthorizationError" });
+      expect(await runtime.explainQuery({ type: "hospital.Patient" }, clinician)).toMatchObject({
+        plan: { kind: "unknown", limitations: [{ code: "protected-attribute", attribute: "assignedClinicianId" }] }
+      });
     });
   });
 });

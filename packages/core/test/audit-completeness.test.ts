@@ -25,6 +25,18 @@ describe("audit completeness: the non-auditing decision primitives stay behind t
     expect(callSites("this.decide(")).toEqual(["const decision = await this.decide({ subject: identity, action, policyName, resource });"]);
   });
 
+  it("only askPlanner() asks the policy engine for a plan (ADR-0038)", () => {
+    expect(callSites("this.policyEngine.plan(")).toEqual(["returned = await this.policyEngine.plan(request);"]);
+  });
+
+  it("a plan is acted on only by query, aggregate, and explainQuery — each audits what it did with it", () => {
+    expect(callSites("this.planRead(")).toEqual([
+      "const plan = await this.planRead(typeDef, identity);",
+      "const plan = await this.planRead(typeDef, identity);",
+      "const plan = await this.planRead(typeDef, identity);"
+    ]);
+  });
+
   it("only dominates() asks the classification scheme", () => {
     expect(callSites("this.classification.dominates(")).toEqual(["return this.classification.dominates(identity.clearance, marking) === true;"]);
   });

@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted — implemented in `@typesys/core` (`PolicyResource.attributes` in
+Accepted. *Amended by ADR-0038:* a plannable read policy is now pushed into
+the adapter's filter, closing the pagination channel for exact plans and
+letting an exact plan admit aggregation over exactly the readable rows; the
+per-object decision after the read stays. — implemented in `@typesys/core` (`PolicyResource.attributes` in
 `model/policy.ts`; per-instance decisions, member narrowing, and the
 deny-biased `decide` in `runtime/runtime.ts`; `requireAttributeMatch` /
 `anyOf` / `allOf` in `policy/abac-policy-engine.ts`) and demonstrated by

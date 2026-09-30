@@ -130,11 +130,15 @@ describe("attack: clinician B reading clinician A's patient (PT-1001)", () => {
     }
   });
 
-  it("cannot count or group A's patients through aggregation", async () => {
+  it("cannot count or group A's patients through aggregation: the exact plan spans only B's own (ADR-0038)", async () => {
     const { runtime } = await buildHospitalTestbed();
-    await expect(
-      runtime.aggregate({ type: "hospital.Patient", groupBy: ["assignedClinicianId"], aggregations: [{ name: "n", op: "count" }] }, clinicianB)
-    ).rejects.toBeInstanceOf(AuthorizationError);
+    const grouped = await runtime.aggregate({ type: "hospital.Patient", groupBy: ["assignedClinicianId"], aggregations: [{ name: "n", op: "count" }] }, clinicianB);
+    expect(grouped.groups).toEqual([{ key: { assignedClinicianId: clinicianB.attributes.providerId }, values: { n: 1 } }]);
+    const aimed = await runtime.aggregate(
+      { type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "eq", value: clinicianA.attributes.providerId }, aggregations: [{ name: "n", op: "count" }] },
+      clinicianB
+    );
+    expect(aimed.groups.every((g) => g.values.n === 0)).toBe(true);
   });
 
   it("cannot over MCP, the AI-agent path — the same runtime, the same decision", async () => {
@@ -173,7 +177,10 @@ describe("attack: clinician B reading clinician A's patient (PT-1001)", () => {
 
     const audit = (await registry.listAuditEvents({ limit: 1000 })).items;
     const denials = audit.filter((e) => e.subjectId === clinicianB.subjectId && e.resource.objectId === "PT-1001" && e.decision === "deny");
-    expect(denials).toHaveLength(5);
+    // getObject, getRelationship, getProvenance, and the appointment's patient. The query's plan never reads
+    // PT-1001 (ADR-0038); it records the plan it applied instead.
+    expect(denials).toHaveLength(4);
+    expect(audit.filter((e) => e.subjectId === clinicianB.subjectId && e.details?.control === "row-plan").map((e) => e.details?.plan)).toEqual(["predicate"]);
     expect(audit.some((e) => e.subjectId === clinicianB.subjectId && e.resource.objectId === "PT-1001" && e.decision === "allow")).toBe(false);
 
     const surfaced = JSON.stringify({ audit, errors: (errors as AuthorizationError[]).map((e) => [e.message, e.reason]) });

@@ -97,6 +97,14 @@ const RULES: Record<string, PolicyRule> = {
   "case.reviewer": requireAttributeMatch("reviewerId", "userId")
 };
 
+/**
+ * The same `case.read`, as a plain function: it decides identically but can't
+ * plan (ADR-0038), so the runtime reads every Case and decides each one after
+ * the read — the ADR-0030 path.
+ */
+const caseRead = RULES["case.read"]!;
+const OPAQUE: Record<string, PolicyRule> = { ...RULES, "case.read": (request) => caseRead(request) };
+
 async function registerType(registry: SemanticRegistry, name: string, schema: Omit<SemanticTypeSchema, "$id" | "type">, headlineCalls: string[]) {
   const short = name.split(".")[1]!;
   await registry.registerType({ $id: `https://typesys.dev/types/test/${short}/1.0.0`, type: "object", ...schema } as SemanticTypeSchema, {
@@ -218,7 +226,7 @@ describe("Row-level authorization (ADR-0030)", () => {
     });
 
     it("query decides per returned item and silently drops the rest, auditing each decision", async () => {
-      const { runtime, registry } = await setup();
+      const { runtime, registry } = await setup({ rules: OPAQUE });
       expect(ids((await runtime.query({ type: "test.Case" }, alice)).items)).toEqual(["c1"]);
       expect(ids((await runtime.query({ type: "test.Case" }, bob)).items)).toEqual(["c1", "c2"]);
       expect(ids((await runtime.query({ type: "test.Case" }, auditor)).items)).toEqual(["c1", "c2", "c3"]);
@@ -228,6 +236,19 @@ describe("Row-level authorization (ADR-0030)", () => {
         ["c1", "allow"],
         ["c2", "deny"],
         ["c3", "deny"]
+      ]);
+    });
+
+    it("with a plannable rule, query reads only what the plan admits, decides each of those, and records the plan once (ADR-0038)", async () => {
+      const { runtime, registry } = await setup();
+      expect(ids((await runtime.query({ type: "test.Case" }, alice)).items)).toEqual(["c1"]);
+      expect(ids((await runtime.query({ type: "test.Case" }, bob)).items)).toEqual(["c1", "c2"]);
+      expect(ids((await runtime.query({ type: "test.Case" }, auditor)).items)).toEqual(["c1", "c2", "c3"]);
+
+      const aliceRows = (await auditRows(registry)).filter((e) => e.subjectId === "alice" && !e.resource.propertyPath);
+      expect(aliceRows.map((e) => [e.resource.objectId ?? "(type)", e.decision, e.details?.control ?? "policy"]).sort()).toEqual([
+        ["(type)", "allow", "row-plan"],
+        ["c1", "allow", "policy"]
       ]);
     });
 
@@ -282,10 +303,19 @@ describe("Row-level authorization (ADR-0030)", () => {
     });
 
     it("aggregation over an instance-guarded Type fails closed, unless the rule allows unconditionally", async () => {
-      const { runtime } = await setup();
+      const { runtime } = await setup({ rules: OPAQUE });
       const count = { type: "test.Case", aggregations: [{ name: "n", op: "count" as const }] };
       await expect(runtime.aggregate(count, alice)).rejects.toBeInstanceOf(AuthorizationError);
       await expect(runtime.aggregate(count, auditor)).resolves.toEqual({ groups: [{ key: {}, values: { n: 3 } }] });
+    });
+
+    it("with an exact plan, aggregation runs over exactly the rows the caller may read (ADR-0038)", async () => {
+      const { runtime } = await setup();
+      const count = { type: "test.Case", aggregations: [{ name: "n", op: "count" as const }] };
+      await expect(runtime.aggregate(count, alice)).resolves.toEqual({ groups: [{ key: {}, values: { n: 1 } }] });
+      await expect(runtime.aggregate(count, bob)).resolves.toEqual({ groups: [{ key: {}, values: { n: 2 } }] });
+      await expect(runtime.aggregate(count, auditor)).resolves.toEqual({ groups: [{ key: {}, values: { n: 3 } }] });
+      await expect(runtime.aggregate(count, mallory)).rejects.toBeInstanceOf(AuthorizationError); // plans `never`
     });
   });
 
@@ -334,10 +364,13 @@ describe("Row-level authorization (ADR-0030)", () => {
     });
 
     it("cannot count hidden rows through aggregation or filter on an instance-scoped field", async () => {
+      const byOwner = { type: "test.Case", groupBy: ["ownerId"], aggregations: [{ name: "n", op: "count" as const }] };
+      // Without a plan, the aggregate would span every row: refused.
+      await expect((await setup({ rules: OPAQUE })).runtime.aggregate(byOwner, alice)).rejects.toBeInstanceOf(AuthorizationError);
+      // With an exact plan, it spans only the rows alice and bob may read: carol's case is never counted.
       const { runtime } = await setup();
-      await expect(
-        runtime.aggregate({ type: "test.Case", groupBy: ["ownerId"], aggregations: [{ name: "n", op: "count" }] }, alice)
-      ).rejects.toBeInstanceOf(AuthorizationError);
+      expect((await runtime.aggregate(byOwner, alice)).groups).toEqual([{ key: { ownerId: "alice" }, values: { n: 1 } }]);
+      expect((await runtime.aggregate(byOwner, bob)).groups.map((g) => g.key.ownerId).sort()).toEqual(["alice", "bob"]);
       await expect(
         runtime.query({ type: "test.Case", filter: { property: "reviewNotes", operator: "eq", value: "RN-BRAVO" } }, bob)
       ).rejects.toBeInstanceOf(AuthorizationError);
@@ -373,9 +406,12 @@ describe("Row-level authorization (ADR-0030)", () => {
       for (const e of errors) expect(e).toBeInstanceOf(AuthorizationError);
 
       const denials = (await auditRows(registry)).filter((e) => e.subjectId === "alice" && e.decision === "deny");
-      // getObject, getRelationship, getProvenance, the query's c2 + c3, and the includes reaching c2 + c3 via notes.
-      expect(denials.filter((e) => e.resource.objectId === "c3").length).toBeGreaterThanOrEqual(5);
-      expect(denials.filter((e) => e.resource.objectId === "c2").length).toBeGreaterThanOrEqual(2);
+      // getObject, getRelationship, getProvenance, and the includes reaching c2 + c3 via notes. The Case
+      // query's plan never reads c2 or c3 (ADR-0038); it is recorded once, as the plan it applied.
+      expect(denials.filter((e) => e.resource.objectId === "c3").length).toBeGreaterThanOrEqual(4);
+      expect(denials.filter((e) => e.resource.objectId === "c2").length).toBeGreaterThanOrEqual(1);
+      const plans = (await auditRows(registry)).filter((e) => e.subjectId === "alice" && e.details?.control === "row-plan");
+      expect(plans.map((e) => [e.resource.typeName, e.decision, e.details?.plan, e.details?.exact])).toEqual([["test.Case", "allow", "predicate", true]]);
 
       const leaked = JSON.stringify({ audit: await auditRows(registry), errors: errors.map((e) => [e.message, e.reason]) });
       for (const secret of CASE_SECRETS) expect(leaked).not.toContain(secret);
