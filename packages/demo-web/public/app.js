@@ -292,10 +292,18 @@ async function loadObjectOptions(typeName) {
     }
     objectPicker.innerHTML = result.items.map((item) => `<option value="${escapeHtml(item.objectId)}">${escapeHtml(item.objectId)} — ${escapeHtml(friendlyLabel(item.values))}</option>`).join("");
     openBtn.disabled = false;
+    // Nothing open: whatever the panel said about the previous Type is stale — go back to the prompt.
+    if (!state.breadcrumb.length) showOpenPrompt();
   } catch (err) {
     objectPicker.innerHTML = `<option value="">${err.status === 403 ? `Not visible to ${IDENTITY_LABEL[state.identity]}` : escapeHtml(err.message)}</option>`;
     showNothingToOpen(typeName, err.status === 403 ? "denied" : "error", err.message);
   }
+}
+
+/** The panel's resting state, as index.html first draws it. */
+function showOpenPrompt() {
+  $("#objectDetail").innerHTML = `<div class="empty-state"><div class="empty-icon">◎</div>
+    <p>Pick a type and object above, then <strong>Open</strong>. Click any property's source tag to see its provenance, or a relationship chip to navigate.</p></div>`;
 }
 
 /**
