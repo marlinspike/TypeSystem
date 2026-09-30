@@ -28,17 +28,18 @@ and a message queue.
 
 | Capability | What it does | Why it matters |
 |---|---|---|
-| **One governed boundary** | Every read, query, and Action goes through `SemanticRuntime`, the only place policy, audit, and provenance happen ([ADR-0009](docs/adr/0009-embedded-abac-policy-engine.md)). | Human apps and AI agents get identical enforcement, because there is only one path to enforce. |
+| **One governed boundary** | Every read, query, and Action goes through `SemanticRuntime`, the only place policy, classification, audit, and provenance happen ([ADR-0009](docs/adr/0009-embedded-abac-policy-engine.md), [ADR-0032](docs/adr/0032-data-classification-enforcement.md)). | Human apps and AI agents get identical enforcement, because there is only one path to enforce. |
 | **Canonical types on open standards** | Types are JSON Schema 2020-12, composed from base types and traits, versioned and aliased ([`add-a-type.md`](docs/how-to/add-a-type.md)). | One object model across every backend, with no proprietary schema language to learn. |
 | **Multi-source objects** | One object's properties, relationships, and computed values can each come from a different system ([`combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)). | Consumers see one Aircraft, not a Postgres row plus a REST payload to reconcile themselves. |
 | **Relationships beyond foreign keys** | Foreign-key, own-field, many-to-many (`byJoinTable`), and composite-key relationships from one shared parser, with bounded, ordered traversal ([ADR-0028](docs/adr/0028-relationship-resolution-strategies.md)). | Model real associations (a provider's patients, an aircraft's crew) without a graph database or a synthetic join Type. |
 | **Pluggable adapters** | In-memory, REST, and PostgreSQL adapters ship; a new backend is one small interface ([`write-an-adapter.md`](docs/how-to/write-an-adapter.md)). | Swap or add systems of record without touching consumers. |
-| **Object-, row-, and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default; a rule can decide on the object's own attributes, so "this clinician, this patient" is expressible and a query returns only the rows you may read ([ADR-0030](docs/adr/0030-row-level-authorization.md), [`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields and records are hidden per caller, and the engine is swappable — a Cedar engine ships ([ADR-0031](docs/adr/0031-cedar-policy-engine.md)). |
+| **Object-, row-, and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default; a rule can decide on the object's own attributes, so "this clinician, this patient" is expressible and a query returns only the rows you may read ([ADR-0030](docs/adr/0030-row-level-authorization.md), [`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields and records are hidden per caller, decided on the data itself rather than on who is asking alone. |
+| **A real, swappable policy engine** | `CedarPolicyEngine` runs Cedar in-process (WebAssembly) behind the same `PolicyEngine` interface: policies validated against a schema before the process serves a request, fail-closed on any evaluation error, and proven to decide identically to the embedded engine on both demo domains ([ADR-0031](docs/adr/0031-cedar-policy-engine.md), [`policy-cedar`](packages/policy-cedar/README.md)). | Authorization rules become an analyzable, reviewable policy set, with no change to Types, adapters, or the runtime. |
 | **Per-property provenance** | Every value can report which source produced it, when, and at what confidence ([ADR-0008](docs/adr/0008-provenance-model.md)). | Values a decision rests on come with their origin, which regulated environments require. |
 | **Field-level encryption at rest** | An `EncryptingAdapter` wraps any adapter so named fields are ciphertext in every store behind it, equality lookups survive through blind indexes, and anything that would need plaintext in the store is refused ([ADR-0033](docs/adr/0033-field-level-encryption.md), [`encrypt-fields.md`](docs/how-to/encrypt-fields.md)). | A database dump, backup, or replica doesn't hold the PHI; the runtime still does all its work on plaintext. |
 | **Data classification** | Types, properties, and individual values carry markings (`UNCLASSIFIED` … `TOP_SECRET`, or your own scheme); a reader's clearance must dominate them, enforced beside the policy engine, with derived values inheriting their inputs' markings ([ADR-0032](docs/adr/0032-data-classification-enforcement.md), [`classify-data.md`](docs/how-to/classify-data.md)). | Classified and controlled data is redacted per reader by a mandatory control that no policy, and no engine swap, can relax. |
-| **Append-only audit log** | Every policy decision and audited Action is recorded; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what. |
-| **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
+| **Append-only audit log** | Every policy and classification decision — allow and deny, including the authorization preview `listActions` reports — and every audited Action is recorded, with which control decided; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what, and of every refusal. |
+| **Governed Actions** | Writes run a policy check and the clearance their Types require, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
 | **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP ([`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
 | **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, per-adapter-call timeouts / retries / circuit-breaking, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [ADR-0026](docs/adr/0026-adapter-call-resilience.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost, latency, and resilience per deployment, and see what the runtime is doing. |
@@ -94,10 +95,14 @@ request-time and policy sequences these imply are traced call by call in
 
 Applications and AI agents never touch your systems directly. They go
 through one runtime, and that runtime is the only place policy is
-enforced, audit is written, and provenance is assembled. A human
-application calls it directly; an AI agent reaches it through the MCP
-server. Either path inherits identical enforcement, because there is only
-one path to enforce.
+decided, classification enforced, audit written, and provenance
+assembled. A human application calls it directly; an AI agent reaches it
+through the MCP server. Either path inherits identical enforcement,
+because there is only one path to enforce. Which engine decides policy is
+a choice — the embedded ABAC rules or Cedar — and classification sits
+beside it, so no engine can relax it. Beneath the runtime, an
+`EncryptingAdapter` can wrap any adapter so sensitive fields are
+ciphertext in the store while the runtime works on plaintext.
 
 ```mermaid
 flowchart TB
@@ -105,19 +110,20 @@ flowchart TB
     agent["AI agent"]
     mcp["MCP server"]
     rt["SemanticRuntime<br/>getObject · query · invokeAction"]
-    gov["Policy · Audit · Provenance<br/>enforced once, per call"]
+    gov["Policy (ABAC or Cedar) · Classification<br/>Audit · Provenance — enforced once, per call"]
     inmem["InMemory adapter"]
     rest["MockRest adapter"]
+    enc["EncryptingAdapter<br/>optional decorator"]
     pg["Postgres adapter"]
     repo[("In-memory repo")]
     ext[("Legacy REST API")]
-    pgdb[("PostgreSQL")]
+    pgdb[("PostgreSQL<br/>sensitive fields as ciphertext")]
     app --> rt
     agent --> mcp --> rt
     rt --- gov
     rt --> inmem --> repo
     rt --> rest --> ext
-    rt --> pg --> pgdb
+    rt --> enc --> pg --> pgdb
 ```
 
 ### How a Type is composed
@@ -208,11 +214,13 @@ flowchart TB
   transport (`bin-http.ts`, identity from a real `Authorization` header —
   see [ADR-0021](docs/adr/0021-http-transport.md)).
 - **`packages/demo-web`** (`@typesys/demo-web`) — an interactive web demo
-  running both domains on one runtime: browse and navigate objects with
-  per-property provenance, run queries, click through live guardrail
-  scenarios (policy, validation, limits, rate limiting, the concurrency
-  budget), drive the real MCP server, and watch the audit log react as you
-  switch identity. See [Demo](#demo) below.
+  running both domains on one registry: browse and navigate objects with
+  per-property provenance, see row-level access, classification, and
+  encryption at rest side by side, switch the policy engine between ABAC and
+  Cedar, run queries, click through live guardrail scenarios (policy,
+  validation, limits, rate limiting, the concurrency budget), drive the real
+  MCP server, and watch the audit log react as you switch identity or engine.
+  See [Demo](#demo) below.
 - **`packages/cli`** (`@typesys/cli`) — declarative YAML authoring for
   Types (compiles to the same `SemanticTypeSchema`/`RegisterTypeOptions`
   code-authored Types use) plus a `generate-types` codegen command that
@@ -290,61 +298,86 @@ npm run demo
 ```
 
 opens an interactive web app at **http://localhost:4000** wired directly to
-one real `SemanticRuntime` hosting **both domains** (airforce and hospital)
-on one registry and one policy engine, with no mocked backend. An in-process
-`@modelcontextprotocol/sdk` `Server`/`Client` pair shares that same runtime,
+real `SemanticRuntime`s hosting **both domains** (airforce and hospital) on
+one registry, with no mocked backend. An in-process
+`@modelcontextprotocol/sdk` `Server`/`Client` pair shares those runtimes,
 so the MCP Console exercises the real MCP server too. There is no build step:
 it's a plain static `index.html`/`app.js`/`styles.css` served by a small
 Express API (`packages/demo-web/src/server.ts`).
 
-Switch identity top-right: **Maintainer** (cleared SECRET) and **Viewer**
-(cleared CUI) (Air Force),
-**Clinician A**, **Clinician B**, and **Patient** (Hospital), or
-**Anonymous**. Each clinician reads only the patients assigned to them,
-decided per record (ADR-0030). Everything on
-screen re-evaluates under the new identity. A stats bar under the header
-shows what each request actually did: how many adapter calls it made, to
-which systems, and how many ran at once against the per-request concurrency
-budget. A health dot in the header reflects the server's `/healthz` and
-`/readyz` probes (ADR-0029).
+Two switches in the header re-decide everything on screen:
 
-Four tabs:
+- **Identity:** **Maintainer** (cleared SECRET) and **Viewer** (cleared
+  CUI) for the Air Force; **Clinician A**, **Clinician B**, **Patient**, and
+  **Admin** for the Hospital; or **Anonymous**. Each clinician reads only
+  the patients assigned to them, decided per record (ADR-0030); only the
+  Maintainer's clearance reaches the SECRET `deploymentLocation` (ADR-0032).
+- **Engine:** **ABAC** (the embedded rule functions) or **Cedar** (the same
+  rules as a Cedar policy set, in-process — ADR-0031). The same registry and
+  adapters sit behind both, and the whole app, MCP Console included, routes
+  through whichever is selected.
+
+The hospital's Patient PHI is stored encrypted (ADR-0033): an
+`EncryptingAdapter` sits in front of its store, so the store holds
+ciphertext while every screen shows plaintext to whoever may see it. A
+stats bar under the header shows what each request actually did: which
+engine decided, how many adapter calls it made, to which systems, and how
+many ran at once against the per-request concurrency budget. A health dot
+reflects the server's `/healthz` and `/readyz` probes (ADR-0029).
+
+Five tabs:
 
 - **Explorer:** browse the Types of both domains (click one for its schema,
-  relationships, actions, computed properties, and policies). Open an object
-  to see each property tagged with the system it came from; click a tag for
-  its provenance, or **trace** a computed property such as `needsAttention`
-  back to the values it was derived from. Redacted properties show which
-  policy hid them (`maintenanceStatus` for Viewer, `medicalRecordNumber` for
-  Patient). Actions check policy, then input, then preconditions: leave a
-  required field blank to see input validation.
+  relationships, actions, computed properties, policies, classification
+  markings, and encrypted fields). Open an object to see each property tagged
+  with the system it came from and 🔐 where it is encrypted at rest; click a
+  tag for its provenance, or **trace** a computed property such as
+  `needsAttention` back to the values it was derived from. Redacted
+  properties say what hid them — a policy (`maintenanceStatus` for Viewer) or
+  a classification (`deploymentLocation` for Viewer). Actions check policy
+  and clearance, then input, then preconditions.
+- **Security:** the four controls side by side, live. *Who can read which
+  patient* is every identity against every Patient, with each refusal's
+  reason from the selected engine. *What each clearance sees* is a clearance
+  ladder and an identity-by-field view of an Aircraft, telling
+  classification apart from policy. *Encrypted at rest* shows each Patient's
+  stored ciphertext and blind index beside what the runtime hands you — one
+  record still under a retired key, to show rotation — with an equality
+  lookup through the blind index, a refused sort, and a sandboxed tamper
+  the GCM tag rejects. *Two engines, one decision* runs every read path as
+  every identity on both engines and compares them, beside the Cedar policy
+  set itself.
 - **Query:** the structured query DSL, with its enforced limits shown and
   examples for filters, paging (**Next page** follows `nextCursor`), nested
   includes, include filters, `sort`, projection (`select`), full-text
-  `search`, grouped **aggregation** (rendered as a table of groups), and a
-  many-to-many `byJoinTable` traversal (ADR-0027/0028) — plus queries the
-  runtime rejects by design. Results render as a navigable object tree, an
-  aggregation table, or raw JSON.
-- **Guardrails:** nineteen one-click scenarios that each send a real request
-  and check the outcome against the design, including filtering on a hidden
-  or computed property, over-limit and malformed queries, bad action input
-  (from an allowed and a disallowed identity), a failed precondition,
+  `search`, grouped **aggregation** (rendered as a table of groups), a
+  many-to-many `byJoinTable` traversal (ADR-0027/0028), per-record results
+  and equality on an encrypted field — plus queries the runtime rejects by
+  design. Results render as a navigable object tree, an aggregation table,
+  or raw JSON.
+- **Guardrails:** twenty-two one-click scenarios that each send a real
+  request and check the outcome against the design, including filtering on a
+  hidden or computed property, over-limit and malformed queries, bad action
+  input (from an allowed and a disallowed identity), a failed precondition,
   cross-domain access, redaction, row-level access (another clinician's
   patient, directly, in a query, through an appointment, and by counting),
-  and classification (a SECRET field the CUI-cleared Viewer never sees, even
-  by filtering on it). **Run all** checks them together. The
-  config panel lists the live query limits, concurrency budget, and per-call
-  resilience policy (timeout / retries / breaker — ADR-0026); two live panels
-  fire a rate-limit burst at a dedicated identity and visualize the
-  concurrency budget for a nested query.
+  classification (a SECRET field the CUI-cleared Viewer never sees, even by
+  filtering on it), encryption (equality through the blind index; a refused
+  sort), and both engines' verdicts on the same request. **Run all** checks
+  them together — under either engine. The config panel lists the live
+  query limits, concurrency budget, and per-call resilience policy (timeout
+  / retries / breaker — ADR-0026); two live panels fire a rate-limit burst at
+  a dedicated identity and visualize the concurrency budget for a nested
+  query.
 - **MCP Console:** the same operations through the real MCP
   `Server`/`Client`, including nested-include and invalid queries (which come
   back as `isError`), plus a custom tool-call editor. Tool results are shown
   raw and with their JSON text parsed.
 
 The **Audit Log** drawer at the bottom is live across every tab, filterable
-by decision and subject: every policy decision and Action execution appends
-a row, whichever surface triggered it.
+by decision, subject, and control: every policy decision, every
+classification decision (with its markings), and every Action execution
+appends a row, whichever surface triggered it.
 
 ## Documentation
 
@@ -360,7 +393,10 @@ a row, whichever surface triggered it.
   composition, adapters, policy, versioning, query DSL, MCP mapping, domain
   packaging, persistence, the production Postgres registry store, caching,
   observability, OIDC identity resolution, concurrency/rate-limit bounds,
-  publish infrastructure).
+  publish infrastructure, the HTTP transport, multi-source composition,
+  multi-instance deployment, resilience, query extensions, relationship
+  strategies, deployment artifacts, row-level authorization, the Cedar
+  engine, data classification, and field-level encryption).
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying
   `packages/core`.

@@ -5,5 +5,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../domain-airforce" }, { "path": "../domain-hospital" }, { "path": "../mcp-server" }]
+  "references": [{ "path": "../core" }, { "path": "../domain-airforce" }, { "path": "../domain-hospital" }, { "path": "../mcp-server" }, { "path": "../adapter-in-memory" }, { "path": "../encryption" }, { "path": "../policy-cedar" }]
 }

@@ -383,7 +383,8 @@ export class SemanticRuntime {
    * Asks the policy engine, deny-biased (ADR-0030): only an explicit
    * `allow: true` allows. An engine that throws, rejects, or answers with a
    * malformed decision denies — with a reason naming the policy but not the
-   * error, whose message could quote an attribute value.
+   * error, whose message could quote an attribute value. It does not audit:
+   * every decision goes through `evaluate`, which does.
    */
   private async decide(request: PolicyRequest): Promise<PolicyDecision> {
     let decision: PolicyDecision | undefined;
@@ -429,7 +430,11 @@ export class SemanticRuntime {
     if (!decision.allow) throw notAuthorized(action, resource, decision.reason);
   }
 
-  /** Whether the subject's clearance dominates `marking` (unmarked: always). Deny-biased: a scheme that throws denies. */
+  /**
+   * Whether the subject's clearance dominates `marking` (unmarked: always).
+   * Deny-biased: a scheme that throws denies. It does not audit: a decision
+   * about access goes through `clearedFor`, which does.
+   */
   private dominates(identity: Identity, marking: string | undefined): boolean {
     if (marking === undefined) return true;
     try {
@@ -474,6 +479,21 @@ export class SemanticRuntime {
       const typeDef = await this.registry.getType(t);
       return typeDef ? objectMarking(typeDef) : undefined;
     }));
+  }
+
+  /**
+   * The gates an Action invocation must pass, decided and audited: its
+   * policy, then — only if that allows — the clearance its Types need
+   * (ADR-0032). `invokeAction` enforces it and `listActions` reports it,
+   * through this one audited path, so how an Action is listed and what
+   * invoking it does can't drift apart.
+   */
+  private async authorizeInvoke(identity: Identity, action: ActionDefinition, typeName: string): Promise<PolicyDecision> {
+    const resource = { typeName, actionName: action.name };
+    const decision = await this.evaluate(identity, "invoke", action.authorizationPolicy, resource);
+    if (!decision.allow) return decision;
+    const cleared = await this.clearedFor(identity, await this.actionMarkings(action), resource, "invoke");
+    return cleared ? decision : { allow: false, reason: CLEARANCE_REASON };
   }
 
   /**
@@ -872,6 +892,8 @@ export class SemanticRuntime {
     }
     const gated = new Set(Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {}));
     const declared = Object.keys(typeDef.schema.properties ?? {});
+    // Query planning, not an access decision, so not audited: a skipped field is never read or matched, and
+    // every value the search does return is decided (and audited) in finalizeValues (ADR-0032).
     return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.dominates(identity, memberMarking(typeDef, p)));
   }
 
@@ -1045,14 +1067,9 @@ export class SemanticRuntime {
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: { action: ActionDefinition; authorized: boolean }[] = [];
         for (const action of applicable) {
-          const cleared = (await this.actionMarkings(action)).every((m) => this.dominates(identity, m));
-          const decision = await this.decide({
-            subject: identity,
-            action: "invoke",
-            policyName: action.authorizationPolicy,
-            resource: { typeName, actionName: action.name }
-          });
-          results.push({ action, authorized: decision.allow && cleared });
+          // A preview is still an authorization decision disclosed to the caller, so it is decided and audited
+          // exactly as invokeAction decides it.
+          results.push({ action, authorized: (await this.authorizeInvoke(identity, action, typeName)).allow });
         }
         return results;
       }
@@ -1070,12 +1087,8 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, "typesys.identity.subject_id": identity.subjectId },
       async () => {
         await this.checkRateLimit(identity);
-        await this.requireAllowed(identity, "invoke", action.authorizationPolicy, {
-          typeName: primaryType,
-          actionName: action.name
-        });
-        // An Action's result is data of the Types it applies to, so it needs their clearance too (ADR-0032).
-        await this.requireCleared(identity, await this.actionMarkings(action), { typeName: primaryType, actionName: action.name }, "invoke");
+        const gate = await this.authorizeInvoke(identity, action, primaryType);
+        if (!gate.allow) throw notAuthorized("invoke", { typeName: primaryType, actionName: action.name }, gate.reason);
         // After the policy check, so every attempt by an unauthorized caller is still audited as a
         // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
         this.inputValidator.validateActionInput(action, input);

@@ -157,7 +157,10 @@ document that gap rather than close it in this pass.
 - A declarative YAML authoring path + `generate-types` codegen +
   `typesys init` scaffolding (`@typesys/cli`) — proven by actually
   compiling generated output with `tsc --strict`.
-- The web demo makes all of the above clickable.
+- The web demo makes all of the above clickable — including a Security tab
+  that puts row-level access, classification, encryption at rest, and the
+  two policy engines side by side, and a header switch that routes the whole
+  app through either engine.
 - CI (`.github/workflows/ci.yml`) builds and runs the full suite on
   every push, including a Postgres-service-container job for the
   database-gated tests.
@@ -172,7 +175,7 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 439 tests — 395 run with no infrastructure, 429 with a PostgreSQL
+- 447 tests — 403 run with no infrastructure, 437 with a PostgreSQL
   database (the rest need Redis) — plus stdio and HTTP MCP smoke tests, all
   green.
 
@@ -200,6 +203,12 @@ demonstrate, and nothing more:
   for encrypted fields in any encoding; tampering, moving, and the wrong key
   fail closed; equality works through verified blind indexes; every hospital
   read path returns the same results encrypted as not.
+
+A review of the pass found one audit-completeness defect, since fixed:
+`listActions` decided policy and clearance correctly but wrote no audit
+rows. It now shares `invokeAction`'s audited gate, row-for-row, and a
+tripwire test pins every call site of the non-auditing decision primitives
+(`packages/core/test/audit-completeness.test.ts`).
 
 Not proven, and listed per ADR for human review: this code is
 machine-verified, not human-reviewed; the pagination inference channel

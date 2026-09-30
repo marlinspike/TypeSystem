@@ -39,6 +39,21 @@ derivation, probe, search, query-gate, aggregate, provenance, or Action
 checks, letting a throwing scheme allow, or deciding classification after
 policies instead of before, fails the suite.
 
+**Amended 2026-09-30 — an audit-completeness defect, found in review and
+fixed.** `listActions` computed its `authorized` flags correctly but through
+the non-auditing primitives: the clearance check through `dominates()`
+(breaking point 4 below) and the policy check through `decide()` (unaudited
+since before ADR-0030). It now runs the same private gate as
+`invokeAction` — `authorizeInvoke()`: the policy through `evaluate()`, then,
+only if that allows, the clearance through `clearedFor()` — so it writes
+exactly the decision rows an invocation's gates write, and its answers are
+unchanged. `packages/core/test/data-classification.test.ts` pins the rows
+for allow and deny on a marked Type and their equality with
+`invokeAction`'s; `packages/core/test/audit-completeness.test.ts` is a
+tripwire over every call site of the non-auditing primitives. Point 4 is
+also made precise: it covers every *decision*, which selecting a default
+search's properties is not.
+
 ## Context
 
 Classification markings already have two homes in the model, and the
@@ -112,10 +127,14 @@ through it.** Both must pass; neither can relax the other.
   a redacted value is never returned by `includeProvenance`, which already
   lists only visible properties.
 
-**4. Audited like any other decision.** Every classification check on
-marked data writes an audit row (allow or deny), with `details: { control:
-"classification", markings, clearance }` so a reviewer can tell it from a
-policy decision. The reason returned to a caller is generic — "Requires a
+**4. Audited like any other decision.** Every classification *decision* on
+marked data — a check whose outcome grants or refuses the caller access,
+or tells the caller what they may do (`listActions`) — writes an audit row
+(allow or deny), with `details: { control: "classification", markings,
+clearance }` so a reviewer can tell it from a policy decision. Choosing
+which properties a default search ranges over is query planning, not a
+decision: a skipped field is never read or matched, every value the search
+returns is decided (and audited) in `finalizeValues`, and it writes nothing. The reason returned to a caller is generic — "Requires a
 higher clearance" — and never names a marking, since a value-level marking
 can itself be sensitive. A scheme that throws denies, as a policy engine
 that throws does (ADR-0030).
@@ -170,6 +189,11 @@ code is machine-verified, not human-reviewed.
   `x-provenance` is read; confirm every classified Type declares its own.
 - **Spillage handling, marking banners, and declassification** are out of
   scope.
+- **Audit rows record the decision, not the operation.** A `listActions`
+  preview writes the same rows an `invokeAction` gate does; they are told
+  apart only by the outcome row an executed Action adds. Alerting on
+  "invoke denials" must account for previews, or the rows must gain the
+  runtime operation that made them.
 
 ## Alternatives Considered
 

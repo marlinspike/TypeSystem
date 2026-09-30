@@ -36,6 +36,12 @@ check, the provenance object check, the strict `allow === true`, the
 engine-error catch, or the attributes freeze each fails at least one of
 these tests.
 
+**Amended 2026-09-30:** `listActions`' policy decisions are now audited
+too. They never had been — it asked the engine directly, and after this
+ADR through the deny-biased but non-auditing `decide()` — so "every policy
+decision is audited" was not true of it. It now shares `invokeAction`'s
+audited gate; see ADR-0032's amendment for the fix and its tests.
+
 ## Context
 
 Every policy decision today is made on *who* is asking and *what kind of
