@@ -151,6 +151,7 @@ The text tells you which kind of failure it was:
 | `Not authorized:` | Policy denied this identity, including filtering on a property it can't read (the message names the property). | Don't retry with the same token; drop the hidden property from the filter, or accept the denial. |
 | `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit, or a top-level filter used a computed property; the message names the problem. | Fix the arguments and retry. For a computed property, filter on it inside an include, or filter the results yourself. |
 | `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
+| `Cannot … encrypted field` | The field is stored encrypted, so the store can't range-filter, sort, search, aggregate, or join on it; the message says what does work. | Drop that part of the query, or name `search.properties` without the field. |
 | `Rate limit exceeded` | Too many calls for this identity. | Back off and retry later. |
 
 ## The discovery sequence a well-behaved agent follows

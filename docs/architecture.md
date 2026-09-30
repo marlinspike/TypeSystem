@@ -255,20 +255,21 @@ order.
 
 Every read a consumer issues (`getObject`, and the per-object leg of
 `query` and `getRelationship`) runs the same ordered pipeline inside
-`SemanticRuntime`, wrapped in a single OpenTelemetry span (ADR-0017). Two
-of the stages are policy checkpoints, and each writes an audit row as it
-decides, which is why enforcement cannot be routed around by a different
-caller.
+`SemanticRuntime`, wrapped in a single OpenTelemetry span (ADR-0017). Four
+of the stages are checkpoints — two for classification (ADR-0032), two for
+policy — and each writes an audit row as it decides, which is why
+enforcement cannot be routed around by a different caller.
 
 ```mermaid
 flowchart TB
     a["admit and load<br/>rate limit, load TypeDefinition"]
+    k["classification: object marking<br/>before anything is read, writes audit"]
     c["resolve stored values<br/>mappings then adapter (+cache)"]
     b["policy: object gate<br/>decided on this object's attributes, writes audit"]
     d["computed properties<br/>may reach other adapters"]
-    e["policy: field redaction<br/>drop denied fields, writes audit"]
+    e["classification, then policy: field redaction<br/>drop classified and denied fields, writes audit"]
     f["return object<br/>plus provenance if requested"]
-    a --> c --> b --> d --> e --> f
+    a --> k --> c --> b --> d --> e --> f
 ```
 
 The object gate is decided on the object's own stored values, so a rule can
@@ -477,6 +478,9 @@ the same kind of swappable interface as everything else in this list:
   relationships/computed properties (ADR-0016).
 - OpenTelemetry tracing/metrics that cost nothing and do nothing unless
   an application registers a real SDK (ADR-0017).
+- Field-level encryption at rest: `EncryptingAdapter`
+  (`@typesys/encryption`, ADR-0033), a decorator around any `Adapter` —
+  ciphertext in every store, plaintext at the runtime boundary.
 - A real policy engine: `CedarPolicyEngine` (`@typesys/policy-cedar`,
   ADR-0031), the Cedar authorizer in-process as WebAssembly, behind the
   same `PolicyEngine` interface `AbacPolicyEngine` implements — proven to

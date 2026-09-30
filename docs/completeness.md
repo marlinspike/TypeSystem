@@ -172,8 +172,41 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 100+ tests (Postgres-gated ones skip cleanly without a database
-  configured) + a real stdio MCP smoke test, all green.
+- 439 tests — 395 run with no infrastructure, 429 with a PostgreSQL
+  database (the rest need Redis) — plus stdio and HTTP MCP smoke tests, all
+  green.
+
+## The 2026-09-29 hardening pass: what is now proven
+
+Four Tier-1 items from [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md),
+each with an ADR, attack tests, and a mutation check (each enforcement line
+removed in turn, and a test failing for every one). What the tests
+demonstrate, and nothing more:
+
+- **Row-level authorization (ADR-0030, item 8).** A policy decides on the
+  object's own stored attributes on every read path; clinician B cannot
+  read clinician A's patient by `getObject`, seven query shapes, paging,
+  three include paths, navigation, provenance, aggregation, or MCP, and every
+  attempt is audited with no PHI in any error, reason, or audit row.
+- **A real policy engine (ADR-0031, item 1).** `CedarPolicyEngine` decides
+  identically to `AbacPolicyEngine` — same results, same audited decision at
+  every checkpoint — across 2,422 scenarios for fifteen identities on both
+  domains, and fails closed on every Cedar error at load or per decision.
+- **Classification (ADR-0032, item 3).** A value, object, or derived value
+  marked above the reader's clearance is unreadable through every read path,
+  no policy engine can relax it, an uncleared reader never causes a
+  classified object to be read, and missing or unknown labels fail closed.
+- **Encryption at rest (ADR-0033, item 4).** The store holds no plaintext
+  for encrypted fields in any encoding; tampering, moving, and the wrong key
+  fail closed; equality works through verified blind indexes; every hospital
+  read path returns the same results encrypted as not.
+
+Not proven, and listed per ADR for human review: this code is
+machine-verified, not human-reviewed; the pagination inference channel
+(ADR-0030); Cedar's formal analysis of a real policy set (ADR-0031);
+value-level markings in adapter-side aggregation and write rules (ADR-0032);
+a KMS key provider, record-level ciphertext binding, and a cryptographic
+review (ADR-0033).
 
 ## Real but narrow — the mechanism exists, exercised once
 
