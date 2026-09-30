@@ -101,27 +101,33 @@ assembled. A human application calls it directly; an AI agent reaches it
 through the MCP server. Either path inherits identical enforcement,
 because there is only one path to enforce. Which engine decides policy is
 a choice — the embedded ABAC rules or Cedar — and classification sits
-beside it, so no engine can relax it. Beneath the runtime, an
-`EncryptingAdapter` can wrap any adapter so sensitive fields are
-ciphertext in the store while the runtime works on plaintext.
+beside it, so no engine can relax it. A read policy is also turned into an
+*authorization plan* the store applies before it reads, so objects the
+caller can't read are never fetched — while every object that is fetched is
+still decided on its own data. Beneath the runtime, an `EncryptingAdapter`
+can wrap any adapter so sensitive fields are ciphertext in the store while
+the runtime works on plaintext; a versioned security profile can fix the
+strongest of these settings and refuse to start without them.
 
 ```mermaid
 flowchart TB
     app["Human application"]
     agent["AI agent"]
     mcp["MCP server"]
-    rt["SemanticRuntime<br/>getObject · query · invokeAction"]
+    rt["SemanticRuntime<br/>getObject · query · aggregate · invokeAction"]
     gov["Policy (ABAC or Cedar) · Classification<br/>Audit · Provenance — enforced once, per call"]
+    plan["Authorization plan<br/>pushed into the adapter's filter"]
     inmem["InMemory adapter"]
     rest["MockRest adapter"]
     enc["EncryptingAdapter<br/>optional decorator"]
-    pg["Postgres adapter"]
+    pg["Postgres adapter<br/>filters compiled to SQL"]
     repo[("In-memory repo")]
     ext[("Legacy REST API")]
     pgdb[("PostgreSQL<br/>sensitive fields as ciphertext")]
     app --> rt
     agent --> mcp --> rt
     rt --- gov
+    gov -.-> plan -.-> pg
     rt --> inmem --> repo
     rt --> rest --> ext
     rt --> enc --> pg --> pgdb
@@ -354,7 +360,10 @@ Five tabs:
   lookup through the blind index, a refused sort, and a sandboxed tamper
   the GCM tag rejects. *Two engines, one decision* runs every read path as
   every identity on both engines and compares them, beside the Cedar policy
-  set itself.
+  set itself. *A versioned high-assurance profile* asks `HIGH_ASSURANCE_V1`
+  to start the demo's own configuration and shows its refusal, violation by
+  violation — the demo runs on a demonstration classification scheme and
+  local keys on purpose (ADR-0046).
 - **Query:** the structured query DSL, with its enforced limits shown and
   examples for filters, paging (**Next page** follows `nextCursor`), nested
   includes, include filters, `sort`, projection (`select`), full-text
@@ -363,12 +372,14 @@ Five tabs:
   and equality on an encrypted field — plus queries the runtime rejects by
   design. Results render as a navigable object tree, an aggregation table,
   or raw JSON.
-- **Guardrails:** twenty-two one-click scenarios that each send a real
+- **Guardrails:** twenty-three one-click scenarios that each send a real
   request and check the outcome against the design, including filtering on a
   hidden or computed property, over-limit and malformed queries, bad action
   input (from an allowed and a disallowed identity), a failed precondition,
   cross-domain access, redaction, row-level access (another clinician's
-  patient, directly, in a query, through an appointment, and by counting),
+  patient, directly, in a query, and through an appointment; and counting
+  only the patients you may read, through an exact authorization plan —
+  refused under Cedar, whose plans aren't exact here),
   classification (a SECRET field the CUI-cleared Viewer never sees, even by
   filtering on it), encryption (equality through the blind index; a refused
   sort), and both engines' verdicts on the same request. **Run all** checks
@@ -384,8 +395,11 @@ Five tabs:
 
 The **Audit Log** drawer at the bottom is live across every tab, filterable
 by decision, subject, and control: every policy decision, every
-classification decision (with its markings), and every Action execution
-appends a row, whichever surface triggered it.
+classification decision (with its joined label), every row plan a query or
+aggregate applied, and every Action execution appends a row, whichever
+surface triggered it. Each row names the runtime operation that wrote it,
+and a ⚠ badge marks policy faults — a rule branch that failed to evaluate,
+even when the decision was an allow.
 
 ## Documentation
 
@@ -404,7 +418,12 @@ appends a row, whichever surface triggered it.
   publish infrastructure, the HTTP transport, multi-source composition,
   multi-instance deployment, resilience, query extensions, relationship
   strategies, deployment artifacts, row-level authorization, the Cedar
-  engine, data classification, and field-level encryption).
+  engine, data classification, field-level encryption, classification
+  defaults, record-bound envelopes, sensitive-data caching, KMS-backed keys,
+  authorization planning, Cedar planning, adapter filter capabilities and
+  SQL pushdown, security labels, audited operations, policy faults,
+  provable numeric pushdown, telemetry identity, and security profiles).
+  [`docs/README.md`](docs/README.md) indexes all of them.
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying
   `packages/core`.

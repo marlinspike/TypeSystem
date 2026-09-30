@@ -37,16 +37,17 @@ flowchart TB
         MODEL["Semantic Model\n(Type / Relationship / Action /\nPolicy / Provenance / DataSource / Mapping)"]
         REGISTRY["Semantic Registry\n(validates + composes + stores TypeDefinitions)"]
         RUNTIME["Semantic Runtime\n(getObject / getRelationship / query / aggregate /\ngetProvenance / listActions / invokeAction)"]
-        POLICY["Policy Engine (ABAC, or Cedar via @typesys/policy-cedar)"]
-        CLASSIFICATION["Classification (ADR-0032)\nclearance vs markings, beside the engine"]
-        AUDIT["Audit Log"]
+        POLICY["Policy Engine (ABAC, or Cedar via @typesys/policy-cedar)\nevaluate + optional plan (ADR-0038/0039)"]
+        CLASSIFICATION["Classification (ADR-0032/0041)\nscheme decides labels, beside the engine"]
+        AUDIT["Audit Log\nnames the operation (ADR-0042)"]
+        PROFILE["Security profile (ADR-0046)\nguarantees checked at start-up"]
     end
 
     subgraph Adapters["Adapters"]
         INMEM["InMemoryRepositoryAdapter"]
         REST["MockRestAdapter"]
-        ENC["EncryptingAdapter (ADR-0033)\noptional decorator, any adapter"]
-        PG["PostgresRepositoryAdapter"]
+        ENC["EncryptingAdapter (ADR-0033/0035)\noptional decorator, any adapter"]
+        PG["PostgresRepositoryAdapter\nfilters compiled to SQL (ADR-0040/0044)"]
     end
 
     subgraph Systems["Enterprise Systems (stand-ins, plus one real one)"]
@@ -68,7 +69,8 @@ flowchart TB
     POLICY -. enforced by .- RUNTIME
     CLASSIFICATION -. enforced by .- RUNTIME
     AUDIT -. written by .- RUNTIME
-    CACHE["Cache (ADR-0016)"] -. consulted by .- RUNTIME
+    PROFILE -. constrains .- RUNTIME
+    CACHE["Cache (ADR-0016)\nsensitive data only if confidential (ADR-0036)"] -. consulted by .- RUNTIME
     RATELIMIT["RateLimiter (ADR-0019)"] -. checked by .- RUNTIME
     RESILIENCE["Resilience: timeout / retry / breaker (ADR-0026)"] -. wraps adapter calls of .- RUNTIME
 ```
@@ -279,7 +281,39 @@ The object gate is decided on the object's own stored values, so a rule can
 allow "this clinician, this patient" rather than "any clinician, any
 patient" (ADR-0030). In `query` it runs per returned item, and a denied
 item is dropped silently; computed properties and includes run only for
-objects that passed it.
+objects that passed it. Before the adapter reads anything, `query` also
+asks for the policy's *authorization plan* and pushes it into the adapter's
+filter, so objects the caller can't read are never read at all — the next
+section traces that chain.
+
+### Authorization planning: from policy to an explainable read
+
+A read policy becomes a filter the store applies before it reads
+(ADR-0038). The plan may admit *more* than the policy allows, never less —
+so the per-object decision after the read stays, permanently, and is what
+makes an inexact plan safe. Only an *exact* plan closes the short-page
+channel and admits aggregation.
+
+```mermaid
+flowchart TB
+    p["Policy<br/>ABAC combinators, or Cedar"]
+    pl["Authorization plan<br/>always · never · predicate (exact?) · unknown<br/>structured limitations"]
+    fit["Fit to the data sources<br/>canFilter / protected / cross-source → weaken to true"]
+    sql["Secure query execution<br/>adapter filter; Postgres: exact SQL or a re-checked superset"]
+    obj["Authoritative object decision<br/>evaluate() on every object read, audited"]
+    out["Auditable explanation<br/>row-plan audit rows, faults, explainQuery"]
+    agg["aggregate<br/>only under an exact plan — structural under HIGH_ASSURANCE_V1"]
+    p -->|"plan() (ABAC: from the rule; Cedar: partial evaluation)"| pl --> fit --> sql --> obj --> out
+    fit -->|exact predicate| agg
+```
+
+`never` returns an empty page without calling the adapter; `always` and
+`unknown` filter nothing; a predicate is ANDed into the caller's filter. An
+atom the adapter can't evaluate exactly — a randomized encrypted field, an
+attribute from another data source — becomes `true`, never dropped, so the
+plan stays sound (ADR-0040). `rowSecurity: "require-exact"` refuses a query
+whose plan isn't exact, and a plan that claimed exactness but admitted a
+denied object is audited as a defect.
 
 ### Policy in practice: one object, three identities
 
@@ -396,7 +430,9 @@ sequenceDiagram
     C->>RT: query({type: "airforce.Aircraft", filter: tailNumber=AF86-0147, include: [components, maintenance]})
     RT->>REG: getType("airforce.Aircraft")
     REG-->>RT: TypeDefinition
-    RT->>INMEM: queryByType("airforce.Aircraft", filter)
+    RT->>PE: plan(read, airforce.read-aircraft) (ADR-0038)
+    PE-->>RT: always (role-level) — or a predicate, ANDed into the filter
+    RT->>INMEM: queryByType("airforce.Aircraft", filter AND plan)
     INMEM-->>RT: [{objectId: AF86-0147, values, provenance}]
     RT->>PE: evaluate(read, airforce.read-aircraft, AF86-0147 + its attributes)
     PE-->>RT: allow (a denied item would be dropped here)

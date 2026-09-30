@@ -1643,6 +1643,16 @@ async function loadCedarSource() {
   $("#cedarPolicies").dataset.loaded = "1";
 }
 
+async function runProfileCheck() {
+  const r = await api("/api/security/profile", undefined, "start under HIGH_ASSURANCE_V1");
+  $("#profileResult").innerHTML = r.violations.length
+    ? `<span class="err-text"><strong>Refused</strong> — ${r.violations.length} violation${r.violations.length === 1 ? "" : "s"} of <code>${escapeHtml(r.profile)}</code></span>`
+    : `<span><strong>Started</strong> under <code>${escapeHtml(r.profile)}</code></span>`;
+  $("#profileGuarantees").innerHTML = r.guarantees.map((g) => `<li>${escapeHtml(g)}</li>`).join("");
+  $("#profileViolations").innerHTML = r.violations.length ? r.violations.map((v) => `<li>${escapeHtml(v)}</li>`).join("") : '<li class="muted">None.</li>';
+  $("#profileDetail").hidden = false;
+}
+
 async function renderSecurity() {
   await Promise.all([renderRowLevelMatrix(), renderClassification(), renderEncryption()]);
 }
@@ -1658,6 +1668,7 @@ function initSecurityTab() {
   $("#encTamper").addEventListener("click", runEncTamper);
   $("#encSwap").addEventListener("click", runEncSwap);
   $("#parityBtn").addEventListener("click", runParity);
+  $("#profileBtn").addEventListener("click", () => void runProfileCheck());
   $(".cedar-source").addEventListener("toggle", (e) => {
     if (e.target.open) void loadCedarSource();
   });

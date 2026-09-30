@@ -15,6 +15,8 @@ import {
   buildRuntime,
   coreManifest,
   DEMO_LINEAR_CLASSIFICATION,
+  HIGH_ASSURANCE_V1,
+  SecurityProfileError,
   type Adapter,
   type Identity,
   type RateLimiter,
@@ -486,6 +488,18 @@ async function main(): Promise<void> {
 
   app.get("/api/security/cedar", (_req, res) => {
     sendJson(res, 200, { schema: CEDAR_SCHEMA, policies: CEDAR_POLICIES });
+  });
+
+  // The demo's own configuration, asked to start under HIGH_ASSURANCE_V1 (ADR-0046). It is built on
+  // demonstration components on purpose, so the profile's refusal — every violation at once — is the answer.
+  app.get("/api/security/profile", (_req, res) => {
+    let violations: readonly string[] = [];
+    try {
+      new SemanticRuntime(registry, adapters, abacEngine, { ...runtimeOptions, securityProfile: HIGH_ASSURANCE_V1 });
+    } catch (err) {
+      violations = err instanceof SecurityProfileError ? err.violations : [err instanceof Error ? err.message : String(err)];
+    }
+    sendJson(res, 200, { profile: HIGH_ASSURANCE_V1.id, guarantees: HIGH_ASSURANCE_V1.guarantees, violations, running: runtimes.abac.securityProfile ?? null });
   });
 
   app.get(

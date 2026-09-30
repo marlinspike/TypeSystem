@@ -93,7 +93,7 @@ plain JSON Schema has no concept of:
   Record<name, {authoritativeSource?: string, classification?: string}> }`.
   `defaultClassification` marks every object of the Type and
   `properties[name].classification` one member; the runtime enforces both
-  against `Identity.clearance` (ADR-0032).
+  under the configured `ClassificationScheme` (ADR-0032, ADR-0041).
 - `x-metadata`: `{ owner?: string, tags?: string[], [key: string]: unknown }`.
 
 These keywords are authoring sugar: the Registry parses them once at
@@ -242,8 +242,12 @@ for when to prefer this over a relationship.
 `Identity` (`model/policy.ts`): `subjectId`, `roles: string[]`,
 `attributes: Record<string, unknown>`, `tokenScopes?: string[]` (a seam for
 RFC 9396 rich authorization requests, not enforced in v1), and
-`clearance?: string` — the highest classification the subject may read,
-checked by the runtime beside (never through) the policy engine (ADR-0032).
+`clearance?: string` — the subject's clearance level, one input (with its
+attributes) to the configured `ClassificationScheme`, checked by the runtime
+beside (never through) the policy engine (ADR-0032). A scheme is
+`decide({ subject, markings, context })` plus `join(markings)`, the label of
+derived data; the runtime decides the join and every marking on its own, so
+a join can only add restriction (ADR-0041).
 
 `PolicyRequest`: `{subject: Identity, action: "read" | "invoke",
 policyName: string, resource: {typeName, objectId?, propertyPath?,
@@ -251,9 +255,17 @@ actionName?, attributes?}, context?}`. `resource.attributes` is the
 object's stored values (pre-redaction, never computed properties), present
 only on an *instance-level* request; a request without it is *type-level*
 and asks about every instance at once (ADR-0030). `PolicyDecision`:
-`{allow: boolean, reason?, obligations?}`. `PolicyEngine`: the single method
-`evaluate(request): Promise<PolicyDecision>`. The runtime is deny-biased:
-only an explicit `allow: true` allows, and an engine that throws denies.
+`{allow: boolean, reason?, obligations?, faults?}` — `faults` names parts of
+the rule that failed to evaluate, carried even on an allow and audited
+(ADR-0043). `PolicyEngine`: `evaluate(request): Promise<PolicyDecision>`,
+plus two optional methods: `plan(request)`, an `AuthorizationPlan` — what
+the policy admits for this subject across the Type, as `always`, `never`,
+an `eq`/`and`/`or` predicate marked exact or not with structured
+limitations, or `unknown` — which must soundly over-approximate what
+`evaluate` allows (ADR-0038); and `planAssurance(request)`, `"structural"`
+only when the plan is derived from the same rule structure `evaluate` uses
+(ADR-0046). The runtime is deny-biased: only an explicit `allow: true`
+allows, and an engine that throws denies.
 
 Types name policies rather than embedding logic: `x-policy.objectPolicy`
 (decided per object, on its attributes, by `getObject`, per returned item by
@@ -268,6 +280,11 @@ Promise<PolicyDecision>`. An unregistered policy name denies by default
 (fails closed). Rule helpers are provided: `allowAllRule`,
 `requireRole(...roles)`, the row-level `requireAttributeMatch(resourceAttribute,
 subjectAttribute)`, and the combinators `anyOf(...rules)` / `allOf(...rules)`.
+Each also plans itself from its own structure, so `query` pushes the rule
+into the adapter's filter and `aggregate` can count exactly the readable
+rows; a plain function rule plans `unknown`. In `anyOf`, an alternative that
+throws doesn't allow, later ones are still tried, and the failure is a fault;
+in `allOf`, a throw denies.
 
 **Worked example**: `packages/domain-airforce/src/setup.ts` registers
 `"airforce.read-aircraft"` as `requireRole("maintainer", "viewer")` and
@@ -334,9 +351,13 @@ brief's intent, and neither should be confused with the other:
    *semantic object*, not a meta-model primitive with its own registration
    API.
 2. **`AuditEvent`** (`packages/core/src/audit/audit-log.ts`) is the
-   immutable security/audit trail: `{id, timestamp, subjectId, action,
-   resource: {typeName, objectId?, propertyPath?}, decision: "allow" |
-   "deny", reason?, outcome?: "success" | "failure", details?}`. It is
+   immutable security/audit trail: `{id, timestamp, subjectId, operation?,
+   action, resource: {typeName, objectId?, propertyPath?}, decision: "allow" |
+   "deny", reason?, outcome?: "success" | "failure", details?}` —
+   `operation` is the outermost runtime call it was written under (ADR-0042),
+   and `details` carries the deciding control's specifics: a classification
+   label and reason, a row plan's kind and limitation codes, or policy
+   faults. It is
    written exactly once per policy decision and once per successful
    audit-required Action, always by `SemanticRuntime`, via
    `registry.appendAuditEvent()` (persisted by whichever `RegistryStore` is
