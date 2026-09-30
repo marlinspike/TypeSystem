@@ -92,9 +92,13 @@ document that gap rather than close it in this pass.
   envelopes are refused outside a migration, and `reseal` migrates and
   re-keys. Proven by `packages/encryption/test/`, including reading the store
   directly, tampering, moving and downgrading ciphertexts, and a transparency
-  check across every hospital read path; the Postgres suite runs in CI. Not
-  built: a KMS-backed `KeyProvider` (the interface is the seam) — see the
-  ADRs.
+  check across every hospital read path; the Postgres suite runs in CI.
+  Encrypted and marked data never reaches a cache that isn't confidential
+  (ADR-0036): the runtime reads it live instead, and `EncryptedCache` seals
+  a shared cache's values and hides its key names. Proven by
+  `packages/core/test/sensitive-caching.test.ts` and
+  `packages/encryption/test/encrypted-cache.test.ts`. Not built: a
+  KMS-backed `KeyProvider` (the interface is the seam) — see the ADRs.
 - Data classification enforcement (ADR-0032): `Identity.clearance` must
   dominate a Type's `x-provenance.defaultClassification`, a member's
   `x-provenance.properties[].classification`, and a value's

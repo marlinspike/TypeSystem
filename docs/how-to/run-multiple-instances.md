@@ -10,7 +10,7 @@ its own budget ([ADR-0025](../adr/0025-multi-instance-deployment.md)).
 | State | Single process | Several replicas |
 |---|---|---|
 | Registry (types, actions, audit log) | `InMemoryRegistryStore` | `PostgresRegistryStore`, same database for all ([`use-postgres.md`](use-postgres.md)) |
-| Cache | `InMemoryCache` | `RedisCache` from `@typesys/redis`, same Redis for all |
+| Cache | `InMemoryCache` | `RedisCache` from `@typesys/redis`, same Redis for all — wrapped in `EncryptedCache` if any Type is encrypted or marked ([ADR-0036](../adr/0036-sensitive-data-caching.md)) |
 | Rate limiter | `InMemoryRateLimiter` | `RedisRateLimiter` from `@typesys/redis`, same Redis for all |
 | Your data | Your adapters | Your adapters, pointing at the shared systems of record |
 

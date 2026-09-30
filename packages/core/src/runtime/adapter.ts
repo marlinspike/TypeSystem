@@ -53,4 +53,11 @@ export interface Adapter {
    * than pulling every row back to aggregate in the runtime.
    */
   aggregate?(query: SemanticAggregateQuery, opts?: AdapterCallOptions): Promise<AggregateResult>;
+  /**
+   * Optional (ADR-0036): the fields of `typeName` this adapter protects at
+   * rest — an `EncryptingAdapter`'s encrypted fields. The runtime never puts
+   * them, or a computed value derived from them, in a cache that isn't
+   * confidential. A decorator around such an adapter must forward this.
+   */
+  sensitiveFields?(typeName: string): readonly string[];
 }

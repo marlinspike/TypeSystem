@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted. *Amended by ADR-0036:* every `Cache` declares whether it is
+`confidential`, and the runtime keeps encrypted and marked data — and
+anything computed from it — out of a cache that isn't.
 
 ## Context
 

@@ -20,7 +20,8 @@ export function recordPolicyDecision(decision: "allow" | "deny"): void {
   policyDecisionsCounter.add(1, { decision });
 }
 
-export function recordCacheResult(result: "hit" | "miss"): void {
+/** `bypass`: a cached-mode read of sensitive data that skipped a cache that isn't confidential (ADR-0036). */
+export function recordCacheResult(result: "hit" | "miss" | "bypass"): void {
   cacheRequestsCounter.add(1, { result });
 }
 

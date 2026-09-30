@@ -187,12 +187,15 @@ code is machine-verified, not human-reviewed.
 - **Record binding.** A ciphertext can be swapped between records of the
   same Type and field by someone with write access to the store (point 3).
   If that matters, bind a stable record id into the AAD where one exists
-  before the write.
+  before the write. *Closed by ADR-0035.*
 - **Plaintext outside the adapter.** The runtime's `Cache` (ADR-0016) holds
   adapter output — decrypted values — so `resolutionMode: "cached"` on an
   encrypted Type puts plaintext in the cache (and in Redis, ADR-0025). Don't
-  cache encrypted Types, or encrypt the cache too. Logs, traces, and error
-  messages from other code are equally out of scope.
+  cache encrypted Types, or encrypt the cache too. *Enforced since ADR-0036:*
+  the runtime bypasses a cache that isn't confidential for encrypted fields
+  and what derives from them, and `EncryptedCache` makes a shared cache
+  confidential. Logs, traces, and error messages from other code are
+  equally out of scope.
 - **Blind-index leakage** (equality, frequency) is acceptable for
   identifiers looked up by exact value, not for low-cardinality fields
   (a boolean, a status) where frequency alone reveals the value.

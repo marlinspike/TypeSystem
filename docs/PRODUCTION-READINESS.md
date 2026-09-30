@@ -90,6 +90,8 @@ says so.
    equality, a `KeyProvider` seam, and keyring rotation, proven by tests
    that read the store directly and tamper with it. Since ADR-0035 every
    ciphertext is bound to its record, so a swap between records is detected.
+   Since ADR-0036 the runtime keeps encrypted and marked data out of any
+   cache that isn't confidential, and `EncryptedCache` makes Redis one.
    Still open: TLS in transit, a KMS-backed key provider and key management
    (item 6), a cryptographic review of the construction, detection of
    deleted or replayed records (the store's own controls), and
@@ -122,7 +124,9 @@ says so.
    tests run two runtimes against one Redis and several registries against
    one Postgres (concurrent migrations, now serialized by an advisory lock,
    cross-instance reads and composition, an interleaved audit log); the
-   load test proves replicas sharing Redis admit one budget. Still open:
+   load test proves replicas sharing Redis admit one budget. A deployment
+   with encrypted or marked Types must wrap `RedisCache` in `EncryptedCache`
+   to cache them (ADR-0036); otherwise they read live. Still open:
    Redis and Postgres high availability and topology, and a rolling-deploy
    playbook.
 8. **Per-instance authorization, if the real domain needs it.** Every

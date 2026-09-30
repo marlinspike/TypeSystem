@@ -77,6 +77,15 @@ happens; the runtime already ran the policy check, validated `input`
 against the Action's `inputSchema`, and ran preconditions before calling
 you.
 
+## Optional: declare protected fields
+
+If your backend keeps some fields protected at rest (encrypted, tokenized),
+implement `sensitiveFields(typeName)` to name them. The runtime then keeps
+their values, and computed values derived from them, out of any cache that
+isn't confidential ([ADR-0036](../adr/0036-sensitive-data-caching.md)). A
+decorator around another adapter must forward it, or the protection is
+lost silently.
+
 ## Wire it in
 
 ```ts
