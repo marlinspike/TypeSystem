@@ -8,7 +8,9 @@ If you're adding to an *existing* TypeScript domain package instead
 instead — it's the same underlying model, authored directly in code.
 
 Every command below is copy-pasteable and has actually been run against
-this exact repository.
+this exact repository. It runs inside your clone of it; to build your own
+application in a separate repository, follow
+[`how-to/start-a-project.md`](how-to/start-a-project.md) next.
 
 ## 0. Install
 
@@ -161,6 +163,8 @@ every step of a production deployment scales up from.
 
 ## Where to go next
 
+- **Build your own project on this, outside the repo** →
+  [`how-to/start-a-project.md`](how-to/start-a-project.md)
 - **Add a real relationship and Action** →
   [`how-to/add-a-relationship-and-action.md`](how-to/add-a-relationship-and-action.md)
 - **Point at a real backend instead of the in-memory adapter** →
