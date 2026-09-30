@@ -179,6 +179,8 @@ forbid (principal, action == TypeS::Action::"hospital.read-patient", resource) w
 
       expect(decision.allow).toBe(false);
       expect(decision.reason).toBe("Cedar policy forbid-high-level errored (fail closed)");
+      // Which policy errored is a fault an operator sees (ADR-0043); Cedar's own message stays out of it.
+      expect(decision.faults).toEqual(["Cedar policy forbid-high-level errored"]);
       expect(errors).toEqual([{ policyName: "hospital.read-patient", messages: [expect.stringContaining("overflow") as string] }]);
 
       // The trap: Cedar alone skips the erroring forbid and allows.

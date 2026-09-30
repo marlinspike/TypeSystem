@@ -52,6 +52,13 @@ export interface PolicyDecision {
   /** Returned to the caller on a deny, and audited — so it must never quote `resource.attributes` values. */
   reason?: string;
   obligations?: string[];
+  /**
+   * Parts of the rule that failed to evaluate (ADR-0043), in short fixed
+   * text — never an error message, which could quote an attribute value.
+   * Carried whatever the decision is: an allow reached around a broken
+   * branch still reports the branch. Audited as `details.faults`.
+   */
+  faults?: string[];
 }
 
 export interface PolicyEngine {

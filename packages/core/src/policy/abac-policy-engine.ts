@@ -102,6 +102,11 @@ export function requireAttributeMatch(resourceAttribute: string, subjectAttribut
   );
 }
 
+/** A decision carrying the faults seen on the way to it, if there were any (ADR-0043). */
+function withFaults(decision: PolicyDecision, faults: readonly string[]): PolicyDecision {
+  return faults.length > 0 ? { ...decision, faults: [...faults] } : decision;
+}
+
 function requireSomeRules(combinator: string, rules: PolicyRule[]): void {
   if (rules.length === 0) throw new TypeError(`${combinator}() needs at least one rule`);
 }
@@ -118,18 +123,22 @@ export function anyOf(...rules: PolicyRule[]): PolicyRule {
   return plannable(
     async (request) => {
       const reasons: string[] = [];
-      for (const rule of rules) {
+      const faults: string[] = [];
+      for (const [i, rule] of rules.entries()) {
         let decision: PolicyDecision;
         try {
           decision = await rule(request);
         } catch {
+          // Observable whatever a later alternative decides (ADR-0043); the error itself could quote a value.
+          faults.push(`anyOf alternative ${i + 1} failed to evaluate`);
           reasons.push("an alternative failed to evaluate");
           continue;
         }
-        if (decision.allow === true) return decision;
+        faults.push(...(decision.faults ?? []));
+        if (decision.allow === true) return withFaults(decision, faults);
         if (decision.reason) reasons.push(decision.reason);
       }
-      return { allow: false, reason: `No alternative allowed: ${reasons.join("; ")}` };
+      return withFaults({ allow: false, reason: `No alternative allowed: ${reasons.join("; ")}` }, faults);
     },
     async (request) => anyPlan(await Promise.all(rules.map((rule) => planOf(rule, request))))
   );
@@ -140,11 +149,14 @@ export function allOf(...rules: PolicyRule[]): PolicyRule {
   requireSomeRules("allOf", rules);
   return plannable(
     async (request) => {
+      const faults: string[] = [];
       for (const rule of rules) {
+        // A throw denies the whole conjunction, as it always has; the runtime records it as a fault.
         const decision = await rule(request);
-        if (decision.allow !== true) return { ...decision, allow: false };
+        faults.push(...(decision.faults ?? []));
+        if (decision.allow !== true) return withFaults({ ...decision, allow: false }, faults);
       }
-      return { allow: true };
+      return withFaults({ allow: true }, faults);
     },
     async (request) => allPlans(await Promise.all(rules.map((rule) => planOf(rule, request))))
   );

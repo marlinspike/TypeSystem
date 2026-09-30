@@ -7,6 +7,10 @@ const policyDecisionsCounter = meter.createCounter("typesys.policy.decisions", {
   description: "Policy engine decisions, labeled by outcome. Mirrors, never replaces, the durable audit log."
 });
 
+const policyFaultsCounter = meter.createCounter("typesys.policy.faults", {
+  description: "Parts of policy rules that failed to evaluate (ADR-0043), whatever the decision they were part of."
+});
+
 const cacheRequestsCounter = meter.createCounter("typesys.cache.requests", {
   description: "Cache lookups performed by cache-aware resolution paths (ADR-0016), labeled by result."
 });
@@ -25,6 +29,10 @@ export function recordPolicyDecision(decision: "allow" | "deny"): void {
 }
 
 /** `bypass`: a cached-mode read of sensitive data that skipped a cache that isn't confidential (ADR-0036). */
+export function recordPolicyFaults(count: number): void {
+  policyFaultsCounter.add(count);
+}
+
 export function recordCacheResult(result: "hit" | "miss" | "bypass"): void {
   cacheRequestsCounter.add(1, { result });
 }

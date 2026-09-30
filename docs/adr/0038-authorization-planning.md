@@ -2,6 +2,10 @@
 
 ## Status
 
+*Amended by ADR-0043:* an `anyOf` alternative that throws is recorded as a
+fault on the decision and in the audit row, even when a later alternative
+allows.
+
 *Amended by ADR-0040:* an adapter can say which attributes it filters
 exactly (`canFilter`), and a protected attribute it can filter — an
 encrypted deterministic field, through its blind index — is pushed rather
