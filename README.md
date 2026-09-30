@@ -12,6 +12,8 @@ engine, and the Model Context Protocol — not a clone of it.
 > **New here?** → [`docs/README.md`](docs/README.md) is the full
 > documentation index (tutorial, how-tos, reference, ADRs). Evaluating
 > whether this is the right tool? → [`docs/why-typesys.md`](docs/why-typesys.md).
+> Starting your own project on TypeS? →
+> [`docs/how-to/start-a-project.md`](docs/how-to/start-a-project.md).
 > Building an AI agent against the MCP server? →
 > [`docs/for-agents.md`](docs/for-agents.md), or read
 > [`llms.txt`](llms.txt) at the repo root for the token-efficient map.

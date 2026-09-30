@@ -14,6 +14,7 @@ the right tool for a given problem — it names when *not* to use it too.
 - [docs/README.md](docs/README.md): the full documentation index — tutorial, how-tos, reference, explanation.
 - [docs/why-typesys.md](docs/why-typesys.md): when to use this, when not to, comparison to GraphQL federation / a hand-rolled BFF / Palantir/C3.
 - [docs/quickstart.md](docs/quickstart.md): clone to a working query in ten minutes, every command verified against this exact repo.
+- [docs/how-to/start-a-project.md](docs/how-to/start-a-project.md): build your own application on TypeS in its own repository — install without npm, one bootstrap module, and where a console tool, web API, MCP agent, or in-process AI workflow plugs in.
 - [docs/for-agents.md](docs/for-agents.md): **read this if you are an AI agent about to call the MCP server** — exact resource URIs, tool call shapes, auth model, a full worked request/response example.
 
 ## Core concepts (in order of dependency)

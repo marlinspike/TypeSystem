@@ -14,11 +14,15 @@ points into.
 2. **[Quickstart](quickstart.md)** — clone to a working, policy-gated
    query in about ten minutes. Every command is verified against this
    exact repo.
-3. **[Completeness](completeness.md)** — an honest, kept-current
+3. **[Start a project](how-to/start-a-project.md)** — build your own
+   application on TypeS in its own repository, step by step, and see
+   where a console tool, a web API, an MCP agent, or an in-process AI
+   workflow plugs in.
+4. **[Completeness](completeness.md)** — an honest, kept-current
    inventory: what's fully built and tested versus a documented,
    not-yet-built extension point. Read this before assuming a capability
    exists just because an ADR discusses it.
-4. **[Production readiness](PRODUCTION-READINESS.md)** — the ranked list
+5. **[Production readiness](PRODUCTION-READINESS.md)** — the ranked list
    of what stands between this reference implementation and real
    production traffic, kept current as items are actually closed. Read it
    before betting production traffic on any of this.
@@ -31,6 +35,7 @@ instead of re-explaining it.
 
 | Guide | When you need it |
 |---|---|
+| [`start-a-project.md`](how-to/start-a-project.md) | Build your own application on TypeS in its own repository, whatever kind of consumer it is. |
 | [`add-a-type.md`](how-to/add-a-type.md) | Define a new object shape — properties, `extends`, traits. |
 | [`add-a-relationship-and-action.md`](how-to/add-a-relationship-and-action.md) | Connect Types, and add a governed capability that acts on them. |
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
