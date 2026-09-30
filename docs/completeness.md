@@ -47,7 +47,9 @@ document that gap rather than close it in this pass.
 - A production PostgreSQL `RegistryStore` — real migrations, an
   append-only audit table enforced by a DB trigger, keyset-paginated
   audit queries, a `BindingRegistry` seam for the behavior a database can
-  never store (ADR-0015).
+  never store (ADR-0015). Every audit row names the runtime operation it
+  was written under — the outermost call (ADR-0042,
+  `packages/core/test/audit-operation.test.ts`).
 - A TTL-based cache for `resolutionMode: "cached"` properties,
   relationships, and computed properties, opt-in per mapping, with a
   manual `invalidateObject` escape hatch (ADR-0016).

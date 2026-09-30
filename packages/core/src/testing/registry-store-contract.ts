@@ -249,5 +249,14 @@ export function runRegistryStoreContractTests(
       const defaultPage = await store.listAuditEvents();
       expect(defaultPage.items.length).toBeGreaterThan(0);
     });
+
+    it("audit events: the operation and the details round-trip, and a row without an operation reads back without one (ADR-0042)", async () => {
+      await store.appendAuditEvent({ ...auditEvent("evt-op", "2026-02-01T00:00:00.000Z"), operation: "listActions", details: { control: "classification", markings: ["SECRET"] } });
+      await store.appendAuditEvent(auditEvent("evt-no-op", "2026-02-01T00:00:01.000Z"));
+      const { items } = await store.listAuditEvents({ limit: 2 });
+      const byId = Object.fromEntries(items.map((e) => [e.id, e]));
+      expect(byId["evt-op"]).toMatchObject({ operation: "listActions", details: { control: "classification", markings: ["SECRET"] } });
+      expect(byId["evt-no-op"]?.operation).toBeUndefined();
+    });
   });
 }
