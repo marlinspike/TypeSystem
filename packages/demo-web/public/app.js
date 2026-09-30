@@ -19,7 +19,7 @@ const state = {
   audit: { decision: "all", subject: "", seen: new Set(), events: [] }
 };
 
-const IDENTITY_LABEL = { maintainer: "Maintainer", viewer: "Viewer", clinician: "Clinician", patient: "Patient", anonymous: "Anonymous" };
+const IDENTITY_LABEL = { maintainer: "Maintainer", viewer: "Viewer", clinician: "Clinician A", otherClinician: "Clinician B", patient: "Patient", anonymous: "Anonymous" };
 const DOMAIN_LABEL = { airforce: "Air Force", hospital: "Hospital", none: "" };
 
 const IDENTITY_HINTS = {
@@ -28,10 +28,12 @@ const IDENTITY_HINTS = {
   viewer:
     "Acting as <strong>Viewer</strong> (Air Force): can read aircraft, but <code>maintenanceStatus</code> is redacted, filtering on it is refused, and actions are denied.",
   clinician:
-    "Acting as <strong>Clinician</strong> (Hospital): reads patients, providers, and appointments, including the staff-only <code>medicalRecordNumber</code>. Aircraft are off-limits.",
+    "Acting as <strong>Clinician A</strong> (Hospital, Dr. Priya Nair): reads only the patients assigned to them — decided per record on its <code>assignedClinicianId</code> — including the staff-only <code>medicalRecordNumber</code>. Providers and appointments are role-level. Aircraft are off-limits.",
+  otherClinician:
+    "Acting as <strong>Clinician B</strong> (Hospital, Dr. Marcus Webb): the same role as Clinician A, different patients. Only PT-1002 is theirs, so PT-1001 is denied, even though B has an appointment with them.",
   patient:
-    "Acting as <strong>Patient</strong> (Hospital): can read patient records, but <code>medicalRecordNumber</code> is staff-only and redacted.",
-  anonymous: "Acting as <strong>Anonymous</strong>: no roles at all. Every object read is denied at the object level, except the public provider directory."
+    "Acting as <strong>Patient</strong> (Hospital): reads only their own record, PT-1001, with the staff-only <code>medicalRecordNumber</code> redacted.",
+  anonymous: "Acting as <strong>Anonymous</strong>: no roles at all. Every object read is denied and every query comes back empty, except the public provider directory."
 };
 
 const READINESS_BADGE = { FMC: "badge-ok", PMC: "badge-warn", NMC: "badge-deny", UNKNOWN: "badge-warn" };
@@ -242,7 +244,7 @@ async function loadObjectOptions(typeName) {
     const result = await api(withIdentity(`/api/objects/${typeName}`), undefined, false);
     objectPicker.innerHTML = result.items.length
       ? result.items.map((item) => `<option value="${escapeHtml(item.objectId)}">${escapeHtml(item.objectId)} — ${escapeHtml(friendlyLabel(item.values))}</option>`).join("")
-      : '<option value="">No objects</option>';
+      : `<option value="">No objects visible to ${IDENTITY_LABEL[state.identity]}</option>`;
   } catch (err) {
     objectPicker.innerHTML = `<option value="">${err.status === 403 ? `Not visible to ${IDENTITY_LABEL[state.identity]}` : escapeHtml(err.message)}</option>`;
   }
@@ -939,6 +941,43 @@ const GUARDS = [
     expect: "200, field absent",
     run: () => request(withIdentity("/api/objects/hospital.Patient/PT-1001", "patient"), undefined, "getObject as patient"),
     pass: (r) => r.status === 200 && !("medicalRecordNumber" in r.body.values)
+  },
+  {
+    title: "Another clinician's patient",
+    identity: "clinician B",
+    why: "Both are clinicians, but PT-1001 is assigned to Clinician A. The object policy is decided on this record's own assignedClinicianId, so the same role gets a different answer per record.",
+    expect: "403, audited",
+    run: () => request(withIdentity("/api/objects/hospital.Patient/PT-1001", "otherClinician"), undefined, "getObject as clinician B"),
+    pass: (r) => r.status === 403
+  },
+  {
+    title: "…in a query, decided per record",
+    identity: "clinician A vs B",
+    why: "A query decides the object policy for each returned record and silently drops the rest, so each clinician's patient list is only their own.",
+    expect: "A: PT-1001 · B: PT-1002",
+    run: async () => {
+      const [a, b] = await Promise.all([queryAs("clinician", { type: "hospital.Patient" }), queryAs("otherClinician", { type: "hospital.Patient" })]);
+      const ids = (r) => (r.body?.items ?? []).map((i) => i.objectId).join(",");
+      return { status: b.status, body: { clinicianA: ids(a), clinicianB: ids(b) } };
+    },
+    pass: (r) => r.body.clinicianA === "PT-1001" && r.body.clinicianB === "PT-1002"
+  },
+  {
+    title: "…or through their own appointment",
+    identity: "clinician B",
+    why: "B has an appointment with PT-1001 (APT-3002), but navigating to the patient still asks the patient's policy, and the record is silently omitted.",
+    expect: "200, no patient",
+    run: () => request(withIdentity("/api/objects/hospital.Appointment/APT-3002/relationships/patient", "otherClinician"), undefined, "navigate as clinician B"),
+    pass: (r) => r.status === 200 && r.body.length === 0
+  },
+  {
+    title: "Counting records you can't each see",
+    identity: "clinician A",
+    why: "Aggregation runs over every row in the adapter, so a rule decided per record can't allow it: a count would reveal patients you can't read.",
+    expect: "403",
+    run: () =>
+      request(withIdentity("/api/aggregate", "clinician"), post({ type: "hospital.Patient", aggregations: [{ name: "patients", op: "count" }] }), "aggregate as clinician A"),
+    pass: (r) => r.status === 403
   }
 ];
 
@@ -1010,7 +1049,15 @@ async function runGuard(i) {
   out.hidden = false;
   const message =
     r.body?.message ??
-    (r.body?.items ? `${r.body.items.length} item(s)` : r.body?.values ? `fields returned: ${Object.keys(r.body.values).join(", ")}` : r.body ? JSON.stringify(r.body) : "");
+    (Array.isArray(r.body)
+      ? `${r.body.length} related object(s)`
+      : r.body?.items
+        ? `${r.body.items.length} item(s)`
+        : r.body?.values
+          ? `fields returned: ${Object.keys(r.body.values).join(", ")}`
+          : r.body
+            ? JSON.stringify(r.body)
+            : "");
   out.innerHTML = `<span class="status-pill s${String(r.status)[0]}">${r.status}</span> ${r.body?.error ? `<strong>${escapeHtml(r.body.error)}</strong> ` : ""}<span class="muted">${escapeHtml(message)}</span>`;
   refreshAudit();
 }

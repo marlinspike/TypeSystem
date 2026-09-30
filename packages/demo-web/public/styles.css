@@ -189,6 +189,7 @@ code {
 .identity-btn[data-key="viewer"].active .identity-dot { background: var(--warning); }
 .identity-btn[data-key="anonymous"].active .identity-dot { background: var(--danger); }
 .identity-btn[data-key="clinician"].active .identity-dot { background: var(--success); }
+.identity-btn[data-key="otherClinician"].active .identity-dot { background: var(--success); }
 .identity-btn[data-key="patient"].active .identity-dot { background: var(--warning); }
 .identity-group {
   font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;

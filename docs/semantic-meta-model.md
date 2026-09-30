@@ -242,21 +242,27 @@ RFC 9396 rich authorization requests, not enforced in v1).
 
 `PolicyRequest`: `{subject: Identity, action: "read" | "invoke",
 policyName: string, resource: {typeName, objectId?, propertyPath?,
-actionName?}, context?}`. `PolicyDecision`: `{allow: boolean, reason?,
-obligations?}`. `PolicyEngine`: the single method `evaluate(request):
-Promise<PolicyDecision>`.
+actionName?, attributes?}, context?}`. `resource.attributes` is the
+object's stored values (pre-redaction, never computed properties), present
+only on an *instance-level* request; a request without it is *type-level*
+and asks about every instance at once (ADR-0030). `PolicyDecision`:
+`{allow: boolean, reason?, obligations?}`. `PolicyEngine`: the single method
+`evaluate(request): Promise<PolicyDecision>`. The runtime is deny-biased:
+only an explicit `allow: true` allows, and an engine that throws denies.
 
 Types name policies rather than embedding logic: `x-policy.objectPolicy`
-(gate on `getObject`/`query`), `x-policy.propertyPolicies[name]` (per-property
-override, else falls back to the object policy), and an
-`ActionDefinition.authorizationPolicy`. The actual rule evaluation is
+(decided per object, on its attributes, by `getObject`, per returned item by
+`query`, and at the type level by `aggregate`), `x-policy.propertyPolicies[name]`
+(narrows the object policy for one property or relationship — both must
+allow), and an `ActionDefinition.authorizationPolicy`. The actual rule evaluation is
 delegated to whatever `PolicyEngine` implementation the Runtime was
 constructed with — in this codebase, `AbacPolicyEngine`
 (`packages/core/src/policy/abac-policy-engine.ts`), a `Map<policyName,
 PolicyRule>` where a `PolicyRule` is `(request) => PolicyDecision |
 Promise<PolicyDecision>`. An unregistered policy name denies by default
-(fails closed). Two rule helpers are provided: `allowAllRule` and
-`requireRole(...roles)`.
+(fails closed). Rule helpers are provided: `allowAllRule`,
+`requireRole(...roles)`, the row-level `requireAttributeMatch(resourceAttribute,
+subjectAttribute)`, and the combinators `anyOf(...rules)` / `allOf(...rules)`.
 
 **Worked example**: `packages/domain-airforce/src/setup.ts` registers
 `"airforce.read-aircraft"` as `requireRole("maintainer", "viewer")` and

@@ -255,13 +255,19 @@ caller.
 ```mermaid
 flowchart TB
     a["admit and load<br/>rate limit, load TypeDefinition"]
-    b["policy: object gate<br/>allow or deny, writes audit"]
-    c["resolve properties<br/>mappings then adapter (+cache)"]
+    c["resolve stored values<br/>mappings then adapter (+cache)"]
+    b["policy: object gate<br/>decided on this object's attributes, writes audit"]
     d["computed properties<br/>may reach other adapters"]
     e["policy: field redaction<br/>drop denied fields, writes audit"]
     f["return object<br/>plus provenance if requested"]
-    a --> b --> c --> d --> e --> f
+    a --> c --> b --> d --> e --> f
 ```
+
+The object gate is decided on the object's own stored values, so a rule can
+allow "this clinician, this patient" rather than "any clinician, any
+patient" (ADR-0030). In `query` it runs per returned item, and a denied
+item is dropped silently; computed properties and includes run only for
+objects that passed it.
 
 ### Policy in practice: one object, three identities
 
@@ -364,10 +370,10 @@ sequenceDiagram
     C->>RT: query({type: "airforce.Aircraft", filter: tailNumber=AF86-0147, include: [components, maintenance]})
     RT->>REG: getType("airforce.Aircraft")
     REG-->>RT: TypeDefinition
-    RT->>PE: evaluate(read, airforce.read-aircraft)
-    PE-->>RT: allow
     RT->>INMEM: queryByType("airforce.Aircraft", filter)
     INMEM-->>RT: [{objectId: AF86-0147, values, provenance}]
+    RT->>PE: evaluate(read, airforce.read-aircraft, AF86-0147 + its attributes)
+    PE-->>RT: allow (a denied item would be dropped here)
     RT->>RT: finalizeValues (run computed properties, apply property policies)
     loop include: components
         RT->>INMEM: resolveRelationship(components, AF86-0147)

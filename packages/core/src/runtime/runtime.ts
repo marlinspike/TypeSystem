@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
 import type { Adapter, ResolvedProperties, RelatedRef } from "./adapter.js";
-import type { Identity, PolicyEngine } from "../model/policy.js";
+import type { Identity, PolicyDecision, PolicyEngine, PolicyRequest, PolicyResource } from "../model/policy.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
@@ -50,6 +50,29 @@ export interface ResolvedObject {
   objectId: string;
   values: Record<string, unknown>;
   provenance?: ProvenanceRef[];
+}
+
+/** An object's stored values as its policies see them (ADR-0030): frozen, so no rule can alter what the caller is later returned. */
+type Attributes = Readonly<Record<string, unknown>>;
+
+/** One authorized object read, with the attributes it was authorized on — what its includes authorize against. */
+interface AuthorizedRead {
+  object: ResolvedObject;
+  attributes: Attributes;
+}
+
+function snapshot(values: Record<string, unknown>): Attributes {
+  return Object.freeze({ ...values });
+}
+
+/** A Type's object-level read policy. An undeclared one names a rule nobody registers, so it denies (ADR-0009). */
+function objectPolicyOf(typeDef: TypeDefinition): string {
+  return typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
+}
+
+/** A property's or relationship's own policy, if it declares one — which narrows the object policy, never replaces it (ADR-0030). */
+function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undefined {
+  return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
 /**
@@ -339,13 +362,26 @@ export class SemanticRuntime {
     return typeDef;
   }
 
-  private async evaluate(
-    identity: Identity,
-    action: "read" | "invoke",
-    policyName: string,
-    resource: { typeName: string; objectId?: string; propertyPath?: string; actionName?: string }
-  ) {
-    const decision = await this.policyEngine.evaluate({ subject: identity, action, policyName, resource });
+  /**
+   * Asks the policy engine, deny-biased (ADR-0030): only an explicit
+   * `allow: true` allows. An engine that throws, rejects, or answers with a
+   * malformed decision denies — with a reason naming the policy but not the
+   * error, whose message could quote an attribute value.
+   */
+  private async decide(request: PolicyRequest): Promise<PolicyDecision> {
+    let decision: PolicyDecision | undefined;
+    try {
+      decision = await this.policyEngine.evaluate(request);
+    } catch {
+      return { allow: false, reason: `Policy "${request.policyName}" failed to evaluate (fail closed)` };
+    }
+    if (decision?.allow === true) return decision;
+    return { allow: false, reason: typeof decision?.reason === "string" ? decision.reason : `Policy "${request.policyName}" did not allow (fail closed)` };
+  }
+
+  /** Decides and audits. The audit row records what was decided about, never `resource.attributes`. */
+  private async evaluate(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<PolicyDecision> {
+    const decision = await this.decide({ subject: identity, action, policyName, resource });
     recordPolicyDecision(decision.allow ? "allow" : "deny");
     await this.registry.appendAuditEvent({
       id: ulid(),
@@ -359,24 +395,51 @@ export class SemanticRuntime {
     return decision;
   }
 
-  private async requireAllowed(
-    identity: Identity,
-    action: "read" | "invoke",
-    policyName: string,
-    resource: { typeName: string; objectId?: string; propertyPath?: string; actionName?: string }
-  ): Promise<void> {
+  private async requireAllowed(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<void> {
     const decision = await this.evaluate(identity, action, policyName, resource);
     if (!decision.allow) {
-      const target = resource.actionName ?? resource.propertyPath ?? resource.objectId ?? resource.typeName;
-      throw new AuthorizationError(`Not authorized: ${action} ${resource.typeName}/${target}`, decision.reason);
+      const target = resource.actionName ?? resource.propertyPath ?? resource.objectId;
+      throw new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, decision.reason);
     }
   }
 
+  /**
+   * Resolves an object's stored values and decides its object policy on them
+   * (ADR-0030) — the instance-level read check every path shares. Throws
+   * `AuthorizationError` on a deny, after auditing it.
+   */
+  private async authorizeRead(
+    typeDef: TypeDefinition,
+    objectId: string,
+    identity: Identity
+  ): Promise<{ stored: ResolvedProperties; attributes: Attributes }> {
+    const stored = await this.resolveObjectProperties(typeDef.name, objectId);
+    const attributes = snapshot(stored.values);
+    await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
+    return { stored, attributes };
+  }
+
+  /** A member (property or relationship) with its own policy narrows an already-authorized object read; one without adds nothing (ADR-0030). */
+  private async requireMemberReadable(
+    typeDef: TypeDefinition,
+    member: string,
+    objectId: string,
+    attributes: Attributes,
+    identity: Identity
+  ): Promise<void> {
+    const policyName = memberPolicyOf(typeDef, member);
+    if (policyName) {
+      await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, objectId, propertyPath: member, attributes });
+    }
+  }
+
+  /** Runs computed properties, then redacts every property whose own policy denies — decided on the object's stored `attributes`. */
   private async finalizeValues(
     typeDef: TypeDefinition,
     objectId: string,
     identity: Identity,
-    resolved: ResolvedProperties
+    resolved: ResolvedProperties,
+    attributes: Attributes
   ): Promise<{ values: Record<string, unknown>; provenance: ProvenanceRef[] }> {
     const values: Record<string, unknown> = { ...resolved.values };
     const computedResults: Record<string, unknown> = {};
@@ -404,7 +467,8 @@ export class SemanticRuntime {
       const decision = await this.evaluate(identity, "read", policyName, {
         typeName: typeDef.name,
         objectId,
-        propertyPath: propName
+        propertyPath: propName,
+        attributes
       });
       if (!decision.allow) delete values[propName];
     }
@@ -419,6 +483,20 @@ export class SemanticRuntime {
     identity: Identity,
     opts: { includeProvenance?: boolean } = {}
   ): Promise<ResolvedObject> {
+    return (await this.readObject(typeName, objectId, identity, opts)).object;
+  }
+
+  /**
+   * `getObject`, keeping the attributes the read was authorized on. The
+   * object policy is decided on this instance's stored values (ADR-0030);
+   * only an authorized read runs computed properties and redaction.
+   */
+  private async readObject(
+    typeName: string,
+    objectId: string,
+    identity: Identity,
+    opts: { includeProvenance?: boolean } = {}
+  ): Promise<AuthorizedRead> {
     return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.getObject",
       typeName,
@@ -426,13 +504,10 @@ export class SemanticRuntime {
       async () => {
         await this.checkRateLimit(identity);
         const typeDef = await this.requireType(typeName);
-        const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
-        await this.requireAllowed(identity, "read", objectPolicy, { typeName, objectId });
+        const { stored, attributes } = await this.authorizeRead(typeDef, objectId, identity);
 
-        const resolved = await this.resolveObjectProperties(typeName, objectId);
-
-        const { values, provenance } = await this.finalizeValues(typeDef, objectId, identity, resolved);
-        return { typeName, objectId, values, ...(opts.includeProvenance ? { provenance } : {}) };
+        const { values, provenance } = await this.finalizeValues(typeDef, objectId, identity, stored, attributes);
+        return { object: { typeName, objectId, values, ...(opts.includeProvenance ? { provenance } : {}) }, attributes };
       }
     ));
   }
@@ -443,6 +518,23 @@ export class SemanticRuntime {
     relationshipName: string,
     identity: Identity
   ): Promise<ResolvedObject[]> {
+    return (await this.readRelationship(typeName, objectId, relationshipName, identity)).map((r) => r.object);
+  }
+
+  /**
+   * `getRelationship`, keeping each related object's attributes for nested
+   * includes. A relationship is readable only on a readable source
+   * (ADR-0030): pass `sourceAttributes` when the source was already
+   * authorized earlier in this request (an include), so it isn't resolved
+   * and decided twice; otherwise it is authorized here.
+   */
+  private async readRelationship(
+    typeName: string,
+    objectId: string,
+    relationshipName: string,
+    identity: Identity,
+    sourceAttributes?: Attributes
+  ): Promise<AuthorizedRead[]> {
     return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.getRelationship",
       typeName,
@@ -454,9 +546,8 @@ export class SemanticRuntime {
         const relDef = typeDef.relationships.find((r) => r.name === resolvedName);
         if (!relDef) throw new NotFoundError(`Unknown relationship "${relationshipName}" on type "${typeName}"`);
 
-        const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
-        const relPolicy = propertyPolicies[relDef.name] ?? typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
-        await this.requireAllowed(identity, "read", relPolicy, { typeName, objectId, propertyPath: relDef.name });
+        const attributes = sourceAttributes ?? (await this.authorizeRead(typeDef, objectId, identity)).attributes;
+        await this.requireMemberReadable(typeDef, relDef.name, objectId, attributes, identity);
 
         const adapter = this.getAdapter(relDef.resolution.dataSourceId);
         const relatedRefs = await this.resolveRelationship(adapter, relDef, objectId);
@@ -470,10 +561,10 @@ export class SemanticRuntime {
         // than a raw Promise.allSettled, and an unauthorized related object is silently omitted
         // (existing behavior) without aborting the rest of a partially-authorized batch.
         const settled = await mapWithConcurrencySettled(bounded, this.maxConcurrency, (ref) =>
-          this.getObject(relDef.targetType, ref.objectId, identity)
+          this.readObject(relDef.targetType, ref.objectId, identity)
         );
 
-        const results: ResolvedObject[] = [];
+        const results: AuthorizedRead[] = [];
         for (const outcome of settled) {
           if (outcome.status === "fulfilled") {
             results.push(outcome.value);
@@ -503,8 +594,7 @@ export class SemanticRuntime {
         const q = this.inputValidator.validateQuery(input);
         annotateActiveSpan({ "typesys.query.limit": q.limit });
         const typeDef = await this.requireType(q.type);
-        const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
-        await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
+        // No type-level gate: the object policy is decided per returned item, below (ADR-0030).
         if (q.filter) {
           this.rejectComputedFilterProperties(typeDef, q.filter);
           await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
@@ -529,9 +619,16 @@ export class SemanticRuntime {
         // round trip at a time (the same N+1 pattern fixed in getRelationship above,
         // multiplied across a whole result page), bounded by maxConcurrency (ADR-0019)
         // so a large `limit` can't open unbounded concurrent adapter calls.
+        const objectPolicy = objectPolicyOf(typeDef);
         const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
-          const merged = await this.mergeOverrides(q.type, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
-          const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, merged);
+          const stored = await this.mergeOverrides(q.type, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
+          const attributes = snapshot(stored.values);
+          // Decided on this item's own attributes (ADR-0030). A denied item is dropped silently (audited),
+          // as getRelationship drops an unauthorized related object; it is never finalized or navigated.
+          const decision = await this.evaluate(identity, "read", objectPolicy, { typeName: q.type, objectId: item.objectId, attributes });
+          if (!decision.allow) return undefined;
+
+          const { values, provenance } = await this.finalizeValues(typeDef, item.objectId, identity, stored, attributes);
           // Projection trims the object's own properties, after redaction (ADR-0027); requested
           // includes are assigned afterward so they survive it.
           const projected = applyProjection(values, q.select);
@@ -542,11 +639,11 @@ export class SemanticRuntime {
             ...(q.includeProvenance ? { provenance: q.select ? provenance.filter((p) => p.propertyPath in projected) : provenance } : {})
           };
           if (q.include) {
-            Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, q.include, identity));
+            Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, attributes, q.include, identity));
           }
           return resolved;
         });
-        return { items, nextCursor: result.nextCursor };
+        return { items: items.filter((item) => item !== undefined), nextCursor: result.nextCursor };
       }
     ));
   }
@@ -571,8 +668,9 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateAggregateQuery(input);
         const typeDef = await this.requireType(q.type);
-        const objectPolicy = typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
-        await this.requireAllowed(identity, "read", objectPolicy, { typeName: q.type });
+        // A type-level request — the adapter aggregates every row, so a rule that depends on an
+        // instance's attributes can't allow it, and aggregation fails closed (ADR-0030).
+        await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: q.type });
 
         const referenced = new Set<string>();
         if (q.filter) for (const p of filterProperties(q.filter)) referenced.add(p);
@@ -696,23 +794,24 @@ export class SemanticRuntime {
    * the caller can't read would still select or position objects by its
    * hidden value, and which objects come back — or in what order — would
    * reveal it. Reject such a query outright (audited as a deny) rather than
-   * answer it. Checked per Type, not per object: a policy that only allows
-   * some objects' values denies the whole query, failing closed.
+   * answer it. Checked per Type, not per object — a type-level request with
+   * no attributes (ADR-0030) — so a policy that only allows some objects'
+   * values denies the whole query, failing closed.
    */
   private async requireReadableProperties(typeDef: TypeDefinition, propertyNames: Iterable<string>, identity: Identity): Promise<void> {
-    const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
     for (const property of propertyNames) {
-      const policyName = propertyPolicies[property];
+      const policyName = memberPolicyOf(typeDef, property);
       if (!policyName) continue;
       await this.requireAllowed(identity, "read", policyName, { typeName: typeDef.name, propertyPath: property });
     }
   }
 
   /**
-   * Resolves one object's `include` tree (ADR-0011), keyed by relationship
-   * name. Each entry navigates through `getRelationship`, so relationship
-   * policy and per-object redaction apply exactly as on a direct call; then
-   * the entry's own `filter` runs against each related object's *visible*
+   * Resolves one already-authorized object's `include` tree (ADR-0011), keyed
+   * by relationship name. Each entry navigates through `readRelationship`
+   * with the source's `attributes`, so relationship policy and per-object
+   * authorization and redaction apply exactly as on a direct call; then the
+   * entry's own `filter` runs against each related object's *visible*
    * values, and its nested `include` recurses from each survivor. Filtering
    * after redaction treats a property the caller can't read as absent, so
    * an include filter can never be used to probe a hidden value.
@@ -720,28 +819,29 @@ export class SemanticRuntime {
   private async resolveIncludes(
     typeName: string,
     objectId: string,
+    attributes: Attributes,
     includes: QueryInclude[],
     identity: Identity
   ): Promise<Record<string, ResolvedObject[]>> {
     const results = await mapWithConcurrency(includes, this.maxConcurrency, async (inc) => {
-      const related = await this.getRelationship(typeName, objectId, inc.relationship, identity);
-      const filtered = inc.filter ? related.filter((r) => matchesFilter(r.values, inc.filter)) : related;
+      const related = await this.readRelationship(typeName, objectId, inc.relationship, identity, attributes);
+      const filtered = inc.filter ? related.filter((r) => matchesFilter(r.object.values, inc.filter)) : related;
       // Sort then limit the related set (ADR-0028), post-resolution — so an include sort may
       // reference computed properties (unlike a top-level sort) and both see already-redacted values.
-      const sorted = inc.sort ? applySort(filtered, inc.sort, (r) => r.values) : filtered;
+      const sorted = inc.sort ? applySort(filtered, inc.sort, (r) => r.object.values) : filtered;
       const kept = inc.limit != null ? sorted.slice(0, inc.limit) : sorted;
       // Projection (ADR-0027) runs AFTER filter/sort/limit (which see full visible values) and
       // BEFORE nested includes are assigned, so those survive it.
       if (inc.select) {
-        for (const r of kept) r.values = applyProjection(r.values, inc.select);
+        for (const r of kept) r.object.values = applyProjection(r.object.values, inc.select);
       }
       const nested = inc.include;
       if (nested && nested.length > 0) {
-        await mapWithConcurrency(kept, this.maxConcurrency, async (r) => {
-          Object.assign(r.values, await this.resolveIncludes(r.typeName, r.objectId, nested, identity));
+        await mapWithConcurrency(kept, this.maxConcurrency, async ({ object, attributes: relatedAttributes }) => {
+          Object.assign(object.values, await this.resolveIncludes(object.typeName, object.objectId, relatedAttributes, nested, identity));
         });
       }
-      return kept;
+      return kept.map((r) => r.object);
     });
     return Object.fromEntries(includes.map((inc, i) => [inc.relationship, results[i]!]));
   }
@@ -752,21 +852,37 @@ export class SemanticRuntime {
     propertyPath: string,
     identity: Identity
   ): Promise<ProvenanceRef[]> {
+    return this.readProvenance(typeName, objectId, propertyPath, identity);
+  }
+
+  /**
+   * `getProvenance`. A property's provenance is readable only where its
+   * value would be (ADR-0030): on a readable object, then narrowed by the
+   * property's own policy. A computed property recurses into its
+   * dependencies with the object already authorized (`source`), so each is
+   * checked against its own policy without re-deciding the object.
+   */
+  private async readProvenance(
+    typeName: string,
+    objectId: string,
+    propertyPath: string,
+    identity: Identity,
+    source?: { typeDef: TypeDefinition; attributes: Attributes }
+  ): Promise<ProvenanceRef[]> {
     return this.withRequestBudget(() => instrumentOperation(
       "SemanticRuntime.getProvenance",
       typeName,
       { "typesys.object_id": objectId, "typesys.property_path": propertyPath, "typesys.identity.subject_id": identity.subjectId },
       async () => {
         await this.checkRateLimit(identity);
-        const typeDef = await this.requireType(typeName);
-        const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
-        const policyName = propertyPolicies[propertyPath] ?? typeDef.schema["x-policy"]?.objectPolicy ?? "default-deny";
-        await this.requireAllowed(identity, "read", policyName, { typeName, objectId, propertyPath });
+        const typeDef = source?.typeDef ?? (await this.requireType(typeName));
+        const attributes = source?.attributes ?? (await this.authorizeRead(typeDef, objectId, identity)).attributes;
+        await this.requireMemberReadable(typeDef, propertyPath, objectId, attributes, identity);
 
         const computed = typeDef.computedProperties.find((c) => c.name === propertyPath);
         if (computed) {
           const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
-            this.getProvenance(typeName, objectId, dep, identity)
+            this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes })
           );
           return nested.flat();
         }
@@ -790,7 +906,7 @@ export class SemanticRuntime {
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: { action: ActionDefinition; authorized: boolean }[] = [];
         for (const action of applicable) {
-          const decision = await this.policyEngine.evaluate({
+          const decision = await this.decide({
             subject: identity,
             action: "invoke",
             policyName: action.authorizationPolicy,

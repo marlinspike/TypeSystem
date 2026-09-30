@@ -105,9 +105,10 @@ describe("N+1 relationship/query fan-out is concurrent, not sequential", () => {
     const elapsedMs = Date.now() - start;
 
     expect(children).toHaveLength(CHILD_COUNT);
-    expect(adapter.resolveCalls).toBe(CHILD_COUNT);
+    // One per child, plus the parent's own stored values, which the relationship's read is authorized on (ADR-0030).
+    expect(adapter.resolveCalls).toBe(CHILD_COUNT + 1);
     expect(adapter.maxConcurrent).toBeGreaterThan(1); // proves overlap, not one-at-a-time
-    // Sequential would take >= CHILD_COUNT * DELAY_MS; concurrent should be close to one DELAY_MS.
+    // Sequential would take >= CHILD_COUNT * DELAY_MS; concurrent should be close to one DELAY_MS (plus the parent's read).
     expect(elapsedMs).toBeLessThan(CHILD_COUNT * DELAY_MS);
   });
 

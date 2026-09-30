@@ -33,7 +33,7 @@ and a message queue.
 | **Multi-source objects** | One object's properties, relationships, and computed values can each come from a different system ([`combine-multiple-sources.md`](docs/how-to/combine-multiple-sources.md)). | Consumers see one Aircraft, not a Postgres row plus a REST payload to reconcile themselves. |
 | **Relationships beyond foreign keys** | Foreign-key, own-field, many-to-many (`byJoinTable`), and composite-key relationships from one shared parser, with bounded, ordered traversal ([ADR-0028](docs/adr/0028-relationship-resolution-strategies.md)). | Model real associations (a provider's patients, an aircraft's crew) without a graph database or a synthetic join Type. |
 | **Pluggable adapters** | In-memory, REST, and PostgreSQL adapters ship; a new backend is one small interface ([`write-an-adapter.md`](docs/how-to/write-an-adapter.md)). | Swap or add systems of record without touching consumers. |
-| **Object- and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default ([`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields are redacted per caller, and the engine can be swapped for OPA or Cedar. |
+| **Object-, row-, and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default; a rule can decide on the object's own attributes, so "this clinician, this patient" is expressible and a query returns only the rows you may read ([ADR-0030](docs/adr/0030-row-level-authorization.md), [`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields and records are hidden per caller, and the engine can be swapped for OPA or Cedar. |
 | **Per-property provenance** | Every value can report which source produced it, when, and at what confidence ([ADR-0008](docs/adr/0008-provenance-model.md)). | Values a decision rests on come with their origin, which regulated environments require. |
 | **Append-only audit log** | Every policy decision and audited Action is recorded; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what. |
 | **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
@@ -281,7 +281,9 @@ it's a plain static `index.html`/`app.js`/`styles.css` served by a small
 Express API (`packages/demo-web/src/server.ts`).
 
 Switch identity top-right: **Maintainer** and **Viewer** (Air Force),
-**Clinician** and **Patient** (Hospital), or **Anonymous**. Everything on
+**Clinician A**, **Clinician B**, and **Patient** (Hospital), or
+**Anonymous**. Each clinician reads only the patients assigned to them,
+decided per record (ADR-0030). Everything on
 screen re-evaluates under the new identity. A stats bar under the header
 shows what each request actually did: how many adapter calls it made, to
 which systems, and how many ran at once against the per-request concurrency
@@ -305,11 +307,12 @@ Four tabs:
   many-to-many `byJoinTable` traversal (ADR-0027/0028) — plus queries the
   runtime rejects by design. Results render as a navigable object tree, an
   aggregation table, or raw JSON.
-- **Guardrails:** thirteen one-click scenarios that each send a real request
+- **Guardrails:** seventeen one-click scenarios that each send a real request
   and check the outcome against the design, including filtering on a hidden
   or computed property, over-limit and malformed queries, bad action input
   (from an allowed and a disallowed identity), a failed precondition,
-  cross-domain access, and redaction. **Run all** checks them together. The
+  cross-domain access, redaction, and row-level access (another clinician's
+  patient, directly, in a query, through an appointment, and by counting). **Run all** checks them together. The
   config panel lists the live query limits, concurrency budget, and per-call
   resilience policy (timeout / retries / breaker — ADR-0026); two live panels
   fire a rate-limit burst at a dedicated identity and visualize the
