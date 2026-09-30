@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AuthorizationError, type Identity, type SemanticRuntime } from "@typesys/core";
+import { AuthorizationError, type Identity, type SemanticQuery, type SemanticRuntime } from "@typesys/core";
 import { registerResourceHandlers, registerToolHandlers, type IdentityResolver } from "@typesys/mcp-server";
 import { buildHospitalTestbed, hospitalDemoIdentities } from "../src/setup.js";
 
@@ -29,12 +29,16 @@ async function patientIdsReachableBy(runtime: SemanticRuntime, identity: Identit
       for (const v of Object.values(o.values)) if (Array.isArray(v)) collect(v);
     }
   };
-  collect((await runtime.query({ type: "hospital.Patient" }, identity)).items);
-  collect((await runtime.query({ type: "hospital.Appointment", include: [{ relationship: "patient" }] }, identity)).items);
-  collect((await runtime.query({ type: "hospital.Provider", include: [{ relationship: "patients" }] }, identity)).items);
-  collect(
-    (await runtime.query({ type: "hospital.Provider", include: [{ relationship: "appointments", include: [{ relationship: "patient" }] }] }, identity)).items
-  );
+  // A query refused outright (ADR-0049: the identity can read no Patient at all) reaches nothing, as an empty page does.
+  const items = (query: SemanticQuery) =>
+    runtime.query(query, identity).then(
+      (page) => page.items,
+      (err: unknown) => (err instanceof AuthorizationError ? [] : Promise.reject(err as Error))
+    );
+  collect(await items({ type: "hospital.Patient" }));
+  collect(await items({ type: "hospital.Appointment", include: [{ relationship: "patient" }] }));
+  collect(await items({ type: "hospital.Provider", include: [{ relationship: "patients" }] }));
+  collect(await items({ type: "hospital.Provider", include: [{ relationship: "appointments", include: [{ relationship: "patient" }] }] }));
   return [...reached].sort();
 }
 
@@ -193,7 +197,8 @@ describe("attack: clinician B reading clinician A's patient (PT-1001)", () => {
     const unlinked: Identity = { subjectId: "user-clinician-3", roles: ["clinician"], attributes: {} };
 
     await expect(runtime.getObject("hospital.Patient", "PT-1003", unlinked)).rejects.toBeInstanceOf(AuthorizationError);
-    expect((await runtime.query({ type: "hospital.Patient" }, unlinked)).items).toEqual([]);
+    // No providerId: the rule can match nothing for this identity, whatever the data, so the query is refused (ADR-0049).
+    await expect(runtime.query({ type: "hospital.Patient" }, unlinked)).rejects.toBeInstanceOf(AuthorizationError);
     expect(ids((await runtime.query({ type: "hospital.Patient" }, admin)).items)).toContain("PT-1003");
   });
 

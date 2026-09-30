@@ -355,17 +355,35 @@ describe("Cedar planning in the runtime (ADR-0039)", () => {
     return items;
   }
 
-  it("planning changes no result: Cedar planned, Cedar unplanned, and ABAC planned all return the same objects", async () => {
+  /**
+   * What planning may change is only whether a caller who can read nothing is refused or given an empty page
+   * (ADR-0049): a world whose plan is `never` refuses where one that decides every row returns nothing. So a
+   * refusal is compared as "no objects", and only against a world that returns none.
+   */
+  const REFUSED = "refused";
+  async function walkOrRefusal(runtime: SemanticRuntime, query: SemanticQuery, who: Identity): Promise<string[] | typeof REFUSED> {
+    return walk(runtime, query, who).catch((err: unknown) => {
+      if (err instanceof AuthorizationError) return REFUSED;
+      throw err;
+    });
+  }
+  const objectsOf = (walked: string[] | typeof REFUSED) => (walked === REFUSED ? [] : walked);
+
+  it("planning changes no objects: Cedar planned, Cedar unplanned, and ABAC planned all return the same objects", async () => {
     const abac = await buildHospitalTestbed().then((tb) => (tb.adapter.seed("hospital.Patient", EXTRA), tb.runtime));
     const [planned, conformant, unplanned] = [await world(engine()), await world(engine(true)), await world(withoutPlanner(engine()))];
+    let refusals = 0;
     for (const who of Object.values(identities)) {
       for (const query of QUERIES) {
         const expected = await walk(unplanned, query, who);
-        expect(await walk(planned, query, who)).toEqual(expected);
-        expect(await walk(conformant, query, who)).toEqual(expected);
-        if (who !== identities.malformed) expect(await walk(abac, query, who)).toEqual(expected); // ABAC reads role-level Types for a malformed claim (ADR-0031)
+        const [a, b] = [await walkOrRefusal(planned, query, who), await walkOrRefusal(conformant, query, who)];
+        expect(objectsOf(a)).toEqual(expected);
+        expect(objectsOf(b)).toEqual(expected);
+        refusals += [a, b].filter((walked) => walked === REFUSED).length;
+        if (who !== identities.malformed) expect(objectsOf(await walkOrRefusal(abac, query, who))).toEqual(expected); // ABAC reads role-level Types for a malformed claim (ADR-0031)
       }
     }
+    expect(refusals).toBeGreaterThan(0); // the refusal path is exercised, not vacuous
   }, 60_000); // exhaustive by design: four runtimes, every identity and query, walked page by page
 
   it("a clinician's aggregate: refused without the assertion, and equal to ABAC's with it", async () => {

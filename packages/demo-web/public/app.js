@@ -45,7 +45,7 @@ const IDENTITY_HINTS = {
     "Acting as <strong>Patient</strong> (Hospital): reads only their own record, PT-1001, with the staff-only <code>medicalRecordNumber</code> redacted.",
   admin:
     "Acting as <strong>Admin</strong> (Hospital): reads every patient record and — the rule allowing it unconditionally — may count them, which a per-record rule can't allow a clinician.",
-  anonymous: "Acting as <strong>Anonymous</strong>: no roles at all. Every object read is denied and every query comes back empty, except the public provider directory."
+  anonymous: "Acting as <strong>Anonymous</strong>: no roles at all. Every object read is denied and every query is refused, except the public provider directory."
 };
 
 const READINESS_BADGE = { FMC: "badge-ok", PMC: "badge-warn", NMC: "badge-deny", UNKNOWN: "badge-warn" };

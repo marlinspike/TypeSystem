@@ -1208,10 +1208,11 @@ export class SemanticRuntime {
         const q = this.inputValidator.validateQuery(input);
         annotateActiveSpan({ "typesys.query.limit": q.limit });
         const typeDef = await this.requireType(q.type);
-        // A classified Type is decided before the adapter runs: an uncleared caller gets an empty page, and
-        // nothing of the Type is read on their behalf (ADR-0032). The object policy, by contrast, has no
-        // type-level gate: it is decided per returned item, below (ADR-0030).
-        if (!(await this.clearedFor(identity, objectMarkings(typeDef), { typeName: q.type }))) return { items: [] };
+        // A classified Type is decided before the adapter runs: an uncleared caller is refused, and nothing of
+        // the Type is read on their behalf (ADR-0032). The refusal is the same for every possible dataset, so it
+        // says nothing about the data (ADR-0049). The object policy, by contrast, has no type-level gate: it is
+        // decided per returned item, below (ADR-0030).
+        await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
         if (q.filter) {
           this.rejectComputedFilterProperties(typeDef, q.filter);
           await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
@@ -1235,9 +1236,13 @@ export class SemanticRuntime {
           await this.audit(identity, "read", typeResource, { allow: false, reason: message }, { control: "row-plan", ...planSummary(plan) });
           throw new AuthorizationPlanError(message);
         }
+        // The policy admits no object of this Type for this subject, whatever the store holds (ADR-0038), so the
+        // query is refused rather than answered with an empty page: a denial that depends on the data stays a
+        // silent page, because an error there would reveal that hidden rows exist (ADR-0049).
         if (plan.kind === "never") {
-          await this.audit(identity, "read", typeResource, { allow: false, reason: "No object of this Type is readable by this subject" }, { control: "row-plan", ...planSummary(plan) });
-          return { items: [] };
+          const reason = "No object of this Type is readable by this subject";
+          await this.audit(identity, "read", typeResource, { allow: false, reason }, { control: "row-plan", ...planSummary(plan) });
+          throw notAuthorized("read", typeResource, reason);
         }
         // A predicate excludes objects without deciding them one by one, so the query records it once.
         if (plan.kind === "predicate") await this.audit(identity, "read", typeResource, { allow: true }, { control: "row-plan", ...planSummary(plan) });

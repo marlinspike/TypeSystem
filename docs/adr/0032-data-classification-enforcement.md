@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted. *Amended by ADR-0041:* schemes now `decide` whole labels for whole
+Accepted. *Amended by ADR-0049:* `query` of a Type above the caller's clearance is
+refused, not answered with an empty page.
+
+*Amended by ADR-0041:* schemes now `decide` whole labels for whole
 subjects and `join` the labels of derived data, and the runtime decides the
 join and every marking on its own; `dominates` is gone.
 

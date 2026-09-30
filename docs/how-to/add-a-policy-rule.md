@@ -64,7 +64,8 @@ when `resource.attributes[resourceAttribute]` and
 finite number, so a value missing on both sides never matches. The runtime
 decides the object policy on every path that touches the object:
 `getObject`, **each item of a `query`** (denied items are dropped, not
-refused), the source and every target of a relationship, and the object
+refused, unless the rule admits no object of the Type for that caller at
+all, which refuses the query: [ADR-0049](../adr/0049-a-query-the-caller-can-read-none-of-is-refused.md)), the source and every target of a relationship, and the object
 behind a property's provenance.
 
 Two rules to write row-level rules by:
@@ -86,7 +87,10 @@ Two rules to write row-level rules by:
   the adapter's filter — full pages, and nothing read that the caller can't
   see — and `aggregate` counts exactly the rows the caller may read
   ([ADR-0038](../adr/0038-authorization-planning.md)). A plain function rule
-  still works, decided after the read, but plans `unknown`.
+  still works, decided after the read, but plans `unknown`. It shows to the
+  caller, too: a caller the rule can admit nothing for is *refused* when the
+  rule plans, and given an empty page when it doesn't, because only a plan
+  can say the answer holds for every row (ADR-0049).
 
 ## See what a rule plans
 
