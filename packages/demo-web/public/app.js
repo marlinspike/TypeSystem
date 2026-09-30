@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 const state = {
   identity: "maintainer",
+  engine: "abac", // which PolicyEngine decides: the embedded ABAC rules, or Cedar (ADR-0031)
   identities: [], // [{key, domain, token, subjectId, roles}]
   runtime: null, // {queryLimits, maxConcurrency, rateLimit, dataSources}
   types: [],
@@ -16,10 +17,19 @@ const state = {
   openRelationships: new Set(),
   showSources: true,
   query: { view: "cards", last: null, lastResult: null, lastError: null },
-  audit: { decision: "all", subject: "", seen: new Set(), events: [] }
+  audit: { decision: "all", subject: "", control: "", seen: new Set(), events: [] }
 };
 
-const IDENTITY_LABEL = { maintainer: "Maintainer", viewer: "Viewer", clinician: "Clinician A", otherClinician: "Clinician B", patient: "Patient", anonymous: "Anonymous" };
+const IDENTITY_LABEL = {
+  maintainer: "Maintainer",
+  viewer: "Viewer",
+  clinician: "Clinician A",
+  otherClinician: "Clinician B",
+  patient: "Patient",
+  admin: "Admin",
+  anonymous: "Anonymous"
+};
+const ENGINE_LABEL = { abac: "ABAC", cedar: "Cedar" };
 const DOMAIN_LABEL = { airforce: "Air Force", hospital: "Hospital", none: "" };
 
 const IDENTITY_HINTS = {
@@ -33,6 +43,8 @@ const IDENTITY_HINTS = {
     "Acting as <strong>Clinician B</strong> (Hospital, Dr. Marcus Webb): the same role as Clinician A, different patients. Only PT-1002 is theirs, so PT-1001 is denied, even though B has an appointment with them.",
   patient:
     "Acting as <strong>Patient</strong> (Hospital): reads only their own record, PT-1001, with the staff-only <code>medicalRecordNumber</code> redacted.",
+  admin:
+    "Acting as <strong>Admin</strong> (Hospital): reads every patient record and — the rule allowing it unconditionally — may count them, which a per-record rule can't allow a clinician.",
   anonymous: "Acting as <strong>Anonymous</strong>: no roles at all. Every object read is denied and every query comes back empty, except the public provider directory."
 };
 
@@ -74,8 +86,14 @@ function post(body) {
   return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
+/** Routes a request through the selected policy engine (ADR-0031). */
+function withEngine(path) {
+  return `${path}${path.includes("?") ? "&" : "?"}engine=${state.engine}`;
+}
+
+/** Makes a request as an identity (default: the acting one), through the selected engine. */
 function withIdentity(path, identity = state.identity) {
-  return `${path}${path.includes("?") ? "&" : "?"}identity=${encodeURIComponent(identity)}`;
+  return withEngine(`${path}${path.includes("?") ? "&" : "?"}identity=${encodeURIComponent(identity)}`);
 }
 
 function tokenFor(key) {
@@ -114,6 +132,7 @@ function renderStats(label, stats, status) {
   const systems = entries.map(([ds, c]) => `<span class="stat-chip">${escapeHtml(ds)} <strong>${c}</strong></span>`).join("");
   $("#statsBody").classList.remove("muted");
   $("#statsBody").innerHTML = `
+    <span class="engine-chip ${stats.engine ?? "abac"}">${ENGINE_LABEL[stats.engine] ?? "ABAC"}</span>
     <span class="stat-req mono">${escapeHtml(label)}</span>
     <span class="status-pill s${String(status)[0]}">${status}</span>
     <span>${total} adapter call${total === 1 ? "" : "s"}</span>
@@ -147,9 +166,11 @@ function initIdentitySwitch() {
     .map((i) => {
       const group = i.domain !== lastDomain && DOMAIN_LABEL[i.domain] ? `<span class="identity-group">${DOMAIN_LABEL[i.domain]}</span>` : "";
       lastDomain = i.domain;
-      return `${group}<button class="identity-btn${i.key === state.identity ? " active" : ""}" data-key="${i.key}" title="${escapeHtml(
-        `${i.subjectId} · roles: ${i.roles.join(", ") || "none"}`
-      )}"><span class="identity-dot"></span>${IDENTITY_LABEL[i.key] ?? i.key}</button>`;
+      const attrs = Object.entries(i.attributes ?? {}).map(([k, v]) => `${k}: ${v}`);
+      const title = [`${i.subjectId}`, `roles: ${i.roles.join(", ") || "none"}`, `clearance: ${i.clearance ?? "none"}`, ...attrs].join(" · ");
+      return `${group}<button class="identity-btn${i.key === state.identity ? " active" : ""}" data-key="${i.key}" title="${escapeHtml(title)}"><span class="identity-dot"></span>${
+        IDENTITY_LABEL[i.key] ?? i.key
+      }${i.clearance ? `<span class="clearance-tag" title="Cleared ${escapeHtml(i.clearance)}">${escapeHtml(clearanceAbbrev(i.clearance))}</span>` : ""}</button>`;
     })
     .join("");
 
@@ -158,16 +179,34 @@ function initIdentitySwitch() {
     if (!btn) return;
     state.identity = btn.dataset.key;
     $$(".identity-btn", container).forEach((b) => b.classList.toggle("active", b.dataset.key === state.identity));
-    $("#hintBanner").innerHTML = IDENTITY_HINTS[state.identity] ?? "";
-    $("#queryIdentityNote").textContent = IDENTITY_LABEL[state.identity];
-    document.dispatchEvent(new Event("identity-changed"));
-    // Re-evaluate whatever is on screen under the new identity.
-    loadObjectOptions($("#typePicker").value);
-    if (state.breadcrumb.length) renderCurrentObject();
-    else renderActionsPanel(null);
+    refreshForContext();
   });
 
   $("#hintBanner").innerHTML = IDENTITY_HINTS[state.identity];
+}
+
+function clearanceAbbrev(clearance) {
+  return { UNCLASSIFIED: "U", CUI: "CUI", SECRET: "S", TOP_SECRET: "TS" }[clearance] ?? clearance;
+}
+
+function initEngineSwitch() {
+  $("#engineSwitch").addEventListener("click", (e) => {
+    const btn = e.target.closest(".engine-btn");
+    if (!btn || btn.dataset.engine === state.engine) return;
+    state.engine = btn.dataset.engine;
+    $$(".engine-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    refreshForContext();
+  });
+}
+
+/** Re-evaluates whatever is on screen under the current identity and engine. */
+function refreshForContext() {
+  $("#hintBanner").innerHTML = IDENTITY_HINTS[state.identity] ?? "";
+  $("#queryIdentityNote").textContent = `${IDENTITY_LABEL[state.identity]} · ${ENGINE_LABEL[state.engine]}`;
+  document.dispatchEvent(new Event("context-changed"));
+  loadObjectOptions($("#typePicker").value);
+  if (state.breadcrumb.length) renderCurrentObject();
+  else renderActionsPanel(null);
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +241,7 @@ async function loadTypes() {
               ${t.computedPropertyNames.length ? '<span class="mini-tag">computed</span>' : ""}
               ${Object.keys(t.propertyPolicies).length ? '<span class="mini-tag lock">🔒</span>' : ""}
               ${t.classification || Object.keys(t.propertyClassifications).length ? '<span class="mini-tag lock" title="Carries classification markings">▲</span>' : ""}
+              ${Object.keys(t.encryptedFields ?? {}).length ? '<span class="mini-tag lock" title="Some fields are encrypted at rest">🔐</span>' : ""}
               <span class="version">v${escapeHtml(t.version)}</span>
             </div>`
           )
@@ -270,7 +310,8 @@ function openTypeModal(name) {
     [
       ...Object.entries(t.propertyPolicies).map(([prop, policy]) => `<span class="chip">🔒 ${escapeHtml(prop)} → ${escapeHtml(policy)}</span>`),
       ...(t.classification ? [`<span class="chip">▲ every object → classified ${escapeHtml(t.classification)}</span>`] : []),
-      ...Object.entries(t.propertyClassifications).map(([prop, marking]) => `<span class="chip">▲ ${escapeHtml(prop)} → classified ${escapeHtml(marking)}</span>`)
+      ...Object.entries(t.propertyClassifications).map(([prop, marking]) => `<span class="chip">▲ ${escapeHtml(prop)} → classified ${escapeHtml(marking)}</span>`),
+      ...Object.entries(t.encryptedFields ?? {}).map(([prop, mode]) => `<span class="chip">🔐 ${escapeHtml(prop)} → encrypted at rest (${escapeHtml(mode)})</span>`)
     ].join("") || '<span class="muted">None: only the object-level policy applies.</span>';
 
   $("#typeModal").innerHTML = `
@@ -387,11 +428,18 @@ function renderObjectCard(container, typeName, object, typeDef) {
       : "";
   };
 
+  const encryptedTag = (key) => {
+    const mode = typeDef.encryptedFields?.[key];
+    return mode
+      ? ` <span class="mini-tag enc" title="Ciphertext in the store (${mode}); decrypted at the adapter boundary (ADR-0033)">🔐 ${mode === "deterministic" ? "encrypted · indexed" : "encrypted"}</span>`
+      : "";
+  };
+
   const storedRows = Object.entries(values)
     .filter(([key]) => !computedNames.has(key))
     .map(([key, value]) => {
       const display = typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
-      return `<tr><td class="k">${escapeHtml(key)}</td><td class="v">${escapeHtml(display)}</td><td class="s">${sourceTag(key)}</td></tr>`;
+      return `<tr><td class="k">${escapeHtml(key)}${encryptedTag(key)}</td><td class="v">${escapeHtml(display)}</td><td class="s">${sourceTag(key)}</td></tr>`;
     })
     .join("");
 
@@ -648,6 +696,15 @@ const QUERY_EXAMPLES = [
     ]
   },
   {
+    group: "Row-level · encrypted fields",
+    items: [
+      ["My patients (switch clinicians)", { type: "hospital.Patient", select: ["name", "assignedClinicianId"] }],
+      ["Equality on an encrypted MRN", { type: "hospital.Patient", filter: { property: "medicalRecordNumber", operator: "eq", value: "MRN-1002" } }],
+      ["Sort on an encrypted field", { type: "hospital.Patient", sort: [{ property: "medicalRecordNumber", direction: "asc" }] }],
+      ["Count patients (admin only)", { type: "hospital.Patient", aggregations: [{ name: "patients", op: "count" }] }]
+    ]
+  },
+  {
     group: "Rejected by design",
     items: [
       ["Filter on computed", { type: "airforce.Aircraft", filter: { property: "needsAttention", operator: "eq", value: true } }],
@@ -705,9 +762,7 @@ function initQueryTab() {
     renderQueryResult();
   });
 
-  document.addEventListener("identity-changed", () => {
-    $("#queryIdentityNote").textContent = IDENTITY_LABEL[state.identity];
-  });
+
 }
 
 async function runQuery(query) {
@@ -976,6 +1031,34 @@ const GUARDS = [
     pass: (r) => r.status === 403
   },
   {
+    title: "Equality on an encrypted field",
+    identity: "clinician B",
+    why: "The store holds medicalRecordNumber only as ciphertext, but it's deterministic: the filter is rewritten to its blind index, so the lookup still finds the record.",
+    expect: "200, PT-1002",
+    run: () => queryAs("otherClinician", { type: "hospital.Patient", filter: { property: "medicalRecordNumber", operator: "eq", value: "MRN-1002" } }),
+    pass: (r) => r.status === 200 && r.body.items.length === 1 && r.body.items[0].objectId === "PT-1002"
+  },
+  {
+    title: "…but ordering by it is refused",
+    identity: "admin",
+    why: "The store can't sort ciphertext, so the query is refused with a clear error rather than answered in the wrong order.",
+    expect: "400 EncryptedFieldError",
+    run: () => queryAs("admin", { type: "hospital.Patient", sort: [{ property: "medicalRecordNumber", direction: "asc" }] }),
+    pass: (r) => r.status === 400 && r.body?.error === "EncryptedFieldError"
+  },
+  {
+    title: "Both engines, the same verdict",
+    identity: "clinician B",
+    why: "Clinician B reading clinician A's patient, decided once by the ABAC rules and once by Cedar: both refuse, each in its own words.",
+    expect: "403 · 403",
+    run: async () => {
+      const read = (engine) => fetch(`/api/objects/hospital.Patient/PT-1001?identity=otherClinician&engine=${engine}`).then(async (res) => ({ status: res.status, body: await res.json() }));
+      const [abac, cedar] = await Promise.all([read("abac"), read("cedar")]);
+      return { status: cedar.status, body: { abac: `${abac.status} ${abac.body.reason ?? ""}`, cedar: `${cedar.status} ${cedar.body.reason ?? ""}` } };
+    },
+    pass: (r) => r.body.abac.startsWith("403") && r.body.cedar.startsWith("403")
+  },
+  {
     title: "Another clinician's patient",
     identity: "clinician B",
     why: "Both are clinicians, but PT-1001 is assigned to Clinician A. The object policy is decided on this record's own assignedClinicianId, so the same role gets a different answer per record.",
@@ -1141,21 +1224,21 @@ function mcpOps() {
   const withToken = (uri) => `${uri}${token ? `?token=${token}` : ""}`;
   const as = IDENTITY_LABEL[state.identity];
   return [
-    { title: "tools/list", sub: "Actions as tools, plus query with its enforced schema and limits", run: () => api("/api/mcp/tools", undefined, false) },
-    { title: "resources/list", sub: "Every browsable Type and object, both domains", run: () => api("/api/mcp/resources", undefined, false) },
-    { title: "resources/read — Aircraft", sub: withToken("typesys://objects/airforce.Aircraft/AF86-0147"), run: () => api("/api/mcp/resource", post({ uri: withToken("typesys://objects/airforce.Aircraft/AF86-0147") }), false) },
-    { title: "resources/read — Patient", sub: withToken("typesys://objects/hospital.Patient/PT-1001"), run: () => api("/api/mcp/resource", post({ uri: withToken("typesys://objects/hospital.Patient/PT-1001") }), false) },
+    { title: "tools/list", sub: "Actions as tools, plus query with its enforced schema and limits", run: () => api(withEngine("/api/mcp/tools"), undefined, false) },
+    { title: "resources/list", sub: "Every browsable Type and object, both domains", run: () => api(withEngine("/api/mcp/resources"), undefined, false) },
+    { title: "resources/read — Aircraft", sub: withToken("typesys://objects/airforce.Aircraft/AF86-0147"), run: () => api(withEngine("/api/mcp/resource"), post({ uri: withToken("typesys://objects/airforce.Aircraft/AF86-0147") }), false) },
+    { title: "resources/read — Patient", sub: withToken("typesys://objects/hospital.Patient/PT-1001"), run: () => api(withEngine("/api/mcp/resource"), post({ uri: withToken("typesys://objects/hospital.Patient/PT-1001") }), false) },
     {
       title: "resources/read — provenance",
       sub: "…/AF86-0147/provenance/needsAttention (a computed property, traced to its sources)",
-      run: () => api("/api/mcp/resource", post({ uri: withToken("typesys://objects/airforce.Aircraft/AF86-0147/provenance/needsAttention") }), false)
+      run: () => api(withEngine("/api/mcp/resource"), post({ uri: withToken("typesys://objects/airforce.Aircraft/AF86-0147/provenance/needsAttention") }), false)
     },
     {
       title: "tools/call — query with nested includes",
       sub: `Aircraft → maintenance → workOrder, as ${as}`,
       run: () =>
         api(
-          "/api/mcp/tool",
+          withEngine("/api/mcp/tool"),
           post({ name: "query", arguments: { type: "airforce.Aircraft", limit: 2, include: [{ relationship: "maintenance", include: [{ relationship: "workOrder" }] }], authToken: token } }),
           false
         )
@@ -1163,14 +1246,14 @@ function mcpOps() {
     {
       title: "tools/call — invalid query",
       sub: "limit 5000: comes back as isError with the validation message",
-      run: () => api("/api/mcp/tool", post({ name: "query", arguments: { type: "airforce.Aircraft", limit: 5000, authToken: token } }), false)
+      run: () => api(withEngine("/api/mcp/tool"), post({ name: "query", arguments: { type: "airforce.Aircraft", limit: 5000, authToken: token } }), false)
     },
     {
       title: "tools/call — CreateMaintenanceWorkOrder",
       sub: `as ${as}; flips with the identity switch`,
       run: () =>
         api(
-          "/api/mcp/tool",
+          withEngine("/api/mcp/tool"),
           post({ name: "CreateMaintenanceWorkOrder", arguments: { maintenanceEventId: "EVT-9001", assignedTo: "MCP Console Demo", authToken: token } }),
           false
         )
@@ -1223,9 +1306,9 @@ async function initMcpTab() {
     if (btn) runMcp(mcpOps()[Number(btn.dataset.op)].run);
   });
   render();
-  document.addEventListener("identity-changed", render);
+  document.addEventListener("context-changed", render);
 
-  const tools = await api("/api/mcp/tools", undefined, false);
+  const tools = await api(withEngine("/api/mcp/tools"), undefined, false);
   $("#mcpToolName").innerHTML = tools.tools.map((t) => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`).join("");
   $("#mcpToolName").value = "query";
   $("#mcpToolArgs").value = JSON.stringify({ type: "airforce.MaintenanceEvent", limit: 2, include: [{ relationship: "workOrder" }] }, null, 2);
@@ -1238,7 +1321,7 @@ async function initMcpTab() {
       return;
     }
     const name = $("#mcpToolName").value;
-    runMcp(() => api("/api/mcp/tool", post({ name, arguments: { ...args, authToken: tokenFor(state.identity) } }), false));
+    runMcp(() => api(withEngine("/api/mcp/tool"), post({ name, arguments: { ...args, authToken: tokenFor(state.identity) } }), false));
   });
 }
 
@@ -1265,6 +1348,10 @@ function initAuditDrawer() {
     state.audit.subject = e.target.value;
     renderAudit();
   });
+  $("#auditControl").addEventListener("change", (e) => {
+    state.audit.control = e.target.value;
+    renderAudit();
+  });
   refreshAudit();
   setInterval(refreshAudit, 4000);
 }
@@ -1279,7 +1366,8 @@ async function refreshAudit() {
 }
 
 function renderAudit() {
-  const { events, decision, subject, seen } = state.audit;
+  const { events, decision, subject, control, seen } = state.audit;
+  const controlOf = (e) => (e.details?.control === "classification" ? "classification" : e.outcome ? "action" : "policy");
   $("#auditCount").textContent = events.length;
 
   const subjects = [...new Set(events.map((e) => e.subjectId))].sort();
@@ -1290,7 +1378,7 @@ function renderAudit() {
 
   const firstLoad = seen.size === 0;
   const rows = events
-    .filter((e) => (decision === "all" || e.decision === decision) && (!subject || e.subjectId === subject))
+    .filter((e) => (decision === "all" || e.decision === decision) && (!subject || e.subjectId === subject) && (!control || controlOf(e) === control))
     .slice(0, 100)
     .map((e) => {
       const fresh = !firstLoad && !seen.has(e.id);
@@ -1299,13 +1387,249 @@ function renderAudit() {
         <td class="subject">${escapeHtml(e.subjectId)}</td>
         <td>${escapeHtml(e.action)}</td>
         <td class="resource">${escapeHtml(e.resource.typeName)}${e.resource.objectId ? `/${escapeHtml(e.resource.objectId)}` : ""}${e.resource.propertyPath ? `.${escapeHtml(e.resource.propertyPath)}` : ""}</td>
+        <td><span class="control-pill ${controlOf(e)}" title="${
+          controlOf(e) === "classification" ? escapeHtml(`markings ${(e.details.markings ?? []).join(", ")} · clearance ${e.details.clearance ?? "none"}`) : ""
+        }">${controlOf(e) === "classification" ? `▲ ${escapeHtml((e.details.markings ?? []).join(", "))}` : controlOf(e)}</span></td>
         <td><span class="decision-pill ${e.decision}">${e.decision}</span></td>
         <td class="reason">${e.reason ? escapeHtml(e.reason) : e.outcome === "success" ? "action executed" : ""}</td>
       </tr>`;
     })
     .join("");
-  $("#auditRows").innerHTML = rows || '<tr><td colspan="6" class="muted">No events match.</td></tr>';
+  $("#auditRows").innerHTML = rows || '<tr><td colspan="7" class="muted">No events match.</td></tr>';
   events.forEach((e) => seen.add(e.id));
+}
+
+// ---------------------------------------------------------------------------
+// Security tab: row-level, classification, encryption at rest, two engines (ADR-0030–0033)
+// ---------------------------------------------------------------------------
+const SHORT_FIELD = { medicalRecordNumber: "MRN", assignedClinicianId: "assigned clinician", dateOfBirth: "date of birth" };
+const shortField = (name) => SHORT_FIELD[name] ?? name;
+
+/** The demo scheme's ordering, for display only — the runtime decides (ADR-0032). A missing or unknown clearance holds the lowest level. */
+function dominates(clearance, marking) {
+  const levels = state.runtime.classificationLevels;
+  const need = levels.indexOf(marking);
+  return need >= 0 && Math.max(levels.indexOf(clearance ?? ""), 0) >= need;
+}
+
+function identityRowHead(key) {
+  const i = state.identities.find((x) => x.key === key);
+  const detail = [i.roles.join(", ") || "no roles", ...Object.entries(i.attributes ?? {}).map(([k, v]) => `${k} ${v}`), i.clearance ? `cleared ${i.clearance}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `<th class="row-head${key === state.identity ? " current" : ""}"><strong>${escapeHtml(IDENTITY_LABEL[key] ?? key)}</strong><span>${escapeHtml(detail)}</span></th>`;
+}
+
+const deniedCell = (c) => `<td class="cell no" title="${escapeHtml(`${c.error}${c.reason ? `: ${c.reason}` : ""}`)}">✕</td>`;
+
+async function renderRowLevelMatrix() {
+  const matrix = await api(withEngine("/api/security/matrix?type=hospital.Patient"), undefined, "access matrix · hospital.Patient");
+  const t = state.typesByName.get("hospital.Patient");
+  const gated = Object.keys(t.propertyPolicies);
+  $("#rowLevelMatrix").innerHTML = `<table class="matrix">
+    <thead><tr><th></th>${matrix.objects.map((id) => `<th class="col-head mono">${escapeHtml(id)}</th>`).join("")}</tr></thead>
+    <tbody>${matrix.rows
+      .map(
+        (row) =>
+          `<tr>${identityRowHead(row.key)}${row.cells
+            .map((c) => {
+              if (!c.allowed) return deniedCell(c);
+              const hidden = gated.filter((p) => !c.visible.includes(p));
+              return hidden.length
+                ? `<td class="cell partial" title="${escapeHtml(`Reads the record without ${hidden.join(", ")}`)}">✓<small>no ${escapeHtml(hidden.map(shortField).join(", "))}</small></td>`
+                : '<td class="cell ok" title="Reads the whole record">✓</td>';
+            })
+            .join("")}</tr>`
+      )
+      .join("")}</tbody></table>`;
+}
+
+/** Why a field is absent for a clearance: classified (by its own marking, or derived from one) before any policy (ADR-0032). */
+function hiddenBy(t, field, clearance) {
+  const classifiedOut = (name) => t.propertyClassifications[name] && !dominates(clearance, t.propertyClassifications[name]);
+  const computed = t.computedProperties.find((c) => c.name === field);
+  if (classifiedOut(field) || (computed && computed.dependsOn.some(classifiedOut))) return "class";
+  return "policy";
+}
+
+async function renderClassification() {
+  const t = state.typesByName.get("airforce.Aircraft");
+  const levels = state.runtime.classificationLevels;
+  const marked = [...state.typesByName.values()].flatMap((type) => Object.entries(type.propertyClassifications).map(([field, marking]) => ({ label: `${type.name.split(".")[1]}.${field}`, marking })));
+  $("#clearanceLadder").innerHTML = levels
+    .map((level, i) => {
+      const people = state.identities.filter((p) => (levels.includes(p.clearance) ? p.clearance : levels[0]) === level);
+      return `<div class="rung" style="--rung:${i}">
+        <div class="rung-label">${escapeHtml(level)}</div>
+        <div class="rung-people">${people
+          .map((p) => `<span class="person${p.key === state.identity ? " current" : ""}" title="${escapeHtml(p.clearance ? `cleared ${p.clearance}` : "no clearance: the lowest level")}">${escapeHtml(IDENTITY_LABEL[p.key] ?? p.key)}${p.clearance ? "" : " <em>none</em>"}</span>`)
+          .join("")}</div>
+        <div class="rung-data">${marked.filter((m) => m.marking === level).map((m) => `<span class="marked">▲ ${escapeHtml(m.label)}</span>`).join("")}</div>
+      </div>`;
+    })
+    .join("");
+
+  const matrix = await api(withEngine("/api/security/matrix?type=airforce.Aircraft"), undefined, "access matrix · airforce.Aircraft");
+  const fields = ["tailNumber", "model", "maintenanceStatus", "deploymentLocation", "readinessStatus", "needsAttention"];
+  $("#classificationMatrix").innerHTML = `<table class="matrix fields">
+    <thead><tr><th class="corner mono">AF86-0147</th>${fields
+      .map((f) => `<th class="col-head">${escapeHtml(f).replace(/([a-z])([A-Z])/g, "$1<wbr>$2")}${t.propertyClassifications[f] ? `<small>▲ ${escapeHtml(t.propertyClassifications[f])}</small>` : t.propertyPolicies[f] ? "<small>🔒 policy</small>" : ""}</th>`)
+      .join("")}</tr></thead>
+    <tbody>${matrix.rows
+      .map((row) => {
+        const cell = row.cells.find((c) => c.objectId === "AF86-0147");
+        const clearance = state.identities.find((i) => i.key === row.key)?.clearance;
+        if (!cell.allowed) return `<tr>${identityRowHead(row.key)}<td class="cell none" colspan="${fields.length}" title="${escapeHtml(cell.reason ?? "")}">no access to the object</td></tr>`;
+        return `<tr>${identityRowHead(row.key)}${fields
+          .map((f) =>
+            cell.visible.includes(f)
+              ? '<td class="cell ok">✓</td>'
+              : hiddenBy(t, f, clearance) === "class"
+                ? `<td class="cell class" title="Classified above ${escapeHtml(clearance ?? "no clearance")}">▲</td>`
+                : `<td class="cell policy" title="Hidden by policy ${escapeHtml(t.propertyPolicies[f] ?? "")}">🔒</td>`
+          )
+          .join("")}</tr>`;
+      })
+      .join("")}</tbody></table>`;
+}
+
+const keyIdOf = (envelope) => (typeof envelope === "string" && envelope.startsWith("tsenc1.") ? envelope.split(".")[1] : null);
+const clip = (s, head = 22, tail = 6) => (s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s);
+
+async function renderEncryption() {
+  const data = await api(withIdentity("/api/security/encryption"), undefined, "store vs runtime · hospital.Patient");
+  const modes = data.fields["hospital.Patient"];
+  const fields = Object.keys(modes);
+  $("#keyring").innerHTML = `<span class="muted">Keyring</span>
+    <span class="key-chip active" title="New values are encrypted under this key">🔑 ${escapeHtml(data.keyring.active)} <em>active</em></span>
+    <span class="key-chip" title="Still readable: a value names the key it was written under">🔑 ${escapeHtml(data.keyring.retired)} <em>retired, still readable</em></span>
+    <span class="muted">Keys generated at startup — in production, a KMS-backed <code>KeyProvider</code>.</span>`;
+
+  const runtimeCell = (record, field) => {
+    if (!record.runtime.allowed) return `<span class="plain denied" title="${escapeHtml(record.runtime.reason ?? "")}">denied to ${escapeHtml(IDENTITY_LABEL[state.identity])}</span>`;
+    return field in record.runtime.values
+      ? `<span class="plain">${escapeHtml(String(record.runtime.values[field]))}</span>`
+      : `<span class="plain redacted">redacted for ${escapeHtml(IDENTITY_LABEL[state.identity])}</span>`;
+  };
+  $("#encryptionTable").innerHTML = `<table class="enc-table">
+    <thead><tr><th>Record</th><th>Written under</th>${fields
+      .map((f) => `<th>${escapeHtml(f)} <span class="mini-tag enc">${modes[f] === "deterministic" ? "deterministic · indexed" : "randomized"}</span></th>`)
+      .join("")}</tr></thead>
+    <tbody>${data.records
+      .map((r) => {
+        const keyId = keyIdOf(r.stored[fields[0]]);
+        return `<tr>
+          <td class="mono">${escapeHtml(r.objectId)}</td>
+          <td><span class="key-chip small${keyId === data.keyring.active ? " active" : ""}">${escapeHtml(keyId ?? "—")}</span></td>
+          ${fields
+            .map((f) => {
+              const stored = String(r.stored[f] ?? "");
+              const index = r.stored[`__bidx_${f}`];
+              return `<td>
+                <div class="cipher" title="${escapeHtml(stored)}"><span class="store-label">store</span>${escapeHtml(clip(stored))}</div>
+                ${index ? `<div class="cipher bidx" title="${escapeHtml(`blind index: ${index}`)}"><span class="store-label">index</span>${escapeHtml(clip(index, 16, 4))}</div>` : ""}
+                <div class="runtime-line"><span class="store-label">runtime</span>${runtimeCell(r, f)}</div>
+              </td>`;
+            })
+            .join("")}
+        </tr>`;
+      })
+      .join("")}</tbody></table>`;
+}
+
+function showEncResult(html) {
+  const el = $("#encResult");
+  el.hidden = false;
+  el.innerHTML = html;
+}
+
+async function runEncLookup() {
+  const r = await queryAs(state.identity, { type: "hospital.Patient", filter: { property: "medicalRecordNumber", operator: "eq", value: "MRN-1002" } });
+  const found = r.body?.items?.map((i) => i.objectId) ?? [];
+  showEncResult(`<span class="status-pill s${String(r.status)[0]}">${r.status}</span>
+    <strong>medicalRecordNumber eq "MRN-1002"</strong> — the adapter rewrote it to an <code>in</code> over the value's HMAC under every key in the ring, and matched the stored index.
+    ${r.ok ? (found.length ? `Found <strong>${escapeHtml(found.join(", "))}</strong> as ${escapeHtml(IDENTITY_LABEL[state.identity])}.` : `No match ${escapeHtml(IDENTITY_LABEL[state.identity])} may read — the row-level rule still decides.`) : escapeHtml(r.body?.message ?? "")}`);
+}
+
+async function runEncSort() {
+  const r = await queryAs(state.identity, { type: "hospital.Patient", sort: [{ property: "medicalRecordNumber", direction: "asc" }] });
+  showEncResult(`<span class="status-pill s${String(r.status)[0]}">${r.status}</span> <strong>${escapeHtml(r.body?.error ?? "")}</strong> <span class="muted">${escapeHtml(r.body?.message ?? "")}</span>`);
+}
+
+async function runEncTamper() {
+  const r = await api("/api/security/tamper", post({ objectId: "PT-1001", field: "medicalRecordNumber" }), "tamper (sandbox copy)");
+  const mark = (s) => `${escapeHtml(clip(s.slice(0, r.position), 18, 12))}<mark>${escapeHtml(s[r.position])}</mark>${escapeHtml(s.slice(r.position + 1, r.position + 8))}…`;
+  showEncResult(`<div class="tamper">
+    <div><span class="store-label">stored</span><code class="cipher-line">${mark(r.original)}</code></div>
+    <div><span class="store-label">tampered</span><code class="cipher-line">${mark(r.tampered)}</code></div>
+    <div class="tamper-outcome ${r.decrypted ? "bad" : "good"}">${
+      r.decrypted ? "Decrypted — this should never happen." : `Read refused: <strong>${escapeHtml(r.error)}</strong> <span class="muted">${escapeHtml(r.message)}</span>`
+    }</div>
+    <p class="muted small">One character flipped in a sandbox copy of PT-1001's stored MRN. The GCM tag no longer verifies, so the adapter fails closed and returns nothing. The real store is untouched.</p>
+  </div>`);
+}
+
+async function runParity() {
+  const btn = $("#parityBtn");
+  btn.disabled = true;
+  $("#parityResult").innerHTML = '<span class="muted">Running every read path, as every identity, on both engines…</span>';
+  try {
+    const r = await api("/api/security/parity", undefined, "parity · ABAC vs Cedar");
+    const pct = Math.round((100 * r.identical) / r.scenarios);
+    $("#parityResult").innerHTML = `<div class="meter parity-meter"><div class="meter-ok" style="flex:${r.identical}"></div><div class="meter-deny" style="flex:${r.scenarios - r.identical}"></div></div>
+      <strong>${r.identical} of ${r.scenarios}</strong> scenarios identical (${pct}%)${r.mismatches.length ? ` — <span class="err-text">${escapeHtml(r.mismatches.slice(0, 3).join("; "))}</span>` : ""}`;
+    $("#paritySamples").innerHTML = r.samples.length
+      ? `<table class="parity-table"><thead><tr><th>A refusal</th><th>ABAC's reason</th><th>Cedar's reason</th></tr></thead><tbody>${r.samples
+          .map((s) => `<tr><td class="mono">${escapeHtml(s.label)}</td><td>${escapeHtml(s.abac ?? "")}</td><td>${escapeHtml(s.cedar ?? "")}</td></tr>`)
+          .join("")}</tbody></table>`
+      : "";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/** Light Cedar highlighting: comments, @annotations, strings, keywords. */
+function highlightCedar(text) {
+  const KEYWORDS = /\b(permit|forbid|when|unless|principal|action|resource|context|in|has|like|is|namespace|entity|appliesTo|type|String|Long|Boolean|Set)\b/g;
+  return text
+    .split("\n")
+    .map((line) => {
+      const at = line.indexOf("//");
+      const [code, comment] = at >= 0 ? [line.slice(0, at), line.slice(at)] : [line, ""];
+      const lit = escapeHtml(code)
+        .replace(/(@id)\((&quot;.*?&quot;)\)/g, '<span class="ann">$1</span>(<span class="str">$2</span>)')
+        .replace(/(&quot;(?!<).*?&quot;)(?![^<]*<\/span>)/g, '<span class="str">$1</span>')
+        .replace(KEYWORDS, '<span class="kw">$1</span>');
+      return lit + (comment ? `<span class="cm">${escapeHtml(comment)}</span>` : "");
+    })
+    .join("\n");
+}
+
+async function loadCedarSource() {
+  if ($("#cedarPolicies").dataset.loaded) return;
+  const src = await api("/api/security/cedar", undefined, false);
+  $("#cedarPolicies").innerHTML = highlightCedar(src.policies);
+  $("#cedarSchema").innerHTML = highlightCedar(src.schema);
+  $("#cedarPolicies").dataset.loaded = "1";
+}
+
+async function renderSecurity() {
+  await Promise.all([renderRowLevelMatrix(), renderClassification(), renderEncryption()]);
+}
+
+function initSecurityTab() {
+  const visible = () => $("#tab-security").classList.contains("active");
+  $('.tab[data-tab="security"]').addEventListener("click", () => void renderSecurity());
+  document.addEventListener("context-changed", () => {
+    if (visible()) void renderSecurity();
+  });
+  $("#encLookup").addEventListener("click", runEncLookup);
+  $("#encSort").addEventListener("click", runEncSort);
+  $("#encTamper").addEventListener("click", runEncTamper);
+  $("#parityBtn").addEventListener("click", runParity);
+  $(".cedar-source").addEventListener("toggle", (e) => {
+    if (e.target.open) void loadCedarSource();
+  });
 }
 
 /** Pings the server's liveness/readiness endpoints (ADR-0029) and reflects the result in the topbar dot. */
@@ -1333,11 +1657,14 @@ async function init() {
 
   initTabs();
   initIdentitySwitch();
+  initEngineSwitch();
   initQueryTab();
   renderLimitChips();
   initGuardrails();
   renderRuntimeConfig();
   initAuditDrawer();
+  initSecurityTab();
+  $("#queryIdentityNote").textContent = `${IDENTITY_LABEL[state.identity]} · ${ENGINE_LABEL[state.engine]}`;
 
   $("#typeModalOverlay").addEventListener("click", (e) => {
     if (e.target.id === "typeModalOverlay") closeTypeModal();

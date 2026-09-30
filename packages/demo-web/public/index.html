@@ -21,12 +21,18 @@
 
     <nav class="tabs" id="tabs" role="tablist">
       <button class="tab active" data-tab="explorer" role="tab" aria-selected="true">Explorer</button>
+      <button class="tab" data-tab="security" role="tab" aria-selected="false">Security</button>
       <button class="tab" data-tab="query" role="tab" aria-selected="false">Query</button>
       <button class="tab" data-tab="guardrails" role="tab" aria-selected="false">Guardrails</button>
       <button class="tab" data-tab="mcp" role="tab" aria-selected="false">MCP Console</button>
     </nav>
 
     <span class="health-dot" id="healthDot" title="Checking server health…" aria-label="Server health">●</span>
+    <div class="engine-switch" id="engineSwitch" role="group" aria-label="Policy engine">
+      <span class="engine-label">Engine</span>
+      <button class="engine-btn active" data-engine="abac" title="The embedded ABAC engine: named rule functions (ADR-0009)">ABAC</button>
+      <button class="engine-btn" data-engine="cedar" title="Cedar, in-process as WebAssembly, validated against a schema (ADR-0031)">Cedar</button>
+    </div>
     <div class="identity-switch" id="identitySwitch" aria-label="Acting identity"></div>
   </header>
 
@@ -75,6 +81,98 @@
           </div>
         </aside>
 
+      </div>
+    </section>
+
+    <!-- ===================== SECURITY ===================== -->
+    <section class="tab-panel" id="tab-security">
+      <div class="panel sec-intro">
+        <div>
+          <h2>Four controls, one boundary</h2>
+          <p class="panel-sub">
+            Each is enforced once, in <code>SemanticRuntime</code> or at the storage boundary beneath it, so the web app, the query tab, and an AI agent
+            over MCP all get the same answer. Switch identity and engine in the header: everything here re-decides live, and every decision lands in
+            the audit log below.
+          </p>
+        </div>
+        <nav class="sec-jump" aria-label="Controls">
+          <a href="#secRowLevel"><strong>Row-level</strong><span>ADR-0030</span></a>
+          <a href="#secClassification"><strong>Classification</strong><span>ADR-0032</span></a>
+          <a href="#secEncryption"><strong>Encrypted at rest</strong><span>ADR-0033</span></a>
+          <a href="#secEngines"><strong>Two engines</strong><span>ADR-0031</span></a>
+        </nav>
+      </div>
+
+      <div class="sec-grid">
+        <section class="panel sec-card" id="secRowLevel">
+          <div class="sec-head">
+            <h2>Who can read which patient</h2>
+            <span class="adr-tag">ADR-0030</span>
+          </div>
+          <p class="panel-sub">
+            The same role, a different answer per record: <code>hospital.read-patient</code> is decided on each Patient's own
+            <code>assignedClinicianId</code>. A query decides every returned row the same way and drops the rest.
+          </p>
+          <div class="matrix-wrap" id="rowLevelMatrix"><div class="empty-state small">Loading…</div></div>
+          <p class="matrix-legend"><span class="cell-chip ok">reads</span><span class="cell-chip partial">reads, a field hidden</span><span class="cell-chip no">denied</span> Hover a cell for the engine's reason.</p>
+        </section>
+
+        <section class="panel sec-card" id="secClassification">
+          <div class="sec-head">
+            <h2>What each clearance sees</h2>
+            <span class="adr-tag">ADR-0032</span>
+          </div>
+          <p class="panel-sub">
+            <code>Aircraft.deploymentLocation</code> is marked SECRET. Clearance is checked beside the policy engine, never through it, so
+            no policy — and neither engine — can relax it. A linear demonstration scheme; real markings add compartments and caveats.
+          </p>
+          <div class="ladder" id="clearanceLadder"></div>
+          <div class="matrix-wrap" id="classificationMatrix"><div class="empty-state small">Loading…</div></div>
+          <p class="matrix-legend"><span class="cell-chip ok">shown</span><span class="cell-chip class">▲ classified</span><span class="cell-chip policy">🔒 policy</span><span class="cell-chip none">no access</span></p>
+        </section>
+
+        <section class="panel sec-card sec-wide" id="secEncryption">
+          <div class="sec-head">
+            <h2>Encrypted at rest</h2>
+            <span class="adr-tag">ADR-0033</span>
+          </div>
+          <p class="panel-sub">
+            The hospital store holds Patient PHI only as AES-256-GCM ciphertext; an <code>EncryptingAdapter</code> decrypts on the way out, so the
+            runtime — and the row-level rule deciding on <code>assignedClinicianId</code> — see plaintext. Deterministic fields keep a blind index,
+            so equality lookups still work.
+          </p>
+          <div class="keyring" id="keyring"></div>
+          <div id="encryptionTable"><div class="empty-state small">Loading…</div></div>
+          <div class="enc-actions">
+            <button class="btn btn-sm" id="encLookup">Look up MRN-1002 (blind index)</button>
+            <button class="btn btn-sm" id="encSort">Sort by MRN (refused)</button>
+            <button class="btn btn-sm btn-danger-soft" id="encTamper">Tamper with a stored ciphertext</button>
+          </div>
+          <div class="enc-result" id="encResult" hidden></div>
+        </section>
+
+        <section class="panel sec-card sec-wide" id="secEngines">
+          <div class="sec-head">
+            <h2>Two engines, one decision</h2>
+            <span class="adr-tag">ADR-0031</span>
+          </div>
+          <p class="panel-sub">
+            The same registry and adapters, decided by the embedded ABAC rules or by Cedar running in-process. Run every read path as every identity
+            on both, in fresh worlds, and compare. The engine switch in the header routes the whole app — including the MCP Console — through either.
+          </p>
+          <div class="parity-row">
+            <button class="btn btn-primary btn-sm" id="parityBtn">Run parity check</button>
+            <div class="parity-result" id="parityResult"><span class="muted">Not run yet.</span></div>
+          </div>
+          <div id="paritySamples"></div>
+          <details class="cedar-source">
+            <summary>The Cedar policies and schema</summary>
+            <div class="cedar-grid">
+              <div><h3>demo-domains.cedar</h3><pre class="code-view" id="cedarPolicies"></pre></div>
+              <div><h3>demo-domains.cedarschema</h3><pre class="code-view" id="cedarSchema"></pre></div>
+            </div>
+          </details>
+        </section>
       </div>
     </section>
 
@@ -188,13 +286,18 @@
           <button class="seg-btn" data-decision="deny">Deny</button>
         </div>
         <select id="auditSubject" aria-label="Subject filter"><option value="">All subjects</option></select>
+        <select id="auditControl" aria-label="Control filter">
+          <option value="">All controls</option>
+          <option value="policy">Policy</option>
+          <option value="classification">Classification</option>
+        </select>
       </div>
-      <span class="audit-hint">every policy decision, live</span>
+      <span class="audit-hint">every policy and classification decision, live</span>
     </div>
     <div class="audit-body" id="auditBody" hidden>
       <table>
         <thead>
-          <tr><th>Time</th><th>Subject</th><th>Action</th><th>Resource</th><th>Decision</th><th>Reason</th></tr>
+          <tr><th>Time</th><th>Subject</th><th>Action</th><th>Resource</th><th>Control</th><th>Decision</th><th>Reason</th></tr>
         </thead>
         <tbody id="auditRows"></tbody>
       </table>
