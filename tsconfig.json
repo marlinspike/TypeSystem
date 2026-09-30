@@ -10,6 +10,7 @@
     { "path": "packages/demo-web" },
     { "path": "packages/cli" },
     { "path": "packages/auth-oidc" },
-    { "path": "packages/redis" }
+    { "path": "packages/redis" },
+    { "path": "packages/policy-cedar" }
   ]
 }

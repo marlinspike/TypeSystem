@@ -1,0 +1,40 @@
+{
+  "name": "@typesys/policy-cedar",
+  "version": "0.1.0",
+  "description": "A Cedar-backed PolicyEngine for TypeS — the Cedar authorizer, in-process via WebAssembly, validated against a Cedar schema at load and failing closed on any error.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/policy-cedar"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/policy-cedar#readme",
+  "keywords": [
+    "typesys",
+    "cedar",
+    "authorization",
+    "policy-engine",
+    "abac"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "examples"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@cedar-policy/cedar-wasm": "4.13.0"
+  },
+  "devDependencies": {
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/domain-hospital": "0.1.0"
+  }
+}

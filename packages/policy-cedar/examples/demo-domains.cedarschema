@@ -1,0 +1,45 @@
+// The Cedar schema for the two demo domains (ADR-0031). It declares the
+// identity model and every TypeS policy name as a Cedar action, and — for
+// each resource entity type — only the attributes a policy decides on. Every
+// other stored value (a Patient's name, MRN, date of birth) never reaches the
+// engine. Resource attributes are optional (`?`): a type-level request
+// carries none (ADR-0030), and Cedar's validator then insists every policy
+// guards them with `has`.
+
+namespace TypeS {
+  entity Role;
+  entity User in [Role] {
+    // A clinician's Provider id: what hospital.read-patient matches against.
+    providerId?: String,
+    // A patient's own Patient id.
+    patientId?: String
+  };
+
+  action "airforce.read-aircraft" appliesTo {
+    principal: [User],
+    resource: [airforce::Aircraft, airforce::Component, airforce::MaintenanceEvent, airforce::WorkOrder]
+  };
+  // Aircraft.maintenanceStatus, and the CreateMaintenanceWorkOrder Action on MaintenanceEvent.
+  action "airforce.maintainer-only" appliesTo {
+    principal: [User],
+    resource: [airforce::Aircraft, airforce::MaintenanceEvent]
+  };
+
+  action "hospital.read-provider" appliesTo { principal: [User], resource: [hospital::Provider] };
+  action "hospital.read-patient" appliesTo { principal: [User], resource: [hospital::Patient] };
+  action "hospital.read-appointment" appliesTo { principal: [User], resource: [hospital::Appointment] };
+  // Patient.medicalRecordNumber.
+  action "hospital.staff-only" appliesTo { principal: [User], resource: [hospital::Patient] };
+}
+
+namespace airforce {
+  entity Aircraft, Component, MaintenanceEvent, WorkOrder;
+}
+
+namespace hospital {
+  entity Provider, Appointment;
+  entity Patient {
+    id?: String,
+    assignedClinicianId?: String
+  };
+}

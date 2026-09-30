@@ -79,6 +79,17 @@ document that gap rather than close it in this pass.
   files are inspected reference artifacts — correct and runnable, but not built
   or run in CI, and not production-hardened (image scanning, secrets, TLS
   remain `PRODUCTION-READINESS.md` items).
+- A real, analyzable policy engine (ADR-0031): `@typesys/policy-cedar`'s
+  `CedarPolicyEngine` runs the Cedar authorizer in-process as WebAssembly
+  behind the unchanged `PolicyEngine` interface. Policies are strictly
+  validated against a Cedar schema at load (errors *and* warnings refuse to
+  build the engine), only schema-declared attributes reach a policy, and a
+  decision allows only on a Cedar `allow` with no evaluation errors. A
+  reference policy set reproduces both demo domains' rules, including the
+  own-patient rule; `packages/policy-cedar/test/parity.test.ts` proves it
+  decides identically to `AbacPolicyEngine` — same results and the same
+  audited decision at every checkpoint across 2,422 scenarios — and pins the
+  intended fail-closed divergences (a malformed declared attribute).
 - Row-level (instance) authorization (ADR-0030): policies receive the
   object's stored attributes and decide per instance on every read path —
   `getObject`, each returned `query` item (denied items dropped silently,
@@ -174,15 +185,14 @@ document that gap rather than close it in this pass.
 
 - `resolutionMode: "materialized"` is supported by the model, but nothing
   populates a materialized store — there is no ingestion pipeline.
-- The policy engine is a small embedded ABAC evaluator, not OPA/Cedar.
 - Adapter-level tracing (a span per individual adapter call, not just
   the runtime method that contains it) is deferred — see ADR-0017's
   "Alternatives Considered."
 
 ## Correctly not built
 
-Graph database, ETL platform, full IAM, a real policy engine, reactive
-event propagation, GraphQL, an LLM orchestration layer — all explicit
+Graph database, ETL platform, full IAM, reactive event propagation,
+GraphQL, an LLM orchestration layer — all explicit
 non-goals in the original mission brief
 ([`docs/initial_prompt.md`](initial_prompt.md)), and the architecture
 leaves clean extension points for each rather than stubbing them out.

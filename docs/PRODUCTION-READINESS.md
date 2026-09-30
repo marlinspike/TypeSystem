@@ -44,6 +44,16 @@ says so.
    conflicts, an audit trail for changes to the rules themselves, a real
    threat model). Swap for OPA/Cedar (the seam ADR-0009 left), or have
    someone whose job is security actually attack the one that is here.
+   *Addressed as a swap (2026-09-29, ADR-0031):* `@typesys/policy-cedar`
+   provides `CedarPolicyEngine`, the Cedar authorizer in-process, with
+   policies strictly validated against a schema at load and fail-closed on
+   any evaluation error. A reference policy set for both demo domains is
+   proven to decide identically to `AbacPolicyEngine` by a parity suite
+   (`packages/policy-cedar/test/parity.test.ts`). Still open: a human
+   security review of the request mapping and of any real domain's policy
+   set, running Cedar's formal analysis over it, change control for the
+   policy files themselves, and a supply-chain review of the WebAssembly
+   dependency.
 2. **A hostile-input threat model at the boundary.** The HTTP transport
    (ADR-0021) and the `query` DSL tool (ADR-0011) accept external input,
    and nothing here has been reviewed for injection, resource exhaustion,

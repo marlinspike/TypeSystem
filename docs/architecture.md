@@ -37,7 +37,7 @@ flowchart TB
         MODEL["Semantic Model\n(Type / Relationship / Action /\nPolicy / Provenance / DataSource / Mapping)"]
         REGISTRY["Semantic Registry\n(validates + composes + stores TypeDefinitions)"]
         RUNTIME["Semantic Runtime\n(getObject / getRelationship / query / aggregate /\ngetProvenance / listActions / invokeAction)"]
-        POLICY["Policy Engine (ABAC)"]
+        POLICY["Policy Engine (ABAC, or Cedar via @typesys/policy-cedar)"]
         AUDIT["Audit Log"]
     end
 
@@ -469,6 +469,10 @@ the same kind of swappable interface as everything else in this list:
   relationships/computed properties (ADR-0016).
 - OpenTelemetry tracing/metrics that cost nothing and do nothing unless
   an application registers a real SDK (ADR-0017).
+- A real policy engine: `CedarPolicyEngine` (`@typesys/policy-cedar`,
+  ADR-0031), the Cedar authorizer in-process as WebAssembly, behind the
+  same `PolicyEngine` interface `AbacPolicyEngine` implements — proven to
+  decide identically on both demo domains.
 - Real OIDC/JWT identity verification (`@typesys/auth-oidc`, ADR-0018) —
   "a real IdP/OIDC integration" was originally listed as a non-goal here;
   it was built once ADR-0018 needed it, behind the same `IdentityResolver`

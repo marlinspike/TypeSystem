@@ -117,16 +117,30 @@ You never have to log a decision yourself — `SemanticRuntime` calls
 `typesys.policy.decisions` counter too. Check
 `registry.listAuditEvents({limit, before})` to see what actually happened.
 
-## Using a real policy engine instead (OPA/Cedar)
+## Using a real policy engine instead (Cedar)
 
 `AbacPolicyEngine` is a small, intentionally minimal implementation of the
-`PolicyEngine` interface — swap it for anything else that implements
-`evaluate(request): Promise<PolicyDecision>` and nothing else in the
-runtime changes:
+`PolicyEngine` interface. `@typesys/policy-cedar` ships a real one —
+Cedar, in-process — and nothing else in the runtime changes
+([ADR-0031](../adr/0031-cedar-policy-engine.md)):
 
 ```ts
-const runtime = new SemanticRuntime(registry, adapters, myOpaBackedPolicyEngine);
+import { CedarPolicyEngine } from "@typesys/policy-cedar";
+
+const policyEngine = new CedarPolicyEngine({ schema: cedarSchemaText, policies: cedarPolicyText });
+const runtime = new SemanticRuntime(registry, adapters, policyEngine);
 ```
+
+Each policy name becomes a Cedar action (`TypeS::Action::"fleet.read-widget"`),
+so Types keep naming their policies exactly as above. The Cedar schema
+declares which attributes policies may see, and the engine refuses to
+build if a policy doesn't validate against it. See
+[`packages/policy-cedar/README.md`](../../packages/policy-cedar/README.md)
+for the mapping and
+[`packages/policy-cedar/examples/`](../../packages/policy-cedar/examples/)
+for both demo domains' rules written in Cedar. Anything else that implements
+`evaluate(request): Promise<PolicyDecision>` (an OPA client, say) slots in
+the same way.
 
 ## Verify it
 
