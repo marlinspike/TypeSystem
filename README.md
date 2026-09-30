@@ -35,6 +35,7 @@ and a message queue.
 | **Pluggable adapters** | In-memory, REST, and PostgreSQL adapters ship; a new backend is one small interface ([`write-an-adapter.md`](docs/how-to/write-an-adapter.md)). | Swap or add systems of record without touching consumers. |
 | **Object-, row-, and property-level ABAC** | Named policy rules gate Types, individual properties, and Actions, and deny by default; a rule can decide on the object's own attributes, so "this clinician, this patient" is expressible and a query returns only the rows you may read ([ADR-0030](docs/adr/0030-row-level-authorization.md), [`add-a-policy-rule.md`](docs/how-to/add-a-policy-rule.md)). | Sensitive fields and records are hidden per caller, and the engine is swappable — a Cedar engine ships ([ADR-0031](docs/adr/0031-cedar-policy-engine.md)). |
 | **Per-property provenance** | Every value can report which source produced it, when, and at what confidence ([ADR-0008](docs/adr/0008-provenance-model.md)). | Values a decision rests on come with their origin, which regulated environments require. |
+| **Field-level encryption at rest** | An `EncryptingAdapter` wraps any adapter so named fields are ciphertext in every store behind it, equality lookups survive through blind indexes, and anything that would need plaintext in the store is refused ([ADR-0033](docs/adr/0033-field-level-encryption.md), [`encrypt-fields.md`](docs/how-to/encrypt-fields.md)). | A database dump, backup, or replica doesn't hold the PHI; the runtime still does all its work on plaintext. |
 | **Data classification** | Types, properties, and individual values carry markings (`UNCLASSIFIED` … `TOP_SECRET`, or your own scheme); a reader's clearance must dominate them, enforced beside the policy engine, with derived values inheriting their inputs' markings ([ADR-0032](docs/adr/0032-data-classification-enforcement.md), [`classify-data.md`](docs/how-to/classify-data.md)). | Classified and controlled data is redacted per reader by a mandatory control that no policy, and no engine swap, can relax. |
 | **Append-only audit log** | Every policy decision and audited Action is recorded; the Postgres store enforces append-only with a trigger. | A tamper-resistant record of who read or changed what. |
 | **Governed Actions** | Writes run a policy check, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
@@ -237,6 +238,13 @@ flowchart TB
   replica ([ADR-0025](docs/adr/0025-multi-instance-deployment.md)). See
   [`packages/redis/README.md`](packages/redis/README.md). Optional, and its
   tests are skipped unless `REDIS_URL` is set.
+- **`packages/encryption`** (`@typesys/encryption`) — field-level encryption
+  at rest: an `EncryptingAdapter` that wraps any adapter so configured
+  fields are AES-256-GCM ciphertext in the store (with HMAC blind indexes
+  where equality lookups must still work), behind a `KeyProvider` seam with
+  keyring rotation ([ADR-0033](docs/adr/0033-field-level-encryption.md)).
+  See [`packages/encryption/README.md`](packages/encryption/README.md).
+  Optional — never a dependency of `@typesys/core`.
 - **`packages/policy-cedar`** (`@typesys/policy-cedar`) — a
   [Cedar](https://www.cedarpolicy.com/)-backed `PolicyEngine`, running the
   Cedar authorizer in-process as WebAssembly: policies validated against a

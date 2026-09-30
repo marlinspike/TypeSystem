@@ -79,6 +79,19 @@ document that gap rather than close it in this pass.
   files are inspected reference artifacts — correct and runnable, but not built
   or run in CI, and not production-hardened (image scanning, secrets, TLS
   remain `PRODUCTION-READINESS.md` items).
+- Field-level encryption at rest (ADR-0033): `@typesys/encryption`'s
+  `EncryptingAdapter` wraps any adapter so configured fields are AES-256-GCM
+  ciphertext in the store (randomized by default; deterministic fields add
+  an HMAC blind index so `eq`/`ne`/`in` still work), behind a `KeyProvider`
+  seam whose keyring handles rotation. Operations that would need plaintext
+  in the store (range, substring, search, sort, aggregation, key-based
+  relationships) are refused with `EncryptedFieldError`; tampered, moved,
+  wrong-key, or legacy-plaintext values fail the read with
+  `DecryptionError`. Proven by `packages/encryption/test/`, including reading
+  the store directly, tampering, and a transparency check across every
+  hospital read path; the Postgres suite runs in CI. Not built: a KMS-backed
+  `KeyProvider` (the interface is the seam) and record-level binding of
+  ciphertexts — see the ADR.
 - Data classification enforcement (ADR-0032): `Identity.clearance` must
   dominate a Type's `x-provenance.defaultClassification`, a member's
   `x-provenance.properties[].classification`, and a value's
