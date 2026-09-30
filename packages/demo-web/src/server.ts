@@ -36,6 +36,7 @@ import {
   encryptedFieldModes,
   encryptedHospitalStore,
   engineParity,
+  swappedRead,
   tamperedRead
 } from "./security.js";
 
@@ -463,6 +464,14 @@ async function main(): Promise<void> {
     handle(async (req, res) => {
       const { objectId, field } = req.body as { objectId?: string; field?: string };
       sendJson(res, 200, await tamperedRead(encrypted, objectId ?? "PT-1001", field ?? "medicalRecordNumber"));
+    })
+  );
+
+  // Move PT-1001's stored date of birth into PT-1002 in a sandbox copy and read it: bound to its record, it fails (ADR-0035).
+  app.post(
+    "/api/security/swap",
+    handle(async (_req, res) => {
+      sendJson(res, 200, await swappedRead(encrypted, "PT-1001", "PT-1002", "dateOfBirth"));
     })
   );
 

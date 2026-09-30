@@ -87,11 +87,14 @@ document that gap rather than close it in this pass.
   in the store (range, substring, search, sort, aggregation, key-based
   relationships) are refused with `EncryptedFieldError`; tampered, moved,
   wrong-key, or legacy-plaintext values fail the read with
-  `DecryptionError`. Proven by `packages/encryption/test/`, including reading
-  the store directly, tampering, and a transparency check across every
-  hospital read path; the Postgres suite runs in CI. Not built: a KMS-backed
-  `KeyProvider` (the interface is the seam) and record-level binding of
-  ciphertexts — see the ADR.
+  `DecryptionError`. Every ciphertext is bound to its record (ADR-0035,
+  `tsenc2`), so one moved between records fails closed; unbound legacy
+  envelopes are refused outside a migration, and `reseal` migrates and
+  re-keys. Proven by `packages/encryption/test/`, including reading the store
+  directly, tampering, moving and downgrading ciphertexts, and a transparency
+  check across every hospital read path; the Postgres suite runs in CI. Not
+  built: a KMS-backed `KeyProvider` (the interface is the seam) — see the
+  ADRs.
 - Data classification enforcement (ADR-0032): `Identity.clearance` must
   dominate a Type's `x-provenance.defaultClassification`, a member's
   `x-provenance.properties[].classification`, and a value's

@@ -88,10 +88,12 @@ says so.
    rest — `@typesys/encryption`'s `EncryptingAdapter` keeps configured
    fields as AES-256-GCM ciphertext in any store, with blind indexes for
    equality, a `KeyProvider` seam, and keyring rotation, proven by tests
-   that read the store directly and tamper with it. Still open: TLS in
-   transit, a KMS-backed key provider and key management (item 6), a
-   cryptographic review of the construction, and database-level encryption
-   for everything not marked.
+   that read the store directly and tamper with it. Since ADR-0035 every
+   ciphertext is bound to its record, so a swap between records is detected.
+   Still open: TLS in transit, a KMS-backed key provider and key management
+   (item 6), a cryptographic review of the construction, detection of
+   deleted or replayed records (the store's own controls), and
+   database-level encryption for everything not marked.
 5. **Real load testing.** `npm run benchmark` measures a synthetic
    200-item fleet on one laptop. Nothing says what happens at real
    concurrency, with real adapter latency, with `Cache`/`RateLimiter`

@@ -58,7 +58,9 @@ export async function encryptedHospitalStore(plain: Adapter, dataSourceId: strin
     const { items } = await plain.queryByType(type);
     inner.seed(
       type,
-      await Promise.all(items.map(async (item, i) => ({ objectId: item.objectId, values: await (i === 0 ? beforeRotation : adapter).seal(type, item.values) })))
+      await Promise.all(
+        items.map(async (item, i) => ({ objectId: item.objectId, values: await (i === 0 ? beforeRotation : adapter).seal(type, item.objectId, item.values) }))
+      )
     );
   }
   return { inner, adapter };
@@ -82,6 +84,23 @@ export async function tamperedRead(store: EncryptedStore, objectId: string, fiel
     (err: unknown) => ({ decrypted: false as const, error: (err as Error).name, message: (err as Error).message })
   );
   return { field, original: envelope, tampered, position: at, ...outcome };
+}
+
+/**
+ * Moves one record's stored ciphertext into another record — in a sandbox
+ * copy — and reads the second record back: the envelope is bound to its
+ * record (ADR-0035), so the swap fails authentication.
+ */
+export async function swappedRead(store: EncryptedStore, from: string, to: string, field: string) {
+  const [source, target] = await Promise.all([from, to].map(async (id) => (await store.inner.resolveProperties("hospital.Patient", id, [])).values));
+  if (!source || !target || typeof source[field] !== "string") return { error: `${field} of ${from} is not stored encrypted` };
+  const sandbox = new InMemoryRepositoryAdapter("sandbox");
+  sandbox.seed("hospital.Patient", [{ objectId: to, values: { ...target, [field]: source[field] } }]);
+  const outcome = await new EncryptingAdapter(sandbox, demoKeys, ENCRYPTION_CONFIG).resolveProperties("hospital.Patient", to, []).then(
+    () => ({ decrypted: true as const }),
+    (err: unknown) => ({ decrypted: false as const, error: (err as Error).name, message: (err as Error).message })
+  );
+  return { field, from, to, moved: source[field], ...outcome };
 }
 
 // ---------------------------------------------------------------------------

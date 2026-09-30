@@ -42,7 +42,10 @@ on an encrypted field each fails the suite.
 
 **Pinned residual:** a ciphertext swapped between two records of the same
 Type and field is *not* detected (point 3); a test asserts that, so closing
-it will be a visible change.
+it will be a visible change. *Closed by ADR-0035:* envelopes are now
+`tsenc2`, bound to their record, and that test asserts the swap is
+detected; `seal` takes the record's id, and Actions name the input field
+holding it.
 
 ## Context
 
