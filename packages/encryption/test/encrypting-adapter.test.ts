@@ -430,22 +430,23 @@ describe("EncryptingAdapter (ADR-0033)", () => {
       expect((await runtime.getObject("hospital.Patient", "PT-1001", hospitalDemoIdentities.clinician)).values.medicalRecordNumber).toBe("MRN-1001");
     });
 
-    it("aggregation matches wherever the policy allows it outright; a clinician's, which only an exact plan allows, is refused over the encrypted attribute (pinned, ADR-0038)", async () => {
+    it("aggregation is transparent too: a clinician's plan filters the encrypted attribute through its blind index, exactly (ADR-0040)", async () => {
       const { plain, runtime } = await hospitalWorlds();
       const count = (rt: SemanticRuntime, who: Identity) =>
         settle(rt.aggregate({ type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "eq", value: "PR-2001" }, aggregations: [{ name: "n", op: "count" }] }, who));
-      const { clinician } = hospitalDemoIdentities;
-      for (const who of identities.filter((i) => i !== clinician && i !== hospitalDemoIdentities.otherClinician)) {
-        expect(await count(runtime, who)).toEqual(await count(plain, who));
-      }
-      // Plain: the plan pushes assignedClinicianId = PR-2001 and the aggregate spans exactly the clinician's rows.
-      expect(await count(plain, clinician)).toEqual({ ok: { groups: [{ key: {}, values: { n: 1 } }] } });
-      // Encrypted: the adapter protects assignedClinicianId, so its one atom is weakened to `true` and the
-      // aggregate fails closed, as before ADR-0038. Saying the blind index can filter it is ADR-0040's.
-      expect(await count(runtime, clinician)).toMatchObject({ error: "AuthorizationError" });
-      expect(await runtime.explainQuery({ type: "hospital.Patient" }, clinician)).toMatchObject({
-        plan: { kind: "unknown", limitations: [{ code: "protected-attribute", attribute: "assignedClinicianId" }] }
+      for (const who of identities) expect(await count(runtime, who)).toEqual(await count(plain, who));
+      expect(await count(runtime, hospitalDemoIdentities.clinician)).toEqual({ ok: { groups: [{ key: {}, values: { n: 1 } }] } });
+      expect(await runtime.explainQuery({ type: "hospital.Patient" }, hospitalDemoIdentities.clinician)).toMatchObject({
+        plan: { kind: "predicate", exact: true, predicate: { attribute: "assignedClinicianId", eq: "PR-2001" } }
       });
+    });
+
+    it("says which conditions it can evaluate in the store: equality on a deterministic field, nothing on a randomized one", async () => {
+      const { encrypted } = await hospitalWorlds();
+      const can = (field: string, op: "eq" | "ne" | "in" | "gt" | "icontains") => encrypted.canFilter("hospital.Patient", field, op);
+      expect(await Promise.all((["eq", "ne", "in", "gt", "icontains"] as const).map((op) => can("medicalRecordNumber", op)))).toEqual([true, true, true, false, false]);
+      expect(await Promise.all((["eq", "ne", "in"] as const).map((op) => can("dateOfBirth", op)))).toEqual([false, false, false]);
+      expect(await can("name", "icontains")).toBe(true);
     });
   });
 });

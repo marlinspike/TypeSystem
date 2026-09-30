@@ -2,6 +2,11 @@
 
 ## Status
 
+*Amended by ADR-0040:* an adapter can say which attributes it filters
+exactly (`canFilter`), and a protected attribute it can filter — an
+encrypted deterministic field, through its blind index — is pushed rather
+than weakened.
+
 *Amended by ADR-0039:* `anyOf` now treats an alternative that throws as one
 that doesn't allow, so `always OR opaque` is exact in any order; before, a
 throwing alternative ended the OR, and the plan overclaimed exactness.

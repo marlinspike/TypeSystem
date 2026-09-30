@@ -19,6 +19,7 @@ import {
   type SemanticAggregateQuery,
   type SortKey
 } from "@typesys/core";
+import { compileFilter, SqlParams } from "./sql-filter.js";
 
 /**
  * The real-backend counterpart to `@typesys/adapter-in-memory` — same
@@ -74,6 +75,17 @@ export class PostgresRepositoryAdapter implements Adapter {
     return { values: rows[0]!.values, provenance: this.buildProvenance(objectId, rows[0]!.values) };
   }
 
+  /**
+   * `WHERE` for a Type's rows matching `filter` (ADR-0040), exactly or as a
+   * superset — every row read is re-checked with `matchesFilter` regardless.
+   */
+  private where(typeName: string, filter: QueryFilter | undefined): { sql: string; params: SqlParams; exact: boolean } {
+    const params = new SqlParams([typeName]);
+    if (!filter) return { sql: "type_name = $1", params, exact: true };
+    const compiled = compileFilter(filter, params);
+    return { sql: `type_name = $1 AND ${compiled.sql}`, params, exact: compiled.exact };
+  }
+
   async queryByType(
     typeName: string,
     filter?: QueryFilter,
@@ -82,38 +94,39 @@ export class PostgresRepositoryAdapter implements Adapter {
     sort?: SortKey[],
     _opts?: AdapterCallOptions
   ): Promise<AdapterQueryResult> {
-    // Default order is object_id (stable paging); an explicit `sort` (ADR-0027) overrides it, applied
-    // in JS over the fetched-and-filtered set — consistent with this adapter's fetch-then-page shape.
-    const { rows } = await this.pool.query<{ object_id: string; values: Record<string, unknown> }>(
-      `SELECT object_id, values FROM objects WHERE type_name = $1 ORDER BY object_id`,
-      [typeName]
-    );
+    const where = this.where(typeName, filter);
+    const startIndex = cursor ? Number(cursor) : 0;
+    type Row = { object_id: string; values: Record<string, unknown> };
+    const toItems = (rows: Row[]) => rows.map((r) => ({ objectId: r.object_id, values: r.values, provenance: this.buildProvenance(r.object_id, r.values) }));
+
+    // An exact filter and the default order: the page is exactly these rows, so SQL reads only them —
+    // one more than the page, to know whether another follows.
+    if (where.exact && !(sort && sort.length > 0) && limit !== undefined) {
+      const { rows } = await this.pool.query<Row>(
+        `SELECT object_id, values FROM objects WHERE ${where.sql} ORDER BY object_id LIMIT ${where.params.bind(limit + 1)} OFFSET ${where.params.bind(startIndex)}`,
+        where.params.values
+      );
+      const page = rows.slice(0, limit).filter((r) => !filter || matchesFilter(r.values, filter));
+      return { items: toItems(page), nextCursor: rows.length > limit ? String(startIndex + limit) : undefined };
+    }
+
+    // Otherwise read the rows SQL narrows to, re-check, and sort and page here — object_id order
+    // first, so cursors mean the same thing either way; an explicit `sort` (ADR-0027) overrides it.
+    const { rows } = await this.pool.query<Row>(`SELECT object_id, values FROM objects WHERE ${where.sql} ORDER BY object_id`, where.params.values);
     const filtered = filter ? rows.filter((r) => matchesFilter(r.values, filter)) : rows;
     const sorted = applySort(filtered, sort, (r) => r.values);
-
-    const startIndex = cursor ? Number(cursor) : 0;
     const pageSize = limit ?? sorted.length;
     const page = sorted.slice(startIndex, startIndex + pageSize);
     const nextCursor = startIndex + pageSize < sorted.length ? String(startIndex + pageSize) : undefined;
-
-    return {
-      items: page.map((r) => ({
-        objectId: r.object_id,
-        values: r.values,
-        provenance: this.buildProvenance(r.object_id, r.values)
-      })),
-      nextCursor
-    };
+    return { items: toItems(page), nextCursor };
   }
 
   async aggregate(query: SemanticAggregateQuery, _opts?: AdapterCallOptions): Promise<AggregateResult> {
-    // Generic table (see class doc): fetch this type's rows and aggregate in JS via the shared
-    // interpreter — consistent with this adapter's fetch-then-process shape. A high-volume Type
-    // would graduate to a bespoke adapter pushing GROUP BY into SQL.
-    const { rows } = await this.pool.query<{ values: Record<string, unknown> }>(
-      `SELECT values FROM objects WHERE type_name = $1`,
-      [query.type]
-    );
+    // The filter narrows in SQL (ADR-0040); the rows it reads are re-checked and aggregated in JS via
+    // the shared interpreter. A high-volume Type would graduate to a bespoke adapter pushing GROUP BY
+    // into SQL.
+    const where = this.where(query.type, query.filter);
+    const { rows } = await this.pool.query<{ values: Record<string, unknown> }>(`SELECT values FROM objects WHERE ${where.sql}`, where.params.values);
     const all = rows.map((r) => r.values);
     const filtered = query.filter ? all.filter((v) => matchesFilter(v, query.filter)) : all;
     return computeAggregations(filtered, query);

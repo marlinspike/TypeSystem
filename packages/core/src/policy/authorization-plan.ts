@@ -27,6 +27,8 @@ export type AuthorizationPlanLimitation =
   | { readonly code: "planner-failed"; readonly policyName: string }
   | { readonly code: "protected-attribute"; readonly attribute: string }
   | { readonly code: "cross-source-attribute"; readonly attribute: string }
+  /** The adapter listing the Type says it can't filter on the attribute in its store (ADR-0040). */
+  | { readonly code: "unfilterable-attribute"; readonly attribute: string }
   /** Part of the policy's condition has no predicate form, so it was replaced by `true` (ADR-0039). */
   | { readonly code: "unrepresentable-condition"; readonly policyName: string }
   /** A condition that excludes objects — a Cedar `forbid` — which a positive predicate can't say (ADR-0039). */
@@ -134,6 +136,13 @@ export function predicateToFilter(predicate: AuthorizationPredicate): QueryFilte
   return { property: predicate.attribute, operator: "eq", value: predicate.eq };
 }
 
+/** Every attribute a predicate's atoms test. */
+export function predicateAttributes(predicate: AuthorizationPredicate): Set<string> {
+  if ("and" in predicate) return new Set(predicate.and.flatMap((p) => [...predicateAttributes(p)]));
+  if ("or" in predicate) return new Set(predicate.or.flatMap((p) => [...predicateAttributes(p)]));
+  return new Set([predicate.attribute]);
+}
+
 /**
  * Rebuilds `predicate` atom by atom through `fit`, which returns the plan an
  * atom becomes where the data is: itself, `NEVER`, or `unknownPlan(…)` —
@@ -153,6 +162,7 @@ const LIMITATION_FIELDS: Readonly<Record<AuthorizationPlanLimitation["code"], st
   "planner-failed": "policyName",
   "protected-attribute": "attribute",
   "cross-source-attribute": "attribute",
+  "unfilterable-attribute": "attribute",
   "unrepresentable-condition": "policyName",
   "negated-condition": "policyName",
   "unverified-attribute-types": "typeName"

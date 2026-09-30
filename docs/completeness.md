@@ -155,8 +155,12 @@ document that gap rather than close it in this pass.
   translated by shape, anything else weakened to `true`, exact for Types
   with declared attributes only on the `schemaConformantData` assertion;
   proven against a reference evaluator and Cedar's own decisions
-  (`packages/policy-cedar/test/planning.test.ts`). Not built: adapter filter
-  capabilities (ADR-0040).
+  (`packages/policy-cedar/test/planning.test.ts`). Adapters say what they
+  filter exactly (`canFilter`, ADR-0040), so an encrypted deterministic
+  field is pushed through its blind index; the Postgres adapter compiles
+  filters to parameterized SQL — exact or a re-checked superset — proven by
+  a differential test against `matchesFilter` on a real PostgreSQL
+  (`packages/adapter-postgres/test/sql-pushdown.test.ts`).
 - Adapter-call resilience (ADR-0026): an opt-in per-call timeout with
   cooperative `AbortSignal` cancellation, retries with exponential backoff
   and jitter for idempotent reads (and only Actions whose `idempotency` is

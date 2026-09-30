@@ -1,7 +1,7 @@
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { ProvenanceRef } from "../model/provenance.js";
-import type { QueryFilter, SortKey, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
+import type { QueryFilter, QueryOperator, SortKey, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ActionContext } from "../model/context.js";
 
 export interface ResolvedProperties {
@@ -63,4 +63,13 @@ export interface Adapter {
    * throw — protects every field.
    */
   sensitiveFields?(typeName: string): readonly string[] | Promise<readonly string[]>;
+  /**
+   * Optional (ADR-0040): whether `queryByType` evaluates a condition on
+   * `property` with `operator` — and an identifier value — exactly as
+   * `matchesFilter` does, in its store. The runtime pushes an authorization
+   * plan's atom only where this answers `true`; without it, on every field
+   * the adapter doesn't protect. May be async; anything but `true` is "no".
+   * A decorator around such an adapter must forward this.
+   */
+  canFilter?(typeName: string, property: string, operator: QueryOperator): boolean | Promise<boolean>;
 }
