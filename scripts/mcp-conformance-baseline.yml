@@ -1,0 +1,52 @@
+# Conformance scenarios the TypeS HTTP server is expected to fail, for
+# `npm run conformance:mcp` (scripts/mcp-conformance.ts, ADR-0051).
+#
+# The suite exits non-zero on a failure not listed here, and on a listed
+# scenario that now passes: remove its entry in the change that fixes it.
+#
+# Recorded against @modelcontextprotocol/conformance 0.1.16 and
+# @modelcontextprotocol/sdk 1.30.0. Passing: server-initialize, ping,
+# tools-list, tools-call-simple-text, tools-call-error, resources-list.
+server:
+  # Fixtures: these call tools and read resources that exist only in the
+  # suite's reference "everything" server (test_image_content,
+  # test://static-text, test://template/{id}/data, ...). A TypeS server
+  # serves a registry's Types and Actions, never those names.
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-logging
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+
+  # Capabilities TypeS does not declare, answered with -32601 Method not
+  # found as the spec requires: logging, completions, resource
+  # subscriptions, and prompts.
+  - logging-set-level
+  - completion-complete
+  - resources-subscribe
+  - resources-unsubscribe
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+
+  # The server is stateless (ADR-0012, ADR-0021): no session id and no GET
+  # stream, so the scenario runs no checks, which the suite reports as a
+  # failure.
+  - server-sse-multiple-streams
+
+  # A REAL GAP, not a fixture. The server does not validate the Host or
+  # Origin header, so a web page can reach a server bound to localhost
+  # through DNS rebinding (GHSA-w48q-cv73-mx4w). That matters most for the
+  # demo, whose tokens are public constants. It is ADR-0051's follow-up F;
+  # remove this entry when it is fixed.
+  - dns-rebinding-protection

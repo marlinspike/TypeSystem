@@ -1291,14 +1291,14 @@ function mcpOps() {
       run: () =>
         api(
           withEngine("/api/mcp/tool"),
-          post({ name: "query", arguments: { type: "airforce.Aircraft", limit: 2, include: [{ relationship: "maintenance", include: [{ relationship: "workOrder" }] }], authToken: token } }),
+          post({ name: "typesys_query", arguments: { type: "airforce.Aircraft", limit: 2, include: [{ relationship: "maintenance", include: [{ relationship: "workOrder" }] }], authToken: token } }),
           false
         )
     },
     {
       title: "tools/call — invalid query",
       sub: "limit 5000: comes back as isError with the validation message",
-      run: () => api(withEngine("/api/mcp/tool"), post({ name: "query", arguments: { type: "airforce.Aircraft", limit: 5000, authToken: token } }), false)
+      run: () => api(withEngine("/api/mcp/tool"), post({ name: "typesys_query", arguments: { type: "airforce.Aircraft", limit: 5000, authToken: token } }), false)
     },
     {
       title: "tools/call — CreateMaintenanceWorkOrder",
@@ -1362,7 +1362,7 @@ async function initMcpTab() {
 
   const tools = await api(withEngine("/api/mcp/tools"), undefined, false);
   $("#mcpToolName").innerHTML = tools.tools.map((t) => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`).join("");
-  $("#mcpToolName").value = "query";
+  $("#mcpToolName").value = "typesys_query";
   $("#mcpToolArgs").value = JSON.stringify({ type: "airforce.MaintenanceEvent", limit: 2, include: [{ relationship: "workOrder" }] }, null, 2);
   $("#mcpToolSend").addEventListener("click", () => {
     let args;

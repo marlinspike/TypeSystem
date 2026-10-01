@@ -1,29 +1,9 @@
 import { ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { withSpan, type SemanticRegistry, type SemanticRuntime, type TypeDefinition } from "@typesys/core";
+import { withSpan, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
+import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
 import { buildTypeListUri, buildTypeUri, parseResourceUri, telemetryResourceUri } from "./resource-uri.js";
-
-function describeType(typeDef: TypeDefinition) {
-  return {
-    name: typeDef.name,
-    version: typeDef.version,
-    description: typeDef.description,
-    extends: typeDef.extends,
-    traits: typeDef.traits,
-    schema: typeDef.schema,
-    relationships: typeDef.relationships.map((r) => ({
-      name: r.name,
-      targetType: r.targetType,
-      cardinality: r.cardinality,
-      inverseName: r.inverseName
-    })),
-    actionNames: typeDef.actionNames,
-    computedPropertyNames: typeDef.computedProperties.map((c) => c.name),
-    deprecated: typeDef.deprecated,
-    aliases: typeDef.aliases
-  };
-}
 
 function jsonContents(uri: string, value: unknown) {
   return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(value, null, 2) }] };
@@ -31,7 +11,8 @@ function jsonContents(uri: string, value: unknown) {
 
 /**
  * Resources are read-only browsing of Types/objects/relationships/
- * provenance — Actions are Tools, registered separately (see ADR-0012).
+ * provenance — Actions are Tools, registered separately (see ADR-0012). The
+ * same five reads are also tools (ADR-0051); both call `reads.ts`.
  * Every read goes through the same SemanticRuntime/PolicyEngine as any
  * other consumer; there is no MCP-specific authorization logic here.
  */
@@ -68,32 +49,26 @@ export function registerResourceHandlers(
       const identity = await resolveIdentity(token);
 
       if (category === "types" && segments.length === 0) {
-        const types = await registry.listTypes();
-        return jsonContents(uri, types.map(describeType));
+        return jsonContents(uri, await readTypes(registry));
       }
 
       if (category === "types" && segments.length === 1) {
-        const typeDef = await registry.getType(segments[0]!);
-        if (!typeDef) throw new Error(`Unknown type "${segments[0]}"`);
-        return jsonContents(uri, describeType(typeDef));
+        return jsonContents(uri, await readType(registry, segments[0]!));
       }
 
       if (category === "objects" && segments.length === 2) {
         const [typeName, objectId] = segments as [string, string];
-        const object = await runtime.getObject(typeName, objectId, identity, { includeProvenance: true });
-        return jsonContents(uri, object);
+        return jsonContents(uri, await readObject(runtime, typeName, objectId, identity));
       }
 
       if (category === "objects" && segments.length === 4 && segments[2] === "relationships") {
         const [typeName, objectId, , relationshipName] = segments as [string, string, string, string];
-        const related = await runtime.getRelationship(typeName, objectId, relationshipName, identity);
-        return jsonContents(uri, related);
+        return jsonContents(uri, await readRelationship(runtime, typeName, objectId, relationshipName, identity));
       }
 
       if (category === "objects" && segments.length === 4 && segments[2] === "provenance") {
         const [typeName, objectId, , propertyPath] = segments as [string, string, string, string];
-        const provenance = await runtime.getProvenance(typeName, objectId, propertyPath, identity);
-        return jsonContents(uri, provenance);
+        return jsonContents(uri, await readProvenance(runtime, typeName, objectId, propertyPath, identity));
       }
 
       throw new Error(`Unrecognized resource URI "${telemetryResourceUri(uri, false)}"`);

@@ -39,6 +39,10 @@ jobs:
         run: npm run smoke:mcp
       - name: MCP smoke test (real HTTP transport)
         run: npm run smoke:mcp-http
+      # The official MCP conformance suite against the HTTP server, with known failures listed and explained
+      # in scripts/mcp-conformance-baseline.yml: a new failure or a stale entry fails the build (ADR-0051).
+      - name: MCP conformance (official suite, baselined)
+        run: npm run conformance:mcp
 
   # A second job, with real Postgres and Redis service containers: proves the same
   # suite passes against @typesys/registry-store-postgres, @typesys/adapter-postgres,

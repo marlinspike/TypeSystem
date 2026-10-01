@@ -52,7 +52,7 @@ async function main(): Promise<void> {
       "the Aircraft Type is discoverable via resources/list"
     );
     const found = await client.callTool({
-      name: "query",
+      name: "typesys_query",
       arguments: { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "eq", value: "AF86-0147" }, authToken: "demo-maintainer-token" }
     });
     assert(!found.isError && JSON.stringify(found.content).includes("AF86-0147"), "Aircraft AF86-0147 is found with the query tool");
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   await step("6. Discover available Actions", async () => {
     const { tools } = await client.listTools();
     assert(tools.some((t) => t.name === "CreateMaintenanceWorkOrder"), "CreateMaintenanceWorkOrder tool is listed");
-    assert(tools.some((t) => t.name === "query"), "generic query tool is listed");
+    assert(tools.some((t) => t.name === "typesys_query"), "generic query tool is listed");
   });
 
   await step("7. Invoke an authorized test Action, and confirm an unauthorized caller is denied", async () => {

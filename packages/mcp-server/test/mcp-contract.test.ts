@@ -34,7 +34,7 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
     expect(resources.filter((r) => r.uri.startsWith("typesys://objects/"))).toEqual([]);
 
     const found = await client.callTool({
-      name: "query",
+      name: "typesys_query",
       arguments: { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "eq", value: "AF86-0147" }, authToken: "demo-viewer-token" }
     });
     expect(found.isError).not.toBe(true);
@@ -79,7 +79,7 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
   it("6. discovers available Actions via tools/list", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toContain("CreateMaintenanceWorkOrder");
-    expect(tools.map((t) => t.name)).toContain("query");
+    expect(tools.map((t) => t.name)).toContain("typesys_query");
   });
 
   it("7. invokes an authorized test Action, and the same tool denies an unauthorized caller in the very next call", async () => {
@@ -100,22 +100,22 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
 
   it("8. advertises the query tool's real schema and limits, and rejects over-limit or malformed queries", async () => {
     const { tools } = await client.listTools();
-    const queryTool = tools.find((t) => t.name === "query")!;
+    const queryTool = tools.find((t) => t.name === "typesys_query")!;
     const props = queryTool.inputSchema.properties as Record<string, { maximum?: number }>;
     expect(props.limit?.maximum).toBe(bundle.runtime.queryLimits.maxLimit);
     expect(props.authToken).toBeDefined();
 
-    const ok = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft", limit: 1, authToken: "demo-maintainer-token" } });
+    const ok = await client.callTool({ name: "typesys_query", arguments: { type: "airforce.Aircraft", limit: 1, authToken: "demo-maintainer-token" } });
     expect(ok.isError).not.toBe(true);
 
     const overLimit = await client.callTool({
-      name: "query",
+      name: "typesys_query",
       arguments: { type: "airforce.Aircraft", limit: bundle.runtime.queryLimits.maxLimit + 1, authToken: "demo-maintainer-token" }
     });
     expect(overLimit.isError).toBe(true);
 
     const malformed = await client.callTool({
-      name: "query",
+      name: "typesys_query",
       arguments: { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "regex", value: ".*" }, authToken: "demo-maintainer-token" }
     });
     expect(malformed.isError).toBe(true);
@@ -132,12 +132,12 @@ describe("MCP contract — the vertical slice's discover -> inspect -> retrieve 
 
   it("10. tells an agent it may not read a Type, rather than returning a result that reads as 'nothing exists' (ADR-0049)", async () => {
     // No token: the anonymous identity holds no role, so the Aircraft read policy admits nothing of the Type for it.
-    const refused = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft" } });
+    const refused = await client.callTool({ name: "typesys_query", arguments: { type: "airforce.Aircraft" } });
     expect(refused.isError).toBe(true);
     expect(JSON.stringify(refused.content)).toContain("Not authorized: read airforce.Aircraft");
     expect(JSON.stringify(refused.content)).not.toContain("items");
 
-    const allowed = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft", authToken: "demo-viewer-token" } });
+    const allowed = await client.callTool({ name: "typesys_query", arguments: { type: "airforce.Aircraft", authToken: "demo-viewer-token" } });
     expect(allowed.isError).not.toBe(true);
     expect(JSON.stringify(allowed.content)).toContain("AF86-0147");
   });

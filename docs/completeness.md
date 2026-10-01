@@ -78,7 +78,7 @@ document that gap rather than close it in this pass.
   `semanticQuerySchema` and `QueryLimits` (default page 100, max 1000,
   bounded include count/depth and filter depth/size), and `invokeAction` input
   against each Action's `inputSchema`, all throwing `InvalidInputError`
-  (`packages/core/src/runtime/input-validation.ts`). The MCP `query` tool
+  (`packages/core/src/runtime/input-validation.ts`). The MCP `typesys_query` tool
   advertises the same schema.
 - Multi-instance deployment (ADR-0025): `@typesys/redis`'s `RedisCache`
   and `RedisRateLimiter` share cache entries, invalidation, and
@@ -232,6 +232,20 @@ document that gap rather than close it in this pass.
   depends on a domain. Not addressed: a generic command-line server that
   loads a backend from a module; the demo's entry points are
   `packages/demo-web/src/mcp-stdio.ts` and `mcp-http.ts`.
+- An MCP surface for tool-first agents (ADR-0051): a tool twin for each
+  resource read (`typesys_list_types`, `typesys_describe_type`,
+  `typesys_get_object`, `typesys_get_relationship`,
+  `typesys_get_provenance`), `typesys_query` and `typesys_aggregate`, all
+  returning `structuredContent` against an `outputSchema`; Action tools
+  annotated from `sideEffects` and `idempotency`; the `typesys_` prefix
+  reserved. Proven by `packages/mcp-server/test/agent-surface.test.ts`
+  (each twin matches its resource in value, refusal, and audit rows, as
+  three identities) and a hospital row-level case. The official MCP
+  conformance suite runs in CI against a baseline that explains every
+  expected failure (`npm run conformance:mcp`). Not addressed: Host/Origin
+  validation against DNS rebinding, which the suite flags; instance-scoped
+  Actions; human-approval semantics; tool discovery at scale; a full
+  remote-MCP authorization mode (ADR-0051's follow-ups).
 - Real OIDC/JWT identity resolution (`@typesys/auth-oidc`) — signature,
   issuer (RFC 9207), audience, and expiry verified via `jose`, scope
   claims mapped per RFC 9396, a drop-in for the demo's token map via the

@@ -56,10 +56,10 @@ describe("hospital domain is browsable over real MCP, using mcp-server's handler
   it("the generic `query` tool works against hospital.Appointment with no MCP-side changes", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toContain("query");
+    expect(tools.map((t) => t.name)).toContain("typesys_query");
 
     const result = await client.callTool({
-      name: "query",
+      name: "typesys_query",
       arguments: { type: "hospital.Appointment", authToken: "clinician" }
     });
     const text = (result.content as { type: string; text: string }[])[0]?.text ?? "null";

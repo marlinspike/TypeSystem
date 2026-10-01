@@ -4,6 +4,10 @@
 
 Accepted. *Amended by ADR-0050:* `createServer(backend, resolveIdentity,
 info?)` takes any registry and runtime, and `resources/list` lists Types only.
+*Amended by ADR-0051:* the generic tool is `typesys_query` (beside
+`typesys_aggregate`), each resource read also has a `typesys_` tool twin,
+TypeS's tools return `structuredContent`, Action tools carry annotations,
+and no Action may take the `typesys_` prefix.
 
 ## Context
 
