@@ -1,26 +1,214 @@
 # TypeSys
 
-TypeSys (or _TypeS_, as it's affectionately known) is a **governed semantic
-runtime**: a canonical layer between physical enterprise systems (databases,
-REST APIs, legacy platforms) and their consumers (applications and AI
-agents), so a consumer can ask for an object, its relationships, its
-provenance, and the actions it can perform, without knowing which system
-produced the answer, and with policy, classification, and audit enforced
-on the way through. The name undersells it: the Types are the vocabulary,
-and the product is the one governed boundary every read and every Action
-passes. It is an open, standards-based take on the same problem Palantir
-Ontology addresses — built on JSON Schema 2020-12, a pluggable policy
-engine (embedded ABAC or Cedar), and the Model Context Protocol — not a
-clone of it.
+### Give your AI agents the enterprise, not the database.
 
-> **Status: production-shaped, not production-proven.** The architecture
-> is implemented and tested end to end against real PostgreSQL, Redis, and
-> a KMS emulator, and it is suitable for pilots and carefully scoped
-> workloads. It has not had an external security review, real-KMS
-> validation, HA or production-scale load testing, or an accreditation
-> boundary. [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)
-> ranks what remains, and [`docs/completeness.md`](docs/completeness.md)
-> says what is and isn't built.
+[![CI](https://github.com/marlinspike/TypeSystem/actions/workflows/ci.yml/badge.svg)](https://github.com/marlinspike/TypeSystem/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![MCP](https://img.shields.io/badge/MCP-server-6f42c1)
+![Policy](https://img.shields.io/badge/policy-ABAC%20%7C%20Cedar-2ea44f)
+![JSON Schema](https://img.shields.io/badge/JSON%20Schema-2020--12-orange)
+
+**TypeSys** (_TypeS_ to its friends) is an open-source **governed semantic
+runtime**: one model of your enterprise, spread across every database,
+REST API, and legacy system you run, that every application and every AI
+agent works inside. Ask for an Aircraft, a Patient, or a Work Order and get
+one object back, with its relationships, where every value came from, and
+the Actions you're allowed to take on it. Policy, row- and field-level
+security, classification, and audit are enforced on every call, the same
+way for a person and for a model, because there is only one path to the
+data.
+
+It's the idea behind Palantir's Ontology, built on open standards (JSON
+Schema 2020-12, Cedar, the Model Context Protocol), as a codebase you can
+read, fork, and own.
+
+## One call, three callers
+
+The same read of the same Aircraft in the shipped demo, by three
+identities. Nothing in the caller decides what it gets; the runtime does,
+on every call, and writes each decision to an append-only audit log.
+
+```text
+typesys_get_object  { "type": "airforce.Aircraft", "id": "AF86-0147" }
+
+maintainer → tailNumber "AF86-0147", model "F-16C",
+             maintenanceStatus "degraded",
+             deploymentLocation "FOB ALPHA (exercise designation)",
+             readinessStatus "PMC", needsAttention true
+
+viewer     → tailNumber "AF86-0147", model "F-16C",
+             readinessStatus "PMC", needsAttention true
+             # maintenanceStatus hidden by a policy rule,
+             # deploymentLocation by its SECRET classification
+
+anonymous  → Not authorized: read airforce.Aircraft/AF86-0147
+```
+
+Then ask *why* the aircraft needs attention, and get an answer you can
+check rather than one you have to trust:
+
+```text
+typesys_get_provenance  { "type": "airforce.Aircraft", "id": "AF86-0147", "property": "needsAttention" }
+
+→ maintenanceStatus, from system "airforce-repo", record AF86-0147,
+  field maintenanceStatus, confidence 1, retrieved 2026-10-01T13:38:39Z
+```
+
+`readinessStatus` and `needsAttention` aren't stored anywhere. They're
+computed on every read, the second by reaching across into a separate
+maintenance system, and the caller never learns which systems were
+involved.
+
+## The problem it solves
+
+Every new consumer of enterprise data tends to get its own copy of the
+rules. The web app checks permissions in its API, the batch job has its own
+checks, and the new AI agent gets an MCP server that runs `SELECT *` and
+hopes the prompt keeps it honest. Then someone asks who was allowed to see
+what.
+
+**Without TypeS**, every consumer re-implements the rules:
+
+```mermaid
+flowchart TB
+    web1["Web UI"] --> z1["API authorization"]
+    agent1["AI agent"] --> z2["MCP tool: SELECT *"]
+    batch1["Batch job"] --> z3["Its own checks"]
+    z1 --> pg1[("Postgres")]
+    z2 --> pg1
+    z3 --> rest1[("REST API")]
+    z3 --> leg1[("Legacy system")]
+```
+
+**With TypeS**, there is one boundary, and it decides once:
+
+```mermaid
+flowchart TB
+    web2["Web UI"] --> rt["SemanticRuntime<br/>policy · classification · audit · provenance"]
+    agent2["AI agent"] -- MCP --> rt
+    batch2["Batch job"] --> rt
+    rt --> pg2[("Postgres")]
+    rt --> rest2[("REST API")]
+    rt --> leg2[("Legacy system")]
+```
+
+With TypeS there is one enforcement point, so a person and a model can't
+be governed differently, and adding a consumer adds no new rules to keep in
+sync.
+
+## Built for AI agents, without being an agent framework
+
+The usual way to give an agent enterprise data is to connect it to every
+API, or straight to the database, and rebuild authorization in the agent
+layer. TypeS does the opposite: **build one governed model of the domain,
+and let the agent work inside it.**
+
+```mermaid
+flowchart TB
+    fw["Your agent or agent framework<br/>reasons, plans, talks to the user"]
+    app["Your applications and workflows"]
+    ts["<b>TypeS</b> — one enforcement boundary<br/><br/>What exists? → Types<br/>How is it connected? → Relationships<br/>What may I read? → Policy, classification<br/>What may I do? → Actions<br/>Where did it come from? → Provenance<br/>What happened? → Audit"]
+    src[("Systems of record<br/>databases, REST APIs, legacy platforms")]
+    fw -- MCP --> ts
+    app -- SemanticRuntime --> ts
+    ts --> src
+```
+
+**The agent reasons; TypeS decides what it may see and do.** Bring any
+framework that speaks MCP. TypeS handles the parts that keep enterprise
+agents out of production:
+
+- **No hand-written tool per backend.** Types, relationships, and Actions
+  become the agent's tools and resources, with their real schemas, so it
+  discovers the domain instead of relying on prompt prose. Works with
+  tools-only agent frameworks too.
+- **No second authorization model.** The agent is decided by the same
+  policies, row and property rules, and clearances as a person, on every
+  call. A field the caller may not see is never sent to the model.
+- **No backend coupling.** If `Aircraft.readinessStatus` moves to another
+  system, or becomes computed from three, the agent doesn't change.
+- **Answers it can check.** Every value can carry its provenance, so an
+  agent can say where a number came from before a decision rests on it.
+- **One audit trail.** Agent reads and Actions land in the same append-only
+  log as everything else.
+- **Actions that say what they do.** Each Action's tool says whether it
+  only reads, creates, mutates, or calls out, so a harness can ask a human
+  before the dangerous ones ([ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md)).
+
+What lasts isn't MCP, Cedar, or Postgres; each is a replaceable part. It's
+the model: **objects, relationships, meaning, permissions, provenance, and
+Actions, behind one enforcement boundary.** A web app, a workflow engine,
+and an agent all work against that same contract.
+
+## Built like infrastructure, not a demo
+
+- **51 architecture decision records**, each with the alternatives that
+  were rejected and why. The recent ones name the tests that prove them,
+  and 22 are mutation-checked: each claimed behaviour was broken on
+  purpose to show a test catches it.
+- **Nearly 800 tests**, run in CI against real PostgreSQL 17, Redis 8, and
+  a KMS emulator, not mocks of them.
+- **The official MCP conformance suite** runs in CI, with every expected
+  failure written down and explained.
+- **Two unrelated domains on one core.** Air Force maintenance and a
+  hospital (patients, providers, appointments) share the runtime. The second
+  needed zero changes to core.
+- **Two policy engines, one decision.** An embedded ABAC engine and Cedar,
+  proven to decide identically on both domains. Switch engines without
+  touching Types, adapters, or callers.
+- **A security profile that refuses to run weak.** `HIGH_ASSURANCE_V1`
+  checks exact row security, managed keys, and redacted telemetry at
+  start-up, and won't start without them.
+- **Ships to run.** A Dockerfile, docker-compose, reference Kubernetes
+  manifests, health probes, a shared Redis cache and rate limiter for
+  several replicas, and OpenTelemetry tracing.
+
+## How it compares
+
+| | **TypeS** | Agent with direct DB/API access | Hand-rolled BFF | GraphQL federation | Proprietary ontology platforms |
+|---|---|---|---|---|---|
+| One policy boundary for apps *and* agents | Yes | No: a second access path | Per facade, as you build it | You build it | Yes |
+| Row- and field-level rules decided on the data | Yes, pushed into queries | Whatever the DB grants | If you write it | Resolver by resolver | Yes |
+| Classification and clearances | Built in | No | If you write it | No | Varies |
+| Provenance on every value | Yes | No | Rarely | No | Yes |
+| Governed Actions (policy, validation, preconditions, audit) | Yes | Raw writes | Ad hoc | Mutations, ungoverned | Yes |
+| Agent-ready over MCP | Yes | Partly | No | No | Varies |
+| Open source, yours to fork | Yes (MIT) | n/a | Yes | Yes | No |
+
+GraphQL federation is the more mature choice if all you need is to stitch
+APIs into one schema. [`docs/why-typesys.md`](docs/why-typesys.md) makes the
+full case, including when not to use TypeS.
+
+## Try it in a minute
+
+```bash
+npm install && npm run build
+npm run demo        # http://localhost:4000
+```
+
+Switch identity (maintainer, viewer, clinician, patient, anonymous) and
+policy engine (ABAC or Cedar) in the header and watch the same screens
+re-decide: redacted fields, refused rows, encrypted-at-rest PHI, and a live
+audit log. To point a real agent at it, run `npm run mcp:http` and connect
+any MCP client to `http://localhost:3939/mcp` with
+`Authorization: Bearer demo-maintainer-token`.
+
+**Where it fits best:** your data and operations are spread across several
+systems of record, authorization varies by who is asking, and more than
+one kind of consumer needs the data (applications, workflows, agents).
+Maintenance, logistics, healthcare, manufacturing, and government
+casework are typical. With one database behind one app, TypeS is overhead;
+see "Don't use it when" below.
+
+> **Where it stands: production-shaped, not yet production-proven.** The
+> architecture is implemented and tested end to end against real
+> PostgreSQL, Redis, and a KMS emulator, and it's ready for pilots and
+> carefully scoped workloads. Before mission-critical use it still needs
+> an external security review, real-KMS validation, HA and
+> production-scale load testing, and an accreditation boundary.
+> [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) ranks
+> what remains, and [`docs/completeness.md`](docs/completeness.md) says
+> what is and isn't built.
 
 > **New here?** → [`docs/README.md`](docs/README.md) is the full
 > documentation index (tutorial, how-tos, reference, ADRs). Evaluating
@@ -31,71 +219,7 @@ clone of it.
 > [`docs/for-agents.md`](docs/for-agents.md), or read
 > [`llms.txt`](llms.txt) at the repo root for the token-efficient map.
 
-## Why TypeS?
-
-Your applications and your AI agents both need to ask "give me this
-Aircraft, its components, where that data came from, and what I'm
-allowed to do to it" — without either of them needing to know the
-answer actually lives across a Postgres database, a legacy REST API,
-and a message queue.
-
-The common way to give an agent enterprise data is to connect it to
-every API, or to the database, and rebuild authorization in the agent
-layer. TypeS takes the other approach: **build one governed model of the
-domain, and let every consumer, agent or application, work inside it.**
-
-```mermaid
-flowchart TB
-    fw["Your agent or agent framework<br/>reasons, plans, talks to the user"]
-    app["Your applications and workflows"]
-    subgraph ts["TypeS — one enforcement boundary"]
-        direction LR
-        q1["What exists? — Types"]
-        q2["How is it connected? — Relationships"]
-        q3["What may I read? — Policy, classification"]
-        q4["What may I do? — Actions"]
-        q5["Where did it come from? — Provenance"]
-        q6["What happened? — Audit"]
-    end
-    src[("Systems of record<br/>databases, REST APIs, legacy platforms")]
-    fw -- MCP --> ts
-    app -- SemanticRuntime --> ts
-    ts --> src
-```
-
-**The agent reasons; TypeS decides what it may see and do.** TypeS is not
-an agent framework and doesn't compete with one. It sits underneath,
-reached over MCP, and it deals with the problems agents run into in an
-enterprise:
-
-- **No hand-written tool per backend.** Types, relationships, and Actions
-  become the agent's tools and resources, with their real schemas, so it
-  discovers the domain rather than relying on prompt prose.
-- **No second authorization model.** The agent's calls are decided by the
-  same policies, row and property rules, and clearances as a human
-  application's, on every call. A field the caller may not see is never
-  sent to the model.
-- **No backend coupling.** If `Aircraft.readinessStatus` moves to another system
-  or becomes computed from three, the agent doesn't change.
-- **Answers it can check.** Every value can carry its provenance, so an
-  agent can say where a number came from before a decision rests on it.
-- **One audit trail.** Agent reads and Actions land in the same append-only
-  log as everything else.
-- **Actions that say what they do.** Each Action's tool says whether it
-  only reads, creates, mutates, or calls out, so a harness can ask a human
-  before the dangerous ones ([ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md)).
-
-What lasts is not MCP, Cedar, or Postgres, each of which can be swapped.
-It is the model: **objects, relationships, meaning, permissions,
-provenance, and Actions, behind one enforcement boundary.** A web app, a
-workflow engine, and an agent all work against that same contract.
-
-**Where it fits best:** an organization whose data and operations are
-spread over several systems of record, with authorization that varies by
-who is asking, and more than one consumer (applications, workflows,
-agents). Maintenance, logistics, healthcare, manufacturing, and
-government casework are typical. If you have one database behind one
-application, TypeS is overhead; see "Don't use it when" below.
+## What's inside
 
 ### The mental model
 
