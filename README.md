@@ -1,4 +1,4 @@
-# TypeSys
+# TypeSys — Governed Semantic Runtime
 
 ### Give your AI agents the enterprise, not the database.
 
