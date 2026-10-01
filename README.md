@@ -1,13 +1,26 @@
 # TypeSys
 
-TypeSys (or _TypeS_ as its affectionately known) is a domain-neutral enterprise semantic type system: a canonical
-layer between physical enterprise systems (databases, REST APIs, legacy
-platforms) and their consumers (applications and AI agents), so a consumer
-can ask for an object, its relationships, its provenance, and the actions
-it can perform, without knowing which system produced the answer. It is an
-open, standards-based take on the same problem Palantir Ontology
-addresses — built on JSON Schema 2020-12, a small embedded ABAC policy
-engine, and the Model Context Protocol — not a clone of it.
+TypeSys (or _TypeS_, as it's affectionately known) is a **governed semantic
+runtime**: a canonical layer between physical enterprise systems (databases,
+REST APIs, legacy platforms) and their consumers (applications and AI
+agents), so a consumer can ask for an object, its relationships, its
+provenance, and the actions it can perform, without knowing which system
+produced the answer, and with policy, classification, and audit enforced
+on the way through. The name undersells it: the Types are the vocabulary,
+and the product is the one governed boundary every read and every Action
+passes. It is an open, standards-based take on the same problem Palantir
+Ontology addresses — built on JSON Schema 2020-12, a pluggable policy
+engine (embedded ABAC or Cedar), and the Model Context Protocol — not a
+clone of it.
+
+> **Status: production-shaped, not production-proven.** The architecture
+> is implemented and tested end to end against real PostgreSQL, Redis, and
+> a KMS emulator, and it is suitable for pilots and carefully scoped
+> workloads. It has not had an external security review, real-KMS
+> validation, HA or production-scale load testing, or an accreditation
+> boundary. [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md)
+> ranks what remains, and [`docs/completeness.md`](docs/completeness.md)
+> says what is and isn't built.
 
 > **New here?** → [`docs/README.md`](docs/README.md) is the full
 > documentation index (tutorial, how-tos, reference, ADRs). Evaluating
@@ -26,6 +39,20 @@ allowed to do to it" — without either of them needing to know the
 answer actually lives across a Postgres database, a legacy REST API,
 and a message queue.
 
+### The mental model
+
+| Concept | Is | You supply it as |
+|---|---|---|
+| **Type** | what something means | JSON Schema 2020-12 (or YAML), composed from base types and traits |
+| **Mapping** | where its data comes from | `DataSource` and `Mapping` records, one per part of an object |
+| **Adapter** | how to talk to that source | an in-memory, REST, or Postgres adapter, or one you write |
+| **Policy** | who may do what | ABAC rules or a Cedar policy set, plus a classification scheme |
+| **Action** | what can be done to it | a governed capability with input schema, preconditions, side effects |
+| **Runtime** | the governed execution boundary | `SemanticRuntime`, which TypeS provides; you only configure it |
+
+Everything else (authorization plans, provenance, security profiles,
+registry stores) refines one of these six.
+
 ### Key capabilities
 
 | Capability | What it does | Why it matters |
@@ -43,7 +70,7 @@ and a message queue.
 | **Data classification** | Types, properties, and individual values carry markings; the scheme you configure decides whole labels for whole subjects — levels, compartments, releasability, and CUI as its own regime in the reference scheme — and until you configure one, marked data is denied; enforced beside the policy engine, with derived values carrying the join of their inputs' labels ([ADR-0032](docs/adr/0032-data-classification-enforcement.md), [ADR-0034](docs/adr/0034-classification-scheme-defaults.md), [ADR-0041](docs/adr/0041-security-labels-v2.md), [`classify-data.md`](docs/how-to/classify-data.md)). | Classified and controlled data is redacted per reader by a mandatory control that no policy, and no engine swap, can relax. |
 | **Append-only audit log** | Every policy and classification decision — allow and deny, including the authorization preview `listActions` reports — and every audited Action is recorded, with which control decided and which runtime operation it was decided under; the Postgres store enforces append-only with a trigger ([ADR-0042](docs/adr/0042-audit-rows-name-the-operation.md)). | A tamper-resistant record of who read or changed what, and of every refusal. |
 | **Governed Actions** | Writes run a policy check and the clearance their Types require, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
-| **AI agents over MCP** | Types and objects become MCP resources and Actions become tools, with identity resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [`for-agents.md`](docs/for-agents.md)). | Agents can discover and act on a domain safely, with no hand-written tool per backend. |
+| **AI agents over MCP** | Types, objects, relationships, and provenance are MCP resources; Actions, `query`, and `aggregate` are tools; identity is resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [`for-agents.md`](docs/for-agents.md)). | Agents discover and act on the same semantic contract applications use, under the same enforcement, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
 | **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, per-adapter-call timeouts / retries / circuit-breaking, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [ADR-0026](docs/adr/0026-adapter-call-resilience.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost, latency, and resilience per deployment, and see what the runtime is doing. |
 | **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, a load test, and ready-to-run deployment artifacts — a `Dockerfile`, `docker-compose`, reference Kubernetes manifests, and `/healthz`/`/readyz` probes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md), [`deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)). | Scale out behind a load balancer with one cache and one budget per identity — and an image to actually ship. |
@@ -223,7 +250,10 @@ flowchart TB
   resolver you supply ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md)),
   over stdio (`createServer`) or a stateless Streamable HTTP transport
   (`createHttpApp`, identity from a real `Authorization` header — see
-  [ADR-0021](docs/adr/0021-http-transport.md)).
+  [ADR-0021](docs/adr/0021-http-transport.md)). Over HTTP it verifies a
+  bearer token it is handed; it does not run MCP's OAuth discovery flow
+  itself, so it is meant to sit behind a gateway or reverse proxy that
+  authenticates the caller and terminates TLS.
 - **`packages/demo-web`** (`@typesys/demo-web`) — an interactive web demo
   running both domains on one registry: browse and navigate objects with
   per-property provenance, see row-level access, classification, and
@@ -282,8 +312,8 @@ flowchart TB
 - **`packages/auth-oidc`** (`@typesys/auth-oidc`) — a real OIDC/JWT
   `IdentityResolver`: signature, issuer (RFC 9207), audience, and expiry
   verified via `jose` against a JWKS endpoint, scope claims mapped per
-  RFC 9396. Drop-in replacement for `mcp-server`'s demo token map — same
-  `IdentityResolver` shape, passed as a parameter. See
+  RFC 9396. It is the `IdentityResolver` a real deployment passes to
+  `createServer` or `createHttpApp` in place of the demo's token map. See
   [`packages/auth-oidc/README.md`](packages/auth-oidc/README.md) and
   [ADR-0018](docs/adr/0018-oidc-identity-resolution.md).
 
@@ -426,8 +456,9 @@ even when the decision was an allow.
   defaults, record-bound envelopes, sensitive-data caching, KMS-backed keys,
   authorization planning, Cedar planning, adapter filter capabilities and
   SQL pushdown, security labels, audited operations, policy faults,
-  provable numeric pushdown, telemetry identity, security profiles, and no
-  raw identifiers in telemetry).
+  provable numeric pushdown, telemetry identity, security profiles, no
+  raw identifiers in telemetry, missing objects, unreadable queries, and a
+  domain-neutral MCP server).
   [`docs/README.md`](docs/README.md) indexes all of them.
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying

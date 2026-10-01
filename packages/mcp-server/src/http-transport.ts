@@ -27,9 +27,10 @@ function jsonRpcError(res: Response, status: number, code: number, message: stri
 /**
  * A real HTTP transport for the same MCP server `createServer` builds for
  * stdio — `StreamableHTTPServerTransport` in stateless mode
- * (`sessionIdGenerator: undefined`), matching both the MCP 2026-07-28
- * spec generation and this codebase's own stateless-identity design
- * (ADR-0012): a fresh `Server`+transport pair per HTTP request, all
+ * (`sessionIdGenerator: undefined`), matching this codebase's own
+ * stateless-identity design (ADR-0012). The protocol revision is whatever
+ * the pinned SDK negotiates (2025-11-25 at most for 1.30.0), not a newer
+ * stateless generation. A fresh `Server`+transport pair per HTTP request, all
  * sharing the one backend the caller built (see ADR-0021, ADR-0050).
  *
  * Identity is resolved from a real `Authorization: Bearer <token>`

@@ -2,8 +2,10 @@ import type { Identity } from "@typesys/core";
 
 /**
  * Resolves a bearer token into an `Identity`, fresh on every single
- * resource read or tool call — MCP (2026-07-28) is stateless, so identity
- * must never be cached on a connection/session object (see ADR-0012).
+ * resource read or tool call. The server is stateless by design, so
+ * identity must never be cached on a connection/session object (see
+ * ADR-0012). That is this codebase's rule, not a claim about a spec
+ * revision: the pinned SDK negotiates MCP 2025-11-25 at most.
  *
  * This is the whole of a server's authentication, and it is always supplied
  * by the caller (ADR-0050): `createServer()` and `createHttpApp()` take one
