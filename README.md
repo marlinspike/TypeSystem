@@ -39,6 +39,64 @@ allowed to do to it" — without either of them needing to know the
 answer actually lives across a Postgres database, a legacy REST API,
 and a message queue.
 
+The common way to give an agent enterprise data is to connect it to
+every API, or to the database, and rebuild authorization in the agent
+layer. TypeS takes the other approach: **build one governed model of the
+domain, and let every consumer, agent or application, work inside it.**
+
+```mermaid
+flowchart TB
+    fw["Your agent or agent framework<br/>reasons, plans, talks to the user"]
+    app["Your applications and workflows"]
+    subgraph ts["TypeS — one enforcement boundary"]
+        direction LR
+        q1["What exists? — Types"]
+        q2["How is it connected? — Relationships"]
+        q3["What may I read? — Policy, classification"]
+        q4["What may I do? — Actions"]
+        q5["Where did it come from? — Provenance"]
+        q6["What happened? — Audit"]
+    end
+    src[("Systems of record<br/>databases, REST APIs, legacy platforms")]
+    fw -- MCP --> ts
+    app -- SemanticRuntime --> ts
+    ts --> src
+```
+
+**The agent reasons; TypeS decides what it may see and do.** TypeS is not
+an agent framework and doesn't compete with one. It sits underneath,
+reached over MCP, and it deals with the problems agents run into in an
+enterprise:
+
+- **No hand-written tool per backend.** Types, relationships, and Actions
+  become the agent's tools and resources, with their real schemas, so it
+  discovers the domain rather than relying on prompt prose.
+- **No second authorization model.** The agent's calls are decided by the
+  same policies, row and property rules, and clearances as a human
+  application's, on every call. A field the caller may not see is never
+  sent to the model.
+- **No backend coupling.** If `Aircraft.readinessStatus` moves to another system
+  or becomes computed from three, the agent doesn't change.
+- **Answers it can check.** Every value can carry its provenance, so an
+  agent can say where a number came from before a decision rests on it.
+- **One audit trail.** Agent reads and Actions land in the same append-only
+  log as everything else.
+- **Actions that say what they do.** Each Action's tool says whether it
+  only reads, creates, mutates, or calls out, so a harness can ask a human
+  before the dangerous ones ([ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md)).
+
+What lasts is not MCP, Cedar, or Postgres, each of which can be swapped.
+It is the model: **objects, relationships, meaning, permissions,
+provenance, and Actions, behind one enforcement boundary.** A web app, a
+workflow engine, and an agent all work against that same contract.
+
+**Where it fits best:** an organization whose data and operations are
+spread over several systems of record, with authorization that varies by
+who is asking, and more than one consumer (applications, workflows,
+agents). Maintenance, logistics, healthcare, manufacturing, and
+government casework are typical. If you have one database behind one
+application, TypeS is overhead; see "Don't use it when" below.
+
 ### The mental model
 
 | Concept | Is | You supply it as |
