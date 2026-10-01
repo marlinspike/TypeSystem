@@ -70,7 +70,7 @@ registry stores) refines one of these six.
 | **Data classification** | Types, properties, and individual values carry markings; the scheme you configure decides whole labels for whole subjects — levels, compartments, releasability, and CUI as its own regime in the reference scheme — and until you configure one, marked data is denied; enforced beside the policy engine, with derived values carrying the join of their inputs' labels ([ADR-0032](docs/adr/0032-data-classification-enforcement.md), [ADR-0034](docs/adr/0034-classification-scheme-defaults.md), [ADR-0041](docs/adr/0041-security-labels-v2.md), [`classify-data.md`](docs/how-to/classify-data.md)). | Classified and controlled data is redacted per reader by a mandatory control that no policy, and no engine swap, can relax. |
 | **Append-only audit log** | Every policy and classification decision — allow and deny, including the authorization preview `listActions` reports — and every audited Action is recorded, with which control decided and which runtime operation it was decided under; the Postgres store enforces append-only with a trigger ([ADR-0042](docs/adr/0042-audit-rows-name-the-operation.md)). | A tamper-resistant record of who read or changed what, and of every refusal. |
 | **Governed Actions** | Writes run a policy check and the clearance their Types require, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
-| **AI agents over MCP** | Types, objects, relationships, and provenance are MCP resources; Actions, `query`, and `aggregate` are tools; identity is resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [`for-agents.md`](docs/for-agents.md)). | Agents discover and act on the same semantic contract applications use, under the same enforcement, with no hand-written tool per backend. |
+| **AI agents over MCP** | Types, objects, relationships, and provenance are MCP resources, each with a tool twin for agents that use tools only; Actions are tools annotated with their side effects, beside `typesys_query` and `typesys_aggregate`; every TypeS tool returns structured content; identity is resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md), [`for-agents.md`](docs/for-agents.md)). | Agents discover and act on the same semantic contract applications use, under the same enforcement, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
 | **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, per-adapter-call timeouts / retries / circuit-breaking, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [ADR-0026](docs/adr/0026-adapter-call-resilience.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost, latency, and resilience per deployment, and see what the runtime is doing. |
 | **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, a load test, and ready-to-run deployment artifacts — a `Dockerfile`, `docker-compose`, reference Kubernetes manifests, and `/healthz`/`/readyz` probes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md), [`deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)). | Scale out behind a load balancer with one cache and one budget per identity — and an image to actually ship. |
@@ -245,8 +245,9 @@ flowchart TB
   [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md).
 - **`packages/mcp-server`** (`@typesys/mcp-server`) — an MCP server exposing
   the semantic model as resources (browsing) and Actions as tools (governed
-  invocation), with identity resolved fresh from a bearer token on every
-  call. It serves any registry and runtime you give it, with an identity
+  invocation), plus `typesys_`-prefixed read, query, and aggregate tools for
+  agents that use tools only (ADR-0051), with identity resolved fresh from
+  a bearer token on every call. It serves any registry and runtime you give it, with an identity
   resolver you supply ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md)),
   over stdio (`createServer`) or a stateless Streamable HTTP transport
   (`createHttpApp`, identity from a real `Authorization` header — see
@@ -331,6 +332,9 @@ npm run smoke:mcp  # spawns a real stdio MCP subprocess and runs the
                    # provenance -> list-actions -> invoke script end-to-end
 npm run smoke:mcp-http  # the same script over a real HTTP transport,
                         # identity from an Authorization header (ADR-0021)
+npm run conformance:mcp # the official MCP conformance suite against the HTTP
+                        # server; expected failures are listed, with reasons,
+                        # in scripts/mcp-conformance-baseline.yml (ADR-0051)
 npm run benchmark  # p50/p95/p99 latency + throughput of SemanticRuntime
                    # operations (add DATABASE_URL to include the
                    # Postgres-backed adapter) — see scripts/benchmark.ts
@@ -457,8 +461,8 @@ even when the decision was an allow.
   authorization planning, Cedar planning, adapter filter capabilities and
   SQL pushdown, security labels, audited operations, policy faults,
   provable numeric pushdown, telemetry identity, security profiles, no
-  raw identifiers in telemetry, missing objects, unreadable queries, and a
-  domain-neutral MCP server).
+  raw identifiers in telemetry, missing objects, unreadable queries, a
+  domain-neutral MCP server, and an MCP surface for tool-first agents).
   [`docs/README.md`](docs/README.md) indexes all of them.
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying

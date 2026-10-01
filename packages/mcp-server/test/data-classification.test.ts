@@ -28,7 +28,7 @@ describe("MCP: classified values over the agent path (ADR-0032)", () => {
       client.readResource({ uri: buildProvenanceUri("airforce.Aircraft", "AF86-0147", "deploymentLocation", "demo-viewer-token") })
     ).rejects.toThrow(/Not authorized/);
 
-    const queried = await client.callTool({ name: "query", arguments: { type: "airforce.Aircraft", authToken: "demo-viewer-token" } });
+    const queried = await client.callTool({ name: "typesys_query", arguments: { type: "airforce.Aircraft", authToken: "demo-viewer-token" } });
     expect(JSON.stringify(queried)).not.toMatch(/FOB ALPHA|Home station/);
     await client.close();
   });

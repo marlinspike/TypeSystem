@@ -22,7 +22,11 @@ is nothing TypeS-specific to learn beyond the URI/argument shapes below:
 | MCP primitive | What it is here |
 |---|---|
 | **Resources** (`resources/list`, `resources/read`) | Read-only browsing: Types, objects, relationships, provenance. Never mutates anything. |
-| **Tools** (`tools/list`, `tools/call`) | Governed Actions, one MCP tool per registered Action, plus one generic `query` tool. `tools/call` is the only way to change anything. |
+| **Tools** (`tools/list`, `tools/call`) | One tool per registered Action, plus seven read-only tools TypeS provides: `typesys_list_types`, `typesys_describe_type`, `typesys_get_object`, `typesys_get_relationship`, `typesys_get_provenance`, `typesys_query`, and `typesys_aggregate`. Calling an Action's tool is the only way to change anything. |
+
+**If your framework uses only tools, you lose nothing.** Each resource read
+has a tool twin that runs the same code, so it returns the same value and
+the same refusal and writes the same audit rows (ADR-0051).
 
 The server is **stateless**: every single call resolves your identity
 fresh from whatever token you send *on that call*. Nothing is cached
@@ -77,11 +81,36 @@ Type's own definition before guessing at a relationship or property name.
 
 `tools/list` returns one tool per registered Action (its `inputSchema` is
 the exact JSON Schema you must satisfy — always includes an `authToken`
-string field) plus a generic `query` tool:
+string field) plus TypeS's own tools, all named `typesys_…` (no Action may
+use that prefix):
+
+| Tool | Arguments | Returns (`structuredContent`) |
+|---|---|---|
+| `typesys_list_types` | none | `{ "types": [...] }`: every Type's definition, as `typesys://types` gives them. |
+| `typesys_describe_type` | `type` | The Type's definition, as `typesys://types/<type>` gives it. |
+| `typesys_get_object` | `type`, `id` | The object with each value's provenance, as `typesys://objects/<type>/<id>`. |
+| `typesys_get_relationship` | `type`, `id`, `relationship` | `{ "objects": [...] }`: the related objects you may read. |
+| `typesys_get_provenance` | `type`, `id`, `property` | `{ "provenance": [...] }`: where the value came from. |
+| `typesys_query` | the query DSL below | `{ "items": [...], "nextCursor"? }` |
+| `typesys_aggregate` | `type`, `filter`?, `groupBy`?, `aggregations` | `{ "groups": [{ "key", "values" }] }` |
+
+Every one returns `structuredContent`, validated by your MCP client against
+the tool's `outputSchema`, and the same JSON as text in `content[0].text`.
+`query` and `aggregate` still answer to their old unprefixed names for one
+minor version, but are no longer listed under them.
+
+**Annotations say what an Action does.** Each Action's tool carries MCP
+annotations taken from its definition: `readOnlyHint` when it has no side
+effects, `destructiveHint` when it mutates existing data or calls an
+external system, `idempotentHint` when repeating it changes nothing more,
+and `openWorldHint` when it reaches outside the registry's systems. TypeS's
+own tools are all read-only. Use them to decide what needs a human's
+confirmation. They are hints: whether you may invoke an Action is still
+decided by the server on every call.
 
 ```json
 {
-  "name": "query",
+  "name": "typesys_query",
   "arguments": {
     "type": "airforce.Aircraft",
     "filter": { "property": "tailNumber", "operator": "eq", "value": "AF86-0147" },
@@ -96,7 +125,7 @@ string field) plus a generic `query` tool:
 (`{and:[...]}` / `{or:[...]}`) — the full shape is
 `packages/core/src/model/query.ts`'s `SemanticQuery`.
 
-**The `query` tool's `inputSchema` from `tools/list` is the exact schema
+**The `typesys_query` tool's `inputSchema` from `tools/list` is the exact schema
 the server enforces**, limits included — read it rather than relying on
 the defaults below, since a deployment can change them:
 
@@ -163,19 +192,22 @@ The text tells you which kind of failure it was:
 | `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit, or a top-level filter used a computed property; the message names the problem. | Fix the arguments and retry. For a computed property, filter on it inside an include, or filter the results yourself. |
 | `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
 | `Cannot … encrypted field` | The field is stored encrypted, so the store can't range-filter, sort, search, aggregate, or join on it; the message says what does work. | Drop that part of the query, or name `search.properties` without the field. |
-| `Refused under` | The deployment requires exact authorization plans (`rowSecurity: "require-exact"` or the `HIGH_ASSURANCE_V1` profile, ADR-0038/0046), and this query's — or this aggregate's — couldn't be guaranteed. The message names the policy and why, never a value. | Not a transient error: don't retry the same query. Read objects one at a time with `getObject`, or ask an operator. |
+| `Refused under` | The deployment requires exact authorization plans (`rowSecurity: "require-exact"` or the `HIGH_ASSURANCE_V1` profile, ADR-0038/0046), and this query's — or this aggregate's — couldn't be guaranteed. The message names the policy and why, never a value. | Not a transient error: don't retry the same query. Read objects one at a time with `typesys_get_object`, or ask an operator. |
 | `Rate limit exceeded` | Too many calls for this identity. | Back off and retry later. |
+| `Not found:` / `Unknown type` | The object or Type doesn't exist, and (for an object) you may read the Type's objects. | Check the id or name against `typesys_describe_type` or a query. |
+| `typesys_… must be a non-empty string` | A read tool was called without an argument it needs. | Supply it. |
 
 ## The discovery sequence a well-behaved agent follows
 
 Don't guess at type names, relationship names, or action names — discover
-them:
+them. Each read below has a tool twin, given in brackets, if you'd rather
+use tools only:
 
-1. `resources/read` on `typesys://types` → see everything that exists.
-2. `resources/read` on `typesys://types/<typeName>` → that Type's
+1. `resources/read` on `typesys://types` (`typesys_list_types`) → see everything that exists.
+2. `resources/read` on `typesys://types/<typeName>` (`typesys_describe_type`) → that Type's
    properties, relationships (names + target types + cardinality),
    `actionNames`, and computed-property names. This is your schema.
-3. `resources/read` on `typesys://objects/<typeName>/<objectId>` → the
+3. `resources/read` on `typesys://objects/<typeName>/<objectId>` (`typesys_get_object`) → the
    actual object. Absent properties you expected to see are not a bug —
    they were likely redacted by a property-level policy your identity
    doesn't satisfy (see the Type definition's `x-policy.propertyPolicies`
@@ -184,17 +216,18 @@ them:
    only where your identity may read the Type's objects; otherwise it is
    `Not authorized:` whether or not the id exists, so a refusal tells you
    nothing about an id.
-4. `resources/read` on `.../relationships/<relName>` → navigate, using
+4. `resources/read` on `.../relationships/<relName>` (`typesys_get_relationship`) → navigate, using
    relationship names from step 2, never invented ones. A related object
    you may not read, or one the source system no longer holds, is left out
    of the list.
-5. `resources/read` on `.../provenance/<propertyPath>` → which source
+5. `resources/read` on `.../provenance/<propertyPath>` (`typesys_get_provenance`) → which source
    system produced a value, when, and at what confidence — use this
    before repeating a value back to a user as fact, especially in a
    regulated or safety-relevant domain.
-6. `tools/list` → which Actions exist for the Type you care about, and
-   their exact input schemas.
-7. `tools/call` → invoke one. Check `isError` first.
+6. `tools/list` → which Actions exist for the Type you care about, their
+   exact input schemas, and their annotations.
+7. `tools/call` → invoke one. Check `isError` first, and confirm with a
+   human before an Action whose `destructiveHint` is true.
 
 ## A complete worked example (the shipped demo domain)
 

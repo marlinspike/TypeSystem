@@ -50,7 +50,7 @@ async function everything(client: Client) {
     await settle(client.readResource({ uri: buildObjectUri("airforce.Aircraft", "AF86-0147") })), // no token: denied
     await settle(client.readResource({ uri: buildObjectUri("airforce.Aircraft", "AF99-9999", TOKEN) })),
     await settle(client.readResource({ uri: `typesys://elsewhere/AF86-0147?token=${TOKEN}` })),
-    await settle(client.callTool({ name: "query", arguments: { type: "airforce.Aircraft", authToken: TOKEN } }))
+    await settle(client.callTool({ name: "typesys_query", arguments: { type: "airforce.Aircraft", authToken: TOKEN } }))
   ];
 }
 

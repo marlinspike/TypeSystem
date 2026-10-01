@@ -123,10 +123,10 @@ describe("The MCP server serves any registry (ADR-0050)", () => {
       const { server } = createServer(await fleetBackend(), resolveFleetIdentity);
       const client = await connect(server);
 
-      const ok = await client.callTool({ name: "query", arguments: { type: "fleet.Vehicle", filter: { property: "plateNumber", operator: "eq", value: "FLT-002" }, authToken: "dispatcher-token" } });
+      const ok = await client.callTool({ name: "typesys_query", arguments: { type: "fleet.Vehicle", filter: { property: "plateNumber", operator: "eq", value: "FLT-002" }, authToken: "dispatcher-token" } });
       expect(ok.isError).not.toBe(true);
       expect(textOf(ok)).toContain("v2");
-      const refused = await client.callTool({ name: "query", arguments: { type: "fleet.Vehicle" } });
+      const refused = await client.callTool({ name: "typesys_query", arguments: { type: "fleet.Vehicle" } });
       expect(refused.isError).toBe(true);
       expect(textOf(refused)).toContain("Not authorized: read fleet.Vehicle");
       await client.close();
@@ -212,19 +212,19 @@ describe("The MCP server serves any registry (ADR-0050)", () => {
       try {
         // A dispatcher's header; an in-band token that would resolve to anonymous. The header wins: allowed.
         const headerWins = await open({ Authorization: "Bearer dispatcher-token" });
-        const allowed = await headerWins.callTool({ name: "query", arguments: { type: "fleet.Vehicle", authToken: "someone-else" } });
+        const allowed = await headerWins.callTool({ name: "typesys_query", arguments: { type: "fleet.Vehicle", authToken: "someone-else" } });
         expect(allowed.isError).not.toBe(true);
         await headerWins.close();
 
         // A bad header; an in-band token that would resolve to the dispatcher. The header still wins: refused.
         const headerLoses = await open({ Authorization: "Bearer not-a-token" });
-        const refused = await headerLoses.callTool({ name: "query", arguments: { type: "fleet.Vehicle", authToken: "dispatcher-token" } });
+        const refused = await headerLoses.callTool({ name: "typesys_query", arguments: { type: "fleet.Vehicle", authToken: "dispatcher-token" } });
         expect(refused.isError).toBe(true);
         await headerLoses.close();
 
         // No header at all: the in-band token is the fallback, as on stdio.
         const fallback = await open();
-        const viaInBand = await fallback.callTool({ name: "query", arguments: { type: "fleet.Vehicle", authToken: "dispatcher-token" } });
+        const viaInBand = await fallback.callTool({ name: "typesys_query", arguments: { type: "fleet.Vehicle", authToken: "dispatcher-token" } });
         expect(viaInBand.isError).not.toBe(true);
         await fallback.close();
       } finally {
@@ -238,7 +238,7 @@ describe("The MCP server serves any registry (ADR-0050)", () => {
       try {
         for (const token of ["dispatcher-token", "nobody"]) {
           const client = await open({ Authorization: `Bearer ${token}` });
-          await client.callTool({ name: "query", arguments: { type: "fleet.Vehicle" } });
+          await client.callTool({ name: "typesys_query", arguments: { type: "fleet.Vehicle" } });
           await client.close();
         }
         const subjects = (await backend.registry.listAuditEvents({ limit: 1000 })).items.map((e) => e.subjectId);

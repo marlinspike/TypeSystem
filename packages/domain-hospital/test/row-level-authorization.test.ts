@@ -158,7 +158,15 @@ describe("attack: clinician B reading clinician A's patient (PT-1001)", () => {
     const asA = await client.readResource({ uri: "typesys://objects/hospital.Patient/PT-1001?token=a" });
     expect((asA.contents[0] as { text: string }).text).toContain("MRN-1001"); // the positive control: A's own patient
     await expect(client.readResource({ uri: "typesys://objects/hospital.Patient/PT-1001?token=b" })).rejects.toThrow(/Not authorized/);
-    const listed = await client.callTool({ name: "query", arguments: { type: "hospital.Patient", authToken: "b" } });
+    // The same read as a tool, for agents that use no resources (ADR-0051): the same decision both ways.
+    const readArgs = { type: "hospital.Patient", id: "PT-1001" };
+    const toolAsA = await client.callTool({ name: "typesys_get_object", arguments: { ...readArgs, authToken: "a" } });
+    expect(JSON.stringify(toolAsA.structuredContent)).toContain("MRN-1001");
+    const toolAsB = await client.callTool({ name: "typesys_get_object", arguments: { ...readArgs, authToken: "b" } });
+    expect(toolAsB.isError).toBe(true);
+    expect(JSON.stringify(toolAsB.content)).toMatch(/Not authorized/);
+    for (const phi of PT_1001_PHI) expect(JSON.stringify(toolAsB)).not.toContain(phi);
+    const listed = await client.callTool({ name: "typesys_query", arguments: { type: "hospital.Patient", authToken: "b" } });
     const text = (listed.content as { text: string }[])[0]!.text;
     expect(ids((JSON.parse(text) as { items: Obj[] }).items)).toEqual(["PT-1002"]);
     for (const phi of PT_1001_PHI) expect(text).not.toContain(phi);

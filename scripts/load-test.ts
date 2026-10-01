@@ -76,7 +76,7 @@ const OPS: { name: string; weight: number; run: (c: Client) => Promise<{ isError
     weight: 1,
     run: async (c) => {
       const r = await c.callTool({
-        name: "query",
+        name: "typesys_query",
         arguments: { type: "airforce.Aircraft", limit: 10, include: [{ relationship: "components" }, { relationship: "maintenance", include: [{ relationship: "workOrder" }] }] }
       });
       const text = (r.content as { type: string; text?: string }[] | undefined)?.[0]?.text;

@@ -108,7 +108,7 @@ const { runtime } = await buildRuntime({
 ```
 
 `defaultLimit` must not exceed `maxLimit`; the constructor throws if it
-does. The MCP `query` tool advertises `runtime.queryLimits` in its
+does. The MCP `typesys_query` tool advertises `runtime.queryLimits` in its
 `inputSchema`, so agents see your real bounds. The tests are in
 [`packages/core/test/input-validation.test.ts`](../../packages/core/test/input-validation.test.ts).
 

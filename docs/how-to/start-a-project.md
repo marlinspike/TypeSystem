@@ -592,8 +592,10 @@ curl -X POST -H "Authorization: Bearer dev-mechanic" localhost:3000/vehicles/veh
 
 An MCP server makes your domain available to any MCP client: a desktop
 or IDE assistant, or a hosted agent. Every registered Type becomes a
-resource and every Action a tool, plus generic `query` and `aggregate`
-tools. `@typesys/mcp-server` serves any registry and runtime, and
+resource and every Action a tool, plus TypeS's own read-only tools
+(`typesys_query`, `typesys_aggregate`, and a tool for each resource read,
+for agents that use tools only —
+[ADR-0051](../adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md)). `@typesys/mcp-server` serves any registry and runtime, and
 assumes nothing else: you pass your bootstrap's result and your identity
 resolver, and it has no built-in identities
 ([ADR-0050](../adr/0050-the-mcp-server-serves-any-registry.md)).
