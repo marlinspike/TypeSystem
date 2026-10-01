@@ -233,8 +233,10 @@ domain, both adapter styles seeded with sample data) and exposes it two ways:
 
 Both handlers resolve an `Identity` fresh from a bearer token on every
 call, via an `IdentityResolver` function threaded in as a parameter
-(never mutable module state) — MCP is stateless as of the 2026-07-28 spec
-revision, so identity is never cached on a connection. The resolver is
+(never mutable module state). The server is stateless by design, so
+identity is never cached on a connection; the protocol revision it speaks
+is whatever the pinned `@modelcontextprotocol/sdk` negotiates (2025-11-25
+at most for 1.30.0). The resolver is
 always supplied by the caller — there is no default (ADR-0050); the demo
 passes its static token map (`resolveDemoIdentity` in
 `@typesys/domain-airforce`), a deployment
