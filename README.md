@@ -200,7 +200,7 @@ Maintenance, logistics, healthcare, manufacturing, and government
 casework are typical. With one database behind one app, TypeS is overhead;
 see "Don't use it when" below.
 
-> **Where it stands: production-shaped, not yet production-proven.** The
+> **Where it stands: production-shaped, adoption underway.** The
 > architecture is implemented and tested end to end against real
 > PostgreSQL, Redis, and a KMS emulator, and it's ready for pilots and
 > carefully scoped workloads. Before mission-critical use it still needs
