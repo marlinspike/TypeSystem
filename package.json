@@ -1,5 +1,6 @@
 {
   "name": "typesys-monorepo",
+  "description": "Give your AI agents the enterprise, not the database. A governed semantic runtime: one model of your systems, enforced identically for every application and every AI agent.",
   "private": true,
   "license": "MIT",
   "repository": {
