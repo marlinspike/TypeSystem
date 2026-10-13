@@ -13,6 +13,7 @@
     { "path": "packages/redis" },
     { "path": "packages/policy-cedar" },
     { "path": "packages/encryption" },
-    { "path": "packages/kms-aws" }
+    { "path": "packages/kms-aws" },
+    { "path": "packages/sdk" }
   ]
 }

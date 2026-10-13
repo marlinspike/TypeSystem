@@ -152,10 +152,18 @@ export class SemanticRegistry {
         if (stray.length > 0) {
           throw new Error(`Computed property "${name}" on type "${opts.name}" releases ${stray.map((r) => `"${r}"`).join(", ")}, which it does not depend on (ADR-0052)`);
         }
+        if (spec.schema) {
+          try {
+            this.ajv.compile(spec.schema);
+          } catch (err) {
+            throw new SchemaValidationError(`Computed property "${name}" on type "${opts.name}" declares an invalid value schema: ${err instanceof Error ? err.message : String(err)}`, err);
+          }
+        }
         computedByName.set(name, {
           name,
           dependsOn: spec.dependsOn,
           ...(releases.length > 0 ? { releases: [...releases] } : {}),
+          ...(spec.schema ? { schema: spec.schema } : {}),
           resolutionMode: spec.resolutionMode ?? "live",
           cacheTtlMs: spec.cacheTtlMs,
           binding: spec.binding,

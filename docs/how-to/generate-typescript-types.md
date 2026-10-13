@@ -1,5 +1,9 @@
 # How to generate TypeScript types for your domain
 
+For a typed *client* (queries, includes, Actions), use
+[`use-the-typed-sdk.md`](use-the-typed-sdk.md) and `typesys generate-sdk`
+instead. `generate-types` emits plain interfaces, one per Type.
+
 ```bash
 npx tsx packages/cli/src/bin.ts generate-types ./fleet --bindings ./fleet/bindings.mjs --out ./fleet/types.generated.ts
 ```
@@ -18,7 +22,8 @@ export interface Widget extends Asset, Trackable {
   (a trait with only relationships, like `Ownable`, contributes nothing
   to emit and is correctly skipped).
 - Enums become string-literal unions; computed properties become
-  optional fields with a doc comment naming their dependencies.
+  optional fields typed by their declared value `schema` (`unknown`
+  without one), with a doc comment naming their dependencies.
 - Relationships and Actions are documented in a header comment, **never**
   emitted as fields — a relationship isn't a plain value, it's something
   you navigate via the runtime, and blurring that distinction in the
@@ -36,13 +41,12 @@ what keeps the output valid TypeScript every time.
 
 ## This is not a general JSON Schema → TypeScript compiler
 
-It covers the subset of JSON Schema this project's own schemas actually
-use — flat primitives, enums, arrays of those, plus this project's own
-`extends`/trait composition model, resolved via the registry's own
-`getType`/`getTraitSchema` rather than by parsing raw schema JSON. A
-generic converter has no way to know what `x-relationships`/`x-computed`
-even mean; this one doesn't need to guess, because it's built around the
-meta-model directly.
+The conversion is `@typesys/sdk`'s `schemaToTs`, shared with the typed
+client's model generator. It covers what TypeS models author (primitives,
+enums and `const`, unions of `type`, arrays, nested objects, `anyOf`/
+`oneOf`) and widens anything it cannot express exactly, such as a `$ref`,
+to `unknown`. `extends` and traits are resolved through the registry's own
+`getType`/`getTraitSchema` rather than by parsing raw schema JSON.
 
 ## Using it programmatically instead of via the CLI
 

@@ -215,7 +215,11 @@ read restrictions of its inputs (ADR-0052): it is withheld from a caller who
 may not read every property in its `dependsOn`, unless the Type lists that
 input in the computed property's `releases`, an explicit and audited
 assertion that the derived value does not disclose it. Markings always
-follow the derivation and are never released (ADR-0032). Provenance for a computed property is
+follow the derivation and are never released (ADR-0032). A computed property
+may declare its value's `schema`; the registry compiles it and the runtime
+checks every computed value against it, failing the read with
+`ComputedValueError` on a mismatch (ADR-0055), so the type a generated client
+is told is the type it receives. Provenance for a computed property is
 not stored directly — `runtime.getProvenance()` detects it's computed and
 recursively aggregates the provenance of its `dependsOn` properties instead.
 

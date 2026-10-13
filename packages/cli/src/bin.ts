@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { SemanticRegistry, InMemoryRegistryStore, coreManifest, coreTraits, registerDomain, type BindingRegistry } from "@typesys/core";
 import { registerYamlTypesFromDirectory } from "./yaml-loader.js";
+import { readFile, writeFile } from "node:fs/promises";
+import { generateModel } from "@typesys/sdk";
 import { generateModule } from "./codegen.js";
 import { scaffoldDomain } from "./scaffold.js";
 
@@ -14,6 +15,7 @@ Usage:
   typesys init <dir> [--name <domainName>] [--force] [--json]
   typesys validate <dir> [--bindings <module.js>] [--json]
   typesys generate-types <dir> [--bindings <module.js>] [--out <file.ts>]
+  typesys generate-sdk <dir> [--bindings <module.js>] --out <file.ts> [--name <Model>] [--check] [--json]
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -26,6 +28,11 @@ traits are always pre-registered, so \`extends: core.Asset\` etc. just works.
   validate      Register every .yaml file and report success/failure —
                 a CI gate for a PR that only touches YAML.
   generate-types Emit one TypeScript interface per registered Type.
+  generate-sdk  Emit the typed client model for @typesys/sdk (ADR-0055):
+                \`createClient<Model>(transport)\`. --name names the
+                interface (default Model). --check writes nothing and
+                fails if --out differs from what the YAML generates now:
+                a CI gate against a stale client model.
 
 --bindings points at a JS module whose default export (or module.exports)
   is a BindingRegistry ({ computed: {...}, preconditions: {...} }) —
@@ -53,17 +60,19 @@ interface ParsedArgs {
   name?: string;
   json: boolean;
   force: boolean;
+  check: boolean;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, dir, ...rest] = argv;
-  const result: ParsedArgs = { command, dir, json: false, force: false };
+  const result: ParsedArgs = { command, dir, json: false, force: false, check: false };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--bindings") result.bindings = rest[++i];
     else if (rest[i] === "--out") result.out = rest[++i];
     else if (rest[i] === "--name") result.name = rest[++i];
     else if (rest[i] === "--json") result.json = true;
     else if (rest[i] === "--force") result.force = true;
+    else if (rest[i] === "--check") result.check = true;
   }
   return result;
 }
@@ -88,7 +97,7 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
 }
 
 async function main(): Promise<void> {
-  const { command, dir, bindings: bindingsPath, out, name, json, force } = parseArgs(process.argv.slice(2));
+  const { command, dir, bindings: bindingsPath, out, name, json, force, check } = parseArgs(process.argv.slice(2));
 
   if (command === "init") {
     if (!dir) {
@@ -148,6 +157,30 @@ async function main(): Promise<void> {
       console.log(`Wrote ${out}`);
     } else {
       process.stdout.write(code);
+    }
+    return;
+  }
+
+  if (command === "generate-sdk") {
+    if (!dir || !out) {
+      usage();
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      const registry = await buildRegistryFromDir(dir, await loadBindings(bindingsPath));
+      const prefixes = [...new Set((await registry.listTypes()).filter((t) => !t.name.startsWith("core.")).map((t) => t.name.slice(0, t.name.indexOf(".") + 1)))];
+      const code = await generateModel(registry, { name: name ?? "Model", prefixes });
+      if (check) {
+        const current = await readFile(out, "utf8").catch(() => undefined);
+        const upToDate = current === code;
+        printResult(json, upToDate, { out, upToDate }, [upToDate ? `OK — ${out} matches the model` : `STALE — ${out} differs from the model; run typesys generate-sdk without --check`]);
+      } else {
+        await writeFile(out, code, "utf8");
+        printResult(json, true, { out }, [`Wrote ${out}`]);
+      }
+    } catch (err) {
+      printResult(json, false, { error: err instanceof Error ? err.message : String(err) }, [`FAIL — ${err instanceof Error ? err.message : String(err)}`]);
     }
     return;
   }

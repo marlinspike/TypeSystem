@@ -2,8 +2,9 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 import { createSemanticValidator } from "../registry/validation.js";
 import type { JsonSchema2020 } from "../model/json-schema.js";
 import type { ActionDefinition } from "../model/action.js";
+import type { ComputedPropertyDefinition, TypeDefinition } from "../model/type.js";
 import type { QueryFilter, QueryInclude, SemanticQuery, SemanticAggregateQuery } from "../model/query.js";
-import { InvalidInputError } from "./errors.js";
+import { ComputedValueError, InvalidInputError } from "./errors.js";
 
 /**
  * Bounds on what a single `query` call may ask for. The query DSL is
@@ -303,6 +304,8 @@ export class InputValidator {
    * the store — must not keep validating against the old one.
    */
   private readonly actionValidators = new Map<string, { schemaJson: string; validate: ValidateFunction }>();
+  /** Computed values' declared schemas (ADR-0055), cached the same way, by type@version#property. */
+  private readonly computedValidators = new Map<string, { schemaJson: string; validate: ValidateFunction }>();
 
   constructor(limits: Partial<QueryLimits> = {}) {
     this.limits = { ...DEFAULT_QUERY_LIMITS, ...limits };
@@ -377,19 +380,39 @@ export class InputValidator {
 
   /** Throws `InvalidInputError` when `input` doesn't satisfy the Action's declared `inputSchema`. */
   validateActionInput(action: ActionDefinition, input: unknown): void {
-    const key = `${action.name}@${action.version}`;
-    const schemaJson = JSON.stringify(action.inputSchema);
-    let cached = this.actionValidators.get(key);
-    if (cached?.schemaJson !== schemaJson) {
-      // Strip any $id so recompiling a changed schema can't collide in Ajv's schema map.
-      const { $id: _ignored, ...schema } = action.inputSchema;
-      cached = { schemaJson, validate: this.ajv.compile(schema) };
-      this.actionValidators.set(key, cached);
-    }
-    const { validate } = cached;
+    const validate = this.compiled(this.actionValidators, `${action.name}@${action.version}`, action.inputSchema);
     assertJsonDepth(input, `input for action "${action.name}"`);
     if (!validate(input)) {
       throw new InvalidInputError(`Invalid input for action "${action.name}": ${describeErrors(validate.errors)}`, validate.errors);
     }
+  }
+
+  /**
+   * Throws `ComputedValueError` when a computed property's value doesn't
+   * satisfy the schema it declares (ADR-0055). An absent value is always
+   * admitted: a derivation may have nothing to derive from.
+   */
+  validateComputedValue(typeDef: Pick<TypeDefinition, "name" | "version">, cp: Pick<ComputedPropertyDefinition, "name" | "schema">, value: unknown): void {
+    if (!cp.schema || value === undefined) return;
+    const validate = this.compiled(this.computedValidators, `${typeDef.name}@${typeDef.version}#${cp.name}`, cp.schema);
+    if (!validate(value)) {
+      throw new ComputedValueError(
+        `Computed property "${cp.name}" of ${typeDef.name} produced a value its schema does not admit: ${describeErrors(validate.errors)}`,
+        validate.errors
+      );
+    }
+  }
+
+  /** One compiled validator per key, recompiled only when the schema behind the key has changed. */
+  private compiled(cache: Map<string, { schemaJson: string; validate: ValidateFunction }>, key: string, source: JsonSchema2020): ValidateFunction {
+    const schemaJson = JSON.stringify(source);
+    let cached = cache.get(key);
+    if (cached?.schemaJson !== schemaJson) {
+      // Strip any $id so recompiling a changed schema can't collide in Ajv's schema map.
+      const { $id: _ignored, ...schema } = source;
+      cached = { schemaJson, validate: this.ajv.compile(schema) };
+      cache.set(key, cached);
+    }
+    return cached.validate;
   }
 }

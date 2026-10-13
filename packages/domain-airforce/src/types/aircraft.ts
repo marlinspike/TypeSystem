@@ -35,6 +35,7 @@ export const AircraftType: DomainTypeEntry = {
       readinessStatus: {
         dependsOn: ["maintenanceStatus"],
         binding: "computeReadinessStatus",
+        schema: { type: "string", enum: ["FMC", "PMC", "NMC", "UNKNOWN"], description: "Fully, Partially, or Not Mission Capable." },
         resolutionMode: "live"
       },
       needsAttention: {
@@ -47,6 +48,7 @@ export const AircraftType: DomainTypeEntry = {
         // degraded). readinessStatus, which maps maintenanceStatus one to one, is not released.
         releases: ["maintenanceStatus"],
         binding: "computeNeedsAttention",
+        schema: { type: "boolean" },
         resolutionMode: "live"
       }
     },

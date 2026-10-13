@@ -44,6 +44,13 @@ export interface XComputedSpec {
    * Each release is audited. Markings are never released (ADR-0032).
    */
   releases?: string[];
+  /**
+   * The schema of the value this property computes (ADR-0055): what a typed
+   * client is generated from. The runtime checks every computed value against
+   * it, so the type a client is told is the type it receives. Omitted, the
+   * value is untyped (`unknown`).
+   */
+  schema?: JsonSchema2020;
   resolutionMode?: ResolutionMode;
   cacheTtlMs?: number;
 }

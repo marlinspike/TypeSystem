@@ -167,6 +167,20 @@ export interface ListedAction {
   instanceScoped: boolean;
 }
 
+/** A `ListedAction` as it crosses a wire (MCP, the SDK): what a caller needs to choose an Action, without its definition's internals. */
+export interface ActionSummary {
+  name: string;
+  description: string;
+  authorized: boolean;
+  instanceScoped: boolean;
+  sideEffects: ActionDefinition["sideEffects"];
+  idempotency: ActionDefinition["idempotency"];
+}
+
+export function summarizeAction({ action, authorized, instanceScoped }: ListedAction): ActionSummary {
+  return { name: action.name, description: action.description, authorized, instanceScoped, sideEffects: action.sideEffects, idempotency: action.idempotency };
+}
+
 /** The object an instance-scoped invocation was authorized against. */
 interface ActionTarget {
   typeName: string;
@@ -1114,7 +1128,9 @@ export class SemanticRuntime {
 
     const uncacheable = await this.uncacheableComputed(typeDef, resolved);
     for (const cp of typeDef.computedProperties) {
-      computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, ctx, !uncacheable.has(cp.name));
+      const value = await this.resolveComputed(cp, typeDef.name, objectId, ctx, !uncacheable.has(cp.name));
+      this.inputValidator.validateComputedValue(typeDef, cp, value);
+      computedResults[cp.name] = value;
     }
     Object.assign(values, computedResults);
 

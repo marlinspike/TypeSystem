@@ -198,6 +198,19 @@ document that gap rather than close it in this pass.
   60 generated queries against a brute-force reference, and mutation-checked.
   Not addressed: sorting by a computed property; batching computed
   properties across a page.
+- A typed SDK generated from the registry (ADR-0055): `@typesys/sdk`'s
+  `generateModel` emits each Type's flattened properties, computed
+  properties typed by a declared value `schema` (which the registry compiles
+  and the runtime enforces on every computation), relationships and
+  Actions; `createClient<Model>()` builds immutable queries that compile to
+  the query DSL and nothing else, over the runtime in process or a TypeS
+  MCP server. `typesys generate-sdk --check` and `npm run sdk:models --
+  --check` catch a stale model. Proven by `packages/sdk/test/` (twelve
+  compile-time refusals checked by `npm run typecheck`; six queries for
+  three callers returning exactly what `runtime.query` returns, on both
+  transports) and `packages/cli/test/generate-sdk.test.ts`, and
+  mutation-checked. Not addressed: aggregates through the builder;
+  structured error codes over MCP.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -306,9 +319,9 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 447 tests — 403 run with no infrastructure, 437 with a PostgreSQL
-  database (the rest need Redis) — plus stdio and HTTP MCP smoke tests, all
-  green.
+- 854 tests (2026-10-13): 793 run with no infrastructure, the other 61
+  need PostgreSQL, Redis or a KMS emulator; plus stdio and HTTP MCP smoke
+  tests and the MCP conformance suite, all green.
 
 ## The 2026-09-29 hardening pass: what is now proven
 

@@ -4,6 +4,7 @@ import type { ActionDefinition, PreconditionSpec } from "@typesys/core";
 import type { RelationshipDefinition } from "@typesys/core";
 import type { DataSource, Mapping } from "@typesys/core";
 import type { AuditEvent } from "@typesys/core";
+import type { JsonSchema2020 } from "@typesys/core";
 
 /** Postgres round-trips `null`, not `undefined`; normalize before binding query params. */
 export function toJsonParam(value: unknown): string | null {
@@ -22,6 +23,8 @@ export interface PersistedComputedProperty {
   binding: string;
   /** Dependencies whose read policy this value is released from (ADR-0052). Absent on rows written before it. */
   releases?: string[];
+  /** The computed value's schema (ADR-0055). Absent on rows written before it. */
+  schema?: JsonSchema2020;
 }
 
 export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[]): PersistedComputedProperty[] {
@@ -33,7 +36,7 @@ export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[])
           `"binding" key it was registered under (see ADR-0015).`
       );
     }
-    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding, ...(cp.releases?.length ? { releases: cp.releases } : {}) };
+    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding, ...(cp.releases?.length ? { releases: cp.releases } : {}), ...(cp.schema ? { schema: cp.schema } : {}) };
   });
 }
 
@@ -45,7 +48,7 @@ export function persistedToComputedProperties(
   return persisted.map((p) => {
     const compute = bindings.computed[p.binding];
     if (!compute) throw new MissingBindingError("computed", p.binding, context);
-    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, ...(p.releases?.length ? { releases: p.releases } : {}), compute };
+    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, ...(p.releases?.length ? { releases: p.releases } : {}), ...(p.schema ? { schema: p.schema } : {}), compute };
   });
 }
 

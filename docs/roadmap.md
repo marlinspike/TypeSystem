@@ -81,7 +81,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 1 | Derived values inherit their inputs' read policy; explicit, audited release | ✅ | [0052](adr/0052-derived-values-inherit-their-inputs-read-policy.md) | `packages/core/test/derived-value-release.test.ts`, 6 mutations caught |
 | 2 | Instance-scoped Actions, `previewAction`, MCP Host/Origin checks | ✅ | [0053](adr/0053-instance-scoped-actions-and-previews.md) | `instance-scoped-actions.test.ts`, `http-origin.test.ts`, MCP tool tests; conformance DNS-rebinding scenario passes; 5 mutations caught |
 | 3 | Filtering on computed properties; explainable execution plans | ✅ | [0054](adr/0054-computed-filters-and-execution-plans.md) | `computed-filter-pagination.test.ts` (60 generated queries vs a reference), 6 mutations caught |
-| 4 | `@typesys/sdk`: typed model inference and a fluent governed client | ⏳ | 0055 | |
+| 4 | `@typesys/sdk`: a model generated from the registry and a fluent governed client | ✅ | [0055](adr/0055-typed-sdk-generated-from-the-registry.md) | `packages/sdk/test/` (12 compile-time refusals; SDK equals `runtime.query` for 3 callers in process and over MCP), 7 mutations caught; [`evidence/sdk-2026-10-13.md`](evidence/sdk-2026-10-13.md) |
 | 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ⏳ | 0056 | |
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ⏳ | 0057 | |
 | 7 | Governed HTTP API and `@typesys/react` headless bindings | ⏳ | 0058 | |
@@ -102,10 +102,13 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
   sits behind a `WorkflowJournal` seam so that a Temporal or DBOS binding
   replaces the reference journal rather than the model. The reference
   journal is not claimed to be a production orchestrator.
-- **Static typing without a second schema.** The SDK infers TypeScript types
-  from the same literal schema a Type is registered with, and the existing
-  codegen emits the same model shape for registries authored in YAML or
-  loaded from a store. There is one source of truth either way.
+- **Static typing without a second schema.** The SDK's model is generated
+  from the registry, the one place `extends`, traits and computed
+  properties exist composed, whether a domain was written in TypeScript,
+  YAML, or loaded from Postgres. Inferring from literal schemas was planned
+  first and dropped: domain entries widen their literals, and YAML and
+  stored registries have no TypeScript source (ADR-0055). Committed models
+  are checked for drift by regenerating.
 - **Explain plans stay off MCP by default.** ADR-0038 kept `explainQuery`
   runtime-only because an authorization plan shows which attributes a
   policy tests. The execution plan added in slice 3 follows that rule:
@@ -115,3 +118,14 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 
 Filled in as slices land. Production accreditation items stay in
 `PRODUCTION-READINESS.md`; nothing here claims to close them.
+
+- Sorting by a computed property, and batching computed properties across
+  a page (the `needsAttention` hotspot in the baseline). Batching is
+  planned with the mission application, where it is measured.
+- An Action preview assumes preconditions have no side effects; there is
+  no adapter-level dry run of the write itself (ADR-0053).
+- `getObject` p50 is slower than the baseline (about 0.10 ms against
+  0.078) across slices 1 to 4, not yet attributed; see
+  [`evidence/sdk-2026-10-13.md`](evidence/sdk-2026-10-13.md).
+- The SDK has no aggregate builder, and refusals over MCP arrive as text
+  (`RemoteToolError`) because MCP tool errors carry no structured code.

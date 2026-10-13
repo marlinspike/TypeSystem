@@ -260,6 +260,7 @@ registry stores) refines one of these six.
 | **Real identity and persistence** | OIDC/JWT identity resolution ([ADR-0018](docs/adr/0018-oidc-identity-resolution.md)) and a durable PostgreSQL registry ([`use-postgres.md`](docs/how-to/use-postgres.md)). | Drop-in pieces for moving beyond the demo tokens and in-memory store. |
 | **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
+| **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
 
@@ -449,8 +450,16 @@ flowchart TB
 - **`packages/cli`** (`@typesys/cli`) — declarative YAML authoring for
   Types (compiles to the same `SemanticTypeSchema`/`RegisterTypeOptions`
   code-authored Types use) plus a `generate-types` codegen command that
-  turns registered Types into real TypeScript interfaces. See
+  turns registered Types into real TypeScript interfaces, and
+  `generate-sdk` for the typed client's model. See
   [`packages/cli/README.md`](packages/cli/README.md).
+- **`packages/sdk`** (`@typesys/sdk`) — a TypeScript client typed by a
+  model generated from the registry: typed queries (computed-property
+  filters included), includes, projections, provenance and Actions, over
+  the runtime in process or a TypeS MCP server, every query still decided
+  by the runtime per caller
+  ([ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). See
+  [`packages/sdk/README.md`](packages/sdk/README.md).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

@@ -69,6 +69,22 @@ export class InvalidInputError extends Error {
   }
 }
 
+/**
+ * A computed property produced a value its declared schema does not admit
+ * (ADR-0055): a defect in the domain's compute binding, not in the caller's
+ * request. The read fails rather than hand a typed client a value of a type
+ * it was never told about.
+ */
+export class ComputedValueError extends Error {
+  constructor(
+    message: string,
+    public readonly errors?: unknown
+  ) {
+    super(message);
+    this.name = "ComputedValueError";
+  }
+}
+
 /** A single adapter call exceeded its per-call deadline (ADR-0026); the call's `AbortSignal` was aborted. Retryable. */
 export class AdapterTimeoutError extends Error {
   readonly retryable = true;

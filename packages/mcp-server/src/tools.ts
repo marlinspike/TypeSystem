@@ -4,6 +4,7 @@ import {
   semanticQuerySchema,
   aggregateQuerySchema,
   withSpan,
+  summarizeAction,
   type ActionDefinition,
   type Identity,
   type JsonSchema2020,
@@ -156,16 +157,7 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         const { type } = strings(`${p}list_actions`, args, ["type"]);
         if (args.id !== undefined && (typeof args.id !== "string" || args.id === "")) throw new Error(`${p}list_actions: "id" must be a non-empty string`);
         const listed = await runtime.listActions(type, identity, typeof args.id === "string" ? { objectId: args.id } : {});
-        return {
-          actions: listed.map(({ action, authorized, instanceScoped }) => ({
-            name: action.name,
-            description: action.description,
-            authorized,
-            instanceScoped,
-            sideEffects: action.sideEffects,
-            idempotency: action.idempotency
-          }))
-        };
+        return { actions: listed.map(summarizeAction) };
       }
     },
     [`${p}preview_action`]: {
