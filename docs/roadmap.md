@@ -1,0 +1,117 @@
+# Roadmap: from governed runtime to governed composition platform
+
+A living document. It records what this evolution is for, the order the
+work runs in and why, what is done (with the evidence), and what is left.
+It is updated in the same commit as the work it describes. For what exists
+today regardless of this roadmap, [`completeness.md`](completeness.md) is
+still the source of truth; for what stands between this code and
+production, [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md).
+
+## The goal, in one paragraph
+
+TypeS already gives every consumer one governed path to enterprise data:
+one model, one enforcement point, one audit trail. The next step is to make
+that path the *fastest* way to build an application or an agent, not just
+the safest one. A developer (or a coding agent) should be able to take a
+mission requirement, discover the semantic capabilities that serve it,
+compose a typed query, a governed workflow and a user interface over them,
+check the composition mechanically before running it, and ship it with
+very little handwritten integration code. Every one of those steps has to
+keep the guarantee TypeS exists for: the runtime decides, once, for people
+and models alike.
+
+## Principles this roadmap is held to
+
+- **Extend the boundary, never route around it.** Every new capability
+  (SDK, workflows, previews, discovery, UI bindings) calls
+  `SemanticRuntime`. Nothing new reads an adapter directly or decides
+  policy on its own.
+- **The model is the only schema.** Types are authored once (TypeScript,
+  YAML or a store); the SDK's static types, the UI's forms and columns, the
+  agent catalog and the HTTP API all derive from it.
+- **Cohesive packages, small core.** Core gains only what must sit at the
+  enforcement boundary (derived-value release, instance-scoped Actions,
+  previews, computed filtering, execution plans). Everything else is a
+  package with one job.
+- **Deterministic and probabilistic work are different kinds of step.** An
+  AI step proposes; only governed, deterministic steps commit.
+- **Evidence over claims.** Each slice lands with tests (including attack
+  tests where it touches enforcement), an ADR when the decision is hard to
+  reverse, and an update to `completeness.md`. Productivity and performance
+  claims are measured against the baseline below.
+
+## Dependency order, and why
+
+```
+1 derived-value release (security fix)
+2 instance-scoped Actions + Action previews ─────────────┐
+3 computed filtering + explainable execution plans ──┐   │
+4 typed SDK (inferred from the model) ───────────────┤   │
+5 devkit: catalog, discovery, validation, diff ──────┼───┤
+6 governed workflows + simulation + replay ──────────┘   │
+7 governed HTTP API + headless React bindings ───────────┤
+8 domain packs (versioned, specializable, offline) ──────┤
+9 Studio ────────────────────────────────────────────────┘
+10 mission application + productivity comparison
+```
+
+Derived values come first because every later capability (filtering on
+computed properties, typed projections, previews, generated UI) would
+otherwise multiply an existing leak: a computed property ran on unredacted
+inputs, so a viewer could read `readinessStatus` (a one-to-one function of
+the policy-hidden `maintenanceStatus`). Instance-scoped Actions and previews
+come next because workflows, agents and simulation all need to ask "may
+this caller do this to *this* object, and what would happen?" without doing
+it. The query work precedes the SDK because the SDK compiles to the query
+DSL and should not need client-side workarounds for computed filtering.
+
+## Delivery
+
+All work lands on one branch as a sequence of focused, individually green
+commits, one per slice, under one draft pull request. Nothing is merged
+without the owner.
+
+## Status
+
+Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
+
+| # | Slice | Status | ADR | Evidence |
+|---|---|---|---|---|
+| 0 | Baseline measurements | ✅ | — | [`evidence/baseline-2026-10-13.md`](evidence/baseline-2026-10-13.md) |
+| 1 | Derived values inherit their inputs' read policy; explicit, audited release | ⏳ | 0052 | |
+| 2 | Instance-scoped Actions, `previewAction`, MCP Host/Origin checks | ⏳ | 0053 | |
+| 3 | Filtering on computed properties; explainable execution plans | ⏳ | 0054 | |
+| 4 | `@typesys/sdk`: typed model inference and a fluent governed client | ⏳ | 0055 | |
+| 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ⏳ | 0056 | |
+| 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ⏳ | 0057 | |
+| 7 | Governed HTTP API and `@typesys/react` headless bindings | ⏳ | 0058 | |
+| 8 | Domain packs | ⏳ | 0059 | |
+| 9 | TypeS Studio | ⏳ | 0060 | |
+| 10 | Mission application and productivity comparison | ⏳ | — | |
+
+## Decisions already made
+
+- **Workflow durability.** Mature engines exist and are the right home for
+  long-running production workflows: Temporal (a separate cluster, SDKs in
+  several languages) and DBOS Transact (a library that checkpoints to
+  Postgres). TypeS will not build a competing orchestrator. It defines the
+  *governed* part a workflow engine cannot know about (which steps are
+  authoritative, which are probabilistic, what needs approval, what each
+  step may touch) and runs it through a small journaled interpreter whose
+  job is preview, simulation, deterministic replay and tests. Durability
+  sits behind a `WorkflowJournal` seam so that a Temporal or DBOS binding
+  replaces the reference journal rather than the model. The reference
+  journal is not claimed to be a production orchestrator.
+- **Static typing without a second schema.** The SDK infers TypeScript types
+  from the same literal schema a Type is registered with, and the existing
+  codegen emits the same model shape for registries authored in YAML or
+  loaded from a store. There is one source of truth either way.
+- **Explain plans stay off MCP by default.** ADR-0038 kept `explainQuery`
+  runtime-only because an authorization plan shows which attributes a
+  policy tests. The execution plan added in slice 3 follows that rule:
+  agents get a plan without authorization predicates.
+
+## Remaining gaps (kept current)
+
+Filled in as slices land. Production accreditation items stay in
+`PRODUCTION-READINESS.md`; nothing here claims to close them.
