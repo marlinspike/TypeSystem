@@ -248,6 +248,17 @@ document that gap rather than close it in this pass.
   addressed: the only journal is in memory (a Postgres journal and a
   Temporal or DBOS binding are designed, not built); no durable timers or
   approval deadlines; no classification check on what is sent to a model.
+- A governed HTTP API and headless React bindings (ADR-0058):
+  `@typesys/http` serves the runtime over REST, one runtime call per
+  request as the bearer token's caller, with RFC 9457 problems carrying a
+  stable `code`, 500s that say nothing about the error, the Host and
+  Origin guard shared with MCP, and an OpenAPI 3.1 contract generated from
+  the model. The SDK's `httpTransport` gives the same answers as in
+  process for every demo caller. `@typesys/react` adds typed hooks over
+  the SDK client and form fields and table columns derived from the model;
+  it decides nothing. Proven by `packages/http/test/` and
+  `packages/react/test/`, and mutation-checked. Not addressed: CORS,
+  ETags, streaming workflow state, nested form inputs, React 19 testing.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -356,7 +367,7 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 905 tests (2026-10-13): 844 run with no infrastructure, the other 61
+- 922 tests (2026-10-13): 861 run with no infrastructure, the other 61
   need PostgreSQL, Redis or a KMS emulator; plus stdio and HTTP MCP smoke
   tests and the MCP conformance suite, all green.
 

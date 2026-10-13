@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { requireBackend, requireIdentityResolver, type McpBackend, type McpServerInfo } from "./backend.js";
 import { createServer as createMcpServer } from "./server.js";
 import type { IdentityResolver } from "./auth.js";
+import { LOCAL_HOSTS, bearerToken, originGuard } from "@typesys/http";
 
 export interface HttpTransportOptions {
   /** What every request is served from — built once by the caller, so every transport and every request enforces identical governance against identical state (see server.ts). */
@@ -24,61 +25,6 @@ export interface HttpTransportOptions {
    * allowed host, any port.
    */
   allowedOrigins?: readonly string[];
-}
-
-const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
-
-/** The host name of a `Host` header value, lower-cased, without its port; `undefined` if it doesn't parse. */
-function hostnameOf(hostHeader: string | undefined): string | undefined {
-  if (!hostHeader) return undefined;
-  try {
-    return new URL(`http://${hostHeader}`).hostname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * DNS-rebinding protection (ADR-0053, closing ADR-0051's follow-up F): `/mcp`
- * answers only to an allowed `Host`, and to a browser only from an allowed
- * `Origin`. Checked before identity is resolved or any server is built, so a
- * refused request reaches nothing.
- */
-function originGuard(allowedHosts: readonly string[] | "*", allowedOrigins: readonly string[] | undefined) {
-  const hosts = allowedHosts === "*" ? undefined : new Set(allowedHosts.map((h) => h.toLowerCase()));
-  const origins = allowedOrigins ? new Set(allowedOrigins.map((o) => o.toLowerCase())) : undefined;
-  return (req: Request, res: Response, next: () => void): void => {
-    const host = hostnameOf(req.header("host"));
-    if (hosts && (host === undefined || !hosts.has(host))) {
-      jsonRpcError(res, 403, -32000, "Forbidden: Host not allowed");
-      return;
-    }
-    const origin = req.header("origin");
-    if (origin !== undefined) {
-      let allowed: boolean;
-      if (origins) allowed = origins.has(origin.toLowerCase());
-      else {
-        try {
-          const url = new URL(origin);
-          allowed = (url.protocol === "http:" || url.protocol === "https:") && (hosts === undefined || hosts.has(url.hostname.toLowerCase()));
-        } catch {
-          allowed = false;
-        }
-      }
-      if (!allowed) {
-        jsonRpcError(res, 403, -32000, "Forbidden: Origin not allowed");
-        return;
-      }
-    }
-    next();
-  };
-}
-
-function bearerTokenFromHeader(req: Request): string | undefined {
-  const header = req.header("authorization");
-  if (!header) return undefined;
-  const [scheme, token] = header.split(" ");
-  return scheme?.toLowerCase() === "bearer" ? token : undefined;
 }
 
 function jsonRpcError(res: Response, status: number, code: number, message: string): void {
@@ -108,7 +54,7 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   const backend = requireBackend("createHttpApp", given?.backend);
   const baseResolver = requireIdentityResolver("createHttpApp", given?.identityResolver);
   const app = express();
-  const guard = originGuard(given?.allowedHosts ?? LOCAL_HOSTS, given?.allowedOrigins);
+  const guard = originGuard(given?.allowedHosts ?? LOCAL_HOSTS, given?.allowedOrigins, (res, message) => jsonRpcError(res, 403, -32000, message));
   app.use("/mcp", guard);
   app.use(express.json());
 
@@ -133,7 +79,7 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   });
 
   app.post("/mcp", async (req: Request, res: Response) => {
-    const headerToken = bearerTokenFromHeader(req);
+    const headerToken = bearerToken(req);
     // A fresh resolver per request, closing over *this* request's header —
     // the header is the authoritative source when present; the in-band
     // token (from a resource URI/tool argument) is only a fallback.

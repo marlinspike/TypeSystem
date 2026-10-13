@@ -262,6 +262,7 @@ registry stores) refines one of these six.
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
 | **Discovery, validation and contract diff** | `@typesys/devkit`: agents find the few Types and Actions a task needs (`typesys_discover`) and check a composed query before running it (`typesys_validate_query`); teams gate model changes in CI by consumer impact (`typesys diff`) ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)). | Agents read a fraction of the model, and a breaking change can't ship unversioned. |
 | **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
+| **HTTP API and React** | `@typesys/http` serves the runtime over REST with problems a client can branch on and an OpenAPI contract generated from the model; the SDK's `httpTransport` and `@typesys/react`'s typed, headless hooks put the same governed client in a browser, with forms and columns derived from the model ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md), [ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)). | Screens show what the runtime returns for their user; access is never re-decided in the UI. |
 | **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
@@ -474,6 +475,16 @@ flowchart TB
   simulation with previews and fault injection, and replay checks
   ([ADR-0057](docs/adr/0057-governed-workflows.md)). See
   [`packages/workflow/README.md`](packages/workflow/README.md).
+- **`packages/http`** (`@typesys/http`) — the governed REST API: one
+  runtime call per request as the bearer token's caller, RFC 9457 problems
+  with a stable `code`, and an OpenAPI 3.1 contract generated from the
+  model ([ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)).
+  See [`packages/http/README.md`](packages/http/README.md).
+- **`packages/react`** (`@typesys/react`) — headless React hooks typed by a
+  generated model over the SDK client, plus form fields and table columns
+  derived from the model; no components, and no access decisions
+  ([ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)).
+  See [`packages/react/README.md`](packages/react/README.md).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

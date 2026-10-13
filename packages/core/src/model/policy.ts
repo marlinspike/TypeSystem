@@ -22,6 +22,15 @@ export interface Identity {
   clearance?: string;
 }
 
+/**
+ * Turns a bearer token (or none) into an `Identity`, fresh on every request,
+ * for every transport (MCP over stdio and HTTP, the REST API). It is the whole
+ * of a server's authentication and always supplied by its host: no server
+ * assumes an identity of its own (ADR-0050). `@typesys/auth-oidc` provides a
+ * verifying one.
+ */
+export type IdentityResolver = (token: string | undefined | null) => Promise<Identity>;
+
 /** What a policy decision is about: a Type, or one object of it, or one of that object's members or Actions. */
 export interface PolicyResource {
   typeName: string;

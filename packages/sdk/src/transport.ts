@@ -101,3 +101,67 @@ export function mcpTransport(client: ToolCaller, opts: { authToken?: string } = 
     invokeAction: (action, input) => call(action, { ...(input as Record<string, unknown>) })
   };
 }
+
+/**
+ * A refusal or failure from a TypeS REST API (ADR-0058): its HTTP status, the
+ * problem's stable `code` (`forbidden`, `not-found`, `invalid-input`,
+ * `precondition-failed`, `rate-limited`, ...) to branch on, and for a
+ * refusal the policy's `reason`.
+ */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly reason?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export interface HttpTransportOptions {
+  /** Where the API is mounted, e.g. `https://typesys.example.mil/api`. */
+  readonly baseUrl: string;
+  /** The caller's bearer token, or a function that returns the current one (a refreshed session token). */
+  readonly token?: string | (() => string | undefined | Promise<string | undefined>);
+  /** Default: the global `fetch` (browsers, Node 18 and later). */
+  readonly fetch?: typeof fetch;
+}
+
+/**
+ * Calls a TypeS REST API (`@typesys/http`, ADR-0058). It needs only `fetch`,
+ * so the same typed client runs in a browser; every call is decided by the
+ * runtime behind the API for the token's identity.
+ */
+export function httpTransport(opts: HttpTransportOptions): Transport {
+  const base = opts.baseUrl.replace(/\/+$/, "");
+  const doFetch = opts.fetch ?? fetch;
+  const seg = encodeURIComponent;
+  const call = async (method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> => {
+    const token = typeof opts.token === "function" ? await opts.token() : opts.token;
+    const res = await doFetch(`${base}${path}`, {
+      method,
+      headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    const text = await res.text();
+    const parsed: unknown = text === "" ? undefined : JSON.parse(text);
+    if (!res.ok) {
+      const p = (parsed ?? {}) as { code?: string; detail?: string; reason?: string };
+      throw new ApiError(res.status, p.code ?? "internal", p.detail ?? `HTTP ${res.status}`, p.reason);
+    }
+    return parsed;
+  };
+  return {
+    query: async (q) => (await call("POST", "/query", q)) as QueryResult<ResolvedObject>,
+    explain: async (q) => (await call("POST", "/query/explain", q)) as ExecutionPlan,
+    getObject: async (type, id, { includeProvenance }) =>
+      (await call("GET", `/objects/${seg(type)}/${seg(id)}${includeProvenance ? "?provenance=true" : ""}`)) as ResolvedObject,
+    getRelationship: async (type, id, relationship) => (await call("GET", `/objects/${seg(type)}/${seg(id)}/related/${seg(relationship)}`)) as ResolvedObject[],
+    getProvenance: async (type, id, property) => (await call("GET", `/objects/${seg(type)}/${seg(id)}/provenance/${seg(property)}`)) as ProvenanceRef[],
+    listActions: async (type, id) => (await call("GET", `/types/${seg(type)}/actions${id === undefined ? "" : `?objectId=${seg(id)}`}`)) as ActionSummary[],
+    previewAction: async (action, input) => (await call("POST", `/actions/${seg(action)}/preview`, input)) as ActionPreview,
+    invokeAction: async (action, input) => ((await call("POST", `/actions/${seg(action)}/invoke`, input)) as { result: unknown }).result
+  };
+}

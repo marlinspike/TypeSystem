@@ -1,0 +1,41 @@
+{
+  "name": "@typesys/http",
+  "version": "0.1.0",
+  "description": "A governed REST API over a TypeS runtime: bearer identity per request, RFC 9457 problem responses with stable codes, an OpenAPI 3.1 document generated from the model, and optional governed workflow routes. Every route calls the runtime as the caller.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/http"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/http#readme",
+  "keywords": [
+    "typesys",
+    "rest",
+    "openapi",
+    "governance"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
+    "@typesys/workflow": "0.1.0",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/sdk": "0.1.0"
+  }
+}

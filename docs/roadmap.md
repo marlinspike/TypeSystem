@@ -84,7 +84,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 4 | `@typesys/sdk`: a model generated from the registry and a fluent governed client | ✅ | [0055](adr/0055-typed-sdk-generated-from-the-registry.md) | `packages/sdk/test/` (12 compile-time refusals; SDK equals `runtime.query` for 3 callers in process and over MCP), 7 mutations caught; [`evidence/sdk-2026-10-13.md`](evidence/sdk-2026-10-13.md) |
 | 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ✅ | [0056](adr/0056-model-description-discovery-validation-and-contract-diff.md) | `packages/devkit/test/devkit.test.ts` (validator checked against the runtime over 1,620 generated filters), MCP and CLI tests, 7 mutations caught; [`evidence/devkit-2026-10-13.md`](evidence/devkit-2026-10-13.md) |
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ✅ | [0057](adr/0057-governed-workflows.md) | `packages/workflow/test/` (crash recovery without repeating a non-idempotent Action; start and approval decisions identical under Cedar), `packages/devkit/test/synthesize.test.ts`, 11 mutations caught; [`evidence/workflow-2026-10-13.md`](evidence/workflow-2026-10-13.md), which also records a core fix: one request context per process instead of one per runtime |
-| 7 | Governed HTTP API and `@typesys/react` headless bindings | ⏳ | 0058 | |
+| 7 | Governed HTTP API and `@typesys/react` headless bindings | ✅ | [0058](adr/0058-governed-http-api-and-headless-react-bindings.md) | `packages/http/test/api.test.ts` (8 SDK reads identical in process and over HTTP for 3 callers; OpenAPI request schemas admit and refuse what the runtime does), `packages/react/test/react.test.ts` (same component, different values per caller), 14 mutations caught; [`evidence/http-react-2026-10-13.md`](evidence/http-react-2026-10-13.md) |
 | 8 | Domain packs | ⏳ | 0059 | |
 | 9 | TypeS Studio | ⏳ | 0060 | |
 | 10 | Mission application and productivity comparison | ⏳ | — | |
@@ -137,3 +137,8 @@ Filled in as slices land. Production accreditation items stay in
   timers), approvals have no deadline, steps run one at a time, and nothing
   checks that what an AI step sends a model is within what that model may
   receive (ADR-0057).
+- The HTTP API sends no CORS headers (same origin or a proxy is assumed),
+  has no ETags or streaming of workflow state, and costs about 1.2 to
+  1.5 ms per call over loopback. `formFields` covers top-level inputs
+  only, and the React bindings are tested on React 18 only. The demo
+  console keeps its own routes (ADR-0058).
