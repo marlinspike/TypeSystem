@@ -130,15 +130,17 @@ export interface HttpTransportOptions {
 }
 
 /**
- * Calls a TypeS REST API (`@typesys/http`, ADR-0058). It needs only `fetch`,
- * so the same typed client runs in a browser; every call is decided by the
- * runtime behind the API for the token's identity.
+ * One call to a TypeS REST API (`@typesys/http`, ADR-0058) with the bearer
+ * token attached: the JSON answer, or an `ApiError` carrying the problem's
+ * `code` and `reason`. For the routes a `Transport` does not cover, such as
+ * `/model`, `/query/validate` and `/discover`.
  */
-export function httpTransport(opts: HttpTransportOptions): Transport {
+export type HttpCall = (method: "GET" | "POST", path: string, body?: unknown) => Promise<unknown>;
+
+export function httpCall(opts: HttpTransportOptions): HttpCall {
   const base = opts.baseUrl.replace(/\/+$/, "");
   const doFetch = opts.fetch ?? fetch;
-  const seg = encodeURIComponent;
-  const call = async (method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> => {
+  return async (method, path, body) => {
     const token = typeof opts.token === "function" ? await opts.token() : opts.token;
     const res = await doFetch(`${base}${path}`, {
       method,
@@ -153,6 +155,16 @@ export function httpTransport(opts: HttpTransportOptions): Transport {
     }
     return parsed;
   };
+}
+
+/**
+ * Calls a TypeS REST API (`@typesys/http`, ADR-0058). It needs only `fetch`,
+ * so the same typed client runs in a browser; every call is decided by the
+ * runtime behind the API for the token's identity.
+ */
+export function httpTransport(opts: HttpTransportOptions): Transport {
+  const call = httpCall(opts);
+  const seg = encodeURIComponent;
   return {
     query: async (q) => (await call("POST", "/query", q)) as QueryResult<ResolvedObject>,
     explain: async (q) => (await call("POST", "/query/explain", q)) as ExecutionPlan,

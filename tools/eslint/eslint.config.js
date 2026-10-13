@@ -28,6 +28,14 @@ export default tseslint.config(
     }
   },
   {
+    // The Studio's browser client: DOM and JSX, typed by its own project.
+    files: ["packages/studio/src/client/**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: { ...globals.browser },
+      parserOptions: { project: "./tsconfig.client.json", tsconfigRootDir: import.meta.dirname }
+    }
+  },
+  {
     // Smoke scripts inspect arbitrary MCP JSON payloads; typing every shape would add nothing.
     files: ["scripts/**/*.ts"],
     rules: {

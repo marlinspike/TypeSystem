@@ -112,6 +112,8 @@ describe("the governed REST API (ADR-0058)", () => {
     const checked = await call("POST", "/api/query/validate", { body: { query: { type: "airforce.Aircrft" } } });
     expect(checked.body).toMatchObject({ diagnostics: [{ code: "unknown-type", suggestion: "airforce.Aircraft" }] });
     expect((await call("GET", "/api/model")).body).toMatchObject({ format: "typesys.model/1" });
+    expect((await call("GET", "/api/me", { who: "maintainer" })).body).toEqual({ subjectId: "user-maintainer-1", roles: ["maintainer"], clearance: "SECRET" });
+    expect((await call("GET", "/api/me")).body).toEqual({ subjectId: "anonymous", roles: [] });
   });
 
   it("runs a governed workflow over HTTP: started by one person, approved by another", async () => {

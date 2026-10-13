@@ -1,0 +1,11 @@
+{
+  // Type information for the Studio's browser client (ADR-0061), which runs with the DOM and JSX
+  // and never in Node. Like tsconfig.lint.json, it only checks; scripts/build-studio.ts bundles.
+  "extends": "./tsconfig.lint.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx"
+  },
+  "include": ["../../packages/studio/src/client/**/*.ts", "../../packages/studio/src/client/**/*.tsx"],
+  "exclude": []
+}

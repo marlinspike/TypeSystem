@@ -72,6 +72,7 @@ export function createApiRouter(opts: ApiOptions): Router {
     return opts.workflows;
   };
 
+  router.get("/me", route(200, async (_req, who) => ({ subjectId: who.subjectId, roles: who.roles, ...(who.clearance ? { clearance: who.clearance } : {}) })));
   router.get("/model", route(200, async () => describeModel(registry)));
   router.get("/openapi.json", route(200, async () => openApiDocument(await describeModel(registry), { ...opts.info, workflows: opts.workflows !== undefined })));
 

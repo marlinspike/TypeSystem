@@ -19,6 +19,7 @@
     { "path": "packages/workflow" },
     { "path": "packages/http" },
     { "path": "packages/react" },
-    { "path": "packages/packs" }
+    { "path": "packages/packs" },
+    { "path": "packages/studio" }
   ]
 }

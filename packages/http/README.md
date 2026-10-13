@@ -13,7 +13,8 @@ const app = createApiApp({ backend: { registry, runtime }, identityResolver, wor
 app.listen(8080);   // /api/query, /api/objects/:type/:id, /api/actions/:name/preview, /api/openapi.json, ...
 ```
 
-Call it with `httpTransport` from `@typesys/sdk`. The Host and Origin
+`GET /api/me` returns the caller the token resolved to. Call it with
+`httpTransport` from `@typesys/sdk`. The Host and Origin
 guard (`originGuard`) is shared with the MCP server's HTTP transport.
 
 See [`docs/how-to/build-an-app-with-the-api-and-react.md`](../../docs/how-to/build-an-app-with-the-api-and-react.md).

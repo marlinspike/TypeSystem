@@ -15,5 +15,7 @@
     "../../packages/*/test/**/*.ts",
     "../../scripts/**/*.ts",
     "../../vitest.config.ts"
-  ]
+  ],
+  // The Studio's browser client has its own: tsconfig.client.json.
+  "exclude": ["../../packages/studio/src/client/**"]
 }

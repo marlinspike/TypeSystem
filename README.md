@@ -264,6 +264,7 @@ registry stores) refines one of these six.
 | **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
 | **HTTP API and React** | `@typesys/http` serves the runtime over REST with problems a client can branch on and an OpenAPI contract generated from the model; the SDK's `httpTransport` and `@typesys/react`'s typed, headless hooks put the same governed client in a browser, with forms and columns derived from the model ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md), [ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)). | Screens show what the runtime returns for their user; access is never re-decided in the UI. |
 | **Domain packs** | `@typesys/packs` ships a domain as one signed, content-addressed JSON file with no code in it, installed offline only after every requirement is checked (code by binding key, policy rules, adapters, dependency ranges), specialized by packs that extend it without weakening what it protects, and upgraded only when the contract diff and every dependent allow it ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md), [ADR-0059](docs/adr/0059-domain-packs.md)). | Domains move into accredited, disconnected enclaves as reviewable files, and sites specialize them without forking. |
+| **TypeS Studio** | `@typesys/studio`: a browser workbench over the governed API, with no access of its own. Explore the model, compose a query with live validation and suggestions, see its execution plan and the typed SDK code that builds it, and preview Actions before invoking them, as whoever is signed in ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md), [ADR-0061](docs/adr/0061-typesys-studio.md)). | Analysts, owners and accreditors see exactly what each role gets, and developers leave with working code. |
 | **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
@@ -492,6 +493,12 @@ flowchart TB
   contract diff and every installed dependent
   ([ADR-0059](docs/adr/0059-domain-packs.md)). See
   [`packages/packs/README.md`](packages/packs/README.md).
+- **`packages/studio`** (`@typesys/studio`) — TypeS Studio: the governed
+  API plus a browser client that uses nothing else, for exploring the
+  model, checking, explaining and running queries with their SDK code,
+  and previewing Actions as the signed-in person
+  ([ADR-0061](docs/adr/0061-typesys-studio.md)). See
+  [`packages/studio/README.md`](packages/studio/README.md).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

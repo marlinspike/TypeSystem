@@ -86,7 +86,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ✅ | [0057](adr/0057-governed-workflows.md) | `packages/workflow/test/` (crash recovery without repeating a non-idempotent Action; start and approval decisions identical under Cedar), `packages/devkit/test/synthesize.test.ts`, 11 mutations caught; [`evidence/workflow-2026-10-13.md`](evidence/workflow-2026-10-13.md), which also records a core fix: one request context per process instead of one per runtime |
 | 7 | Governed HTTP API and `@typesys/react` headless bindings | ✅ | [0058](adr/0058-governed-http-api-and-headless-react-bindings.md) | `packages/http/test/api.test.ts` (8 SDK reads identical in process and over HTTP for 3 callers; OpenAPI request schemas admit and refuse what the runtime does), `packages/react/test/react.test.ts` (same component, different values per caller), 14 mutations caught; [`evidence/http-react-2026-10-13.md`](evidence/http-react-2026-10-13.md) |
 | 8 | Domain packs: versioned, signed, offline, specializable | ✅ | [0059](adr/0059-domain-packs.md), [0060](adr/0060-subtypes-keep-their-base-protections.md) | `packages/packs/test/packs.test.ts` (core and airforce installed from their files are the same model and answer 3 callers identically; one install reports every missing requirement and registers nothing; upgrades checked against dependents), `packages/cli/test/pack.test.ts`, `packages/core/test/subtype-protections.test.ts`, 24 mutations caught; [`evidence/packs-2026-10-13.md`](evidence/packs-2026-10-13.md), which also records a core fix: a subtype no longer drops its base's property policies and markings |
-| 9 | TypeS Studio | ⏳ | 0061 | |
+| 9 | TypeS Studio | ✅ | [0061](adr/0061-typesys-studio.md) | `packages/studio/test/` (security headers; the API beside the page answers each caller as the runtime does; Chromium drives the built client as the viewer and the maintainer: a suggestion applied, the SECRET column empty only for the viewer, Invoke offered only for a previewed input that would run), `packages/sdk/test/source.test.ts` (2,000 generated queries round-trip through `querySource`), 21 mutations caught; [`evidence/studio-2026-10-13.md`](evidence/studio-2026-10-13.md) |
 | 10 | Mission application and productivity comparison | ⏳ | — | |
 
 ## Decisions already made
@@ -147,3 +147,7 @@ Filled in as slices land. Production accreditation items stay in
   key revocation or uninstall (ADR-0059). A subtype cannot yet tighten an
   inherited value's rule or marking, only add where the base has none
   (ADR-0060).
+- The Studio has no sign-in flow beyond pasting a token (or a proxy that
+  adds one), no workflow, aggregation or provenance screens, does not edit
+  the model, has no query completion, and is tested in Chromium only
+  (ADR-0061).

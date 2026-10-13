@@ -279,6 +279,19 @@ document that gap rather than close it in this pass.
   rule or marking is refused. Before it, a subtype naming only an object
   policy exposed every protected value it inherited. Proven by
   `packages/core/test/subtype-protections.test.ts`, and mutation-checked.
+- TypeS Studio (ADR-0061): `@typesys/studio` serves the governed API
+  beside a browser client under a strict Content Security Policy. The
+  client uses only the API, as the signed-in person: the model with
+  discovery, a query editor with live validation and one-click
+  suggestions, the execution plan for that caller, paged results, the
+  typed SDK code for the query (`querySource`, round-tripped over 2,000
+  generated queries), and Action forms that preview before they invoke
+  and invoke only the previewed input after confirmation. Proven by
+  `packages/studio/test/` (server, screen logic, and a Chromium run of the
+  built client as two people) and `packages/sdk/test/source.test.ts`, and
+  mutation-checked. Not addressed: a sign-in flow beyond pasting a token,
+  workflow and aggregation screens, provenance views, model editing,
+  query completion, browsers other than Chromium.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -387,9 +400,10 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 938 tests (2026-10-13): 877 run with no infrastructure, the other 61
-  need PostgreSQL, Redis or a KMS emulator; plus stdio and HTTP MCP smoke
-  tests and the MCP conformance suite, all green.
+- 953 tests (2026-10-13): 892 run with no infrastructure, the other 61
+  need PostgreSQL, Redis or a KMS emulator. Two of the 892 drive the
+  Studio in Chromium and skip where no Chromium is installed. Plus stdio
+  and HTTP MCP smoke tests and the MCP conformance suite, all green.
 
 ## The 2026-09-29 hardening pass: what is now proven
 

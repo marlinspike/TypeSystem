@@ -67,6 +67,13 @@ export function openApiDocument(model: ModelDescription, opts: { title?: string;
   const page = (items: unknown) => ({ type: "object", properties: { items: { type: "array", items }, nextCursor: { type: "string" } }, required: ["items"] });
 
   const paths: Record<string, Json> = {
+    "/me": {
+      get: op("whoAmI", "Who the bearer token resolves to: subject, roles and clearance, never other attributes", {
+        type: "object",
+        properties: { subjectId: { type: "string" }, roles: { type: "array", items: { type: "string" } }, clearance: { type: "string" } },
+        required: ["subjectId", "roles"]
+      })
+    },
     "/model": { get: op("describeModel", "The model: every Type and Action, composed", ref("ModelDescription")) },
     "/query": { post: op("query", "Objects of one Type, as this caller may read them", page(ref("ResolvedObject")), { requestBody: { required: true, ...json(query) } }) },
     "/query/explain": { post: op("explainQuery", "How a query would run, without running it", { type: "object" }, { requestBody: { required: true, ...json(query) } }) },

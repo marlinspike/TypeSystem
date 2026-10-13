@@ -18,8 +18,11 @@ const rows = await af
 Names are checked by the compiler, rows are typed (every value optional,
 since policy may withhold any of them), and a query is only ever the
 `SemanticQuery` it builds: the runtime validates, authorizes and audits it
-for this caller, in process (`runtimeTransport`) or over MCP
-(`mcpTransport`). Generate a model with `generateModel(await describeModel(registry))` or
+for this caller, in process (`runtimeTransport`), over MCP
+(`mcpTransport`) or over the REST API (`httpTransport`). Generate a model with `generateModel(await describeModel(registry))` or
 `typesys generate-sdk`.
+
+`querySource(query)` goes the other way: a `SemanticQuery` from anywhere
+(TypeS Studio, an agent, a log) as the fluent code that builds it.
 
 See [`docs/how-to/use-the-typed-sdk.md`](../../docs/how-to/use-the-typed-sdk.md).

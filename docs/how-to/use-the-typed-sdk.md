@@ -92,6 +92,23 @@ await af.action("UpdateWorkOrderStatus").preview({ workOrderId, status: "closed"
 await af.action("UpdateWorkOrderStatus").invoke({ workOrderId, status: "closed" });
 ```
 
+## From a query to code
+
+`querySource` turns any `SemanticQuery` (one composed in TypeS Studio,
+proposed by an agent or found in a log) into the code that builds it:
+
+```ts
+import { querySource } from "@typesys/sdk";
+
+querySource({ type: "airforce.Aircraft", filter: { property: "needsAttention", operator: "eq", value: true }, limit: 5 }, { client: "af" });
+// af.from("airforce.Aircraft")
+//   .where((f) => f.needsAttention.eq(true))
+//   .limit(5)
+```
+
+Running that code builds the same query; a cursor is left out, since it
+belongs to `page()`.
+
 ## Errors
 
 In process, the runtime's own errors reach you (`AuthorizationError`,
