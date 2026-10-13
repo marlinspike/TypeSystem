@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import type { Ajv2020 } from "ajv/dist/2020.js";
 import { createSemanticValidator, SchemaValidationError } from "./validation.js";
 import type { RegistryStore } from "./registry-store.js";
-import type { SemanticTypeSchema, XRelationshipSpec, XComputed } from "../model/vocabulary.js";
+import type { SemanticTypeSchema, XRelationshipSpec, XComputed, XPolicy, XProvenance } from "../model/vocabulary.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
 import type { ActionDefinition } from "../model/action.js";
@@ -42,6 +42,53 @@ function toRelationshipDefinition(
     resolutionMode: spec.resolutionMode,
     cacheTtlMs: spec.cacheTtlMs
   };
+}
+
+/**
+ * A subtype's access rules and markings, its base's included (ADR-0060).
+ * Values a subtype inherits keep the base's protections: its property
+ * policies and classifications are merged in, and the base's object policy
+ * applies unless the subtype names its own. A subtype may add a policy or a
+ * marking where the base has none; one that would replace the base's is
+ * refused, since registration cannot tell a tighter rule from a looser one.
+ * Before this, a subtype declaring only an object policy exposed every
+ * protected value it inherited.
+ */
+function inheritProtections(name: string, base: TypeDefinition | undefined, own: SemanticTypeSchema): { policy?: XPolicy; provenance?: XProvenance } {
+  const basePolicy = base?.schema["x-policy"];
+  const baseProvenance = base?.schema["x-provenance"];
+  const ownPolicy = own["x-policy"];
+  const ownProvenance = own["x-provenance"];
+  const refuse = (what: string) => {
+    throw new SchemaValidationError(`Type "${name}" would replace ${what} it inherits from "${base!.name}"; a subtype may add protections, not replace them (ADR-0060)`, []);
+  };
+
+  const propertyPolicies = { ...basePolicy?.propertyPolicies };
+  for (const [member, rule] of Object.entries(ownPolicy?.propertyPolicies ?? {})) {
+    if (propertyPolicies[member] !== undefined && propertyPolicies[member] !== rule) refuse(`the policy "${propertyPolicies[member]}" on "${member}"`);
+    propertyPolicies[member] = rule;
+  }
+  const objectPolicy = ownPolicy?.objectPolicy ?? basePolicy?.objectPolicy;
+  const policy: XPolicy | undefined =
+    objectPolicy !== undefined || Object.keys(propertyPolicies).length > 0
+      ? { ...(objectPolicy !== undefined ? { objectPolicy } : {}), ...(Object.keys(propertyPolicies).length > 0 ? { propertyPolicies } : {}) }
+      : undefined;
+
+  const marking = ownProvenance?.defaultClassification;
+  if (marking !== undefined && baseProvenance?.defaultClassification !== undefined && marking !== baseProvenance.defaultClassification)
+    refuse(`the Type's classification "${baseProvenance.defaultClassification}"`);
+  const properties: NonNullable<XProvenance["properties"]> = structuredClone(baseProvenance?.properties ?? {});
+  for (const [member, spec] of Object.entries(ownProvenance?.properties ?? {})) {
+    const inherited = properties[member]?.classification;
+    if (inherited !== undefined && spec.classification !== undefined && spec.classification !== inherited) refuse(`the classification "${inherited}" on "${member}"`);
+    properties[member] = { ...properties[member], ...spec, ...(inherited !== undefined ? { classification: inherited } : {}) };
+  }
+  const defaultClassification = marking ?? baseProvenance?.defaultClassification;
+  const provenance: XProvenance | undefined =
+    defaultClassification !== undefined || Object.keys(properties).length > 0
+      ? { ...(defaultClassification !== undefined ? { defaultClassification } : {}), ...(Object.keys(properties).length > 0 ? { properties } : {}) }
+      : undefined;
+  return { ...(policy ? { policy } : {}), ...(provenance ? { provenance } : {}) };
 }
 
 /**
@@ -105,9 +152,12 @@ export class SemanticRegistry {
     }
 
     const combinedAllOf = [...allOf, ...(schema.allOf ?? [])];
+    const { policy, provenance } = inheritProtections(opts.name, baseType, schema);
     const composedSchema: SemanticTypeSchema = {
       ...schema,
-      ...(combinedAllOf.length > 0 ? { allOf: combinedAllOf } : {})
+      ...(combinedAllOf.length > 0 ? { allOf: combinedAllOf } : {}),
+      ...(policy ? { "x-policy": policy } : {}),
+      ...(provenance ? { "x-provenance": provenance } : {})
     };
 
     try {

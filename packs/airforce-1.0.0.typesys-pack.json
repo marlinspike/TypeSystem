@@ -1,0 +1,461 @@
+{
+  "format": "typesys.pack/1",
+  "name": "airforce",
+  "version": "1.0.0",
+  "description": "Aircraft, components, maintenance events and work orders across an aircraft repository and a maintenance system, with readiness and attention computed from both, and Actions to open and progress work orders.",
+  "requires": {
+    "core": "^1.0.0"
+  },
+  "contents": {
+    "types": [
+      {
+        "name": "airforce.Component",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/airforce/Component/1.0.0",
+          "title": "Component",
+          "description": "An installable part or subsystem of an aircraft.",
+          "type": "object",
+          "properties": {
+            "aircraftId": {
+              "type": "string"
+            },
+            "partNumber": {
+              "type": "string"
+            },
+            "condition": {
+              "type": "string",
+              "enum": [
+                "good",
+                "fair",
+                "poor"
+              ]
+            }
+          },
+          "required": [
+            "aircraftId",
+            "partNumber"
+          ],
+          "x-policy": {
+            "objectPolicy": "airforce.read-aircraft"
+          }
+        },
+        "extends": "core.Asset",
+        "traits": []
+      },
+      {
+        "name": "airforce.Aircraft",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/airforce/Aircraft/1.0.0",
+          "title": "Aircraft",
+          "description": "A fixed-wing or rotary aircraft tracked by the Air Force domain.",
+          "type": "object",
+          "properties": {
+            "tailNumber": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "deploymentLocation": {
+              "type": "string",
+              "description": "Where the aircraft is forward-deployed. Classified SECRET (ADR-0032)."
+            }
+          },
+          "required": [
+            "tailNumber",
+            "model"
+          ],
+          "x-relationships": {
+            "components": {
+              "target": "airforce.Component",
+              "cardinality": "one-to-many",
+              "description": "Installed components on this aircraft.",
+              "resolution": {
+                "dataSourceId": "in-memory-airforce-repo",
+                "operation": "byForeignKey:aircraftId"
+              }
+            },
+            "maintenance": {
+              "target": "airforce.MaintenanceEvent",
+              "cardinality": "one-to-many",
+              "description": "Maintenance history for this aircraft.",
+              "resolution": {
+                "dataSourceId": "mock-remis-rest",
+                "operation": "byForeignKey:aircraftId"
+              }
+            }
+          },
+          "x-computed": {
+            "readinessStatus": {
+              "dependsOn": [
+                "maintenanceStatus"
+              ],
+              "binding": "computeReadinessStatus",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "FMC",
+                  "PMC",
+                  "NMC",
+                  "UNKNOWN"
+                ],
+                "description": "Fully, Partially, or Not Mission Capable."
+              },
+              "resolutionMode": "live"
+            },
+            "needsAttention": {
+              "dependsOn": [
+                "maintenanceStatus"
+              ],
+              "releases": [
+                "maintenanceStatus"
+              ],
+              "binding": "computeNeedsAttention",
+              "schema": {
+                "type": "boolean"
+              },
+              "resolutionMode": "live"
+            }
+          },
+          "x-policy": {
+            "objectPolicy": "airforce.read-aircraft",
+            "propertyPolicies": {
+              "maintenanceStatus": "airforce.maintainer-only"
+            }
+          },
+          "x-provenance": {
+            "properties": {
+              "deploymentLocation": {
+                "classification": "SECRET"
+              }
+            }
+          }
+        },
+        "extends": "core.Asset",
+        "traits": [
+          "Trackable",
+          "Maintainable"
+        ]
+      },
+      {
+        "name": "airforce.MaintenanceEvent",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/airforce/MaintenanceEvent/1.0.0",
+          "title": "MaintenanceEvent",
+          "description": "A maintenance action performed or reported against an aircraft.",
+          "type": "object",
+          "properties": {
+            "aircraftId": {
+              "type": "string"
+            },
+            "eventType": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "aircraftId",
+            "eventType"
+          ],
+          "x-relationships": {
+            "workOrder": {
+              "target": "airforce.WorkOrder",
+              "cardinality": "one-to-one",
+              "description": "The work order opened against this maintenance event, if any.",
+              "resolution": {
+                "dataSourceId": "mock-remis-rest",
+                "operation": "byForeignKey:maintenanceEventId"
+              }
+            }
+          },
+          "x-actions": {
+            "actions": [
+              "CreateMaintenanceWorkOrder"
+            ]
+          },
+          "x-policy": {
+            "objectPolicy": "airforce.read-aircraft"
+          }
+        },
+        "extends": "core.Event",
+        "traits": []
+      },
+      {
+        "name": "airforce.WorkOrder",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/airforce/WorkOrder/1.0.0",
+          "title": "WorkOrder",
+          "description": "A unit of maintenance work opened against a MaintenanceEvent.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "maintenanceEventId": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "open",
+                "in-progress",
+                "closed"
+              ]
+            },
+            "assignedTo": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "id",
+            "maintenanceEventId",
+            "status"
+          ],
+          "x-policy": {
+            "objectPolicy": "airforce.read-aircraft"
+          }
+        },
+        "traits": []
+      }
+    ],
+    "traits": [
+      {
+        "name": "Trackable",
+        "description": "Adds identity-tracking fields for physical or logical tracking.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "trackingId": {
+              "type": "string"
+            },
+            "lastTrackedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      {
+        "name": "Maintainable",
+        "description": "Adds maintenance status tracking fields shared by any maintainable asset.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "maintenanceStatus": {
+              "type": "string",
+              "enum": [
+                "operational",
+                "degraded",
+                "down"
+              ]
+            },
+            "lastMaintainedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    ],
+    "actions": [
+      {
+        "id": "action-create-maintenance-work-order",
+        "name": "CreateMaintenanceWorkOrder",
+        "description": "Opens a new work order against an existing maintenance event.",
+        "applicableTypes": [
+          "airforce.MaintenanceEvent"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "maintenanceEventId": {
+              "type": "string"
+            },
+            "assignedTo": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "maintenanceEventId",
+            "assignedTo"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "maintenanceEventId": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "authorizationPolicy": "airforce.maintainer-only",
+        "preconditions": [
+          {
+            "description": "The referenced maintenance event must exist",
+            "bindingId": "maintenanceEventExists"
+          }
+        ],
+        "implementation": {
+          "dataSourceId": "mock-remis-rest",
+          "operation": "createWorkOrder"
+        },
+        "sideEffects": "creates",
+        "idempotency": "none",
+        "auditRequired": true,
+        "version": "1.0.0"
+      },
+      {
+        "id": "action-update-work-order-status",
+        "name": "UpdateWorkOrderStatus",
+        "description": "Moves one work order to a new status. Allowed to its assignee, or to a lead.",
+        "applicableTypes": [
+          "airforce.WorkOrder"
+        ],
+        "target": {
+          "idFrom": "workOrderId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "workOrderId": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "open",
+                "in-progress",
+                "closed"
+              ]
+            }
+          },
+          "required": [
+            "workOrderId",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "maintenanceEventId": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "assignedTo": {
+              "type": "string"
+            }
+          }
+        },
+        "authorizationPolicy": "airforce.work-order-assignee",
+        "preconditions": [
+          {
+            "description": "A closed work order cannot change status",
+            "bindingId": "workOrderNotClosed"
+          }
+        ],
+        "implementation": {
+          "dataSourceId": "mock-remis-rest",
+          "operation": "updateWorkOrderStatus"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "version": "1.0.0"
+      }
+    ],
+    "dataSources": [
+      {
+        "id": "in-memory-airforce-repo",
+        "name": "In-Memory Airforce Repository",
+        "kind": "in-memory"
+      },
+      {
+        "id": "mock-remis-rest",
+        "name": "Mock REMIS (external REST)",
+        "kind": "mock-rest"
+      }
+    ],
+    "mappings": [
+      {
+        "id": "map-aircraft-properties",
+        "typeName": "airforce.Aircraft",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "in-memory-airforce-repo",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-component-properties",
+        "typeName": "airforce.Component",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "in-memory-airforce-repo",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-maintenance-event-properties",
+        "typeName": "airforce.MaintenanceEvent",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "mock-remis-rest",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-work-order-properties",
+        "typeName": "airforce.WorkOrder",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "mock-remis-rest",
+        "operation": "get",
+        "resolutionMode": "live"
+      }
+    ]
+  },
+  "requirements": {
+    "computed": [
+      "computeNeedsAttention",
+      "computeReadinessStatus"
+    ],
+    "preconditions": [
+      "maintenanceEventExists",
+      "workOrderNotClosed"
+    ],
+    "policies": [
+      "airforce.maintainer-only",
+      "airforce.read-aircraft",
+      "airforce.work-order-assignee"
+    ],
+    "dataSources": [
+      "in-memory-airforce-repo",
+      "mock-remis-rest"
+    ],
+    "types": [
+      "core.Asset",
+      "core.Event"
+    ],
+    "actions": []
+  },
+  "digest": "sha256:fd22eb6c7a790d6726ca9a084bbd50158ddc98e2183a90f96f9ac491a7f1924a"
+}

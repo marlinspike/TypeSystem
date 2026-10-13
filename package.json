@@ -25,6 +25,7 @@
     "smoke:mcp-http": "tsx scripts/smoke-test-mcp-http.ts",
     "conformance:mcp": "tsx scripts/mcp-conformance.ts",
     "sdk:models": "tsx scripts/generate-sdk-models.ts",
+    "packs": "tsx scripts/build-packs.ts",
     "mcp:http": "tsx packages/demo-web/src/mcp-http.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "load-test": "tsx scripts/load-test.ts",

@@ -4,6 +4,18 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../adapter-in-memory" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../adapter-in-memory"
+    },
+    {
+      "path": "../packs"
+    }
+  ]
 }

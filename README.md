@@ -263,6 +263,7 @@ registry stores) refines one of these six.
 | **Discovery, validation and contract diff** | `@typesys/devkit`: agents find the few Types and Actions a task needs (`typesys_discover`) and check a composed query before running it (`typesys_validate_query`); teams gate model changes in CI by consumer impact (`typesys diff`) ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)). | Agents read a fraction of the model, and a breaking change can't ship unversioned. |
 | **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
 | **HTTP API and React** | `@typesys/http` serves the runtime over REST with problems a client can branch on and an OpenAPI contract generated from the model; the SDK's `httpTransport` and `@typesys/react`'s typed, headless hooks put the same governed client in a browser, with forms and columns derived from the model ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md), [ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)). | Screens show what the runtime returns for their user; access is never re-decided in the UI. |
+| **Domain packs** | `@typesys/packs` ships a domain as one signed, content-addressed JSON file with no code in it, installed offline only after every requirement is checked (code by binding key, policy rules, adapters, dependency ranges), specialized by packs that extend it without weakening what it protects, and upgraded only when the contract diff and every dependent allow it ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md), [ADR-0059](docs/adr/0059-domain-packs.md)). | Domains move into accredited, disconnected enclaves as reviewable files, and sites specialize them without forking. |
 | **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
@@ -485,6 +486,12 @@ flowchart TB
   derived from the model; no components, and no access decisions
   ([ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)).
   See [`packages/react/README.md`](packages/react/README.md).
+- **`packages/packs`** (`@typesys/packs`) — domain packs: a domain as one
+  content-addressed, optionally signed JSON archive, installs checked
+  completely before anything registers, and upgrades checked against the
+  contract diff and every installed dependent
+  ([ADR-0059](docs/adr/0059-domain-packs.md)). See
+  [`packages/packs/README.md`](packages/packs/README.md).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

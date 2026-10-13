@@ -18,6 +18,7 @@
     { "path": "packages/devkit" },
     { "path": "packages/workflow" },
     { "path": "packages/http" },
-    { "path": "packages/react" }
+    { "path": "packages/react" },
+    { "path": "packages/packs" }
   ]
 }

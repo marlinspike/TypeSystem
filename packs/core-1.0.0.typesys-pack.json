@@ -1,0 +1,195 @@
+{
+  "format": "typesys.pack/1",
+  "name": "core",
+  "version": "1.0.0",
+  "description": "Base Types every domain may extend or reference: Party, Person, Organization, Location, Asset and Event, with the Trackable, Maintainable, Geolocatable and Ownable traits.",
+  "requires": {},
+  "contents": {
+    "types": [
+      {
+        "name": "core.Party",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/core/Party/1.0.0",
+          "title": "Party",
+          "description": "A person or organization capable of holding responsibility, ownership, or a role.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "displayName"
+          ]
+        },
+        "traits": []
+      },
+      {
+        "name": "core.Person",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/core/Person/1.0.0",
+          "title": "Person",
+          "description": "An individual human party.",
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "roleTitle": {
+              "type": "string"
+            }
+          },
+          "x-relationships": {
+            "affiliations": {
+              "target": "core.Organization",
+              "cardinality": "many-to-many",
+              "inverse": "members",
+              "description": "Organizations this person is affiliated with.",
+              "resolution": {
+                "dataSourceId": "unresolved",
+                "operation": "unresolved"
+              }
+            }
+          }
+        },
+        "extends": "core.Party",
+        "traits": []
+      },
+      {
+        "name": "core.Organization",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/core/Organization/1.0.0",
+          "title": "Organization",
+          "description": "A group party such as a unit, company, or agency.",
+          "type": "object",
+          "properties": {
+            "orgType": {
+              "type": "string"
+            }
+          },
+          "x-relationships": {
+            "members": {
+              "target": "core.Person",
+              "cardinality": "many-to-many",
+              "inverse": "affiliations",
+              "description": "People affiliated with this organization.",
+              "resolution": {
+                "dataSourceId": "unresolved",
+                "operation": "unresolved"
+              }
+            }
+          }
+        },
+        "extends": "core.Party",
+        "traits": []
+      },
+      {
+        "name": "core.Location",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/core/Location/1.0.0",
+          "title": "Location",
+          "description": "A physical place, such as a base, facility, or site.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "longitude": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ]
+        },
+        "traits": []
+      },
+      {
+        "name": "core.Asset",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/core/Asset/1.0.0",
+          "title": "Asset",
+          "description": "A physical or logical item of value an enterprise tracks, such as an aircraft, vehicle, or facility.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ]
+        },
+        "traits": []
+      },
+      {
+        "name": "core.Event",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/core/Event/1.0.0",
+          "title": "Event",
+          "description": "Something that happened at a point in time, tracked by the enterprise (e.g. a maintenance event).",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "occurredAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "occurredAt"
+          ]
+        },
+        "traits": []
+      }
+    ],
+    "traits": [],
+    "actions": [],
+    "dataSources": [],
+    "mappings": []
+  },
+  "requirements": {
+    "computed": [],
+    "preconditions": [],
+    "policies": [],
+    "dataSources": [],
+    "types": [],
+    "actions": []
+  },
+  "digest": "sha256:067648b89dad57e11c2abc44ea4b777f41e3ae046540179335b71e9aaaf9254e"
+}

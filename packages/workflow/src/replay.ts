@@ -1,16 +1,12 @@
+import { canonical } from "@typesys/core";
 import type { AnyStep, AnyWorkflow, StepContext } from "./definition.js";
 import { ReplayDivergenceError, WorkflowDefinitionError } from "./errors.js";
 import type { JournalRecord, OutputSource } from "./journal.js";
 import { fold, type RunState } from "./state.js";
 
-const SOURCE: Record<AnyStep["kind"], OutputSource> = { read: "read", compute: "compute", ai: "model", approval: "human", action: "action" };
+export { canonical };
 
-/** JSON with object keys sorted, so two equal values compare equal whatever order their keys were written in. */
-export function canonical(value: unknown): string {
-  return JSON.stringify(value, (_key, v: unknown) =>
-    v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v
-  );
-}
+const SOURCE: Record<AnyStep["kind"], OutputSource> = { read: "read", compute: "compute", ai: "model", approval: "human", action: "action" };
 
 /** The outputs the journal holds: a completed step's output, and `undefined` for a skipped one. */
 export function outputsOf(state: RunState): Map<string, unknown> {

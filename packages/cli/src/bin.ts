@@ -8,6 +8,7 @@ import { generateModel } from "@typesys/sdk";
 import { diffModels, discover, validateQuery } from "@typesys/devkit";
 import { generateModule } from "./codegen.js";
 import { scaffoldDomain } from "./scaffold.js";
+import { checkUpgrade, signPack, verifyPack, type PackArchive, type PackDiagnostic } from "@typesys/packs";
 
 function usage(): void {
   console.log(`typesys — TypeS declarative authoring CLI
@@ -21,6 +22,10 @@ Usage:
   typesys diff <before.json> <after.json> [--json]
   typesys discover <dir> <task words...> [--bindings <module.js>] [--limit <n>] [--json]
   typesys check-query <dir> <query.json> [--bindings <module.js>] [--json]
+  typesys pack inspect <pack.json> [--json]
+  typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--json]
+  typesys pack sign <pack.json> --key-id <id> --private-key <private.pem> --out <signed.json>
+  typesys pack check-upgrade <next.json> --installed <pack.json>... [--json]
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -50,6 +55,15 @@ traits are always pre-registered, so \`extends: core.Asset\` etc. just works.
   check-query   Check a query JSON file against the model without running
                 it, with the name probably meant for each unknown one.
 
+  pack          Domain packs (ADR-0059), all offline. inspect prints what a
+                pack contains and what a deployment must supply (bindings,
+                policy rules, data sources, other packs). verify checks the
+                digest and, with --trust, an Ed25519 signature by one of the
+                given keys. sign adds one. check-upgrade compares a new
+                version with the installed packs: the contract diff, the
+                version bump it needs, and every dependent's range. verify
+                and check-upgrade exit 1 on any finding.
+
 --bindings points at a JS module whose default export (or module.exports)
   is a BindingRegistry ({ computed: {...}, preconditions: {...} }) —
   needed only if your Types declare computed properties or persisted
@@ -78,13 +92,17 @@ interface ParsedArgs {
   force: boolean;
   check: boolean;
   limit?: number;
+  trust: string[];
+  installed: string[];
+  keyId?: string;
+  privateKey?: string;
   /** Arguments after `<dir>` that are not flags. */
   positionals: string[];
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, dir, ...rest] = argv;
-  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, positionals: [] };
+  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, trust: [], installed: [], positionals: [] };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--bindings") result.bindings = rest[++i];
     else if (rest[i] === "--out") result.out = rest[++i];
@@ -93,6 +111,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (rest[i] === "--force") result.force = true;
     else if (rest[i] === "--check") result.check = true;
     else if (rest[i] === "--limit") result.limit = Number(rest[++i]);
+    else if (rest[i] === "--trust") result.trust.push(rest[++i]!);
+    else if (rest[i] === "--installed") result.installed.push(rest[++i]!);
+    else if (rest[i] === "--key-id") result.keyId = rest[++i];
+    else if (rest[i] === "--private-key") result.privateKey = rest[++i];
     else result.positionals.push(rest[i]!);
   }
   return result;
@@ -118,7 +140,8 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
 }
 
 async function main(): Promise<void> {
-  const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2));
+  const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 
   if (command === "init") {
     if (!dir) {
@@ -258,8 +281,67 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "pack") {
+    await packCommand(dir, args);
+    return;
+  }
+
   usage();
   process.exitCode = command ? 1 : 0;
+}
+
+const readPack = async (file: string) => JSON.parse(await readFile(file, "utf8")) as PackArchive;
+const diagnosticLine = (d: PackDiagnostic) => `${d.code.padEnd(22)} ${d.pack}${d.subject ? ` (${d.subject})` : ""}: ${d.message}`;
+
+async function packCommand(sub: string | undefined, args: ParsedArgs): Promise<void> {
+  const [file] = args.positionals;
+  if (!file || !["inspect", "verify", "sign", "check-upgrade"].includes(sub ?? "")) {
+    usage();
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const pack = await readPack(file);
+    if (sub === "inspect") {
+      const { name, version, description, digest, requires, requirements, contents, signatures } = pack;
+      const counts = { types: contents.types.length, actions: contents.actions.length, dataSources: contents.dataSources.length, mappings: contents.mappings.length };
+      printResult(args.json, true, { name, version, description, digest, requires, requirements, counts, signedBy: (signatures ?? []).map((s) => s.keyId) }, [
+        `${name} ${version}  ${digest}`,
+        description,
+        `requires:      ${Object.entries(requires).map(([n, r]) => `${n} ${r}`).join(", ") || "nothing"}`,
+        `contains:      ${counts.types} Types, ${counts.actions} Actions, ${counts.dataSources} data sources, ${counts.mappings} mappings`,
+        `needs code:    ${[...requirements.computed, ...requirements.preconditions].join(", ") || "none"}`,
+        `needs rules:   ${requirements.policies.join(", ") || "none"}`,
+        `needs sources: ${requirements.dataSources.join(", ") || "none"}`,
+        `signed by:     ${(signatures ?? []).map((s) => s.keyId).join(", ") || "nobody"}`
+      ]);
+    } else if (sub === "verify") {
+      const trustedKeys: Record<string, string> = {};
+      for (const t of args.trust) {
+        const at = t.indexOf("=");
+        if (at <= 0) throw new Error(`--trust takes <keyId>=<public.pem>, got "${t}"`);
+        trustedKeys[t.slice(0, at)] = await readFile(t.slice(at + 1), "utf8");
+      }
+      const found = verifyPack(pack, args.trust.length > 0 ? { trustedKeys } : {});
+      printResult(args.json, found.length === 0, { name: pack.name, version: pack.version, digest: pack.digest, diagnostics: found }, found.length === 0 ? [`OK — ${pack.name} ${pack.version} is intact${args.trust.length > 0 ? " and signed by a trusted key" : ""}`] : found.map(diagnosticLine));
+    } else if (sub === "sign") {
+      if (!args.keyId || !args.privateKey || !args.out) throw new Error("sign needs --key-id, --private-key and --out");
+      const found = verifyPack(pack);
+      if (found.length > 0) throw new Error(`refusing to sign a pack that does not verify: ${found.map((d) => d.message).join("; ")}`);
+      await writeFile(args.out, `${JSON.stringify(signPack(pack, args.keyId, await readFile(args.privateKey, "utf8")), null, 2)}\n`, "utf8");
+      printResult(args.json, true, { out: args.out, keyId: args.keyId }, [`Signed ${pack.name} ${pack.version} as ${args.keyId}: ${args.out}`]);
+    } else {
+      const report = await checkUpgrade(await Promise.all(args.installed.map(readPack)), pack);
+      const ok = report.diagnostics.length === 0;
+      printResult(args.json, ok, { ...report }, [
+        `${report.pack} ${report.from} → ${report.to}: needs a ${report.needs} bump, is a ${report.made} bump`,
+        ...report.changes.map((c) => `${c.impact.padEnd(10)} ${c.subject}: ${c.change}`),
+        ...report.diagnostics.map(diagnosticLine)
+      ]);
+    }
+  } catch (err) {
+    printResult(args.json, false, { error: err instanceof Error ? err.message : String(err) }, [`FAIL — ${err instanceof Error ? err.message : String(err)}`]);
+  }
 }
 
 /** The domains a directory registers, as Type-name prefixes: everything but core's own Types, which are always pre-registered. */

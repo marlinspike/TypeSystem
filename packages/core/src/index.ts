@@ -9,6 +9,7 @@ export * from "./model/data-source.js";
 export * from "./model/query.js";
 export * from "./model/trait.js";
 export * from "./model/context.js";
+export * from "./model/canonical.js";
 
 export * from "./registry/registry-store.js";
 export * from "./registry/in-memory-registry-store.js";

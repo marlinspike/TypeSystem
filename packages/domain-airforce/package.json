@@ -31,6 +31,7 @@
     "@typesys/core": "0.1.0",
     "@typesys/adapter-in-memory": "0.1.0",
     "@typesys/adapter-mock-rest": "0.1.0",
-    "@typesys/workflow": "0.1.0"
+    "@typesys/workflow": "0.1.0",
+    "@typesys/packs": "0.1.0"
   }
 }

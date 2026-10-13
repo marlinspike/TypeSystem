@@ -259,6 +259,26 @@ document that gap rather than close it in this pass.
   it decides nothing. Proven by `packages/http/test/` and
   `packages/react/test/`, and mutation-checked. Not addressed: CORS,
   ETags, streaming workflow state, nested form inputs, React 19 testing.
+- Domain packs (ADR-0059): `@typesys/packs` builds a domain into one JSON
+  archive with no code in it, content-addressed by SHA-256 and optionally
+  signed with Ed25519. Installs are planned completely before anything is
+  registered: integrity and signatures, dependency ranges, conflicts,
+  unresolved references, bindings, policy rules, adapters and a scratch
+  registration, with every finding reported at once. Upgrades are checked
+  with the contract diff across everything installed, the version bump
+  and every dependent's range. The demo domains ship as archives under
+  `packs/` (drift-checked); installed from those files they are the same
+  model and give the same answers as the code path. The CLI adds `typesys
+  pack inspect | verify | sign | check-upgrade`. Proven by
+  `packages/packs/test/` and `packages/cli/test/pack.test.ts`, and
+  mutation-checked. Not addressed: workflows and sample data in packs,
+  packing YAML domains, a pack registry, key revocation, uninstall.
+- A subtype keeps its base's protections (ADR-0060): registration merges
+  the base's property policies and markings into a subtype and applies the
+  base's object policy when the subtype names none; replacing an inherited
+  rule or marking is refused. Before it, a subtype naming only an object
+  policy exposed every protected value it inherited. Proven by
+  `packages/core/test/subtype-protections.test.ts`, and mutation-checked.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -367,7 +387,7 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 922 tests (2026-10-13): 861 run with no infrastructure, the other 61
+- 938 tests (2026-10-13): 877 run with no infrastructure, the other 61
   need PostgreSQL, Redis or a KMS emulator; plus stdio and HTTP MCP smoke
   tests and the MCP conformance suite, all green.
 

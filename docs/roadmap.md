@@ -85,8 +85,8 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ✅ | [0056](adr/0056-model-description-discovery-validation-and-contract-diff.md) | `packages/devkit/test/devkit.test.ts` (validator checked against the runtime over 1,620 generated filters), MCP and CLI tests, 7 mutations caught; [`evidence/devkit-2026-10-13.md`](evidence/devkit-2026-10-13.md) |
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ✅ | [0057](adr/0057-governed-workflows.md) | `packages/workflow/test/` (crash recovery without repeating a non-idempotent Action; start and approval decisions identical under Cedar), `packages/devkit/test/synthesize.test.ts`, 11 mutations caught; [`evidence/workflow-2026-10-13.md`](evidence/workflow-2026-10-13.md), which also records a core fix: one request context per process instead of one per runtime |
 | 7 | Governed HTTP API and `@typesys/react` headless bindings | ✅ | [0058](adr/0058-governed-http-api-and-headless-react-bindings.md) | `packages/http/test/api.test.ts` (8 SDK reads identical in process and over HTTP for 3 callers; OpenAPI request schemas admit and refuse what the runtime does), `packages/react/test/react.test.ts` (same component, different values per caller), 14 mutations caught; [`evidence/http-react-2026-10-13.md`](evidence/http-react-2026-10-13.md) |
-| 8 | Domain packs | ⏳ | 0059 | |
-| 9 | TypeS Studio | ⏳ | 0060 | |
+| 8 | Domain packs: versioned, signed, offline, specializable | ✅ | [0059](adr/0059-domain-packs.md), [0060](adr/0060-subtypes-keep-their-base-protections.md) | `packages/packs/test/packs.test.ts` (core and airforce installed from their files are the same model and answer 3 callers identically; one install reports every missing requirement and registers nothing; upgrades checked against dependents), `packages/cli/test/pack.test.ts`, `packages/core/test/subtype-protections.test.ts`, 24 mutations caught; [`evidence/packs-2026-10-13.md`](evidence/packs-2026-10-13.md), which also records a core fix: a subtype no longer drops its base's property policies and markings |
+| 9 | TypeS Studio | ⏳ | 0061 | |
 | 10 | Mission application and productivity comparison | ⏳ | — | |
 
 ## Decisions already made
@@ -142,3 +142,8 @@ Filled in as slices land. Production accreditation items stay in
   1.5 ms per call over loopback. `formFields` covers top-level inputs
   only, and the React bindings are tested on React 18 only. The demo
   console keeps its own routes (ADR-0058).
+- Packs carry no workflows or sample data, YAML domains cannot be packed
+  (YAML has no data sources or mappings), and there is no pack registry,
+  key revocation or uninstall (ADR-0059). A subtype cannot yet tighten an
+  inherited value's rule or marking, only add where the base has none
+  (ADR-0060).

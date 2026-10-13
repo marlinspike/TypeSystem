@@ -4,6 +4,21 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../sdk" }, { "path": "../devkit" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../sdk"
+    },
+    {
+      "path": "../devkit"
+    },
+    {
+      "path": "../packs"
+    }
+  ]
 }
