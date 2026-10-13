@@ -4,7 +4,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { describeModel, type ModelDescription } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
-import { Resource, coerceForm, columnsFor, createTypeSHooks, formFields, type ResourceState } from "../src/index.js";
+import { Resource, coerceForm, columnsFor, createTypeSHooks, dataOf, errorOf, formFields, type ResourceState } from "../src/index.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -63,6 +63,14 @@ describe("Resource", () => {
     r.reset();
     await abandoned;
     expect(r.getSnapshot()).toEqual({ status: "idle" });
+  });
+
+  it("dataOf and errorOf read any state, keeping data shown while a reload runs or fails", () => {
+    const err = new Error("down");
+    expect([dataOf({ status: "idle" }), errorOf({ status: "idle" })]).toEqual([undefined, undefined]);
+    expect([dataOf({ status: "loading", data: 1 }), errorOf({ status: "loading", data: 1 })]).toEqual([1, undefined]);
+    expect([dataOf({ status: "success", data: 2 }), errorOf({ status: "success", data: 2 })]).toEqual([2, undefined]);
+    expect([dataOf({ status: "error", error: err, data: 3 }), errorOf({ status: "error", error: err, data: 3 })]).toEqual([3, err]);
   });
 });
 

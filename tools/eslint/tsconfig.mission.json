@@ -1,0 +1,6 @@
+{
+  // The mission application's sources alone, server and clients, for scripts/compare-mission-apps.ts:
+  // where a seeded mistake is caught by the compiler (ADR-0063).
+  "extends": "./tsconfig.client.json",
+  "include": ["../../packages/mission-readiness/src/**/*.ts", "../../packages/mission-readiness/src/**/*.tsx"]
+}

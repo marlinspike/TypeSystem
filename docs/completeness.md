@@ -290,6 +290,20 @@ document that gap rather than close it in this pass.
   Measured: 225 maintenance calls per 200-aircraft page become 12 to 14,
   p50 20% to 30% lower; slower where lookups find nothing. Not addressed:
   batching by id or of relationships, wider fan-out than `maxConcurrency`.
+- A mission application, composed and by hand (ADR-0063): the private
+  `@typesys/mission-readiness` package holds a squadron readiness
+  application built from the governed API, the typed SDK, the React
+  hooks, Action previews and the ground-for-repair workflow, beside the
+  same application written the baseline way. Both pass one Chromium
+  scenario as a viewer, a maintainer and a lead, with identical results
+  (`packages/mission-readiness/test/`), and mutation-checked. Measured by
+  `scripts/compare-mission-apps.ts`: 193 lines against 355, no access rule
+  restated against 7, five of six shared seeded mistakes caught by the
+  compiler rather than the browser, and a policy change followed with no
+  edit. Added for it: `clientRouter` and `GET /workflow-approvals`
+  (`@typesys/http`), `approvalsFor` (`@typesys/workflow`), `httpWorkflows`
+  (`@typesys/sdk`), `dataOf` and `errorOf` (`@typesys/react`). Not
+  addressed: time to write either version, other browsers.
 - TypeS Studio (ADR-0061): `@typesys/studio` serves the governed API
   beside a browser client under a strict Content Security Policy. The
   client uses only the API, as the signed-in person: the model with
@@ -411,9 +425,10 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 965 tests (2026-10-13): 904 run with no infrastructure, the other 61
-  need PostgreSQL, Redis or a KMS emulator. Two of the 892 drive the
-  Studio in Chromium and skip where no Chromium is installed. Plus stdio
+- 980 tests (2026-10-13): 919 run with no infrastructure, the other 61
+  need PostgreSQL, Redis or a KMS emulator. Four of the 919 drive the
+  Studio and the mission application in Chromium and skip where no
+  Chromium is installed. Plus stdio
   and HTTP MCP smoke tests and the MCP conformance suite, all green.
 
 ## The 2026-09-29 hardening pass: what is now proven

@@ -20,6 +20,7 @@
     { "path": "packages/http" },
     { "path": "packages/react" },
     { "path": "packages/packs" },
-    { "path": "packages/studio" }
+    { "path": "packages/studio" },
+    { "path": "packages/mission-readiness" }
   ]
 }

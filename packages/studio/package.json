@@ -28,9 +28,7 @@
     "dist"
   ],
   "dependencies": {
-    "@typesys/core": "0.1.0",
-    "@typesys/http": "0.1.0",
-    "express": "5.2.1"
+    "@typesys/http": "0.1.0"
   },
   "devDependencies": {
     "@types/express": "5.0.6",

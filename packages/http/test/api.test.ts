@@ -2,8 +2,8 @@ import type { Server } from "node:http";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createSemanticValidator, type Identity } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
-import { ApiError, createClient, httpTransport, runtimeTransport, type Client } from "@typesys/sdk";
-import { WorkflowEngine, scriptedModel } from "@typesys/workflow";
+import { ApiError, createClient, httpTransport, httpWorkflows, runtimeTransport, type Client, type WorkflowRun } from "@typesys/sdk";
+import { WorkflowEngine, scriptedModel, type RunStatus } from "@typesys/workflow";
 import { createApiApp } from "../src/index.js";
 
 const PEOPLE = { maintainer: demoIdentities.maintainer, lead: demoIdentities.lead, viewer: demoIdentities.viewer, anonymous: demoIdentities.anonymous };
@@ -128,6 +128,30 @@ describe("the governed REST API (ADR-0058)", () => {
     expect((await call("GET", `/api/workflow-runs/${runId}/outputs`, { who: "lead" })).body).toMatchObject({ code: "forbidden" });
     expect((await call("GET", `/api/workflow-runs/${runId}/outputs`, { who: "maintainer" })).body).toHaveProperty("openWorkOrder");
     expect((await call("POST", `/api/workflow-runs/${runId}/approvals/leadApproval`, { who: "lead", body: { approved: true } })).body).toMatchObject({ status: 409, code: "conflict" });
+  });
+});
+
+describe("the SDK's workflow client", () => {
+  it("starts, shows, approves and reads a run as each caller, refusing as the engine does", async () => {
+    // The wire type names exactly the engine's statuses.
+    const toWire = (s: RunStatus): WorkflowRun["status"] => s;
+    const fromWire = (s: WorkflowRun["status"]): RunStatus => s;
+    void [toWire, fromWire];
+    const as = (who: Who) => httpWorkflows({ baseUrl: `${base}/api`, ...(token(who) ? { token: token(who)! } : {}) });
+    const run = await as("maintainer").start("airforce.GroundForRepair", { aircraftId: "AF86-0147", assignTo: "SSgt Rivera" });
+    expect(run).toMatchObject({ status: "waiting-approval", waitingOn: { step: "leadApproval" }, initiator: "user-maintainer-1" });
+    expect((await as("viewer").status(run.runId)).status).toBe("waiting-approval");
+    await expect(as("viewer").approval(run.runId)).rejects.toMatchObject({ status: 403, code: "forbidden" });
+    expect(await as("lead").approval(run.runId)).toMatchObject({ step: "leadApproval", presented: { tailNumber: "AF86-0147" } });
+    // Listed for the lead, never for its initiator or a viewer.
+    expect((await as("lead").approvals()).map((a) => a.runId)).toContain(run.runId);
+    expect((await as("maintainer").approvals()).map((a) => a.runId)).not.toContain(run.runId);
+    expect(await as("viewer").approvals()).toEqual([]);
+    expect((await as("lead").approve(run.runId, "leadApproval", { approved: true, comment: "Go" })).status).toBe("completed");
+    expect((await as("lead").approvals()).map((a) => a.runId)).not.toContain(run.runId);
+    expect(await as("maintainer").outputs(run.runId)).toHaveProperty("openWorkOrder");
+    await expect(as("lead").outputs(run.runId)).rejects.toBeInstanceOf(ApiError);
+    await expect(as("anonymous").start("airforce.GroundForRepair", { aircraftId: "AF86-0147", assignTo: "x" })).rejects.toMatchObject({ code: "forbidden" });
   });
 });
 

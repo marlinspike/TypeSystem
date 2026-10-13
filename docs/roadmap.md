@@ -87,7 +87,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 7 | Governed HTTP API and `@typesys/react` headless bindings | ✅ | [0058](adr/0058-governed-http-api-and-headless-react-bindings.md) | `packages/http/test/api.test.ts` (8 SDK reads identical in process and over HTTP for 3 callers; OpenAPI request schemas admit and refuse what the runtime does), `packages/react/test/react.test.ts` (same component, different values per caller), 14 mutations caught; [`evidence/http-react-2026-10-13.md`](evidence/http-react-2026-10-13.md) |
 | 8 | Domain packs: versioned, signed, offline, specializable | ✅ | [0059](adr/0059-domain-packs.md), [0060](adr/0060-subtypes-keep-their-base-protections.md) | `packages/packs/test/packs.test.ts` (core and airforce installed from their files are the same model and answer 3 callers identically; one install reports every missing requirement and registers nothing; upgrades checked against dependents), `packages/cli/test/pack.test.ts`, `packages/core/test/subtype-protections.test.ts`, 24 mutations caught; [`evidence/packs-2026-10-13.md`](evidence/packs-2026-10-13.md), which also records a core fix: a subtype no longer drops its base's property policies and markings |
 | 9 | TypeS Studio | ✅ | [0061](adr/0061-typesys-studio.md) | `packages/studio/test/` (security headers; the API beside the page answers each caller as the runtime does; Chromium drives the built client as the viewer and the maintainer: a suggestion applied, the SECRET column empty only for the viewer, Invoke offered only for a previewed input that would run), `packages/sdk/test/source.test.ts` (2,000 generated queries round-trip through `querySource`), 21 mutations caught; [`evidence/studio-2026-10-13.md`](evidence/studio-2026-10-13.md) |
-| 10 | Mission application and productivity comparison, with computed reads coalesced | 🚧 | [0062](adr/0062-coalesced-computed-reads.md) | Coalescing: `packages/core/test/read-coalescer.test.ts`, `packages/domain-airforce/test/computed-read-coalescing.test.ts` (identical answers for 3 callers over 3 generated fleets), 13 mutations caught; [`evidence/computed-reads-2026-10-13.md`](evidence/computed-reads-2026-10-13.md): 225 maintenance calls per page become 12 to 14, and p50 falls 20% to 30% |
+| 10 | Mission application and productivity comparison, with computed reads coalesced | ✅ | [0062](adr/0062-coalesced-computed-reads.md), [0063](adr/0063-a-mission-application-composed-and-by-hand.md) | Coalescing: `packages/core/test/read-coalescer.test.ts`, `packages/domain-airforce/test/computed-read-coalescing.test.ts` (identical answers for 3 callers over 3 generated fleets), 13 mutations caught; [`evidence/computed-reads-2026-10-13.md`](evidence/computed-reads-2026-10-13.md): 225 maintenance calls per page become 12 to 14, and p50 falls 20% to 30%. Mission application: `packages/mission-readiness/test/` (Chromium drives the composed and the hand-written versions through one scenario as a viewer, a maintainer and a lead, and both must show the same), 22 of 24 mutations caught, 2 equivalent; [`evidence/mission-app-2026-10-13.md`](evidence/mission-app-2026-10-13.md): 193 lines against 355, no access rule restated against 7, five of six shared seeded mistakes caught by the compiler instead of the browser, three hand-written-only mistakes (two of them holes) caught by nothing, a policy change followed with no edit, the same latency |
 
 ## Decisions already made
 
@@ -148,6 +148,13 @@ Filled in as slices land. Production accreditation items stay in
   key revocation or uninstall (ADR-0059). A subtype cannot yet tighten an
   inherited value's rule or marking, only add where the base has none
   (ADR-0060).
+- The mission comparison measures code and caught mistakes, not the time
+  either version took to write; both were written by one author who knew
+  the domain, and its seeded mistakes are a hand-chosen list (ADR-0063).
+  The hand-written version's grounding process has no journal, retries or
+  recovery, which the scenario does not exercise. A list of values an
+  application writes beside the SDK is typed only if its author types it
+  against the model.
 - The Studio has no sign-in flow beyond pasting a token (or a proxy that
   adds one), no workflow, aggregation or provenance screens, does not edit
   the model, has no query completion, and is tested in Chromium only

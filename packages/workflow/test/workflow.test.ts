@@ -150,6 +150,26 @@ describe("approvals are decided by policy, and by someone else", () => {
     expect((await engine.trace(runId)).filter((e) => e.type === "approval-decided")).toHaveLength(1);
   });
 
+  it("lists for each approver only the runs waiting on an approval they may give, and never hides a broken one", async () => {
+    const journal = new InMemoryJournal();
+    const { engine } = await fixture({ journal, faults: { startWork: [{ crash: "after-effect", attempt: 1 }] } });
+    const waiting = await engine.start("airforce.GroundForRepair", START, maintainer);
+    const crashed = await engine.start("airforce.GroundForRepair", START, maintainer);
+    await expect(engine.approve(crashed.runId, "leadApproval", lead, { approved: true })).rejects.toThrow(/Simulated crash/);
+    const rejected = await engine.start("airforce.GroundForRepair", START, maintainer);
+    await engine.approve(rejected.runId, "leadApproval", lead, { approved: false });
+    // Left mid-flight by the crash, and finished by the rejection: neither waits on anyone.
+    expect((await engine.approvalsFor(lead)).map((a) => a.runId)).toEqual([waiting.runId]);
+    expect(await engine.approvalsFor(maintainer)).toEqual([]);
+    expect(await engine.approvalsFor(viewer)).toEqual([]);
+
+    // A presentation that fails is an error to see, not an approval silently missing from the list.
+    const broken = variant("2.0.0", (steps) => steps.map((st) => (st.kind === "approval" ? { ...st, present: () => { throw new Error("present failed"); } } : st)));
+    engine.register(broken);
+    await engine.start("airforce.GroundForRepair", START, maintainer);
+    await expect(engine.approvalsFor(lead)).rejects.toThrow(/present failed/);
+  });
+
   it("approving a run that is not waiting on that step is refused", async () => {
     const { engine } = await fixture();
     const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);

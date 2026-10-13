@@ -28,8 +28,8 @@ export default tseslint.config(
     }
   },
   {
-    // The Studio's browser client: DOM and JSX, typed by its own project.
-    files: ["packages/studio/src/client/**/*.{ts,tsx}"],
+    // Browser clients (the Studio, the mission applications): DOM and JSX, typed by their own project.
+    files: ["packages/*/src/**/client/**/*.{ts,tsx}"],
     languageOptions: {
       globals: { ...globals.browser },
       parserOptions: { project: "./tsconfig.client.json", tsconfigRootDir: import.meta.dirname }

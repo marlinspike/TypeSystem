@@ -6,3 +6,4 @@ export * from "./transport.js";
 export * from "./schema-ts.js";
 export * from "./codegen.js";
 export * from "./source.js";
+export * from "./workflows.js";

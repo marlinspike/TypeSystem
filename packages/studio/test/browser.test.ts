@@ -1,28 +1,16 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import type { Server } from "node:http";
 import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
+import { findChrome } from "../../../scripts/find-chrome.js";
 import { STUDIO_CLIENT_DIR, createStudioApp } from "../src/index.js";
 
 /**
- * A real browser through the built client. It needs a Chromium: `CHROME_PATH`,
- * Playwright's (`/opt/pw-browsers`), or the system's (GitHub's runners have
- * Chrome). Without one, or before `npm run build` bundles the client, it skips.
+ * A real browser through the built client. Without a Chromium (see
+ * scripts/find-chrome.ts), or before `npm run build` bundles the client, it skips.
  */
-function findChrome(): string | undefined {
-  const pw = "/opt/pw-browsers";
-  const candidates = [
-    process.env.CHROME_PATH,
-    ...(existsSync(pw) ? readdirSync(pw).filter((d) => d.startsWith("chromium-")).map((d) => path.join(pw, d, "chrome-linux/chrome")) : []),
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser"
-  ];
-  return candidates.find((c): c is string => typeof c === "string" && existsSync(c));
-}
-
 const chrome = findChrome();
 const built = existsSync(path.join(STUDIO_CLIENT_DIR, "studio.js"));
 /** Set to a directory to keep a screenshot of each screen (the docs' images). */

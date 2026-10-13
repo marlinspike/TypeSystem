@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b && tsx scripts/build-studio.ts",
+    "build": "tsc -b && tsx scripts/build-clients.ts",
     "build:postgres": "tsc -b packages/registry-store-postgres packages/adapter-postgres",
     "migrate:postgres": "npm run migrate --workspace=@typesys/registry-store-postgres && npm run migrate --workspace=@typesys/adapter-postgres",
     "test": "vitest run",
@@ -31,6 +31,7 @@
     "load-test": "tsx scripts/load-test.ts",
     "demo": "tsx packages/demo-web/src/server.ts",
     "studio": "tsx scripts/studio.ts",
+    "mission": "tsx scripts/mission.ts",
     "clean": "tsc -b --clean",
     "changeset": "changeset",
     "version-packages": "changeset version",

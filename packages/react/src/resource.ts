@@ -47,3 +47,13 @@ export class Resource<T> {
     for (const l of [...this.listeners]) l();
   }
 }
+
+/** The state's data, whether settled or kept visible while a newer read runs. */
+export function dataOf<T>(state: ResourceState<T>): T | undefined {
+  return "data" in state ? state.data : undefined;
+}
+
+/** The state's error, when its latest read or call failed. */
+export function errorOf(state: ResourceState<unknown>): Error | undefined {
+  return state.status === "error" ? state.error : undefined;
+}

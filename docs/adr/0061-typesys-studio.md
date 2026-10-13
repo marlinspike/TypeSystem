@@ -7,7 +7,7 @@ Accepted. Implemented in:
 - the new `@typesys/studio`: `createStudioApp`, which serves the governed API (ADR-0058) under `/api` beside a bundled browser client, and `STUDIO_CLIENT_DIR`;
 - `@typesys/sdk`, which gains `querySource` (a query as the fluent SDK code that builds it) and `httpCall` (one authenticated call to the API, now shared by `httpTransport`);
 - `@typesys/http`, which gains `GET /me`: the caller the API resolved from the token;
-- `scripts/build-studio.ts`, run by `npm run build`, and `npm run studio`, which serves the Studio over the airforce demo.
+- `scripts/build-studio.ts` (since ADR-0063 `scripts/build-clients.ts`, which bundles every browser client), run by `npm run build`, and `npm run studio`, which serves the Studio over the airforce demo.
 
 Proven by:
 

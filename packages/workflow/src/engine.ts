@@ -205,6 +205,27 @@ export class WorkflowEngine {
     return { runId, workflow: workflow.name, step: approval.name, policy: approval.policy, initiator: state.initiator.subjectId, presented };
   }
 
+  /**
+   * Every approval waiting on someone `approver` may be: each run waiting on
+   * an approval is decided for them as `pendingApproval` decides it, and
+   * audited, and only the admitted ones are returned. It reads every run in
+   * the journal, which suits the reference journal; a durable journal would
+   * index runs by what they wait on.
+   */
+  async approvalsFor(approver: Identity): Promise<PendingApproval[]> {
+    const found: PendingApproval[] = [];
+    for (const runId of await this.journal.runs()) {
+      const { state } = await this.load(runId);
+      if (state.finished || !state.waitingOn) continue;
+      try {
+        found.push(await this.pendingApproval(runId, approver));
+      } catch (err) {
+        if (!(err instanceof AuthorizationError)) throw err;
+      }
+    }
+    return found;
+  }
+
   /** Continues a run after a restart, or after a crash: from the journal, never from memory. */
   async resume(runId: string): Promise<RunView> {
     return this.advance(runId);

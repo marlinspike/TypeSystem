@@ -109,6 +109,7 @@ export function createApiRouter(opts: ApiOptions): Router {
   router.get("/workflow-runs/:id", route(200, (req) => workflows().status(param(req, "id"))));
   router.get("/workflow-runs/:id/outputs", route(200, (req, who) => workflows().outputs(param(req, "id"), who)));
   router.get("/workflow-runs/:id/approval", route(200, (req, who) => workflows().pendingApproval(param(req, "id"), who)));
+  router.get("/workflow-approvals", route(200, (_req, who) => workflows().approvalsFor(who)));
   router.post(
     "/workflow-runs/:id/approvals/:step",
     route(200, (req, who) => {

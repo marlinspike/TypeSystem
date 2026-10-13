@@ -145,6 +145,7 @@ export function openApiDocument(model: ModelDescription, opts: { title?: string;
     paths["/workflow-runs/{id}"] = { get: op("workflowStatus", "Where a run is, with no values", run, { parameters: [pathParam("id")] }) };
     paths["/workflow-runs/{id}/outputs"] = { get: op("workflowOutputs", "A run's outputs, to its initiator only", { type: "object" }, { parameters: [pathParam("id")] }) };
     paths["/workflow-runs/{id}/approval"] = { get: op("pendingApproval", "What the waiting approval presents, to an admitted approver", { type: "object" }, { parameters: [pathParam("id")] }) };
+    paths["/workflow-approvals"] = { get: op("pendingApprovals", "Every approval waiting on someone the caller may be", { type: "array", items: { type: "object" } }) };
     paths["/workflow-runs/{id}/approvals/{step}"] = {
       post: op("decideApproval", "Approve or reject, as an admitted approver other than the initiator", run, {
         parameters: [pathParam("id"), pathParam("step")],
