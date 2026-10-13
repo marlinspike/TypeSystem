@@ -279,6 +279,17 @@ document that gap rather than close it in this pass.
   rule or marking is refused. Before it, a subtype naming only an object
   policy exposed every protected value it inherited. Proven by
   `packages/core/test/subtype-protections.test.ts`, and mutation-checked.
+- Coalesced computed reads (ADR-0062), opt-in with `computedReads:
+  "coalesce"`: within one request, computed properties' identical adapter
+  reads are made once, and concurrent equality lookups become one `in`
+  query split back per value, only where the adapter filters that
+  property exactly. Answers are copied once and frozen. Proven identical
+  to direct reads for three callers over generated fleets by
+  `packages/domain-airforce/test/computed-read-coalescing.test.ts`, with
+  `packages/core/test/read-coalescer.test.ts`, and mutation-checked.
+  Measured: 225 maintenance calls per 200-aircraft page become 12 to 14,
+  p50 20% to 30% lower; slower where lookups find nothing. Not addressed:
+  batching by id or of relationships, wider fan-out than `maxConcurrency`.
 - TypeS Studio (ADR-0061): `@typesys/studio` serves the governed API
   beside a browser client under a strict Content Security Policy. The
   client uses only the API, as the signed-in person: the model with
@@ -400,7 +411,7 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 953 tests (2026-10-13): 892 run with no infrastructure, the other 61
+- 965 tests (2026-10-13): 904 run with no infrastructure, the other 61
   need PostgreSQL, Redis or a KMS emulator. Two of the 892 drive the
   Studio in Chromium and skip where no Chromium is installed. Plus stdio
   and HTTP MCP smoke tests and the MCP conformance suite, all green.

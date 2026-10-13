@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { ReadCoalescer } from "./read-coalescer.js";
 import { createHmac } from "node:crypto";
 import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
@@ -262,6 +263,8 @@ interface RequestContext {
   owner: SemanticRuntime;
   budget: Semaphore;
   operation: RuntimeOperation;
+  /** Computed properties' adapter reads, coalesced for this request when the runtime is so configured (ADR-0062). */
+  reads?: ReadCoalescer;
 }
 
 /**
@@ -343,6 +346,14 @@ export interface SemanticRuntimeOptions {
    * supplies the settings its guarantees fix and refuses weaker ones.
    */
   securityProfile?: SecurityProfile;
+  /**
+   * How computed properties reach adapters within one request (ADR-0062).
+   * Default `"direct"`: every read they make goes to the adapter. `"coalesce"`:
+   * an identical read is made once per request, and concurrent equality
+   * lookups on one property become one `in` query, split back per value.
+   * Computations receive the same answers either way.
+   */
+  computedReads?: "direct" | "coalesce";
 }
 
 /** Every option a runtime understands — under a security profile, anything else is refused as a likely typo. */
@@ -356,7 +367,8 @@ const RUNTIME_OPTIONS: Readonly<Record<keyof SemanticRuntimeOptions, true>> = {
   classification: true,
   telemetryIdentity: true,
   rowSecurity: true,
-  securityProfile: true
+  securityProfile: true,
+  computedReads: true
 };
 
 const isFunction = (value: unknown): boolean => typeof value === "function";
@@ -434,6 +446,7 @@ export class SemanticRuntime {
   private readonly profile: SecurityProfile | undefined;
   /** How identifiers and errors reach spans, per the telemetry identity policy (ADR-0045, ADR-0047). */
   private readonly telemetry: Telemetry;
+  private readonly coalesceComputedReads: boolean;
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -463,6 +476,9 @@ export class SemanticRuntime {
     const rowSecurity = options.rowSecurity ?? "post-filter";
     if (rowSecurity !== "post-filter" && rowSecurity !== "require-exact") throw new TypeError(`rowSecurity must be "post-filter" or "require-exact"`);
     this.rowSecurity = rowSecurity;
+    const computedReads = options.computedReads ?? "direct";
+    if (computedReads !== "direct" && computedReads !== "coalesce") throw new TypeError(`computedReads must be "direct" or "coalesce"`);
+    this.coalesceComputedReads = computedReads === "coalesce";
     // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
     this.telemetry = telemetryOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
@@ -1133,11 +1149,13 @@ export class SemanticRuntime {
     const values: Record<string, unknown> = { ...resolved.values };
     const computedResults: Record<string, unknown> = {};
 
+    const request = this.currentRequest();
+    const reads = this.coalesceComputedReads && request ? (request.reads ??= new ReadCoalescer()) : undefined;
     const ctx: ComputeContext = {
       identity,
       objectId,
       typeName: typeDef.name,
-      getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
+      getAdapter: (dataSourceId: string) => (reads ? reads.view(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId)),
       getProperty: async (name: string) => {
         if (name in values) return values[name];
         if (name in computedResults) return computedResults[name];
