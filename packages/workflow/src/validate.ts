@@ -67,15 +67,24 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
       if (action && action.idempotency === "none" && (step.retry?.maxAttempts ?? 1) > 1) {
         add({ code: "retry-not-idempotent", step: step.name, message: `step "${step.name}" retries "${action.name}", whose idempotency is none` });
       }
-      if (action && action.sideEffects !== "none") {
+      // The step's own Action, and its compensation: both run on what the step read, the latter on any later failure.
+      const compensation = step.compensate ? actions.get(step.compensate.action) : undefined;
+      const unreviewed = new Set<string>();
+      for (const effect of [action, compensation]) {
+        if (!effect || effect.sideEffects === "none") continue;
         const reads = upstream(workflow.steps, step.name);
         for (const ai of workflow.steps.filter((s) => s.kind === "ai" && reads.has(s.name))) {
-          const reviewed = workflow.steps.some((s) => s.kind === "approval" && reads.has(s.name) && upstream(workflow.steps, s.name).has(ai.name));
-          if (!reviewed) {
+          // An approval reviews the answer only if it cannot be skipped while the AI step ran: it has no
+          // condition, or the very condition the AI step has (the engine also refuses to skip it, ADR-0057).
+          const reviewed = workflow.steps.some(
+            (s) => s.kind === "approval" && reads.has(s.name) && upstream(workflow.steps, s.name).has(ai.name) && (!s.when || s.when === ai.when)
+          );
+          if (!reviewed && !unreviewed.has(ai.name)) {
+            unreviewed.add(ai.name);
             add({
               code: "unreviewed-ai-output",
               step: step.name,
-              message: `step "${step.name}" invokes "${action.name}" (${action.sideEffects}) from the output of AI step "${ai.name}" with no approval of it in between`
+              message: `step "${step.name}" ${effect === action ? "invokes" : "compensates with"} "${effect.name}" (${effect.sideEffects}) from the output of AI step "${ai.name}" with no approval of it in between`
             });
           }
         }

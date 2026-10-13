@@ -11,6 +11,7 @@ import { WorkflowEngine, scriptedModel, simulate, validateWorkflow, type AnyStep
 const { maintainer, lead } = demoIdentities;
 const START = { aircraftId: "AF86-0147", assignTo: "SSgt Rivera" };
 const base = groundForRepair as unknown as AnyWorkflow;
+const original = [...base.steps];
 const step = (name: string) => base.steps.find((s) => s.name === name)!;
 
 async function workOrders(tb: AirforceTestbed) {
@@ -24,7 +25,7 @@ async function engineFor(tb: AirforceTestbed, w: AnyWorkflow, triage: unknown) {
 }
 
 describe("AI output reaching a side effect without approval", () => {
-  it("an approval whose `when` reads the AI output lets the model skip its own review", async () => {
+  it("an approval whose `when` reads the AI output cannot let the model skip its own review", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     const approval = step("leadApproval") as Extract<AnyStep, { kind: "approval" }>;
     const w: AnyWorkflow = {
@@ -40,17 +41,29 @@ describe("AI output reaching a side effect without approval", () => {
     // The definition check accepts it ...
     const model = await describeModel(tb.registry);
     const diagnostics = validateWorkflow(w, model);
-    const engine = await engineFor(tb, w, { eventId: "EVT-9002", priority: "routine", rationale: "x" });
-    const run = await engine.start(w.name, START, maintainer);
-    // ... and the model's answer alone opened and started a work order: no person saw it.
-    expect({ status: run.status, workOrders: (await workOrders(tb)).length, diagnostics: diagnostics.map((d) => d.code) }).toEqual({
-      status: "waiting-approval",
-      workOrders: 0,
-      diagnostics: ["unreviewed-ai-output"]
-    });
+    expect(diagnostics.map((d) => d.code)).toContain("unreviewed-ai-output");
+    await expect(engineFor(tb, w, { eventId: "EVT-9002", priority: "routine", rationale: "x" })).rejects.toThrow(/no approval of it in between/);
+    expect((await workOrders(tb)).length).toBe(0);
   });
 
-  it("a read step can invoke a side-effecting Action from AI output; the definition check never looks at read steps", async () => {
+  it("the engine never skips an approval downstream of an AI step that ran, whatever its condition says", async () => {
+    // Defense in depth for a definition registered without the check (an engine built from journals, say):
+    // the approval's condition is ignored once the model has answered.
+    const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
+    const approval = step("leadApproval") as Extract<AnyStep, { kind: "approval" }>;
+    const steps = base.steps.map((s) => (s.name === "leadApproval" ? { ...approval, when: () => false } : s));
+    const engine = await engineFor(tb, base, { eventId: "EVT-9002", priority: "routine", rationale: "x" });
+    // Swap the registered definition's steps after registration's check.
+    (base as { steps: AnyStep[] }).steps.splice(0, base.steps.length, ...steps);
+    try {
+      const run = await engine.start(base.name, START, maintainer);
+      expect({ status: run.status, workOrders: (await workOrders(tb)).length }).toEqual({ status: "waiting-approval", workOrders: 0 });
+    } finally {
+      (base as { steps: AnyStep[] }).steps.splice(0, base.steps.length, ...original);
+    }
+  });
+
+  it("a read step cannot invoke a side-effecting Action from AI output", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     const w: AnyWorkflow = {
       ...base,
@@ -68,17 +81,14 @@ describe("AI output reaching a side effect without approval", () => {
         }
       ]
     };
-    const diagnostics = validateWorkflow(w, await describeModel(tb.registry));
+    // A read step's body is opaque to the definition check, so the engine refuses it at run time:
+    // a read step's client cannot invoke an Action.
     const engine = await engineFor(tb, w, { eventId: "EVT-9002", priority: "urgent", rationale: "x" });
     const run = await engine.start(w.name, START, maintainer);
-    expect({ status: run.status, workOrders: (await workOrders(tb)).length, diagnostics: diagnostics.length > 0 }).toEqual({
-      status: "failed",
-      workOrders: 0,
-      diagnostics: true
-    });
+    expect({ status: run.status, workOrders: (await workOrders(tb)).length }).toEqual({ status: "failed", workOrders: 0 });
   });
 
-  it("a compensation with side effects fed by AI output is not checked when the step's own Action has none", async () => {
+  it("a compensation with side effects fed by AI output is checked even when the step's own Action has none", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     const real = await describeModel(tb.registry);
     // A read-only Action, as any model may declare one.
@@ -104,7 +114,7 @@ describe("AI output reaching a side effect without approval", () => {
 });
 
 describe("simulate has no side effects", () => {
-  it("a read step's client invokes Actions for real inside simulate()", async () => {
+  it("a read step's client cannot invoke Actions for real inside simulate()", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     const w: AnyWorkflow = {
       ...base,
@@ -121,14 +131,14 @@ describe("simulate has no side effects", () => {
       ]
     };
     const result = await simulate(tb, w, { initiator: maintainer, input: START });
-    expect(result.run.status).toBe("completed");
+    expect(result.run.status).toBe("failed"); // the read step's attempt to invoke is refused
     const rows = (await tb.registry.listAuditEvents({ limit: 1000 })).items;
     expect({ workOrders: (await workOrders(tb)).length, invoked: rows.some((e) => e.operation === "invokeAction") }).toEqual({ workOrders: 0, invoked: false });
   });
 });
 
 describe("approval presentation", () => {
-  it("shows an admitted approver data read under the initiator's clearance that the approver is not cleared for", async () => {
+  it("does not show an admitted approver data read under the initiator's clearance that the approver is not cleared for", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     // Admitted by airforce.maintenance-lead (maintainer + lead), cleared only to CUI.
     const cuiLead: Identity = { subjectId: "user-lead-cui", roles: ["maintainer", "lead"], attributes: { displayName: "TSgt Cui" }, clearance: "CUI" };
@@ -148,7 +158,7 @@ describe("approval presentation", () => {
 });
 
 describe("no replay / honest status for a non-idempotent Action", () => {
-  it("an Action that took effect and then timed out leaves the run 'failed', not 'needs-reconciliation'", async () => {
+  it("an Action that took effect and then timed out leaves the run 'needs-reconciliation', not 'failed'", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     // The runtime the engine sees: the write lands, then the call times out (as an adapter timeout after the write).
     const runtime = new Proxy(tb.runtime, {
@@ -168,5 +178,28 @@ describe("no replay / honest status for a non-idempotent Action", () => {
     const done = await engine.approve(run.runId, "leadApproval", lead, { approved: true });
     expect((await workOrders(tb)).length).toBe(1); // CreateMaintenanceWorkOrder (idempotency none) did run
     expect(done.status).toBe("needs-reconciliation");
+  });
+});
+
+describe("run status", () => {
+  it("is shown to the initiator and an admitted approver, and to nobody else (no such run, as for a missing one)", async () => {
+    const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
+    const engine = await engineFor(tb, base, { eventId: "EVT-9002", priority: "urgent", rationale: "x" });
+    const run = await engine.start(base.name, START, maintainer);
+    expect((await engine.status(run.runId, maintainer)).status).toBe("waiting-approval");
+    expect((await engine.status(run.runId, lead)).status).toBe("waiting-approval");
+    await expect(engine.status(run.runId, demoIdentities.viewer)).rejects.toMatchObject({ name: "NotFoundError" });
+    await expect(engine.status("no-such-run", maintainer)).rejects.toMatchObject({ name: "NotFoundError" });
+  });
+
+  it("listing approvals audits no denial for runs the caller merely passes by", async () => {
+    const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
+    const engine = await engineFor(tb, base, { eventId: "EVT-9002", priority: "urgent", rationale: "x" });
+    await engine.start(base.name, START, maintainer);
+    const before = (await tb.registry.listAuditEvents({ limit: 10000 })).items.filter((e) => e.decision === "deny").length;
+    expect(await engine.approvalsFor(demoIdentities.viewer)).toEqual([]);
+    const after = (await tb.registry.listAuditEvents({ limit: 10000 })).items.filter((e) => e.decision === "deny").length;
+    expect(after).toBe(before);
+    expect((await engine.approvalsFor(lead)).length).toBe(1);
   });
 });

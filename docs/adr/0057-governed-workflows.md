@@ -199,3 +199,34 @@ slice.
   is the common case where a retry duplicates it; retries are therefore
   per step, only on retryable errors, and refused for non-idempotent
   Actions.
+
+## Amended 2026-10-13 (pressure test)
+
+An independent review found five ways around the guarantees above; each is
+now closed and has a test in `packages/workflow/test/pressure-workflow.test.ts`.
+
+- **An approval's condition could skip the review it exists for.** An
+  approval with a `when` that reads the model's answer let the model decide
+  whether a person saw it. The definition check now counts an approval as
+  reviewing an AI step only when it has no condition or the AI step's own
+  condition, and the engine (and replay) never skip an approval downstream
+  of an AI step that ran.
+- **A read step could invoke Actions.** Its SDK client could call
+  `action(..).invoke`, bypassing the review rule, the journal's no-replay
+  rule and, in `simulate()`, the promise to change nothing. Read steps now
+  get a client whose `invokeAction` throws.
+- **Compensations were not checked.** A side-effecting compensation fed by
+  AI output now needs the same review as the step's own Action.
+- **An approver saw what the initiator could read.** `pendingApproval` now
+  re-reads every object in the outputs (anything with `$id` and `$type`) as
+  the approver and keeps only the values that read returns. What a compute
+  or AI step derived from a withheld value is not covered: keep such steps
+  out of an approval's `needs`.
+- **A timeout after a write was reported as `failed`.** A non-idempotent
+  Action whose last error was retryable (outcome unknown) now ends the run
+  as `needs-reconciliation`, also after a restart.
+
+Run status (`status(runId, viewer)`) is now shown only to the initiator or
+an approver the waiting approval admits; anyone else, and a missing run,
+get `NotFoundError`. `approvalsFor` no longer audits a denial for each run a
+listing passes by.

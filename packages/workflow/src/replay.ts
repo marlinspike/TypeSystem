@@ -3,6 +3,7 @@ import type { AnyStep, AnyWorkflow, StepContext } from "./definition.js";
 import { ReplayDivergenceError, WorkflowDefinitionError } from "./errors.js";
 import type { JournalRecord, OutputSource } from "./journal.js";
 import { fold, type RunState } from "./state.js";
+import { upstream } from "./validate.js";
 
 export { canonical };
 
@@ -59,7 +60,7 @@ export function verifyReplay(workflow: AnyWorkflow, state: RunState): void {
         throw new ReplayDivergenceError(step.name, `${what} now throws: ${(err as Error).message}`);
       }
     };
-    const runs = step.when ? evaluate("when", () => step.when!(ctx)) : true;
+    const runs = !step.when || reviewsAiOutput(workflow, step, state) || evaluate("when", () => step.when!(ctx));
     if (recorded.outcome?.kind === "skipped") {
       if (runs) throw new ReplayDivergenceError(step.name, "it was skipped, and would now run");
       continue;
@@ -89,4 +90,16 @@ export function replay(workflow: AnyWorkflow, runId: string, records: readonly J
   const state = fold(runId, records);
   if (state.workflow !== workflow.name) throw new ReplayDivergenceError("(run)", `the journal is of workflow "${state.workflow}", not "${workflow.name}"`);
   verifyReplay(workflow, state);
+}
+
+/**
+ * An approval downstream of an AI step that ran: it reviews the model's
+ * answer, so it runs whatever its condition says, which could read that
+ * very answer (ADR-0057).
+ */
+export function reviewsAiOutput(workflow: AnyWorkflow, step: AnyStep, state: RunState): boolean {
+  if (step.kind !== "approval") return false;
+  return [...upstream(workflow.steps, step.name)].some(
+    (n) => workflow.steps.find((x) => x.name === n)?.kind === "ai" && state.steps.get(n)?.outcome?.kind === "completed"
+  );
 }
