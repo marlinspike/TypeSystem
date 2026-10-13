@@ -78,7 +78,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | # | Slice | Status | ADR | Evidence |
 |---|---|---|---|---|
 | 0 | Baseline measurements | ✅ | — | [`evidence/baseline-2026-10-13.md`](evidence/baseline-2026-10-13.md) |
-| 1 | Derived values inherit their inputs' read policy; explicit, audited release | ⏳ | 0052 | |
+| 1 | Derived values inherit their inputs' read policy; explicit, audited release | ✅ | [0052](adr/0052-derived-values-inherit-their-inputs-read-policy.md) | `packages/core/test/derived-value-release.test.ts`, 6 mutations caught |
 | 2 | Instance-scoped Actions, `previewAction`, MCP Host/Origin checks | ⏳ | 0053 | |
 | 3 | Filtering on computed properties; explainable execution plans | ⏳ | 0054 | |
 | 4 | `@typesys/sdk`: typed model inference and a fluent governed client | ⏳ | 0055 | |

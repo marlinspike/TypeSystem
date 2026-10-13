@@ -163,6 +163,14 @@ document that gap rather than close it in this pass.
   `packages/core/test/row-level-authorization.test.ts` and
   `packages/domain-hospital/test/row-level-authorization.test.ts`, including
   attack suites. Not addressed: instance-scoped Actions (see the ADR).
+- Derived values inherit their inputs' read policy (ADR-0052): a computed
+  property is withheld from a caller who may not read every input it
+  depends on, transitively and even where the input has no value, unless the
+  Type lists the input in `releases`; each withholding and each release is
+  audited, and markings are never released. Proven by
+  `packages/core/test/derived-value-release.test.ts`, mutation-checked. Not
+  addressed: what a derivation reads through `ctx.getAdapter` about other
+  objects is the domain author's responsibility, not checked by the runtime.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both

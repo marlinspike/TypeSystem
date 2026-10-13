@@ -32,6 +32,8 @@ export interface ComputedPropertyDefinition {
    * whichever process reads the Type back.
    */
   binding: string;
+  /** Inputs whose read policy this value is released from (ADR-0052). Every entry is one of `dependsOn`. */
+  releases?: string[];
   compute: (ctx: ComputeContext) => Promise<unknown>;
 }
 

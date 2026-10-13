@@ -20,6 +20,8 @@ export interface PersistedComputedProperty {
   dependsOn: string[];
   resolutionMode: "live" | "materialized" | "cached";
   binding: string;
+  /** Dependencies whose read policy this value is released from (ADR-0052). Absent on rows written before it. */
+  releases?: string[];
 }
 
 export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[]): PersistedComputedProperty[] {
@@ -31,7 +33,7 @@ export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[])
           `"binding" key it was registered under (see ADR-0015).`
       );
     }
-    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding };
+    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding, ...(cp.releases?.length ? { releases: cp.releases } : {}) };
   });
 }
 
@@ -43,7 +45,7 @@ export function persistedToComputedProperties(
   return persisted.map((p) => {
     const compute = bindings.computed[p.binding];
     if (!compute) throw new MissingBindingError("computed", p.binding, context);
-    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, compute };
+    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, ...(p.releases?.length ? { releases: p.releases } : {}), compute };
   });
 }
 

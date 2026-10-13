@@ -210,7 +210,12 @@ the object (via a `ComputeContext` exposing `getProperty()`, backed by
 already-resolved raw values and prior computed results) and merges the
 results into the returned `values`, after which property-level policy
 redaction still applies (a computed property is just another property from
-the policy engine's point of view). Provenance for a computed property is
+the policy engine's point of view). A computed property also inherits the
+read restrictions of its inputs (ADR-0052): it is withheld from a caller who
+may not read every property in its `dependsOn`, unless the Type lists that
+input in the computed property's `releases`, an explicit and audited
+assertion that the derived value does not disclose it. Markings always
+follow the derivation and are never released (ADR-0032). Provenance for a computed property is
 not stored directly — `runtime.getProvenance()` detects it's computed and
 recursively aggregates the provenance of its `dependsOn` properties instead.
 
@@ -218,10 +223,10 @@ recursively aggregates the provenance of its `dependsOn` properties instead.
 (`packages/domain-airforce/src/computed/readiness-status.ts`):
 `dependsOn: ["maintenanceStatus"]`, `resolutionMode: "live"`, binding
 `computeReadinessStatus`, which maps `maintenanceStatus` (`"down" |
-"degraded" | "operational"`) to `"NMC" | "PMC" | "FMC"`. A viewer identity
-sees `readinessStatus` but not the raw `maintenanceStatus` it depends on
-(property-level policy denies `maintenanceStatus` for non-maintainers) —
-proven in
+"degraded" | "operational"`) to `"NMC" | "PMC" | "FMC"`. Since that map is
+one to one, a viewer, whom property-level policy denies `maintenanceStatus`,
+is denied `readinessStatus` too (ADR-0052), while `needsAttention`, which the
+domain releases from `maintenanceStatus` explicitly, stays visible — proven in
 `packages/domain-airforce/test/readiness-computed-property.test.ts`.
 
 `ComputeContext` (the `ctx` a binding function receives) also exposes

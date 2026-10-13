@@ -147,9 +147,15 @@ export class SemanticRegistry {
         if (!compute) {
           throw new Error(`No compute implementation registered for binding "${spec.binding}" (property "${name}" on type "${opts.name}")`);
         }
+        const releases = spec.releases ?? [];
+        const stray = releases.filter((r) => !spec.dependsOn.includes(r));
+        if (stray.length > 0) {
+          throw new Error(`Computed property "${name}" on type "${opts.name}" releases ${stray.map((r) => `"${r}"`).join(", ")}, which it does not depend on (ADR-0052)`);
+        }
         computedByName.set(name, {
           name,
           dependsOn: spec.dependsOn,
+          ...(releases.length > 0 ? { releases: [...releases] } : {}),
           resolutionMode: spec.resolutionMode ?? "live",
           cacheTtlMs: spec.cacheTtlMs,
           binding: spec.binding,

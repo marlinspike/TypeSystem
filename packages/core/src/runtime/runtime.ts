@@ -91,6 +91,11 @@ function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undef
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
+/** Whether some computed property of the Type declares `name` as an input in its `dependsOn`. */
+function isDeclaredInput(typeDef: TypeDefinition, name: string): boolean {
+  return typeDef.computedProperties.some((cp) => cp.dependsOn.includes(name));
+}
+
 /** How identifiers — the caller's, and the objects it touches — reach telemetry (ADR-0045, ADR-0047). */
 export type TelemetryIdentity = "none" | "clear" | { mode: "pseudonymous"; key: Uint8Array };
 
@@ -1057,6 +1062,8 @@ export class SemanticRuntime {
       getProperty: async (name: string) => {
         if (name in values) return values[name];
         if (name in computedResults) return computedResults[name];
+        // A declared input this object simply has no value for is undefined; only an undeclared name is a defect.
+        if (isDeclaredInput(typeDef, name)) return undefined;
         throw new Error(`Property "${name}" not available for computed-property dependency resolution`);
       }
     };
@@ -1071,16 +1078,50 @@ export class SemanticRuntime {
     const classified = await this.classifiedOut(typeDef, objectId, identity, values, resolved.provenance);
     for (const name of classified) delete values[name];
 
-    const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
-    for (const [propName, policyName] of Object.entries(propertyPolicies)) {
+    // Each member policy is decided at most once per object read, whether for its own value or for a derivation.
+    const memberDecisions = new Map<string, Promise<boolean>>();
+    const memberReadable = (member: string): Promise<boolean> => {
+      const policyName = memberPolicyOf(typeDef, member);
+      if (!policyName) return Promise.resolve(true);
+      let decided = memberDecisions.get(member);
+      if (!decided) {
+        decided = this.evaluate(identity, "read", policyName, { typeName: typeDef.name, objectId, propertyPath: member, attributes }).then((d) => d.allow);
+        memberDecisions.set(member, decided);
+      }
+      return decided;
+    };
+
+    const unreadable = new Set<string>();
+    for (const propName of Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {})) {
       if (!(propName in values)) continue;
-      const decision = await this.evaluate(identity, "read", policyName, {
-        typeName: typeDef.name,
-        objectId,
-        propertyPath: propName,
-        attributes
-      });
-      if (!decision.allow) delete values[propName];
+      if (!(await memberReadable(propName))) {
+        delete values[propName];
+        unreadable.add(propName);
+      }
+    }
+
+    // A derived value is readable only where every input it derives from is (ADR-0052), as markings already
+    // propagate (ADR-0032): otherwise readinessStatus would disclose the maintenanceStatus it maps one to one.
+    // Declaration order, so a computed input has already been decided. An input with a policy is decided even
+    // when it has no value, since a derivation can disclose that absence too.
+    for (const cp of typeDef.computedProperties) {
+      const blocked: string[] = [];
+      for (const dep of cp.dependsOn) {
+        if (unreadable.has(dep) || !(await memberReadable(dep))) blocked.push(dep);
+      }
+      if (blocked.length === 0) continue;
+      const released = blocked.filter((dep) => cp.releases?.includes(dep));
+      const withheld = blocked.filter((dep) => !released.includes(dep));
+      const resource = { typeName: typeDef.name, objectId, propertyPath: cp.name };
+      if (withheld.length > 0) {
+        unreadable.add(cp.name);
+        if (!(cp.name in values)) continue;
+        delete values[cp.name];
+        await this.audit(identity, "read", resource, { allow: false, reason: "Derived from a property the caller may not read" }, { control: "derivation", inputs: withheld });
+      } else if (cp.name in values) {
+        // A release is a declared exception to the rule above, so every use of one is on the record.
+        await this.audit(identity, "read", resource, { allow: true }, { control: "derivation", released });
+      }
     }
 
     const provenance = resolved.provenance.filter((p) => p.propertyPath in values);
@@ -1594,9 +1635,17 @@ export class SemanticRuntime {
 
         const computed = typeDef.computedProperties.find((c) => c.name === propertyPath);
         if (computed) {
-          const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
-            this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes })
-          );
+          // A released input (ADR-0052) lets the value through but never the input: where the caller may not
+          // read it, its provenance is left out rather than refusing the whole answer. Any other unreadable
+          // input refuses, as the value itself is withheld.
+          const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, async (dep) => {
+            try {
+              return await this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes });
+            } catch (err) {
+              if (err instanceof AuthorizationError && computed.releases?.includes(dep)) return [];
+              throw err;
+            }
+          });
           return nested.flat();
         }
 

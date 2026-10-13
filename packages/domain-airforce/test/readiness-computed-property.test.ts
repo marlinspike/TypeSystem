@@ -12,15 +12,18 @@ describe("Aircraft.readinessStatus (computed property)", () => {
     expect(operational.values.readinessStatus).toBe("FMC");
   });
 
-  it("a viewer sees the derived readinessStatus but not the raw maintenanceStatus input it depends on", async () => {
+  it("a viewer sees neither maintenanceStatus nor readinessStatus, which maps it one to one (ADR-0052)", async () => {
     const { runtime } = await buildAirforceTestbed();
 
     const asViewer = await runtime.getObject("airforce.Aircraft", "AF86-0147", demoIdentities.viewer);
-    expect(asViewer.values.readinessStatus).toBe("PMC");
+    expect(asViewer.values.readinessStatus).toBeUndefined();
     expect(asViewer.values.maintenanceStatus).toBeUndefined();
+    // needsAttention is released from maintenanceStatus's policy by the domain, explicitly.
+    expect(asViewer.values.needsAttention).toBe(true);
 
     const asMaintainer = await runtime.getObject("airforce.Aircraft", "AF86-0147", demoIdentities.maintainer);
     expect(asMaintainer.values.maintenanceStatus).toBe("degraded");
+    expect(asMaintainer.values.readinessStatus).toBe("PMC");
   });
 
   it("getProvenance for a computed property aggregates provenance from its dependsOn sources", async () => {

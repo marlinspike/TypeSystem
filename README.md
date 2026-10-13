@@ -37,8 +37,9 @@ maintainer → tailNumber "AF86-0147", model "F-16C",
              readinessStatus "PMC", needsAttention true
 
 viewer     → tailNumber "AF86-0147", model "F-16C",
-             readinessStatus "PMC", needsAttention true
-             # maintenanceStatus hidden by a policy rule,
+             needsAttention true
+             # maintenanceStatus hidden by a policy rule, and
+             # readinessStatus with it, since it is derived from it;
              # deploymentLocation by its SECRET classification
 
 anonymous  → Not authorized: read airforce.Aircraft/AF86-0147

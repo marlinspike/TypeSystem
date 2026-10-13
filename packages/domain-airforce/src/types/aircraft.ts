@@ -42,6 +42,10 @@ export const AircraftType: DomainTypeEntry = {
         // lookup against the maintenance system (a different DataSource this
         // Aircraft has no direct Mapping to) — see ADR-0022.
         dependsOn: ["maintenanceStatus"],
+        // Released to every reader of the Aircraft (ADR-0052): a yes/no attention flag is meant for viewers,
+        // although it discloses one bit of the maintainer-only maintenanceStatus (false means not down and not
+        // degraded). readinessStatus, which maps maintenanceStatus one to one, is not released.
+        releases: ["maintenanceStatus"],
         binding: "computeNeedsAttention",
         resolutionMode: "live"
       }
