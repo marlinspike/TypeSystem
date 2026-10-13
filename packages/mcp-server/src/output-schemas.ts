@@ -118,3 +118,53 @@ export const PROVENANCE_OUTPUT: JsonSchema2020 = {
   required: ["provenance"],
   properties: { provenance: { type: "array", items: PROVENANCE_REF } }
 };
+
+/** `typesys_list_actions` (ADR-0053): what the caller may invoke, on a Type or on one object of it. */
+export const ACTIONS_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["actions"],
+  properties: {
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["name", "description", "authorized", "instanceScoped", "sideEffects", "idempotency"],
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          authorized: { type: "boolean", description: "Decided as invoking it would be; for an instance-scoped Action without an id, per Type." },
+          instanceScoped: { type: "boolean", description: "Decided per object: pass the object's id to know." },
+          sideEffects: { type: "string" },
+          idempotency: { type: "string" }
+        }
+      }
+    }
+  }
+};
+
+/** `typesys_preview_action` (ADR-0053): `SemanticRuntime.previewAction`'s `ActionPreview`. */
+export const ACTION_PREVIEW_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["action", "version", "authorized", "inputValid", "preconditions", "blockers", "wouldExecute", "effects"],
+  properties: {
+    action: { type: "string" },
+    version: { type: "string" },
+    target: { type: "object", required: ["typeName", "objectId"], properties: { typeName: { type: "string" }, objectId: { type: "string" } } },
+    authorized: { type: "boolean" },
+    inputValid: { type: ["boolean", "null"] },
+    preconditions: {
+      type: "array",
+      items: { type: "object", required: ["description", "satisfied"], properties: { description: { type: "string" }, satisfied: { type: ["boolean", "null"] } } }
+    },
+    blockers: {
+      type: "array",
+      items: { type: "object", required: ["kind", "message"], properties: { kind: { type: "string" }, message: { type: "string" } } }
+    },
+    wouldExecute: { type: "boolean" },
+    effects: {
+      type: "object",
+      required: ["sideEffects", "idempotency", "auditRequired"],
+      properties: { sideEffects: { type: "string" }, idempotency: { type: "string" }, auditRequired: { type: "boolean" } }
+    }
+  }
+};

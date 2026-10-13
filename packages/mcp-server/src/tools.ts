@@ -14,7 +14,7 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { AGGREGATE_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
+import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
 const AUTH_TOKEN_FIELD = {
   authToken: { type: "string", description: "Bearer token identifying the caller (see ADR-0009/0012)." }
@@ -142,6 +142,45 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
       outputSchema: QUERY_OUTPUT,
       // Unchecked JSON is fine here: SemanticRuntime validates each shape before doing anything else.
       run: async (args, identity) => ({ ...(await runtime.query(args as unknown as SemanticQuery, identity)) })
+    },
+    [`${p}list_actions`]: {
+      description:
+        "The Actions on a Type and whether you may invoke each. Pass `id` to decide instance-scoped Actions on that object.",
+      inputSchema: {
+        type: "object",
+        required: ["type"],
+        properties: { type: { type: "string", description: "The Type." }, id: { type: "string", description: "Optional: one object of it." } }
+      },
+      outputSchema: ACTIONS_OUTPUT,
+      run: async (args, identity) => {
+        const { type } = strings(`${p}list_actions`, args, ["type"]);
+        if (args.id !== undefined && (typeof args.id !== "string" || args.id === "")) throw new Error(`${p}list_actions: "id" must be a non-empty string`);
+        const listed = await runtime.listActions(type, identity, typeof args.id === "string" ? { objectId: args.id } : {});
+        return {
+          actions: listed.map(({ action, authorized, instanceScoped }) => ({
+            name: action.name,
+            description: action.description,
+            authorized,
+            instanceScoped,
+            sideEffects: action.sideEffects,
+            idempotency: action.idempotency
+          }))
+        };
+      }
+    },
+    [`${p}preview_action`]: {
+      description:
+        "Check what invoking an Action would do, with nothing executed: whether you're authorized, whether the input is valid, each precondition, and why it would not run.",
+      inputSchema: {
+        type: "object",
+        required: ["action", "input"],
+        properties: { action: { type: "string", description: "The Action's name." }, input: { type: "object", description: "The input you would invoke it with." } }
+      },
+      outputSchema: ACTION_PREVIEW_OUTPUT,
+      run: async (args, identity) => {
+        const { action } = strings(`${p}preview_action`, args, ["action"]);
+        return { ...(await runtime.previewAction(action, args.input, identity)) };
+      }
     },
     [`${p}aggregate`]: {
       description: "Run a grouped aggregation (count/sum/avg/min/max, optional groupBy) against a Type.",

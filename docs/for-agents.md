@@ -225,8 +225,15 @@ use tools only:
    before repeating a value back to a user as fact, especially in a
    regulated or safety-relevant domain.
 6. `tools/list` → which Actions exist for the Type you care about, their
-   exact input schemas, and their annotations.
-7. `tools/call` → invoke one. Check `isError` first, and confirm with a
+   exact input schemas, and their annotations. `typesys_list_actions`
+   `{ type, id? }` says which of them *you* may invoke; pass the object's
+   `id` for an instance-scoped Action (`instanceScoped: true`), which is
+   decided on that object's own attributes (ADR-0053).
+7. `typesys_preview_action` `{ action, input }` → what invoking it would do,
+   decided exactly as the real call would be and with nothing executed:
+   `authorized`, `inputValid`, each precondition, and `blockers` naming why
+   it would not run. Fix what the blockers say before invoking.
+8. `tools/call` → invoke one. Check `isError` first, and confirm with a
    human before an Action whose `destructiveHint` is true.
 
 ## A complete worked example (the shipped demo domain)

@@ -197,7 +197,7 @@ describe("ADR-0051: the MCP surface is shaped for tool-first agents", () => {
       );
       const builtIns = tools.filter((t) => t.name.startsWith(RESERVED_TOOL_PREFIX));
       expect(builtIns.map((t) => t.name).sort()).toEqual(
-        ["aggregate", "describe_type", "get_object", "get_provenance", "get_relationship", "list_types", "query"].map((n) => `${RESERVED_TOOL_PREFIX}${n}`)
+        ["aggregate", "describe_type", "get_object", "get_provenance", "get_relationship", "list_actions", "list_types", "preview_action", "query"].map((n) => `${RESERVED_TOOL_PREFIX}${n}`)
       );
       for (const tool of builtIns) {
         expect(tool.annotations, tool.name).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });

@@ -12,7 +12,9 @@ namespace TypeS {
     // A clinician's Provider id: what hospital.read-patient matches against.
     providerId?: String,
     // A patient's own Patient id.
-    patientId?: String
+    patientId?: String,
+    // A maintainer's name as work orders record it: what airforce.work-order-assignee matches against.
+    displayName?: String
   };
 
   action "airforce.read-aircraft" appliesTo {
@@ -25,6 +27,12 @@ namespace TypeS {
     resource: [airforce::Aircraft, airforce::MaintenanceEvent]
   };
 
+  // The UpdateWorkOrderStatus Action, decided per WorkOrder (ADR-0053).
+  action "airforce.work-order-assignee" appliesTo {
+    principal: [User],
+    resource: [airforce::WorkOrder]
+  };
+
   action "hospital.read-provider" appliesTo { principal: [User], resource: [hospital::Provider] };
   action "hospital.read-patient" appliesTo { principal: [User], resource: [hospital::Patient] };
   action "hospital.read-appointment" appliesTo { principal: [User], resource: [hospital::Appointment] };
@@ -33,7 +41,10 @@ namespace TypeS {
 }
 
 namespace airforce {
-  entity Aircraft, Component, MaintenanceEvent, WorkOrder;
+  entity Aircraft, Component, MaintenanceEvent;
+  entity WorkOrder {
+    assignedTo?: String
+  };
 }
 
 namespace hospital {

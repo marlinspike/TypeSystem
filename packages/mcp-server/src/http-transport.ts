@@ -11,6 +11,67 @@ export interface HttpTransportOptions {
   identityResolver: IdentityResolver;
   /** What each per-request server announces in `initialize`. */
   serverInfo?: McpServerInfo;
+  /**
+   * Host names (no port) the server answers to on `/mcp` (ADR-0053). Default:
+   * `localhost`, `127.0.0.1` and `[::1]`, so a web page cannot reach a local
+   * server through DNS rebinding. A server behind a real name lists it; `"*"`
+   * disables the check, for a server whose proxy already enforces it.
+   */
+  allowedHosts?: readonly string[] | "*";
+  /**
+   * Browser origins allowed to call `/mcp`. A request with no `Origin` header
+   * (any non-browser client) is unaffected. Default: `http(s)://` on any
+   * allowed host, any port.
+   */
+  allowedOrigins?: readonly string[];
+}
+
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+/** The host name of a `Host` header value, lower-cased, without its port; `undefined` if it doesn't parse. */
+function hostnameOf(hostHeader: string | undefined): string | undefined {
+  if (!hostHeader) return undefined;
+  try {
+    return new URL(`http://${hostHeader}`).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * DNS-rebinding protection (ADR-0053, closing ADR-0051's follow-up F): `/mcp`
+ * answers only to an allowed `Host`, and to a browser only from an allowed
+ * `Origin`. Checked before identity is resolved or any server is built, so a
+ * refused request reaches nothing.
+ */
+function originGuard(allowedHosts: readonly string[] | "*", allowedOrigins: readonly string[] | undefined) {
+  const hosts = allowedHosts === "*" ? undefined : new Set(allowedHosts.map((h) => h.toLowerCase()));
+  const origins = allowedOrigins ? new Set(allowedOrigins.map((o) => o.toLowerCase())) : undefined;
+  return (req: Request, res: Response, next: () => void): void => {
+    const host = hostnameOf(req.header("host"));
+    if (hosts && (host === undefined || !hosts.has(host))) {
+      jsonRpcError(res, 403, -32000, "Forbidden: Host not allowed");
+      return;
+    }
+    const origin = req.header("origin");
+    if (origin !== undefined) {
+      let allowed: boolean;
+      if (origins) allowed = origins.has(origin.toLowerCase());
+      else {
+        try {
+          const url = new URL(origin);
+          allowed = (url.protocol === "http:" || url.protocol === "https:") && (hosts === undefined || hosts.has(url.hostname.toLowerCase()));
+        } catch {
+          allowed = false;
+        }
+      }
+      if (!allowed) {
+        jsonRpcError(res, 403, -32000, "Forbidden: Origin not allowed");
+        return;
+      }
+    }
+    next();
+  };
 }
 
 function bearerTokenFromHeader(req: Request): string | undefined {
@@ -47,6 +108,8 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   const backend = requireBackend("createHttpApp", given?.backend);
   const baseResolver = requireIdentityResolver("createHttpApp", given?.identityResolver);
   const app = express();
+  const guard = originGuard(given?.allowedHosts ?? LOCAL_HOSTS, given?.allowedOrigins);
+  app.use("/mcp", guard);
   app.use(express.json());
 
   // Liveness (ADR-0029): the process is up and serving HTTP. Deliberately no

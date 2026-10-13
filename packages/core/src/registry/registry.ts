@@ -188,6 +188,17 @@ export class SemanticRegistry {
   }
 
   async registerAction(action: ActionDefinition): Promise<void> {
+    if (action.target) {
+      const { idFrom, type } = action.target;
+      const targetType = type ?? action.applicableTypes[0];
+      if (!targetType || !action.applicableTypes.includes(targetType)) {
+        throw new Error(`Action "${action.name}" targets "${String(targetType)}", which is not one of its applicableTypes (ADR-0053)`);
+      }
+      const idSchema = action.inputSchema.properties?.[idFrom];
+      if (!action.inputSchema.required?.includes(idFrom) || idSchema?.type !== "string") {
+        throw new Error(`Action "${action.name}" takes its target id from "${idFrom}", which must be a required string property of its inputSchema (ADR-0053)`);
+      }
+    }
     await this.store.putAction(action);
   }
 

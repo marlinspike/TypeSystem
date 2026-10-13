@@ -13,6 +13,14 @@ when { principal in [TypeS::Role::"maintainer", TypeS::Role::"viewer"] };
 @id("airforce.maintainer-only")
 permit (principal in TypeS::Role::"maintainer", action == TypeS::Action::"airforce.maintainer-only", resource);
 
+// Instance-scoped (ADR-0053): a maintainer may update the work orders assigned to them, a lead any.
+@id("airforce.work-order-assignee")
+permit (principal in TypeS::Role::"maintainer", action == TypeS::Action::"airforce.work-order-assignee", resource)
+when {
+  principal in TypeS::Role::"lead" ||
+  (resource has assignedTo && principal has displayName && resource.assignedTo != "" && resource.assignedTo == principal.displayName)
+};
+
 // ---- Hospital --------------------------------------------------------------
 
 // The provider directory is not sensitive: anyone may browse it.

@@ -9,4 +9,9 @@ export interface RuntimeCallContext {
 }
 
 export type ComputeContext = RuntimeCallContext & { objectId: string; typeName: string };
-export type ActionContext = RuntimeCallContext & { input: unknown };
+/**
+ * For an instance-scoped Action (ADR-0053), `target` names the object it acts
+ * on and `getProperty` reads that object's stored values, which the runtime
+ * already authorized the caller to read.
+ */
+export type ActionContext = RuntimeCallContext & { input: unknown; target?: { typeName: string; objectId: string } };

@@ -5,6 +5,9 @@ import type {
   PolicyRule
 } from "@typesys/core";
 import {
+  allOf,
+  anyOf,
+  requireAttributeMatch,
   requireRole,
   buildRuntime,
   coreManifest,
@@ -44,7 +47,9 @@ export interface AirforceTestbed {
 /** This domain's named policy rules — exported so a runtime hosting several domains (the demo web app) can register them alongside others'. */
 export const airforcePolicyRules: Record<string, PolicyRule> = {
   "airforce.read-aircraft": requireRole("maintainer", "viewer"),
-  "airforce.maintainer-only": requireRole("maintainer")
+  "airforce.maintainer-only": requireRole("maintainer"),
+  // Instance-scoped (ADR-0053): decided on the WorkOrder's own assignedTo.
+  "airforce.work-order-assignee": allOf(requireRole("maintainer"), anyOf(requireRole("lead"), requireAttributeMatch("assignedTo", "displayName")))
 };
 
 /**
@@ -88,7 +93,7 @@ export async function buildAirforceTestbed(
  * Aircraft without its SECRET `deploymentLocation` (ADR-0032).
  */
 export const demoIdentities: Record<"maintainer" | "viewer" | "anonymous", Identity> = {
-  maintainer: { subjectId: "user-maintainer-1", roles: ["maintainer"], attributes: {}, clearance: "SECRET" },
+  maintainer: { subjectId: "user-maintainer-1", roles: ["maintainer"], attributes: { displayName: "SSgt Rivera" }, clearance: "SECRET" },
   viewer: { subjectId: "user-viewer-1", roles: ["viewer"], attributes: {}, clearance: "CUI" },
   anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
 };

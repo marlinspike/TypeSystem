@@ -3,6 +3,7 @@ export * from "./types/component.js";
 export * from "./types/maintenance-event.js";
 export * from "./types/work-order.js";
 export * from "./actions/create-maintenance-work-order.js";
+export * from "./actions/update-work-order-status.js";
 export * from "./computed/readiness-status.js";
 export * from "./mappings/index.js";
 export * from "./manifest.js";

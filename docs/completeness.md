@@ -162,7 +162,7 @@ document that gap rather than close it in this pass.
   own-patient rule uses them. Proven by
   `packages/core/test/row-level-authorization.test.ts` and
   `packages/domain-hospital/test/row-level-authorization.test.ts`, including
-  attack suites. Not addressed: instance-scoped Actions (see the ADR).
+  attack suites. Instance-scoped Actions followed in ADR-0053.
 - Derived values inherit their inputs' read policy (ADR-0052): a computed
   property is withheld from a caller who may not read every input it
   depends on, transitively and even where the input has no value, unless the
@@ -171,6 +171,21 @@ document that gap rather than close it in this pass.
   `packages/core/test/derived-value-release.test.ts`, mutation-checked. Not
   addressed: what a derivation reads through `ctx.getAdapter` about other
   objects is the domain author's responsibility, not checked by the runtime.
+- Instance-scoped Actions and Action previews (ADR-0053): an Action may
+  name the object it acts on (`target: { idFrom }`), which the runtime reads
+  under the caller's read authorization before deciding the Action's policy
+  on that object's attributes, with Cedar parity; `previewAction` decides an
+  invocation (authorization, input, each precondition) and executes nothing;
+  `listActions` decides per object when given one. MCP exposes both as
+  `typesys_list_actions` and `typesys_preview_action`, and the HTTP transport
+  validates `Host` and `Origin` against DNS rebinding (the conformance
+  suite's scenario now passes). Proven by
+  `packages/core/test/instance-scoped-actions.test.ts`,
+  `packages/domain-airforce/test/update-work-order-status-action.test.ts`,
+  `packages/mcp-server/test/action-preview-tools.test.ts` and
+  `packages/mcp-server/test/http-origin.test.ts`, mutation-checked. Not
+  addressed: a preview relies on preconditions having no side effects; an
+  adapter-level dry run of the write itself.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -250,9 +265,9 @@ document that gap rather than close it in this pass.
   (each twin matches its resource in value, refusal, and audit rows, as
   three identities) and a hospital row-level case. The official MCP
   conformance suite runs in CI against a baseline that explains every
-  expected failure (`npm run conformance:mcp`). Not addressed: Host/Origin
-  validation against DNS rebinding, which the suite flags; instance-scoped
-  Actions; human-approval semantics; tool discovery at scale; a full
+  expected failure (`npm run conformance:mcp`). Host/Origin validation and
+  instance-scoped Actions have since landed (ADR-0053). Not addressed:
+  human-approval semantics; tool discovery at scale; a full
   remote-MCP authorization mode (ADR-0051's follow-ups).
 - Real OIDC/JWT identity resolution (`@typesys/auth-oidc`) — signature,
   issuer (RFC 9207), audience, and expiry verified via `jose`, scope

@@ -130,7 +130,48 @@ function telemetryOf(policy: unknown): Telemetry {
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
-export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction";
+export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction";
+
+/** Why a previewed Action would not run (ADR-0053), in the order the runtime checks. */
+export interface ActionBlocker {
+  kind: "authorization" | "target" | "input" | "precondition";
+  message: string;
+}
+
+/**
+ * What `invokeAction` would do with this input, as this caller, decided
+ * exactly as it would be and with no side effect (ADR-0053). Only a caller
+ * the Action's policy allows learns about input and preconditions.
+ */
+export interface ActionPreview {
+  action: string;
+  version: string;
+  /** The object an instance-scoped Action would act on, when the input names one. */
+  target?: { typeName: string; objectId: string };
+  authorized: boolean;
+  /** Whether the input matches the Action's `inputSchema`; `null` when not checked. */
+  inputValid: boolean | null;
+  /** Each precondition in order: `null` when not evaluated, since an earlier gate already blocks. */
+  preconditions: { description: string; satisfied: boolean | null }[];
+  blockers: ActionBlocker[];
+  wouldExecute: boolean;
+  /** What the Action declares it does, from its definition (ADR-0005). */
+  effects: { sideEffects: ActionDefinition["sideEffects"]; idempotency: ActionDefinition["idempotency"]; auditRequired: boolean };
+}
+
+/** One Action as `listActions` reports it. `instanceScoped` Actions are decided per object (ADR-0053). */
+export interface ListedAction {
+  action: ActionDefinition;
+  authorized: boolean;
+  instanceScoped: boolean;
+}
+
+/** The object an instance-scoped invocation was authorized against. */
+interface ActionTarget {
+  typeName: string;
+  objectId: string;
+  attributes: Attributes;
+}
 
 /**
  * How `query` treats a read policy it can't plan exactly (ADR-0038):
@@ -958,8 +999,8 @@ export class SemanticRuntime {
    * through this one audited path, so how an Action is listed and what
    * invoking it does can't drift apart.
    */
-  private async authorizeInvoke(identity: Identity, action: ActionDefinition, typeName: string): Promise<PolicyDecision> {
-    const resource = { typeName, actionName: action.name };
+  private async authorizeInvoke(identity: Identity, action: ActionDefinition, typeName: string, instance?: { objectId: string; attributes: Attributes }): Promise<PolicyDecision> {
+    const resource: PolicyResource = { typeName, actionName: action.name, ...(instance ?? {}) };
     const decision = await this.evaluate(identity, "invoke", action.authorizationPolicy, resource);
     if (!decision.allow) return decision;
     const cleared = await this.clearedFor(identity, await this.actionMarkings(action), resource, "invoke");
@@ -1660,7 +1701,53 @@ export class SemanticRuntime {
     ));
   }
 
-  async listActions(typeName: string, identity: Identity): Promise<{ action: ActionDefinition; authorized: boolean }[]> {
+  /**
+   * The gate every invocation, preview and listing shares (ADR-0053). A
+   * type-scoped Action is decided per Type, as before. An instance-scoped one
+   * reads its target first, under the caller's read authorization — a target
+   * the caller may not read refuses the Action, audited as that read's deny —
+   * then decides the Action's policy on the target's stored attributes. An
+   * input that names no target is decided per Type, so an attribute rule
+   * denies it and the attempt is still audited.
+   */
+  private async gateAction(identity: Identity, action: ActionDefinition, input: unknown): Promise<{ decision: PolicyDecision; typeName: string; target?: ActionTarget }> {
+    const typeName = action.target?.type ?? action.applicableTypes[0] ?? "unknown";
+    const objectId = action.target && typeof input === "object" && input !== null ? (input as Record<string, unknown>)[action.target.idFrom] : undefined;
+    if (typeof objectId !== "string" || objectId === "") return { decision: await this.authorizeInvoke(identity, action, typeName), typeName };
+
+    const typeDef = await this.requireType(typeName);
+    let attributes: Attributes;
+    try {
+      ({ attributes } = await this.authorizeRead(typeDef, objectId, identity));
+    } catch (err) {
+      if (err instanceof AuthorizationError) return { decision: { allow: false, reason: err.reason ?? err.message }, typeName };
+      throw err;
+    }
+    const decision = await this.authorizeInvoke(identity, action, typeName, { objectId, attributes });
+    return { decision, typeName, target: { typeName, objectId, attributes } };
+  }
+
+  /** What preconditions and the adapter see: for an instance-scoped Action, `getProperty` reads the authorized target's stored values. */
+  private actionContext(identity: Identity, input: unknown, target: ActionTarget | undefined): ActionContext {
+    return {
+      identity,
+      input,
+      ...(target ? { target: { typeName: target.typeName, objectId: target.objectId } } : {}),
+      getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
+      getProperty: async (name: string) => {
+        if (!target) throw new Error("getProperty is available only to an instance-scoped Action (ADR-0053); resolve the object via getObject first");
+        return target.attributes[name];
+      }
+    };
+  }
+
+  /**
+   * The Actions applicable to `typeName`, each with whether this caller may
+   * invoke it. Pass `objectId` to decide instance-scoped Actions on that
+   * object (ADR-0053); without it they are decided per Type, where an
+   * attribute rule denies.
+   */
+  async listActions(typeName: string, identity: Identity, opts: { objectId?: string } = {}): Promise<ListedAction[]> {
     return this.withRequest("listActions", () => this.instrument(
       "SemanticRuntime.listActions",
       typeName,
@@ -1669,13 +1756,99 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
-        const results: { action: ActionDefinition; authorized: boolean }[] = [];
+        const results: ListedAction[] = [];
         for (const action of applicable) {
           // A preview is still an authorization decision disclosed to the caller, so it is decided and audited
           // exactly as invokeAction decides it.
-          results.push({ action, authorized: (await this.authorizeInvoke(identity, action, typeName)).allow });
+          const instanceScoped = action.target !== undefined;
+          const onThis = instanceScoped && opts.objectId !== undefined && (action.target!.type ?? action.applicableTypes[0]) === typeName;
+          const authorized = onThis
+            ? (await this.gateAction(identity, action, { [action.target!.idFrom]: opts.objectId })).decision.allow
+            : (await this.authorizeInvoke(identity, action, typeName)).allow;
+          results.push({ action, authorized, instanceScoped });
         }
         return results;
+      }
+    ));
+  }
+
+  /**
+   * Decides `invokeAction(actionName, input)` for this caller without
+   * executing it (ADR-0053): authorization (on the target, for an
+   * instance-scoped Action), then input validation, then each precondition,
+   * which may read through adapters as it would on a real call. Nothing is
+   * dispatched to `executeAction`. Every decision is audited as on a real
+   * call, under operation `previewAction`, plus one row recording the
+   * preview's outcome.
+   */
+  async previewAction(actionName: string, input: unknown, identity: Identity): Promise<ActionPreview> {
+    const action = await this.registry.getAction(actionName);
+    if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
+    return this.withRequest("previewAction", () => this.instrument(
+      "SemanticRuntime.previewAction",
+      action.applicableTypes[0] ?? "unknown",
+      { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
+      async () => {
+        await this.checkRateLimit(identity);
+        const blockers: ActionBlocker[] = [];
+        const preconditions: ActionPreview["preconditions"] = (action.preconditions ?? []).map((p) => ({ description: p.description, satisfied: null }));
+        let inputValid: boolean | null = null;
+        let gate: Awaited<ReturnType<SemanticRuntime["gateAction"]>> | undefined;
+        try {
+          gate = await this.gateAction(identity, action, input);
+          if (!gate.decision.allow) blockers.push({ kind: "authorization", message: gate.decision.reason ?? "Not authorized" });
+        } catch (err) {
+          // Raised only after the caller was allowed to read the target type: the id names no object.
+          if (!(err instanceof ObjectNotFoundError)) throw err;
+          blockers.push({ kind: "target", message: err.message });
+        }
+
+        if (blockers.length === 0 && gate) {
+          try {
+            this.inputValidator.validateActionInput(action, input);
+            inputValid = true;
+          } catch (err) {
+            if (!(err instanceof InvalidInputError)) throw err;
+            inputValid = false;
+            blockers.push({ kind: "input", message: err.message });
+          }
+        }
+
+        if (blockers.length === 0 && gate) {
+          const ctx = this.actionContext(identity, input, gate.target);
+          for (const [i, precondition] of (action.preconditions ?? []).entries()) {
+            let satisfied: boolean;
+            try {
+              satisfied = (await precondition.check(ctx)) === true;
+            } catch {
+              satisfied = false;
+            }
+            preconditions[i]!.satisfied = satisfied;
+            if (!satisfied) blockers.push({ kind: "precondition", message: `Precondition failed: ${precondition.description}` });
+          }
+        }
+
+        const typeName = gate?.typeName ?? action.applicableTypes[0] ?? "unknown";
+        const target = gate?.target ? { typeName: gate.target.typeName, objectId: gate.target.objectId } : undefined;
+        const wouldExecute = blockers.length === 0;
+        await this.audit(
+          identity,
+          "invoke",
+          { typeName, actionName: action.name, ...(target ? { objectId: target.objectId } : {}) },
+          wouldExecute ? { allow: true } : { allow: false, reason: `Preview: blocked by ${blockers.map((b) => b.kind).join(", ")}` },
+          { control: "preview", blockers: blockers.map((b) => b.kind) }
+        );
+        return {
+          action: action.name,
+          version: action.version,
+          ...(target ? { target } : {}),
+          authorized: gate?.decision.allow === true,
+          inputValid,
+          preconditions,
+          blockers,
+          wouldExecute,
+          effects: { sideEffects: action.sideEffects, idempotency: action.idempotency, auditRequired: action.auditRequired }
+        };
       }
     ));
   }
@@ -1691,21 +1864,13 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
-        const gate = await this.authorizeInvoke(identity, action, primaryType);
-        if (!gate.allow) throw notAuthorized("invoke", { typeName: primaryType, actionName: action.name }, gate.reason);
+        const { decision, typeName, target } = await this.gateAction(identity, action, input);
+        if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason);
         // After the policy check, so every attempt by an unauthorized caller is still audited as a
         // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
         this.inputValidator.validateActionInput(action, input);
 
-        const ctx: ActionContext = {
-          identity,
-          input,
-          getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
-          getProperty: async () => {
-            throw new Error("getProperty is not available in an action context; resolve the object via getObject first");
-          }
-        };
-
+        const ctx = this.actionContext(identity, input, target);
         for (const precondition of action.preconditions ?? []) {
           const ok = await precondition.check(ctx);
           if (!ok) {
@@ -1715,6 +1880,8 @@ export class SemanticRuntime {
 
         const adapter = this.getAdapter(action.implementation.dataSourceId);
         const result = await adapter.executeAction(action, input, ctx);
+        // The target was read before the write; a cached copy of it is now stale.
+        if (target && action.sideEffects !== "none") await this.invalidateObject(target.typeName, target.objectId);
 
         if (action.auditRequired) {
           await this.registry.appendAuditEvent({
@@ -1723,7 +1890,7 @@ export class SemanticRuntime {
             subjectId: identity.subjectId,
             operation: "invokeAction",
             action: action.name,
-            resource: { typeName: primaryType },
+            resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
             outcome: "success"
           });
