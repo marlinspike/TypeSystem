@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { allowAllRule, buildRuntime, coreManifest, ComputedValueError, type DomainManifest } from "@typesys/core";
+import { allowAllRule, buildRuntime, coreManifest, ComputedValueError, describeModel, type DomainManifest } from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { generateModel, schemaToTs } from "../src/index.js";
 import { driftedModels } from "../../../scripts/generate-sdk-models.js";
@@ -64,7 +64,7 @@ describe("generateModel", () => {
 
   it("emits a model that compiles under --strict", async () => {
     const { registry } = await tinyRuntime(false);
-    const code = await generateModel(registry, { name: "TinyModel", prefixes: ["tiny."] });
+    const code = generateModel(await describeModel(registry, { prefixes: ["tiny."] }), { name: "TinyModel" });
     expect(code).toContain("big: boolean;");
     const dir = await mkdtemp(path.join(tmpdir(), "typesys-sdk-"));
     await writeFile(path.join(dir, "model.ts"), code);

@@ -6,6 +6,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { describeModel } from "@typesys/core";
 import { generateModel } from "@typesys/sdk";
 import { buildAirforceTestbed } from "@typesys/domain-airforce";
 import { buildHospitalTestbed } from "@typesys/domain-hospital";
@@ -15,11 +16,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const SDK_MODELS = [
   {
     file: path.join(root, "packages/domain-airforce/src/model.generated.ts"),
-    generate: async () => generateModel((await buildAirforceTestbed()).registry, { name: "AirforceModel", prefixes: ["airforce."] })
+    generate: async () => generateModel(await describeModel((await buildAirforceTestbed()).registry, { prefixes: ["airforce."] }), { name: "AirforceModel" })
   },
   {
     file: path.join(root, "packages/domain-hospital/src/model.generated.ts"),
-    generate: async () => generateModel((await buildHospitalTestbed()).registry, { name: "HospitalModel", prefixes: ["hospital."] })
+    generate: async () => generateModel(await describeModel((await buildHospitalTestbed()).registry, { prefixes: ["hospital."] }), { name: "HospitalModel" })
   }
 ];
 

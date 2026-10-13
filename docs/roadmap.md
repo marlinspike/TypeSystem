@@ -82,7 +82,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 2 | Instance-scoped Actions, `previewAction`, MCP Host/Origin checks | ✅ | [0053](adr/0053-instance-scoped-actions-and-previews.md) | `instance-scoped-actions.test.ts`, `http-origin.test.ts`, MCP tool tests; conformance DNS-rebinding scenario passes; 5 mutations caught |
 | 3 | Filtering on computed properties; explainable execution plans | ✅ | [0054](adr/0054-computed-filters-and-execution-plans.md) | `computed-filter-pagination.test.ts` (60 generated queries vs a reference), 6 mutations caught |
 | 4 | `@typesys/sdk`: a model generated from the registry and a fluent governed client | ✅ | [0055](adr/0055-typed-sdk-generated-from-the-registry.md) | `packages/sdk/test/` (12 compile-time refusals; SDK equals `runtime.query` for 3 callers in process and over MCP), 7 mutations caught; [`evidence/sdk-2026-10-13.md`](evidence/sdk-2026-10-13.md) |
-| 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ⏳ | 0056 | |
+| 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ✅ | [0056](adr/0056-model-description-discovery-validation-and-contract-diff.md) | `packages/devkit/test/devkit.test.ts` (validator checked against the runtime over 1,620 generated filters), MCP and CLI tests, 7 mutations caught; [`evidence/devkit-2026-10-13.md`](evidence/devkit-2026-10-13.md) |
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ⏳ | 0057 | |
 | 7 | Governed HTTP API and `@typesys/react` headless bindings | ⏳ | 0058 | |
 | 8 | Domain packs | ⏳ | 0059 | |
@@ -127,5 +127,8 @@ Filled in as slices land. Production accreditation items stay in
 - `getObject` p50 is slower than the baseline (about 0.10 ms against
   0.078) across slices 1 to 4, not yet attributed; see
   [`evidence/sdk-2026-10-13.md`](evidence/sdk-2026-10-13.md).
+- Discovery is lexical, measured on six hand-written tasks; it misses
+  synonyms the model's words don't contain. The contract diff judges the
+  declared contract, not behavior behind an unchanged schema.
 - The SDK has no aggregate builder, and refusals over MCP arrive as text
   (`RemoteToolError`) because MCP tool errors carry no structured code.

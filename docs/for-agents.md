@@ -86,12 +86,17 @@ use that prefix):
 
 | Tool | Arguments | Returns (`structuredContent`) |
 |---|---|---|
+| `typesys_discover` | `task`, `limit`? | `{ "matches": [{ "kind", "name", "score", "matched", "summary" }] }`: the Types and Actions most relevant to a task in words, each summarized in a few lines (ADR-0056). Start here. |
 | `typesys_list_types` | none | `{ "types": [...] }`: every Type's definition, as `typesys://types` gives them. |
 | `typesys_describe_type` | `type` | The Type's definition, as `typesys://types/<type>` gives it. |
 | `typesys_get_object` | `type`, `id` | The object with each value's provenance, as `typesys://objects/<type>/<id>`. |
 | `typesys_get_relationship` | `type`, `id`, `relationship` | `{ "objects": [...] }`: the related objects you may read. |
 | `typesys_get_provenance` | `type`, `id`, `property` | `{ "provenance": [...] }`: where the value came from. |
+| `typesys_validate_query` | `query` | `{ "valid", "diagnostics": [{ "severity", "code", "path", "message", "suggestion"? }] }`: what is wrong with a query against the model, without running it (ADR-0056). |
+| `typesys_explain_query` | the query DSL below | The execution plan: each step, what runs in the source system and what after, the calls per object (ADR-0054). |
 | `typesys_query` | the query DSL below | `{ "items": [...], "nextCursor"? }` |
+| `typesys_list_actions` | `type`, `id`? | `{ "actions": [...] }`: the Actions on a Type, and whether you may invoke each (ADR-0053). |
+| `typesys_preview_action` | `action`, `input` | What invoking would do, with nothing executed (ADR-0053). |
 | `typesys_aggregate` | `type`, `filter`?, `groupBy`?, `aggregations` | `{ "groups": [{ "key", "values" }] }` |
 
 Every one returns `structuredContent`, validated by your MCP client against
@@ -203,6 +208,10 @@ Don't guess at type names, relationship names, or action names — discover
 them. Each read below has a tool twin, given in brackets, if you'd rather
 use tools only:
 
+0. `typesys_discover` `{ task }` → the few Types and Actions that matter to
+   what you were asked, each in a few lines, at a fraction of the size of
+   the full listing. It is lexical: if it finds nothing, use your task's
+   other words or fall back to step 1.
 1. `resources/read` on `typesys://types` (`typesys_list_types`) → see everything that exists.
 2. `resources/read` on `typesys://types/<typeName>` (`typesys_describe_type`) → that Type's
    properties, relationships (names + target types + cardinality),
@@ -220,6 +229,11 @@ use tools only:
    relationship names from step 2, never invented ones. A related object
    you may not read, or one the source system no longer holds, is left out
    of the list.
+   Before a `typesys_query` you composed yourself, `typesys_validate_query`
+   `{ query }` names every Type, value, relationship or operator the model
+   does not have, with the name you probably meant, and
+   `typesys_explain_query` says how it would run. Neither reads data or
+   says what you may read.
 5. `resources/read` on `.../provenance/<propertyPath>` (`typesys_get_provenance`) → which source
    system produced a value, when, and at what confidence — use this
    before repeating a value back to a user as fact, especially in a

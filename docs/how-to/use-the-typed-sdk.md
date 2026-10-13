@@ -21,9 +21,10 @@ npx typesys generate-sdk ./fleet --bindings ./fleet/bindings.mjs --name FleetMod
 For a TypeScript domain, call the generator on a registry you have built:
 
 ```ts
+import { describeModel } from "@typesys/core";
 import { generateModel } from "@typesys/sdk";
 
-const code = await generateModel(registry, { name: "AirforceModel", prefixes: ["airforce."] });
+const code = generateModel(await describeModel(registry, { prefixes: ["airforce."] }), { name: "AirforceModel" });
 ```
 
 The demo domains commit theirs (`packages/domain-*/src/model.generated.ts`);

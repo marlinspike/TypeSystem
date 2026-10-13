@@ -1,0 +1,39 @@
+{
+  "name": "@typesys/devkit",
+  "version": "0.1.0",
+  "description": "Machine-readable tooling over a TypeS model: a compact capability catalog, ranked discovery for agents, static validation of a composed query with did-you-mean, and a contract diff that classifies breaking changes.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/devkit"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/devkit#readme",
+  "keywords": [
+    "typesys",
+    "agent-discovery",
+    "contract-diff",
+    "validation",
+    "devtools"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/sdk": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/domain-hospital": "0.1.0"
+  }
+}

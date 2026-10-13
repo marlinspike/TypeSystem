@@ -19,7 +19,7 @@ Names are checked by the compiler, rows are typed (every value optional,
 since policy may withhold any of them), and a query is only ever the
 `SemanticQuery` it builds: the runtime validates, authorizes and audits it
 for this caller, in process (`runtimeTransport`) or over MCP
-(`mcpTransport`). Generate a model with `generateModel(registry)` or
+(`mcpTransport`). Generate a model with `generateModel(await describeModel(registry))` or
 `typesys generate-sdk`.
 
 See [`docs/how-to/use-the-typed-sdk.md`](../../docs/how-to/use-the-typed-sdk.md).

@@ -3,6 +3,7 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   semanticQuerySchema,
   aggregateQuerySchema,
+  describeModel,
   withSpan,
   summarizeAction,
   type ActionDefinition,
@@ -15,7 +16,8 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, EXPLAIN_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
+import { discover, validateQuery } from "@typesys/devkit";
+import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, DISCOVER_OUTPUT, EXPLAIN_OUTPUT, VALIDATE_QUERY_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
 const AUTH_TOKEN_FIELD = {
   authToken: { type: "string", description: "Bearer token identifying the caller (see ADR-0009/0012)." }
@@ -100,6 +102,25 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
       outputSchema: TYPES_OUTPUT,
       run: async () => ({ types: await readTypes(registry) })
     },
+    [`${p}discover`]: {
+      description:
+        "Start here. The Types and Actions most relevant to a task in plain words, each in a few lines: values with their types, relationships, and the Actions on it. Cheaper than typesys_list_types; then describe_type for one in full.",
+      inputSchema: {
+        type: "object",
+        required: ["task"],
+        properties: {
+          task: { type: "string", description: "What you want to do, in your own words, e.g. \"orders waiting for approval\"." },
+          limit: { type: "integer", minimum: 1, maximum: 20, description: "At most this many matches (default 5)." }
+        }
+      },
+      outputSchema: DISCOVER_OUTPUT,
+      run: async (args) => {
+        const { task } = strings(`${p}discover`, args, ["task"]);
+        const limit = args.limit === undefined ? 5 : args.limit;
+        if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error(`${p}discover: "limit" must be an integer from 1 to 20`);
+        return { matches: discover(await describeModel(registry), task, { limit }) };
+      }
+    },
     [`${p}describe_type`]: {
       description: "Describe a semantic Type: its JSON Schema, relationships, Actions, and computed properties.",
       inputSchema: stringArgs({ type: "The Type's qualified name (domain.Type), as resources/list gives it." }),
@@ -182,6 +203,16 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
       // Only the execution plan: the authorization plan names what the policy tests and the caller's own values,
       // which ADR-0038 keeps to in-process callers.
       run: async (args, identity) => ({ ...(await runtime.explainQuery(args as unknown as SemanticQuery, identity)).execution })
+    },
+    [`${p}validate_query`]: {
+      description:
+        "Check a typesys_query against the model without running it: every Type, value, relationship and operator it names, with the name you probably meant. Valid does not mean you may read the results.",
+      inputSchema: { type: "object", required: ["query"], properties: { query: { type: "object", description: "The typesys_query arguments to check." } } },
+      outputSchema: VALIDATE_QUERY_OUTPUT,
+      run: async (args) => {
+        const diagnostics = validateQuery(await describeModel(registry), args.query, runtime.queryLimits);
+        return { valid: !diagnostics.some((d) => d.severity === "error"), diagnostics };
+      }
     },
     [`${p}aggregate`]: {
       description: "Run a grouped aggregation (count/sum/avg/min/max, optional groupBy) against a Type.",

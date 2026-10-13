@@ -38,3 +38,38 @@ describe("typesys generate-sdk", () => {
     expect(await typesys("generate-sdk", ...common, "--check")).toEqual({ code: 1, out: { ok: false, out, upToDate: false } });
   }, 30_000);
 });
+
+/** `typesys describe` and `typesys diff` (ADR-0056): a model change gated in CI by how it lands on consumers. */
+describe("typesys describe / diff / check-query", () => {
+  it("passes an unchanged model, and fails a breaking change until the version moves", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "typesys-cli-"));
+    const before = path.join(dir, "before.json");
+    const after = path.join(dir, "after.json");
+    expect(await typesys("describe", FIXTURES, "--bindings", path.join(FIXTURES, "bindings.mjs"), "--out", before, "--json")).toEqual({ code: 0, out: { ok: true, out: before } });
+    expect(await typesys("diff", before, before, "--json")).toEqual({ code: 0, out: { ok: true, changes: [], underVersioned: [] } });
+
+    const model = JSON.parse(await readFile(before, "utf8")) as { types: { name: string; version: string; properties: Record<string, unknown> }[] };
+    const vehicle = model.types.find((t) => t.name === "fleet.Vehicle")!;
+    delete vehicle.properties.plateNumber;
+    await writeFile(after, JSON.stringify(model));
+    const broken = await typesys("diff", before, after, "--json");
+    expect(broken.code).toBe(1);
+    expect(broken.out).toMatchObject({
+      ok: false,
+      changes: [{ impact: "breaking", subject: "fleet.Vehicle.plateNumber", change: "value removed" }],
+      underVersioned: [{ subject: "fleet.Vehicle", needs: "major" }]
+    });
+
+    vehicle.version = "2.0.0";
+    await writeFile(after, JSON.stringify(model));
+    // Still a breaking change, so the gate still fails; the version finding is gone.
+    expect((await typesys("diff", before, after, "--json")).out).toMatchObject({ ok: false, underVersioned: [] });
+  }, 30_000);
+
+  it("checks a query file against the model", async () => {
+    const query = path.join(await mkdtemp(path.join(tmpdir(), "typesys-cli-")), "q.json");
+    await writeFile(query, JSON.stringify({ type: "fleet.Vehicle", filter: { property: "fuelType", operator: "eq", value: "hydrogen" } }));
+    const result = await typesys("check-query", FIXTURES, query, "--bindings", path.join(FIXTURES, "bindings.mjs"), "--json");
+    expect(result).toMatchObject({ code: 1, out: { ok: false, valid: false, diagnostics: [{ code: "value-never-matches", path: "/filter/value" }] } });
+  }, 30_000);
+});

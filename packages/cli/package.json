@@ -33,8 +33,9 @@
   ],
   "dependencies": {
     "@typesys/core": "0.1.0",
-    "js-yaml": "5.4.2",
-    "@typesys/sdk": "0.1.0"
+    "@typesys/devkit": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "js-yaml": "5.4.2"
   },
   "devDependencies": {
     "@types/js-yaml": "4.0.9"

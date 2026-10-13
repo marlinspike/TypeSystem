@@ -18,6 +18,7 @@ export * from "./registry/validation.js";
 export * from "./registry/registry.js";
 export * from "./registry/manifest.js";
 export * from "./registry/build-runtime.js";
+export * from "./registry/model-description.js";
 
 export * from "./runtime/adapter.js";
 export * from "./runtime/cache.js";

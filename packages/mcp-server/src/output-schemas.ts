@@ -179,3 +179,48 @@ export const EXPLAIN_OUTPUT: JsonSchema2020 = {
     notes: { type: "array", items: { type: "string" } }
   }
 };
+
+/** `typesys_discover` (ADR-0056): the Types and Actions most relevant to a task, each described compactly. */
+export const DISCOVER_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["matches"],
+  properties: {
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["kind", "name", "score", "matched", "summary"],
+        properties: {
+          kind: { type: "string", enum: ["type", "action"] },
+          name: { type: "string" },
+          score: { type: "number" },
+          matched: { type: "array", items: { type: "string" } },
+          summary: { type: "string", description: "The Type's values, computed values, relationships and Actions, or the Action's scope, effects and input, in a few lines." }
+        }
+      }
+    }
+  }
+};
+
+/** `typesys_validate_query` (ADR-0056): what is wrong with a query against the model, without running it. */
+export const VALIDATE_QUERY_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["valid", "diagnostics"],
+  properties: {
+    valid: { type: "boolean", description: "No error-severity diagnostic. Says nothing about what you may read." },
+    diagnostics: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["severity", "code", "path", "message"],
+        properties: {
+          severity: { type: "string", enum: ["error", "warning"] },
+          code: { type: "string" },
+          path: { type: "string", description: "A JSON Pointer into the query." },
+          message: { type: "string" },
+          suggestion: { type: "string", description: "The name probably meant." }
+        }
+      }
+    }
+  }
+};

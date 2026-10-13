@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { SemanticRegistry, InMemoryRegistryStore, coreManifest, coreTraits, registerDomain, type BindingRegistry } from "@typesys/core";
+import { SemanticRegistry, InMemoryRegistryStore, coreManifest, coreTraits, describeModel, registerDomain, type BindingRegistry, type ModelDescription } from "@typesys/core";
 import { registerYamlTypesFromDirectory } from "./yaml-loader.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { generateModel } from "@typesys/sdk";
+import { diffModels, discover, validateQuery } from "@typesys/devkit";
 import { generateModule } from "./codegen.js";
 import { scaffoldDomain } from "./scaffold.js";
 
@@ -16,6 +17,10 @@ Usage:
   typesys validate <dir> [--bindings <module.js>] [--json]
   typesys generate-types <dir> [--bindings <module.js>] [--out <file.ts>]
   typesys generate-sdk <dir> [--bindings <module.js>] --out <file.ts> [--name <Model>] [--check] [--json]
+  typesys describe <dir> [--bindings <module.js>] [--out <model.json>]
+  typesys diff <before.json> <after.json> [--json]
+  typesys discover <dir> <task words...> [--bindings <module.js>] [--limit <n>] [--json]
+  typesys check-query <dir> <query.json> [--bindings <module.js>] [--json]
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -33,6 +38,17 @@ traits are always pre-registered, so \`extends: core.Asset\` etc. just works.
                 interface (default Model). --check writes nothing and
                 fails if --out differs from what the YAML generates now:
                 a CI gate against a stale client model.
+
+  describe      Write the model as JSON (ADR-0056): every Type composed, every
+                Action, the contract and nothing about enforcement. Commit
+                it to compare versions with diff.
+  diff          Classify every change between two described models as
+                breaking, risky, or compatible, and name each Type or
+                Action whose version did not move as far as its changes
+                need. Exits 1 on a breaking or under-versioned change.
+  discover      The Types and Actions most relevant to a task in words.
+  check-query   Check a query JSON file against the model without running
+                it, with the name probably meant for each unknown one.
 
 --bindings points at a JS module whose default export (or module.exports)
   is a BindingRegistry ({ computed: {...}, preconditions: {...} }) —
@@ -61,11 +77,14 @@ interface ParsedArgs {
   json: boolean;
   force: boolean;
   check: boolean;
+  limit?: number;
+  /** Arguments after `<dir>` that are not flags. */
+  positionals: string[];
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, dir, ...rest] = argv;
-  const result: ParsedArgs = { command, dir, json: false, force: false, check: false };
+  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, positionals: [] };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--bindings") result.bindings = rest[++i];
     else if (rest[i] === "--out") result.out = rest[++i];
@@ -73,6 +92,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (rest[i] === "--json") result.json = true;
     else if (rest[i] === "--force") result.force = true;
     else if (rest[i] === "--check") result.check = true;
+    else if (rest[i] === "--limit") result.limit = Number(rest[++i]);
+    else result.positionals.push(rest[i]!);
   }
   return result;
 }
@@ -97,7 +118,7 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
 }
 
 async function main(): Promise<void> {
-  const { command, dir, bindings: bindingsPath, out, name, json, force, check } = parseArgs(process.argv.slice(2));
+  const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = parseArgs(process.argv.slice(2));
 
   if (command === "init") {
     if (!dir) {
@@ -169,8 +190,7 @@ async function main(): Promise<void> {
     }
     try {
       const registry = await buildRegistryFromDir(dir, await loadBindings(bindingsPath));
-      const prefixes = [...new Set((await registry.listTypes()).filter((t) => !t.name.startsWith("core.")).map((t) => t.name.slice(0, t.name.indexOf(".") + 1)))];
-      const code = await generateModel(registry, { name: name ?? "Model", prefixes });
+      const code = generateModel(await describeModel(registry, { prefixes: await domainPrefixes(registry) }), { name: name ?? "Model" });
       if (check) {
         const current = await readFile(out, "utf8").catch(() => undefined);
         const upToDate = current === code;
@@ -185,8 +205,66 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "describe" || command === "discover" || command === "check-query") {
+    if (!dir || (command !== "describe" && positionals.length === 0)) {
+      usage();
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      const registry = await buildRegistryFromDir(dir, await loadBindings(bindingsPath));
+      const model = await describeModel(registry, { prefixes: await domainPrefixes(registry) });
+      if (command === "describe") {
+        const text = `${JSON.stringify(model, null, 2)}\n`;
+        if (out) {
+          await writeFile(out, text, "utf8");
+          printResult(json, true, { out }, [`Wrote ${out}`]);
+        } else process.stdout.write(text);
+      } else if (command === "discover") {
+        const matches = discover(model, positionals.join(" "), limit === undefined ? {} : { limit });
+        printResult(json, true, { matches }, matches.length === 0 ? ["No match."] : matches.map((m) => m.summary));
+      } else {
+        const diagnostics = validateQuery(model, JSON.parse(await readFile(positionals[0]!, "utf8")));
+        const valid = !diagnostics.some((d) => d.severity === "error");
+        printResult(json, valid, { valid, diagnostics }, [
+          valid ? "OK — the query matches the model" : "INVALID",
+          ...diagnostics.map((d) => `  ${d.severity} ${d.code} at ${d.path || "/"}: ${d.message}${d.suggestion ? ` (did you mean "${d.suggestion}"?)` : ""}`)
+        ]);
+      }
+    } catch (err) {
+      printResult(json, false, { error: err instanceof Error ? err.message : String(err) }, [`FAIL — ${err instanceof Error ? err.message : String(err)}`]);
+    }
+    return;
+  }
+
+  if (command === "diff") {
+    const after = positionals[0];
+    if (!dir || !after) {
+      usage();
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      const read = async (file: string) => JSON.parse(await readFile(file, "utf8")) as ModelDescription;
+      const { changes, underVersioned } = diffModels(await read(dir), await read(after));
+      const ok = !changes.some((c) => c.impact === "breaking") && underVersioned.length === 0;
+      printResult(json, ok, { changes, underVersioned }, [
+        ...(changes.length === 0 ? ["No contract change."] : changes.map((c) => `${c.impact.padEnd(10)} ${c.subject}: ${c.change}`)),
+        ...underVersioned.map((v) => `version    ${v.subject}: ${v.from} → ${v.to}, but its changes need a ${v.needs} bump`)
+      ]);
+    } catch (err) {
+      printResult(json, false, { error: err instanceof Error ? err.message : String(err) }, [`FAIL — ${err instanceof Error ? err.message : String(err)}`]);
+    }
+    return;
+  }
+
   usage();
   process.exitCode = command ? 1 : 0;
+}
+
+/** The domains a directory registers, as Type-name prefixes: everything but core's own Types, which are always pre-registered. */
+async function domainPrefixes(registry: SemanticRegistry): Promise<string[]> {
+  return [...new Set((await registry.listTypes()).filter((t) => !t.name.startsWith("core.")).map((t) => t.name.slice(0, t.name.indexOf(".") + 1)))];
 }
 
 main().catch((err) => {

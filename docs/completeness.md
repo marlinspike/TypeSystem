@@ -211,6 +211,18 @@ document that gap rather than close it in this pass.
   transports) and `packages/cli/test/generate-sdk.test.ts`, and
   mutation-checked. Not addressed: aggregates through the builder;
   structured error codes over MCP.
+- One model description, discovery, validation and contract diff
+  (ADR-0056): `describeModel` in core composes every Type as the registry
+  does and is the one input to the SDK generator and `@typesys/devkit`.
+  Agents get `typesys_discover` (a few ranked, compact entries for a task,
+  about a tenth the size of `typesys_list_types` on the demo) and
+  `typesys_validate_query` (every unknown name with the one probably meant,
+  every condition that can never match); the CLI gets `describe`, `diff`,
+  `discover` and `check-query`, with `diff` failing on a breaking or
+  under-versioned change. Proven by `packages/devkit/test/devkit.test.ts`,
+  whose soundness check runs 1,620 generated filters through the runtime,
+  plus MCP and CLI tests, and mutation-checked. Not addressed: discovery is
+  lexical; the diff cannot see behavior changes behind an unchanged schema.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -319,7 +331,7 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 854 tests (2026-10-13): 793 run with no infrastructure, the other 61
+- 872 tests (2026-10-13): 811 run with no infrastructure, the other 61
   need PostgreSQL, Redis or a KMS emulator; plus stdio and HTTP MCP smoke
   tests and the MCP conformance suite, all green.
 

@@ -58,7 +58,7 @@ is the one place the composed model exists.
 
 ## Decision
 
-**Generate a model from the registry.** `generateModel(registry)` emits one
+**Generate a model from the registry.** `generateModel(describeModel(registry))` emits one
 self-contained interface: each Type's flattened stored properties, its
 computed properties typed by their declared value schemas, its
 relationships with their targets and cardinality, the Actions that apply
