@@ -32,6 +32,7 @@ export * from "./observability/tracing.js";
 export * from "./observability/metrics.js";
 export * from "./runtime/filter.js";
 export * from "./runtime/query-ops.js";
+export * from "./runtime/execution-plan.js";
 export * from "./runtime/resolution.js";
 export * from "./runtime/mapping-resolver.js";
 export * from "./runtime/runtime.js";

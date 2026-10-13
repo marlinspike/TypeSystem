@@ -36,6 +36,12 @@ export interface QueryLimits {
   maxSearchTextLength: number;
   /** Default ceiling on how many related objects one relationship resolves to per source object (ADR-0028), bounding one-to-many fan-out. */
   maxRelatedPerObject: number;
+  /**
+   * Most stored rows one `query` call reads when part of its filter must run in
+   * the runtime, after computed properties exist (ADR-0054). A page that hits
+   * it comes back short, with a cursor to continue.
+   */
+  maxScanned: number;
 }
 
 export const DEFAULT_QUERY_LIMITS: QueryLimits = {
@@ -50,7 +56,8 @@ export const DEFAULT_QUERY_LIMITS: QueryLimits = {
   maxAggregations: 20,
   maxGroupBy: 8,
   maxSearchTextLength: 256,
-  maxRelatedPerObject: 1000
+  maxRelatedPerObject: 1000,
+  maxScanned: 1000
 };
 
 /**

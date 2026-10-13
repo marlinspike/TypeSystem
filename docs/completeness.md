@@ -186,6 +186,18 @@ document that gap rather than close it in this pass.
   `packages/mcp-server/test/http-origin.test.ts`, mutation-checked. Not
   addressed: a preview relies on preconditions having no side effects; an
   adapter-level dry run of the write itself.
+- Filtering on computed properties and explainable execution plans
+  (ADR-0054): a filter's conjuncts that name computed properties run in the
+  runtime on each object's finalized, caller-visible values (so a withheld
+  value can't be probed), the rest in the adapter; pages are refilled until
+  full, the source runs out, or `maxScanned` rows were read, with a cursor
+  that resumes exactly where the call stopped. `explainQuery` reports the
+  execution plan derived from the same split, and MCP's
+  `typesys_explain_query` returns it without the authorization plan. Proven
+  by `packages/core/test/computed-filter-pagination.test.ts`, which checks
+  60 generated queries against a brute-force reference, and mutation-checked.
+  Not addressed: sorting by a computed property; batching computed
+  properties across a page.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -350,9 +362,10 @@ replay of an `EncryptedCache` entry within its TTL (ADR-0036); and
   relationship includes, grouped aggregation (`runtime.aggregate()` + the MCP
   `aggregate` tool), and case-insensitive `search` / `icontains` — all
   fail-closed under property-level policy (ADR-0027, `query-sort-and-projection.test.ts`,
-  `query-aggregate-and-search.test.ts`). A top-level filter or sort can't use a
-  computed property (rejected with a clear error; they don't exist until after
-  the adapter runs), but include filters can; includes nest, filter, and project
+  `query-aggregate-and-search.test.ts`). A top-level filter may name a computed
+  property (ADR-0054: that part runs in the runtime on caller-visible values,
+  refilling pages up to `maxScanned` rows per call); a top-level sort still
+  can't (rejected with a clear error), but include sorts can; includes nest, filter, and project
   per level (bounded by `maxIncludes`/`maxIncludeDepth`). Aggregation runs in the
   adapter's optional `aggregate` (in-memory and Postgres); a data source without
   it returns a clear `AggregationNotSupportedError`. Full-text `search` desugars

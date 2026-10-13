@@ -14,7 +14,7 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
+import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, EXPLAIN_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
 const AUTH_TOKEN_FIELD = {
   authToken: { type: "string", description: "Bearer token identifying the caller (see ADR-0009/0012)." }
@@ -181,6 +181,15 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         const { action } = strings(`${p}preview_action`, args, ["action"]);
         return { ...(await runtime.previewAction(action, args.input, identity)) };
       }
+    },
+    [`${p}explain_query`]: {
+      description:
+        "How a typesys_query would run, without running it: each step in order, which part of the filter runs in the source system and which after objects are read, the related objects it would fetch, and what to expect (short pages, cost).",
+      inputSchema: semanticQuerySchema(runtime.queryLimits),
+      outputSchema: EXPLAIN_OUTPUT,
+      // Only the execution plan: the authorization plan names what the policy tests and the caller's own values,
+      // which ADR-0038 keeps to in-process callers.
+      run: async (args, identity) => ({ ...(await runtime.explainQuery(args as unknown as SemanticQuery, identity)).execution })
     },
     [`${p}aggregate`]: {
       description: "Run a grouped aggregation (count/sum/avg/min/max, optional groupBy) against a Type.",

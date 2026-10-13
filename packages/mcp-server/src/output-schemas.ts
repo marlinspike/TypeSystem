@@ -168,3 +168,14 @@ export const ACTION_PREVIEW_OUTPUT: JsonSchema2020 = {
     }
   }
 };
+
+/** `typesys_explain_query` (ADR-0054): how a query would run, without the authorization plan ADR-0038 keeps runtime-only. */
+export const EXPLAIN_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["steps", "adapterCallsPerObject", "notes"],
+  properties: {
+    steps: { type: "array", items: { type: "object", required: ["op"], properties: { op: { type: "string" } } } },
+    adapterCallsPerObject: { type: "object", properties: { overrides: { type: "number" }, computed: { type: "number" } } },
+    notes: { type: "array", items: { type: "string" } }
+  }
+};

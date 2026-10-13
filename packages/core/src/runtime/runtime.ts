@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
-import type { Adapter, ResolvedProperties, RelatedRef } from "./adapter.js";
+import type { Adapter, AdapterQueryResult, ResolvedProperties, RelatedRef } from "./adapter.js";
 import type { Identity, PolicyDecision, PolicyEngine, PolicyRequest, PolicyResource } from "../model/policy.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { ActionDefinition } from "../model/action.js";
@@ -22,6 +22,7 @@ import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
 import { applyProjection, applySort } from "./query-ops.js";
+import { decodeScanCursor, encodeScanCursor, isScanCursor, splitFilter, type ExecutionPlan, type ExecutionStep } from "./execution-plan.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordPolicyFaults, recordCacheResult, recordPlanDefect } from "../observability/metrics.js";
 import {
@@ -189,6 +190,8 @@ export interface QueryPlanReport {
   rowSecurity: RowSecurity;
   /** The plan as `query` would apply it, fitted to where the Type's data is. */
   plan: AuthorizationPlan;
+  /** How `query` would run: each step in order, where each part of the filter runs, and what to expect (ADR-0054). */
+  execution: ExecutionPlan;
   /** Properties the query selects or orders by: a value's own provenance marking on one can still drop a row (ADR-0032). */
   probes: string[];
   guarantees: {
@@ -1295,17 +1298,18 @@ export class SemanticRuntime {
         // says nothing about the data (ADR-0049). The object policy, by contrast, has no type-level gate: it is
         // decided per returned item, below (ADR-0030).
         await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
-        if (q.filter) {
-          this.rejectComputedFilterProperties(typeDef, q.filter);
-          await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
-        }
+        // A condition on a computed property can't run in the adapter, which has only stored values; it runs here
+        // instead, on each object's finalized, caller-visible values (ADR-0054).
+        const split = this.splitQueryFilter(typeDef, q.filter);
+        if (q.filter) await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
         if (q.sort) {
           this.rejectComputedSortProperties(typeDef, q.sort);
           await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
         }
         // `search` desugars to an `icontains` OR-filter over resolved, readable, non-computed
         // properties, AND-combined with any explicit filter (ADR-0027).
-        const effectiveFilter = await this.resolveSearchFilter(typeDef, q.filter, q.search, identity);
+        const effectiveFilter = await this.resolveSearchFilter(typeDef, split.pushdown, q.search, identity);
+        if (!split.residual && isScanCursor(q.cursor)) throw new InvalidInputError("Invalid query: this cursor belongs to a query filtered on computed properties");
 
         // The read policy as a filter the adapter applies before it reads (ADR-0038). A sound
         // over-approximation: whatever it excludes, the policy would have denied. Every object it admits
@@ -1336,7 +1340,6 @@ export class SemanticRuntime {
         // are merged per item below, not folded into this call.
         const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
         const adapter = this.getAdapter(base.dataSourceId);
-        const result = await adapter.queryByType(q.type, plannedFilter, q.limit, q.cursor, q.sort);
 
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
@@ -1344,8 +1347,12 @@ export class SemanticRuntime {
         // multiplied across a whole result page), bounded by maxConcurrency (ADR-0019)
         // so a large `limit` can't open unbounded concurrent adapter calls.
         const objectPolicy = objectPolicyOf(typeDef);
-        const probed = new Set([...(effectiveFilter ? filterProperties(effectiveFilter) : []), ...(q.sort ?? []).map((s) => s.property)]);
-        const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
+        const probed = new Set([
+          ...(effectiveFilter ? filterProperties(effectiveFilter) : []),
+          ...(split.residual ? filterProperties(split.residual) : []),
+          ...(q.sort ?? []).map((s) => s.property)
+        ]);
+        const readPage = (page: AdapterQueryResult["items"]) => mapWithConcurrency(page, this.maxConcurrency, async (item) => {
           const stored = await this.mergeOverrides(typeDef, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
           const attributes = snapshot(stored.values);
           // Decided on this item's own attributes (ADR-0030). A denied item is dropped silently (audited),
@@ -1360,6 +1367,9 @@ export class SemanticRuntime {
           // An item selected or ordered by a value its provenance classified out would reveal that value through
           // the selection itself, so it is dropped too (ADR-0032).
           if ([...probed].some((p) => classified.has(p))) return undefined;
+          // The runtime part of the filter sees only what the caller may read: a withheld or redacted value is
+          // absent, whatever it is, so the filter can't be used to probe it (ADR-0052, ADR-0054).
+          if (split.residual && !matchesFilter(values, split.residual)) return undefined;
           // Projection trims the object's own properties, after redaction (ADR-0027); requested
           // includes are assigned afterward so they survive it.
           const projected = applyProjection(values, q.select);
@@ -1374,7 +1384,39 @@ export class SemanticRuntime {
           }
           return resolved;
         });
-        return { items: items.filter((item) => item !== undefined), nextCursor: result.nextCursor };
+
+        if (!split.residual) {
+          const result = await adapter.queryByType(q.type, plannedFilter, q.limit, q.cursor, q.sort);
+          const items = await readPage(result.items);
+          return { items: items.filter((item) => item !== undefined), nextCursor: result.nextCursor };
+        }
+
+        // Part of the filter runs here, so a page of the adapter's can yield fewer matches than asked for: read
+        // pages until the page is full, the source is exhausted, or maxScanned rows were read (ADR-0054). The
+        // cursor names the adapter page and how far into it this call got, so the next call resumes exactly there.
+        const out: ResolvedObject[] = [];
+        let position = decodeScanCursor(q.cursor);
+        let scanned = 0;
+        for (;;) {
+          // Only as many rows as could still be returned: rows past the limit would be read, decided and audited
+          // for nothing, then read again by the next call.
+          const pageSize = position.skip + Math.min(q.limit - out.length, this.queryLimits.maxScanned - scanned);
+          const page = await adapter.queryByType(q.type, plannedFilter, pageSize, position.cursor, q.sort);
+          const rows = page.items.slice(position.skip);
+          const resolved = await readPage(rows);
+          for (let i = 0; i < rows.length; i++) {
+            scanned++;
+            const item = resolved[i];
+            if (item) out.push(item);
+            const consumed = position.skip + i + 1;
+            if (out.length === q.limit || scanned >= this.queryLimits.maxScanned) {
+              const rest = consumed < page.items.length ? encodeScanCursor({ ...(position.cursor !== undefined ? { cursor: position.cursor } : {}), skip: consumed }) : page.nextCursor !== undefined ? encodeScanCursor({ cursor: page.nextCursor, skip: 0 }) : undefined;
+              return { items: out, ...(rest ? { nextCursor: rest } : {}) };
+            }
+          }
+          if (page.nextCursor === undefined) return { items: out };
+          position = { cursor: page.nextCursor, skip: 0 };
+        }
       }
     ));
   }
@@ -1463,6 +1505,7 @@ export class SemanticRuntime {
         const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
         const probes = [...new Set([...(q.filter ? filterProperties(q.filter) : []), ...(q.sort ?? []).map((s) => s.property), ...searched])];
         const exact = isExact(plan);
+        const execution = await this.describeExecution(typeDef, q, plan, identity);
         await this.audit(identity, "read", { typeName: q.type }, { allow: true }, { control: "row-plan", operation: "explainQuery", ...planSummary(plan) });
         return {
           typeName: q.type,
@@ -1470,6 +1513,7 @@ export class SemanticRuntime {
           securityProfile: this.profile?.id ?? null,
           rowSecurity: this.rowSecurity,
           plan,
+          execution,
           probes,
           guarantees: {
             exact,
@@ -1546,22 +1590,59 @@ export class SemanticRuntime {
     }
   }
 
-  /**
-   * The top-level filter runs in the adapter, which only has stored values;
-   * computed properties don't exist until after it returns, so a condition
-   * on one would silently match nothing. Reject it and point at the filter
-   * that does work: an include-level filter runs on fully resolved objects.
-   */
-  private rejectComputedFilterProperties(typeDef: TypeDefinition, filter: QueryFilter): void {
+  /** The query's filter split into what the adapter runs and what runs here, on finalized values (ADR-0054). */
+  private splitQueryFilter(typeDef: TypeDefinition, filter: QueryFilter | undefined) {
     const computed = new Set(typeDef.computedProperties.map((c) => c.name));
-    const used = [...filterProperties(filter)].filter((p) => computed.has(p));
-    if (used.length > 0) {
-      throw new InvalidInputError(
-        `Invalid query: cannot filter "${typeDef.name}" on computed ${used.length === 1 ? "property" : "properties"} ` +
-          `${used.map((p) => `"${p}"`).join(", ")} at the top level; computed values don't exist until after the ` +
-          `adapter has filtered. Filter on it in an include instead, or filter the results client-side.`
+    return splitFilter(filter, (p) => computed.has(p));
+  }
+
+  /**
+   * How `query` will run `q` (ADR-0054): the same filter split, sources and
+   * steps `query` uses, described rather than executed. Includes are walked
+   * from the registry, so an unknown relationship is reported here too.
+   */
+  private async describeExecution(typeDef: TypeDefinition, q: SemanticQuery & { limit: number }, plan: AuthorizationPlan, identity: Identity): Promise<ExecutionPlan> {
+    const split = this.splitQueryFilter(typeDef, q.filter);
+    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
+    const notes: string[] = [];
+    const steps: ExecutionStep[] = [{ op: "classification-gate", marked: objectMarkings(typeDef).length > 0 }];
+    steps.push({
+      op: "scan",
+      dataSourceId: base.dataSourceId,
+      ...(split.pushdown || q.search ? { pushdownFilter: await this.resolveSearchFilter(typeDef, split.pushdown, q.search, identity) } : {}),
+      authorizationPredicate: plan.kind === "predicate",
+      ...(q.sort ? { sort: q.sort } : {}),
+      pageSize: q.limit
+    });
+    if (overrides.length > 0) steps.push({ op: "merge-overrides", dataSourceIds: [...new Set(overrides.map((o) => o.dataSourceId))], callsPerObject: overrides.length });
+    steps.push({ op: "authorize-rows", policyName: objectPolicyOf(typeDef), decidedPerObject: true });
+    if (typeDef.computedProperties.length > 0) steps.push({ op: "compute", properties: typeDef.computedProperties.map((c) => ({ name: c.name, dependsOn: [...c.dependsOn] })) });
+    const memberPolicies = Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {});
+    const marked = Object.keys(typeDef.schema["x-provenance"]?.properties ?? {}).filter((m) => memberMarkings(typeDef, m).length > 0);
+    if (memberPolicies.length > 0 || marked.length > 0 || typeDef.computedProperties.length > 0) steps.push({ op: "redact", memberPolicies, marked });
+    if (split.residual) {
+      steps.push({ op: "residual-filter", filter: split.residual, maxScanned: this.queryLimits.maxScanned });
+      notes.push(
+        `Part of the filter names computed properties, so it runs after each object is read: a page can come back short with a nextCursor, and one call reads at most ${this.queryLimits.maxScanned} rows.`
       );
     }
+    if (q.select) steps.push({ op: "project", select: q.select });
+    const walk = async (owner: TypeDefinition, includes: SemanticQuery["include"], depth: number): Promise<void> => {
+      for (const inc of includes ?? []) {
+        const relName = this.registry.resolveAlias(owner, inc.relationship);
+        const rel = owner.relationships.find((r) => r.name === relName);
+        if (!rel) throw new NotFoundError(`Unknown relationship "${inc.relationship}" on type "${owner.name}"`);
+        steps.push({ op: "include", relationship: rel.name, targetType: rel.targetType, dataSourceId: rel.resolution.dataSourceId, depth, filtered: inc.filter !== undefined });
+        const target = await this.registry.getType(rel.targetType);
+        if (target && inc.include) await walk(target, inc.include, depth + 1);
+      }
+    };
+    await walk(typeDef, q.include, 1);
+    if (!isExact(plan)) notes.push("The read policy has no exact plan for this caller, so rows are decided after they are read: pages can come back short.");
+    if (typeDef.computedProperties.length > 0) {
+      notes.push(`Each returned object runs ${typeDef.computedProperties.length} computed ${typeDef.computedProperties.length === 1 ? "property" : "properties"}, which may call other systems.`);
+    }
+    return { steps, adapterCallsPerObject: { overrides: overrides.length, computed: typeDef.computedProperties.length }, notes };
   }
 
   /**

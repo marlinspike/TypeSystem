@@ -373,7 +373,8 @@ describe("authorization planning in the runtime (ADR-0038)", () => {
   describe("explainQuery", () => {
     it("reports the fitted plan and the guarantees that follow, without reading any data", async () => {
       const { runtime, cases } = await setup();
-      const report = await runtime.explainQuery({ type: "test.Case" }, bob);
+      const { execution, ...report } = await runtime.explainQuery({ type: "test.Case" }, bob);
+      expect(execution.steps.map((s) => s.op)).toContain("scan"); // the execution plan is ADR-0054's, tested there
       expect(report).toEqual({
         typeName: "test.Case",
         policyName: "case.read",

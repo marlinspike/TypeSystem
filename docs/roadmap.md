@@ -80,7 +80,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 0 | Baseline measurements | ✅ | — | [`evidence/baseline-2026-10-13.md`](evidence/baseline-2026-10-13.md) |
 | 1 | Derived values inherit their inputs' read policy; explicit, audited release | ✅ | [0052](adr/0052-derived-values-inherit-their-inputs-read-policy.md) | `packages/core/test/derived-value-release.test.ts`, 6 mutations caught |
 | 2 | Instance-scoped Actions, `previewAction`, MCP Host/Origin checks | ✅ | [0053](adr/0053-instance-scoped-actions-and-previews.md) | `instance-scoped-actions.test.ts`, `http-origin.test.ts`, MCP tool tests; conformance DNS-rebinding scenario passes; 5 mutations caught |
-| 3 | Filtering on computed properties; explainable execution plans | ⏳ | 0054 | |
+| 3 | Filtering on computed properties; explainable execution plans | ✅ | [0054](adr/0054-computed-filters-and-execution-plans.md) | `computed-filter-pagination.test.ts` (60 generated queries vs a reference), 6 mutations caught |
 | 4 | `@typesys/sdk`: typed model inference and a fluent governed client | ⏳ | 0055 | |
 | 5 | `@typesys/devkit`: capability catalog, agent discovery, composition validation, contract diff | ⏳ | 0056 | |
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ⏳ | 0057 | |

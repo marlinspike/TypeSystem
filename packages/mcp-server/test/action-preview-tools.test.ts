@@ -46,6 +46,13 @@ describe("Action discovery and previews over MCP (ADR-0053)", () => {
     expect(asViewer).toMatchObject({ wouldExecute: false, authorized: false, inputValid: null });
   });
 
+  it("explains a query without the authorization plan, and without running it (ADR-0054)", async () => {
+    const explained = await call("typesys_explain_query", { type: "airforce.Aircraft", filter: { property: "needsAttention", operator: "eq", value: true }, authToken: "demo-viewer-token" });
+    expect((explained.steps as { op: string }[]).map((s) => s.op)).toContain("residual-filter");
+    expect(explained).not.toHaveProperty("plan");
+    expect(JSON.stringify(explained)).not.toMatch(/predicate"\s*:\s*\{/);
+  });
+
   it("answers a bad id argument as a tool error", async () => {
     const result = await client.callTool({ name: "typesys_list_actions", arguments: { type: "airforce.WorkOrder", id: 5, authToken: "demo-maintainer-token" } });
     expect(result.isError).toBe(true);
