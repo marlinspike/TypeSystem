@@ -5,5 +5,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../adapter-in-memory" }, { "path": "../adapter-mock-rest" }]
+  "references": [{ "path": "../core" }, { "path": "../adapter-in-memory" }, { "path": "../adapter-mock-rest" }, { "path": "../workflow" }]
 }

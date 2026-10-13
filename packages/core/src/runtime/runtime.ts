@@ -257,6 +257,24 @@ function planSummary(plan: AuthorizationPlan): { plan: AuthorizationPlan["kind"]
 /** The reason a clearance check gives the caller: never the marking, which can itself be sensitive (ADR-0032). */
 const CLEARANCE_REASON = "Requires a higher clearance";
 
+/** The call currently executing, if any: the runtime running it, its concurrency budget, and the operation it is (see `withRequest`). */
+interface RequestContext {
+  owner: SemanticRuntime;
+  budget: Semaphore;
+  operation: RuntimeOperation;
+}
+
+/**
+ * One for the process, never one per runtime. On Node 22 every live
+ * `AsyncLocalStorage` is propagated on every promise the process creates and
+ * is never released, so a store per instance made every await in the
+ * process slower with each runtime ever constructed (a test suite that
+ * builds hundreds slowed a query loop seventeenfold). Each context names the
+ * runtime it belongs to, so instances still never share a budget or an
+ * operation.
+ */
+const requests = new AsyncLocalStorage<RequestContext>();
+
 function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason?: string): AuthorizationError {
   const target = resource.actionName ?? resource.propertyPath ?? resource.objectId;
   return new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, reason);
@@ -416,8 +434,6 @@ export class SemanticRuntime {
   private readonly profile: SecurityProfile | undefined;
   /** How identifiers and errors reach spans, per the telemetry identity policy (ADR-0045, ADR-0047). */
   private readonly telemetry: Telemetry;
-  /** The call currently executing, if any: its concurrency budget and the operation it is (see `withRequest`). */
-  private readonly request = new AsyncLocalStorage<{ budget: Semaphore; operation: RuntimeOperation }>();
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -486,15 +502,14 @@ export class SemanticRuntime {
   private getAdapter(dataSourceId: string): Adapter {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
-    const store = this.request;
     const resilience = this.resilience;
 
     // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
     // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
     // Resolved per call (not once), so it holds across resilience retries and after backoff sleeps.
     const underBudget = (invoke: () => Promise<unknown>): Promise<unknown> => {
-      const budget = store.getStore()?.budget;
-      return budget ? budget.run(() => store.exit(invoke)) : invoke();
+      const budget = this.currentRequest()?.budget;
+      return budget ? budget.run(() => requests.exit(invoke)) : invoke();
     };
 
     return new Proxy(adapter, {
@@ -532,8 +547,14 @@ export class SemanticRuntime {
    * levels would multiply it, and every row names what the caller asked for.
    */
   private withRequest<T>(operation: RuntimeOperation, fn: () => Promise<T>): Promise<T> {
-    if (this.request.getStore()) return fn();
-    return this.request.run({ budget: new Semaphore(this.maxConcurrency), operation }, fn);
+    if (this.currentRequest()) return fn();
+    return requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation }, fn);
+  }
+
+  /** This runtime's request in progress, if any; a request of another runtime instance is not this one's. */
+  private currentRequest(): RequestContext | undefined {
+    const store = requests.getStore();
+    return store?.owner === this ? store : undefined;
   }
 
   private async checkRateLimit(identity: Identity): Promise<void> {
@@ -804,7 +825,7 @@ export class SemanticRuntime {
     details?: Record<string, unknown>
   ): Promise<void> {
     recordPolicyDecision(decision.allow ? "allow" : "deny");
-    const operation = this.request.getStore()?.operation;
+    const operation = this.currentRequest()?.operation;
     await this.registry.appendAuditEvent({
       id: ulid(),
       timestamp: new Date().toISOString(),

@@ -15,6 +15,7 @@
     { "path": "packages/encryption" },
     { "path": "packages/kms-aws" },
     { "path": "packages/sdk" },
-    { "path": "packages/devkit" }
+    { "path": "packages/devkit" },
+    { "path": "packages/workflow" }
   ]
 }

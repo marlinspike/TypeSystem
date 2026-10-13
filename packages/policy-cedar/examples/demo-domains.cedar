@@ -21,6 +21,11 @@ when {
   (resource has assignedTo && principal has displayName && resource.assignedTo != "" && resource.assignedTo == principal.displayName)
 };
 
+// Who approves the GroundForRepair workflow's proposal (ADR-0057): a maintainer who is also a lead.
+@id("airforce.maintenance-lead")
+permit (principal in TypeS::Role::"maintainer", action == TypeS::Action::"airforce.maintenance-lead", resource)
+when { principal in TypeS::Role::"lead" };
+
 // ---- Hospital --------------------------------------------------------------
 
 // The provider directory is not sensitive: anyone may browse it.

@@ -10,3 +10,4 @@ export * from "./manifest.js";
 export * from "./setup.js";
 export * from "./bindings.js";
 export type * from "./model.generated.js";
+export * from "./workflows/ground-for-repair.js";

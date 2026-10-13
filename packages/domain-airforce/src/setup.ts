@@ -49,7 +49,9 @@ export const airforcePolicyRules: Record<string, PolicyRule> = {
   "airforce.read-aircraft": requireRole("maintainer", "viewer"),
   "airforce.maintainer-only": requireRole("maintainer"),
   // Instance-scoped (ADR-0053): decided on the WorkOrder's own assignedTo.
-  "airforce.work-order-assignee": allOf(requireRole("maintainer"), anyOf(requireRole("lead"), requireAttributeMatch("assignedTo", "displayName")))
+  "airforce.work-order-assignee": allOf(requireRole("maintainer"), anyOf(requireRole("lead"), requireAttributeMatch("assignedTo", "displayName"))),
+  // Who approves the GroundForRepair workflow's proposal (ADR-0057).
+  "airforce.maintenance-lead": allOf(requireRole("maintainer"), requireRole("lead"))
 };
 
 /**
@@ -90,10 +92,12 @@ export async function buildAirforceTestbed(
 /**
  * Canned demo identities for the vertical slice (see ADR-0009). The
  * maintainer is cleared SECRET and the viewer CUI, so the viewer reads an
- * Aircraft without its SECRET `deploymentLocation` (ADR-0032).
+ * Aircraft without its SECRET `deploymentLocation` (ADR-0032). The lead
+ * approves workflows (ADR-0057) and may update any work order.
  */
-export const demoIdentities: Record<"maintainer" | "viewer" | "anonymous", Identity> = {
+export const demoIdentities: Record<"maintainer" | "lead" | "viewer" | "anonymous", Identity> = {
   maintainer: { subjectId: "user-maintainer-1", roles: ["maintainer"], attributes: { displayName: "SSgt Rivera" }, clearance: "SECRET" },
+  lead: { subjectId: "user-lead-1", roles: ["maintainer", "lead"], attributes: { displayName: "MSgt Okafor" }, clearance: "SECRET" },
   viewer: { subjectId: "user-viewer-1", roles: ["viewer"], attributes: {}, clearance: "CUI" },
   anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
 };

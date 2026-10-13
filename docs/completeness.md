@@ -223,6 +223,31 @@ document that gap rather than close it in this pass.
   whose soundness check runs 1,620 generated filters through the runtime,
   plus MCP and CLI tests, and mutation-checked. Not addressed: discovery is
   lexical; the diff cannot see behavior changes behind an unchanged schema.
+- One request context per process, not per runtime: every
+  `SemanticRuntime` used to create its own `AsyncLocalStorage`, which on
+  Node 22 taxes every promise in the process for as long as it runs, so
+  each runtime constructed slowed every later `await` (a query loop ran
+  seventeen times slower after a test suite's worth of runtimes). Request
+  contexts now name their runtime, so a call into another runtime from
+  inside a request still gets its own budget and audited operation. Proven
+  by `packages/core/test/request-concurrency-budget.test.ts`, and
+  mutation-checked.
+- Governed workflows (ADR-0057): `@typesys/workflow` runs declared read,
+  compute, AI, approval and Action steps through the runtime as the run's
+  initiator. Registration refuses a workflow in which an AI step's answer
+  can reach an Action with side effects without an approval that depends
+  on it. Approvals are decided by policy (ABAC and Cedar agree) and refuse
+  the initiator; the journal's append is conditional, so concurrent
+  decisions cannot both land; retries apply to retryable errors only;
+  compensation runs newest first; a non-idempotent Action whose outcome a
+  crash lost is never repeated (the run waits for reconciliation); replay
+  is checked before every advance; `simulate` previews instead of
+  invoking, with scripted model answers and approvals and injected faults
+  and crashes. Proven by `packages/workflow/test/` and
+  `packages/devkit/test/synthesize.test.ts`, and mutation-checked. Not
+  addressed: the only journal is in memory (a Postgres journal and a
+  Temporal or DBOS binding are designed, not built); no durable timers or
+  approval deadlines; no classification check on what is sent to a model.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -331,7 +356,7 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 872 tests (2026-10-13): 811 run with no infrastructure, the other 61
+- 905 tests (2026-10-13): 844 run with no infrastructure, the other 61
   need PostgreSQL, Redis or a KMS emulator; plus stdio and HTTP MCP smoke
   tests and the MCP conformance suite, all green.
 

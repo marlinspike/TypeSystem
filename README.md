@@ -261,6 +261,7 @@ registry stores) refines one of these six.
 | **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
 | **Discovery, validation and contract diff** | `@typesys/devkit`: agents find the few Types and Actions a task needs (`typesys_discover`) and check a composed query before running it (`typesys_validate_query`); teams gate model changes in CI by consumer impact (`typesys diff`) ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)). | Agents read a fraction of the model, and a breaking change can't ship unversioned. |
+| **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
 | **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
@@ -466,6 +467,13 @@ flowchart TB
   validation with did-you-mean, and a contract diff that classifies changes
   by consumer impact ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)).
   See [`packages/devkit/README.md`](packages/devkit/README.md).
+- **`packages/workflow`** (`@typesys/workflow`) — governed workflows over the
+  runtime: typed steps whose `needs` are their data flow, AI steps whose
+  answers reach a side effect only through an approval, a conditional
+  journal with retries, compensation and idempotency-aware recovery,
+  simulation with previews and fault injection, and replay checks
+  ([ADR-0057](docs/adr/0057-governed-workflows.md)). See
+  [`packages/workflow/README.md`](packages/workflow/README.md).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a
