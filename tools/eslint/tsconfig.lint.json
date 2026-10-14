@@ -15,6 +15,7 @@
     "../../packages/*/test/**/*.ts",
     "../../scripts/**/*.ts",
     "../../tools/terminology/**/*.ts",
+    "../../tools/mutation/**/*.ts",
     "../../vitest.config.ts"
   ],
   // Browser clients have their own: tsconfig.client.json.

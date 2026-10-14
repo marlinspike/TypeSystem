@@ -158,6 +158,16 @@ describe("a run acts only on authority its initiator still holds (ADR-0065)", ()
     expect((await workOrders(tb)).map((o) => o.status)).toEqual(["closed"]);
   });
 
+  it("with no cancel policy only the initiator may cancel, and the refusal is audited", async () => {
+    const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
+    const engine = await WorkflowEngine.create({ host: tb, sleep: async () => {}, model: scriptedModel({ triage: TRIAGE }, "test-model", demoAudiences.enclaveModel) });
+    engine.register(groundForRepair);
+    const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);
+    await expect(engine.cancel(runId, lead, "not mine to cancel")).rejects.toMatchObject({ reason: "Only the initiator may cancel a run of a workflow with no cancelPolicy" });
+    expect((await engine.status(runId, maintainer)).status).toBe("waiting-approval");
+    expect((await auditOf(tb, "workflow.cancel")).map((e) => [e.subjectId, e.decision])).toEqual([[lead.subjectId, "deny"]]);
+  });
+
   it("the initiator may cancel their own run while it waits; nothing ran, so nothing is undone", async () => {
     const { tb, engine } = await fixture();
     const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);
@@ -168,6 +178,19 @@ describe("a run acts only on authority its initiator still holds (ADR-0065)", ()
 });
 
 describe("durable timers (ADR-0065)", () => {
+  it("an engine sharing a journal sweeps only runs of workflows it has: another's due timer is left to the engine that has it", async () => {
+    const journal = new InMemoryJournal();
+    const clock = { t: T0 };
+    const { engine: owner } = await fixture({ journal, clock });
+    const { runId } = await owner.start("airforce.GroundForRepair", START, maintainer);
+    const stranger = await WorkflowEngine.create({ host: await buildAirforceTestbed({ mockRestLatencyMs: 0 }), journal, now: () => new Date(clock.t), sleep: async () => {} });
+    clock.t += 61_000;
+    expect(await stranger.tick()).toEqual([]);
+    expect(await stranger.resumeAll()).toEqual([]);
+    expect((await owner.status(runId, maintainer)).status).toBe("waiting-approval");
+    expect((await owner.tick()).map((r) => r.status)).toEqual(["rejected"]);
+  });
+
   it("an approval past its deadline expires, even when a new process finds it", async () => {
     const journal = new InMemoryJournal();
     const clock = { t: T0 };

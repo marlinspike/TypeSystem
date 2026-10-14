@@ -1,0 +1,523 @@
+{
+  "format": "typesys.mutation-catalog/1",
+  "mutations": [
+    {
+      "id": "release.decide-ignores-audience",
+      "adr": "0067",
+      "description": "A policy decision allows when the person is allowed, whatever the audience's decision.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!forAudience.allow) return { allow: false, reason: `Not releasable",
+      "replace": "if (!forPerson.allow) return { allow: false, reason: `Not releasable",
+      "tests": [
+        "packages/domain-airforce/test/release-boundary.test.ts",
+        "packages/mcp-server/test/audience.test.ts"
+      ]
+    },
+    {
+      "id": "release.classify-ignores-audience",
+      "adr": "0067",
+      "description": "Marked data is released to an audience not cleared for it.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "return forAudience.allow ? forPerson :",
+      "replace": "return forPerson.allow ? forPerson :",
+      "tests": [
+        "packages/domain-airforce/test/release-boundary.test.ts"
+      ]
+    },
+    {
+      "id": "release.plan-ignores-audience",
+      "adr": "0067",
+      "description": "A query's row plan is the person's alone, not the conjunction with the audience's.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "return allPlans(await Promise.all([this.askPlanner({ ...request, subject: person }), this.askPlanner({ ...request, subject: audience })]));",
+      "replace": "return this.askPlanner({ ...request, subject: person });",
+      "tests": [
+        "packages/domain-hospital/test/release-boundary.test.ts",
+        "packages/domain-airforce/test/release-boundary.test.ts"
+      ]
+    },
+    {
+      "id": "release.audience-rebinding",
+      "adr": "0067",
+      "description": "An identity bound to one audience can be re-bound to another.",
+      "file": "packages/core/src/model/policy.ts",
+      "find": "identity.audience.id !== audience.id) throw new TypeError(",
+      "replace": "identity.audience.id === \"\") throw new TypeError(",
+      "tests": [
+        "packages/domain-airforce/test/release-boundary.test.ts",
+        "packages/workflow/test/release-boundary.test.ts",
+        "packages/mcp-server/test/audience.test.ts"
+      ]
+    },
+    {
+      "id": "release.ai-step-sends-withheld",
+      "adr": "0067",
+      "description": "An AI step whose input differs from what its model may receive is sent anyway.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if ((step.release ?? \"refuse\") === \"refuse\") {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/workflow/test/release-boundary.test.ts"
+      ]
+    },
+    {
+      "id": "release.ai-input-from-person",
+      "adr": "0067",
+      "description": "An AI step's input is computed from what the person read, not what the model may receive.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "const input = step.input(contextFor(state.runId, state.input, step, released));",
+      "replace": "const input = step.input(ctx);",
+      "tests": [
+        "packages/workflow/test/release-boundary.test.ts"
+      ]
+    },
+    {
+      "id": "release.action-output-to-model",
+      "adr": "0067",
+      "description": "Registration accepts an AI step fed by an Action's output.",
+      "file": "packages/workflow/src/validate.ts",
+      "find": "if (workflow.steps.find((s) => s.name === up)?.kind === \"action\") {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/workflow/test/release-boundary.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.anonymous-described",
+      "adr": "0068",
+      "description": "An anonymous caller is described the model under authenticated and need-to-know.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (this.discovery !== \"open\" && isAnonymous(principalsOf(identity).person)) {\n          const reason",
+      "replace": "if (false) {\n          const reason",
+      "tests": [
+        "packages/domain-airforce/test/discovery.test.ts",
+        "packages/mcp-server/test/discovery-security.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.unnarrowed",
+      "adr": "0068",
+      "description": "Need-to-know describes the whole model.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (this.discovery !== \"need-to-know\") {",
+      "replace": "if (true) {",
+      "tests": [
+        "packages/domain-airforce/test/discovery.test.ts",
+        "packages/mcp-server/test/discovery-security.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.never-plan-admits",
+      "adr": "0068",
+      "description": "A policy whose plan admits nothing for the caller still describes the Type.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (plan.kind === \"never\") return false;",
+      "replace": "if (false) return false;",
+      "tests": [
+        "packages/domain-airforce/test/discovery.test.ts",
+        "packages/core/test/query-wholesale-denial.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.unplannable-admits",
+      "adr": "0068",
+      "description": "A policy no engine can plan is assumed to admit the caller.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "return (await this.decide({ subject: identity, action, policyName, resource })).allow;",
+      "replace": "return true;",
+      "tests": [
+        "packages/core/test/query-wholesale-denial.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.markings-ignored",
+      "adr": "0068",
+      "description": "A member's markings do not withhold it from a description.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!this.clearedToKnow(identity, memberMarkings(typeDef, member), at, \"read\")) return false;",
+      "replace": "",
+      "tests": [
+        "packages/domain-airforce/test/discovery.test.ts",
+        "packages/mcp-server/test/discovery-security.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.member-policy-ignored",
+      "adr": "0068",
+      "description": "A member's own policy does not withhold it from a description.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "return !policyName || this.admitsSome(identity, \"read\", policyName, at);",
+      "replace": "return true;",
+      "tests": [
+        "packages/domain-airforce/test/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.list-actions-unnarrowed",
+      "adr": "0068",
+      "description": "listActions reports every Action under need-to-know.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "            !needToKnow ||",
+      "replace": "            true ||",
+      "tests": [
+        "packages/domain-airforce/test/discovery.test.ts",
+        "packages/mcp-server/test/discovery-security.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.relationship-to-withheld",
+      "adr": "0068",
+      "description": "A relationship to a withheld Type is described.",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "if (readable.has(rel.target) && (await gate.memberReadable(def, rel.name))) {",
+      "replace": "if (await gate.memberReadable(def, rel.name)) {",
+      "tests": [
+        "packages/core/test/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.computed-over-withheld",
+      "adr": "0068",
+      "description": "A computed value over a withheld input is described.",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "const inputsReadable = cp.dependsOn.every((dep) => members.has(dep) || released.has(dep));",
+      "replace": "const inputsReadable = true;",
+      "tests": [
+        "packages/core/test/discovery.test.ts",
+        "packages/domain-airforce/test/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.withheld-input-named",
+      "adr": "0068",
+      "description": "A described computed value names its withheld inputs.",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "dependsOn: cp.dependsOn.filter((dep) => members.has(dep))",
+      "replace": "dependsOn: cp.dependsOn",
+      "tests": [
+        "packages/core/test/discovery.test.ts",
+        "packages/domain-airforce/test/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.extends-withheld",
+      "adr": "0068",
+      "description": "A description extends a withheld base Type by name.",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "...(base && readable.has(base) ? { extends: base } : {}),",
+      "replace": "...(base ? { extends: base } : {}),",
+      "tests": [
+        "packages/core/test/discovery.test.ts",
+        "packages/domain-airforce/test/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.action-target-withheld",
+      "adr": "0068",
+      "description": "An Action targeting a withheld Type is described.",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "if (invocable && (!target || readable.has(target.type)))",
+      "replace": "if (invocable)",
+      "tests": [
+        "packages/core/test/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.mcp-sends-markings",
+      "adr": "0068",
+      "description": "MCP Type documents carry x-provenance markings again.",
+      "file": "packages/mcp-server/src/reads.ts",
+      "find": "[\"x-policy\", \"x-provenance\", ",
+      "replace": "[\"x-policy\", ",
+      "tests": [
+        "packages/mcp-server/test/discovery-security.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.mcp-lists-every-action",
+      "adr": "0068",
+      "description": "MCP tools/list offers every Action whatever the discovery mode.",
+      "file": "packages/mcp-server/src/tools.ts",
+      "find": "if (runtime.discovery === \"open\") return actions;",
+      "replace": "if (true) return actions;",
+      "tests": [
+        "packages/mcp-server/test/discovery-security.test.ts"
+      ]
+    },
+    {
+      "id": "read.query-post-check-skipped",
+      "adr": "0038",
+      "description": "A query returns objects its read policy denies when the plan did not exclude them.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!decision.allow) {\n            if (isExact(plan) && planAdmits(plan, attributes))",
+      "replace": "if (!decision.allow && objectPolicy === \"\") {\n            if (isExact(plan) && planAdmits(plan, attributes))",
+      "tests": [
+        "packages/core/test/query-wholesale-denial.test.ts",
+        "packages/domain-hospital/test/read-path-invariants.test.ts"
+      ]
+    },
+    {
+      "id": "authority.expiry-ignored",
+      "adr": "0065",
+      "description": "A run keeps acting on credentials past their expiresAt.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "return Number.isNaN(at) || at <= now ?",
+      "replace": "return false ?",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.policy-not-redecided",
+      "adr": "0065",
+      "description": "The start policy is not decided again before each step.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "return decision.allow ? undefined : `${identity.subjectId} is no longer admitted",
+      "replace": "return true ? undefined : `${identity.subjectId} is no longer admitted",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.revoked-subject-transient",
+      "adr": "0065",
+      "description": "A revoked or unknown subject leaves the run as it was instead of suspending it.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "return this.suspend(w, workflow, `${held.subjectId} could not be re-resolved: ${err.message}`);",
+      "replace": "throw err;",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.snapshot-ages-forever",
+      "adr": "0065",
+      "description": "Without a resolver, the held identity is used however old it is.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (age > max) return this.suspend(",
+      "replace": "if (false) return this.suspend(",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.other-subject-carries",
+      "adr": "0065",
+      "description": "A run whose initiator re-resolves as a different subject carries on as them.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (current.subjectId !== held.subjectId) return this.suspend(",
+      "replace": "if (false) return this.suspend(",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.reauthorize-as-anyone",
+      "adr": "0065",
+      "description": "Someone other than the run's subject can re-authorize it.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (identity.subjectId !== holder) await refuse(",
+      "replace": "if (false) await refuse(",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.cancel-without-policy",
+      "adr": "0065",
+      "description": "Anyone can cancel a run of a workflow with no cancel policy.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": ": { allow: false, reason: \"Only the initiator may cancel a run of a workflow with no cancelPolicy\" };",
+      "replace": ": { allow: true, reason: \"Only the initiator may cancel a run of a workflow with no cancelPolicy\" };",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.late-approval-counts",
+      "adr": "0065",
+      "description": "An approval decided after its deadline is recorded.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (due(deadline, this.options.now?.() ?? new Date())) {\n      await this.advance(runId);",
+      "replace": "if (false) {\n      await this.advance(runId);",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.self-approval",
+      "adr": "0057",
+      "description": "The initiator of a run may approve it.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (!step.allowSelfApproval && approver.subjectId === state.initiator.subjectId) {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/workflow/test/workflow.test.ts",
+        "packages/workflow/test/pressure-workflow.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.read-step-invokes",
+      "adr": "0057",
+      "description": "A read step's client can invoke an Action, bypassing review.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name))",
+      "replace": "createClient<ModelShape>(runtimeTransport(this.options.host.runtime, identity))",
+      "tests": [
+        "packages/workflow/test/pressure-workflow.test.ts"
+      ]
+    },
+    {
+      "id": "journal.unconditional-append",
+      "adr": "0066",
+      "description": "The in-memory journal appends whatever its length.",
+      "file": "packages/workflow/src/journal.ts",
+      "find": "if (records.length !== expectedLength) throw new JournalConflictError(",
+      "replace": "if (false) throw new JournalConflictError(",
+      "tests": [
+        "packages/workflow/test/journal-contract.test.ts",
+        "packages/workflow/test/workflow.test.ts"
+      ]
+    },
+    {
+      "id": "journal.postgres-unconditional-append",
+      "adr": "0066",
+      "description": "The Postgres journal appends whatever its length.",
+      "file": "packages/workflow-postgres/src/postgres-journal.ts",
+      "find": "if (actual !== expectedLength) {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/workflow-postgres/test/postgres-journal.test.ts"
+      ],
+      "requires": [
+        "DATABASE_URL"
+      ]
+    },
+    {
+      "id": "journal.foreign-runs-swept",
+      "adr": "0066",
+      "description": "tick() and resumeAll() advance runs of workflows this engine does not have.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (!state.finished && this.definitions.get(state.workflow)?.has(state.version)) own.push({ runId, state });",
+      "replace": "if (!state.finished) own.push({ runId, state });",
+      "tests": [
+        "packages/workflow/test/continuing-authority.test.ts",
+        "packages/workflow-postgres/test/postgres-journal.test.ts"
+      ]
+    },
+    {
+      "id": "packs.revocation-ignored",
+      "adr": "0069",
+      "description": "verifyPack ignores revoked keys and withdrawn digests.",
+      "file": "packages/packs/src/archive.ts",
+      "find": "  out.push(...revocationsOf(full, opts));\n",
+      "replace": "\n",
+      "tests": [
+        "packages/packs/test/revocation.test.ts",
+        "packages/cli/test/pack.test.ts"
+      ]
+    },
+    {
+      "id": "packs.revoked-key-trusted",
+      "adr": "0069",
+      "description": "A revoked key still listed as trusted counts as a trusted signature.",
+      "file": "packages/packs/src/archive.ts",
+      "find": "if (key === undefined || (opts.revokedKeys && Object.hasOwn(opts.revokedKeys, s.keyId))) continue;",
+      "replace": "if (key === undefined) continue;",
+      "tests": [
+        "packages/packs/test/revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.installed-revocation-ignored",
+      "adr": "0069",
+      "description": "A revoked installed pack does not block further installs.",
+      "file": "packages/packs/src/install.ts",
+      "find": "for (const a of installed) out.push(...revocationsOf(a, trust));",
+      "replace": "",
+      "tests": [
+        "packages/packs/test/revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.refused-install-unaudited",
+      "adr": "0069",
+      "description": "A refused install writes no audit row.",
+      "file": "packages/packs/src/install.ts",
+      "find": "if (plan.diagnostics.length > 0) {\n    await audit(",
+      "replace": "if (plan.diagnostics.length > 0) {\n    if (plan.order.length < 0) await audit(",
+      "tests": [
+        "packages/packs/test/revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.digest-unchecked",
+      "adr": "0059",
+      "description": "A pack changed after it was built verifies.",
+      "file": "packages/packs/src/archive.ts",
+      "find": "if (digestOf(full) !== full.digest) out.push(",
+      "replace": "if (false) out.push(",
+      "tests": [
+        "packages/packs/test/packs.test.ts",
+        "packages/cli/test/pack.test.ts"
+      ]
+    },
+    {
+      "id": "packs.overwrites-registered-types",
+      "adr": "0059",
+      "description": "An install may redefine a Type the target registry already holds.",
+      "file": "packages/packs/src/install.ts",
+      "find": "for (const t of a.contents.types) if (!owned.types.has(t.name) && (await registry.getType(t.name))) clash(a.name, \"Type\", t.name);",
+      "replace": "",
+      "tests": [
+        "packages/packs/test/pressure-packs.test.ts"
+      ]
+    },
+    {
+      "id": "packs.weakened-protection-safe",
+      "adr": "0059",
+      "description": "checkUpgrade reports no protection a new version removes or changes.",
+      "file": "packages/packs/src/upgrade.ts",
+      "find": "const finding = (subject: string, message: string) => out.push({ code: \"protection-weakened\", pack: next.name, subject, message });",
+      "replace": "const finding = (_subject: string, _message: string) => 0;",
+      "tests": [
+        "packages/packs/test/pressure-packs.test.ts",
+        "packages/packs/test/packs.test.ts"
+      ]
+    },
+    {
+      "id": "core.computed-reads-undeclared",
+      "adr": "0052",
+      "description": "A computed property can read a value it does not declare in dependsOn.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!cp.dependsOn.includes(name)) return undefined;",
+      "replace": "",
+      "tests": [
+        "packages/core/test/pressure-core-enforcement.test.ts",
+        "packages/core/test/derived-value-release.test.ts"
+      ]
+    },
+    {
+      "id": "core.subtype-replaces-policy",
+      "adr": "0060",
+      "description": "A subtype may replace a property policy it inherits.",
+      "file": "packages/core/src/registry/registry.ts",
+      "find": "if (propertyPolicies[member] !== undefined && propertyPolicies[member] !== rule) refuse(",
+      "replace": "if (false) refuse(",
+      "tests": [
+        "packages/core/test/subtype-protections.test.ts"
+      ]
+    },
+    {
+      "id": "terminology.retired-name-passes",
+      "adr": "0064",
+      "description": "The terminology check passes the retired product name.",
+      "file": "tools/terminology/terminology.ts",
+      "find": "(?![a-z])",
+      "replace": "(?![a-zA-Z])",
+      "tests": [
+        "tools/terminology/test/terminology.test.ts"
+      ]
+    }
+  ]
+}

@@ -36,7 +36,8 @@
     "clean": "tsc -b --clean",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "npm run build && changeset publish"
+    "release": "npm run build && changeset publish",
+    "mutation": "tsx scripts/mutation.ts"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

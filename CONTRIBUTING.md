@@ -64,6 +64,14 @@ npm run smoke:mcp        # real stdio subprocess, discover-to-invoke
 npm run smoke:mcp-http   # the same over the HTTP transport
 ```
 
+If you touched a security mechanism the mutation catalog names, rerun its
+mutations (ADR-0070); a catalog entry whose code moved goes stale and fails
+the run until you update it:
+
+```bash
+npm run mutation -- --only <id,...> --allow-dirty
+```
+
 Postgres/Redis-backed tests **skip cleanly** without `DATABASE_URL` /
 `REDIS_URL`. To run them locally, point those at a real instance; CI runs a
 second job with Postgres and Redis service containers plus the multi-process
