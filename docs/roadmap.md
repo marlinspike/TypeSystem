@@ -1,5 +1,9 @@
 # Roadmap: from governed runtime to governed composition platform
 
+> The 3.0 work (hardening, the autonomous engineering loop, interoperability
+> and the productivity evaluation) is planned and tracked in
+> [`roadmap-3.md`](roadmap-3.md). This file records 2.0.
+
 A living document. It records what this evolution is for, the order the
 work runs in and why, what is done (with the evidence), and what is left.
 It is updated in the same commit as the work it describes. For what exists
