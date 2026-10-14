@@ -1943,7 +1943,12 @@ export class SemanticRuntime {
       const nested = inc.include;
       if (nested && nested.length > 0) {
         await mapWithConcurrency(kept, this.maxConcurrency, async ({ object, attributes: relatedAttributes }) => {
-          await this.attachIncludes(object, relatedAttributes, nested, identity);
+          await this.attachIncludes(object, relatedAttributes, nested, identity).catch((err: unknown) => {
+            // A failure the nested level did not absorb is its own (a required relationship there): no outer optional
+            // relationship may report it as its source being unavailable.
+            if (err !== null && typeof err === "object") NESTED_FAILURES.add(err);
+            throw err;
+          });
         });
       }
       return kept.map((r) => r.object);
@@ -1965,7 +1970,8 @@ export class SemanticRuntime {
         return { values: await this.resolveIncludes(object.typeName, object.objectId, attributes, [inc], identity) };
       } catch (err) {
         const rel = relOf(inc.relationship);
-        const reason = rel?.optional ? sourceFailure(err) : undefined;
+        const nestedFailure = err !== null && typeof err === "object" && NESTED_FAILURES.has(err);
+        const reason = rel?.optional && !nestedFailure ? sourceFailure(err) : undefined;
         if (!rel || !reason) throw err;
         return { missing: { path: inc.relationship, dataSourceId: rel.resolution.dataSourceId, reason, message: err instanceof Error ? err.message : String(err) } };
       }
@@ -2030,7 +2036,17 @@ export class SemanticRuntime {
           const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
             this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes, released: computed.releases?.includes(dep) === true })
           );
-          return leftOut ? [] : nested.flat();
+          if (leftOut) return [];
+          // A computation may also ask other systems through ctx.getAdapter (needsAttention asks the maintenance
+          // system for open work orders): each system it consulted this time is named too, as a source of the value.
+          const refs = nested.flat();
+          const named = new Set(refs.map((r) => r.source.dataSourceId));
+          for (const consulted of await this.consultedSources(typeDef, objectId, computed, identity)) {
+            if (named.has(consulted.dataSourceId)) continue;
+            named.add(consulted.dataSourceId);
+            refs.push({ propertyPath, source: consulted, retrievedAt: new Date().toISOString() });
+          }
+          return refs;
         }
 
         const mapping = await this.mappingResolver.resolvePropertyMapping(typeName, propertyPath);
@@ -2042,6 +2058,46 @@ export class SemanticRuntime {
         return leftOut ? [] : refs;
       }
     ));
+  }
+
+  /**
+   * The systems `cp`'s computation reads through `ctx.getAdapter` for this
+   * object, found by running it once more against the stored values with
+   * each adapter it asks for recorded (computed inputs it depends on are
+   * computed first, as a read computes them). Names only: what it read
+   * there is not returned.
+   */
+  private async consultedSources(typeDef: TypeDefinition, objectId: string, cp: ComputedPropertyDefinition, identity: Identity): Promise<{ dataSourceId: string; system: string }[]> {
+    const values: Record<string, unknown> = { ...(await this.resolveObjectProperties(typeDef, objectId)).values };
+    const consulted = new Map<string, string>();
+    const recording = (adapter: Adapter): Adapter =>
+      new Proxy(adapter, {
+        get(target, prop, receiver) {
+          const value: unknown = Reflect.get(target, prop, receiver);
+          if (typeof value !== "function" || !["resolveProperties", "queryByType", "resolveRelationship", "aggregate"].includes(String(prop))) return value;
+          return async (...args: unknown[]) => {
+            const result: unknown = await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+            const refs = provenanceIn(result);
+            if (!consulted.has(target.dataSourceId) || refs.length > 0) consulted.set(target.dataSourceId, refs[0]?.source.system ?? consulted.get(target.dataSourceId) ?? target.dataSourceId);
+            return result;
+          };
+        }
+      });
+    const contextFor = (c: ComputedPropertyDefinition, record: boolean): ComputeContext => ({
+      identity,
+      objectId,
+      typeName: typeDef.name,
+      getAdapter: (dataSourceId: string) => (record ? recording(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId)),
+      getProperty: async (name: string) => (c.dependsOn.includes(name) ? values[name] : undefined)
+    });
+    for (const c of typeDef.computedProperties) {
+      if (c.name === cp.name) {
+        await cp.compute(contextFor(cp, true));
+        break;
+      }
+      if (cp.dependsOn.includes(c.name)) values[c.name] = await c.compute(contextFor(c, false));
+    }
+    return [...consulted].map(([dataSourceId, system]) => ({ dataSourceId, system }));
   }
 
   /**
@@ -2420,6 +2476,19 @@ export class SemanticRuntime {
     ));
   }
 }
+
+/** The provenance an adapter result carries: a property bundle's, or every item's of a query page. */
+function provenanceIn(result: unknown): ProvenanceRef[] {
+  if (result === null || typeof result !== "object") return [];
+  const own = (result as { provenance?: unknown }).provenance;
+  if (Array.isArray(own)) return own as ProvenanceRef[];
+  const items = (result as { items?: unknown }).items;
+  if (Array.isArray(items)) return items.flatMap((i: unknown) => provenanceIn(i));
+  return [];
+}
+
+/** Errors raised by a nested include's own required relationship, which an outer optional include must not absorb. */
+const NESTED_FAILURES = new WeakSet<object>();
 
 /** Where each adapter method takes its `AdapterCallOptions` (see `Adapter`). */
 const OPTIONS_INDEX: Readonly<Record<string, number>> = { resolveProperties: 3, queryByType: 5, resolveRelationship: 2, executeAction: 3, aggregate: 1 };
