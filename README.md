@@ -588,6 +588,13 @@ flowchart TB
   browser scenario both pass and the comparison script that measures them
   ([ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)).
   `npm run mission` serves both.
+- **`packages/engineer`** (`@typesys/engineer`) — the engineering loop: a
+  mission spec of requirement, callers and acceptance checks; `plan` it
+  against the model, `scaffold` a typed application, and `verify` it by
+  running every check through the application's API as each caller, with
+  diagnostics an agent repairs from. Offered as `typesys engineer`, MCP
+  tools and a Claude Code skill
+  ([ADR-0071](docs/adr/0071-the-engineering-loop-verifies-against-the-runtime.md)).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

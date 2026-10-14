@@ -118,12 +118,13 @@ export const demoAudiences: Record<"enclaveModel" | "commercialModel", Audience>
 
 const DEMO_TOKENS: Record<string, Identity> = {
   "demo-maintainer-token": demoIdentities.maintainer,
-  "demo-viewer-token": demoIdentities.viewer
+  "demo-viewer-token": demoIdentities.viewer,
+  "demo-lead-token": demoIdentities.lead
 };
 
 /**
- * The demo's static bearer tokens (`demo-maintainer-token`, `demo-viewer-token`)
- * as an identity resolver, for the demo servers and their tests; anything else,
+ * The demo's static bearer tokens (`demo-maintainer-token`, `demo-viewer-token`,
+ * `demo-lead-token`) as an identity resolver, for the demo servers and their tests; anything else,
  * including no token, is `anonymous`. It has the shape of `@typesys/mcp-server`'s
  * `IdentityResolver` without importing it. Constants in source grant a role, so
  * this is for a demonstration, never a deployment (ADR-0050): a real one passes

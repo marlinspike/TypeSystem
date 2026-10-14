@@ -26,6 +26,7 @@ Usage:
   typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--revoke <keyId|sha256:digest>]... [--json]
   typesys pack sign <pack.json> --key-id <id> --private-key <private.pem> --out <signed.json>
   typesys pack check-upgrade <next.json> --installed <pack.json>... [--json]
+  typesys engineer plan|scaffold|verify ...   (with @typesys/engineer installed)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -142,7 +143,22 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
   process.exitCode = ok ? 0 : 1;
 }
 
+/** `typesys engineer`: the engineering loop (ADR-0071) lives in its own package, so the CLI stays small; it runs when that package is installed. */
+async function engineer(argv: string[]): Promise<void> {
+  const specifier = "@typesys/engineer";
+  let mod: { engineerCommand: (argv: readonly string[]) => Promise<number> };
+  try {
+    mod = (await import(specifier)) as typeof mod;
+  } catch {
+    console.error("typesys engineer needs @typesys/engineer: npm install --save-dev @typesys/engineer");
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = await mod.engineerCommand(argv);
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === "engineer") return engineer(process.argv.slice(3));
   const args = parseArgs(process.argv.slice(2));
   const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 

@@ -1,0 +1,41 @@
+{
+  "name": "@typesys/engineer",
+  "version": "0.1.0",
+  "description": "The TypeSystem engineering loop (ADR-0071): a mission spec of requirement, callers and acceptance checks the runtime can decide; plan it against a governed model, scaffold a typed application from it, and verify the application against the checks with structured diagnostics an agent can repair from. Offered as a library, a CLI and MCP tools.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "bin": {
+    "typesys-engineer": "./dist/bin.js",
+    "typesys-engineer-mcp": "./dist/mcp-bin.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/engineer"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
+    "@typesys/http": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "@typesys/workflow": "0.1.0",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "devDependencies": {
+    "@typesys/domain-airforce": "0.1.0",
+    "playwright-core": "1.56.1"
+  }
+}

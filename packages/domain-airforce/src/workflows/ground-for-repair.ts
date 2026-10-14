@@ -134,3 +134,6 @@ export const groundForRepair = defineWorkflow<AirforceModel, GroundForRepairInpu
     }
   ]
 });
+
+/** Every workflow this domain defines, for a host to register and for `typesys engineer plan` to report (ADR-0071). */
+export const airforceWorkflows = [groundForRepair] as const;

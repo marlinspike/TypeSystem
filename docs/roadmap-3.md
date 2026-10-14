@@ -239,7 +239,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | M2d discovery security | ✅ | [0068](adr/0068-discovery-is-decided-by-the-runtime.md) | `packages/domain-airforce/test/discovery.test.ts` (need-to-know per caller and audience, property-based over generated principals, modes, `HIGH_ASSURANCE_V2`); `packages/mcp-server/test/discovery-security.test.ts` (one description over runtime, REST, MCP tools, resources and HTTP `tools/list`; anonymous refused); Studio in `packages/studio/test/studio.test.ts` |
 | M2e integrity | ✅ | [0069](adr/0069-pack-trust-can-be-revoked.md) | Key and digest revocation with audited installs: `packages/packs/test/revocation.test.ts`, `typesys pack verify --revoke`. The independent review's 27 findings across M2 are fixed, with its tests (`packages/*/test/m2-adv-*.test.ts`) and a disposition in [`reviews/m2-adversarial-review.md`](reviews/m2-adversarial-review.md) |
 | M3 reproducible verification | ✅ | [0070](adr/0070-mutation-evidence-is-regenerated-not-asserted.md) | `npm run mutation` over `tools/mutation/catalog.json` (74 mutations, one per review fix among them); record in [`evidence/mutation/latest.json`](evidence/mutation/latest.json); `.github/workflows/mutation.yml`; property tests in `packages/domain-airforce/test/discovery.test.ts` and `packages/domain-hospital/test/read-path-invariants.test.ts` |
-| M4 engineering loop | ⏳ | | |
+| M4 engineering loop | ✅ | [0071](adr/0071-the-engineering-loop-verifies-against-the-runtime.md) | `packages/engineer/test/loop.test.ts` (plan, scaffold, verify on `examples/missions/component-replacement`; defects seeded in the spec and in the application, diagnosed and repaired), `surfaces.test.ts` (CLI and MCP tools), `browser.test.ts` (generated views in Chromium); `.claude/skills/typesys-engineer`; 8 `engineer.*` mutations in the catalog; transcript in [`evidence/engineering-loop-2026-10-14.md`](evidence/engineering-loop-2026-10-14.md) |
 | M5 interoperability | ⏳ | | |
 | M6 evaluation | ⏳ | | |
 | M7 reuse and Studio | ⏳ | | |
@@ -256,8 +256,8 @@ pull request at the end of M2 and of M4.
 Kept current at each commit so the work can be picked up exactly where it
 stopped.
 
-- Done: M1, M2a–M2e, M3, with the independent review of M2 fixed and its
+- Done: M1, M2a–M2e, M3, M4, with the independent review of M2 fixed and its
   fixes mutation-checked. Open from that review, recorded not fixed: the
   items under "Seen in code, not demonstrated" (ADR-0067 and
-  `docs/completeness.md`). Next: M4, the engineering loop; an independent
-  review of M4 follows it.
+  `docs/completeness.md`). Next: the independent review of
+  M4, then M5, interoperability across three independent services.

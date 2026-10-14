@@ -21,6 +21,7 @@
     { "path": "packages/react" },
     { "path": "packages/packs" },
     { "path": "packages/studio" },
-    { "path": "packages/mission-readiness" }
+    { "path": "packages/mission-readiness" },
+    { "path": "packages/engineer" }
   ]
 }

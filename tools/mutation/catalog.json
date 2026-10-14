@@ -855,6 +855,94 @@
       "tests": [
         "packages/cli/test/m2-adv-revoke.test.ts"
       ]
+    },
+    {
+      "id": "engineer.withheld-unchecked",
+      "adr": "0071",
+      "description": "verify passes a reads check whose caller sees a field the requirement says must be withheld.",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "const leaked = (check.withheld ?? []).filter((f) => Object.hasOwn(values, f));",
+      "replace": "const leaked = (check.withheld ?? []).filter(() => false);",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.approval-admission-unchecked",
+      "adr": "0071",
+      "description": "verify passes an approves check whatever the approval admitted.",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (admitted !== check.admitted)",
+      "replace": "if (admitted !== check.admitted && check.id === \"\")",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.build-errors-ignored",
+      "adr": "0071",
+      "description": "verify goes on to start an application that did not compile.",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (built.length > 0) return fail(",
+      "replace": "if (built.length < 0) return fail(",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.check-step-not-enforced",
+      "adr": "0071",
+      "description": "A scaffolded check step never fails the run, so a mismatched request proceeds to approval.",
+      "file": "packages/engineer/src/scaffold.ts",
+      "find": "if (JSON.stringify(${valueSource(s.equal[0])}) !== JSON.stringify(${valueSource(s.equal[1])})) throw",
+      "replace": "if (JSON.stringify(${valueSource(s.equal[0])}) === \"never\") throw",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.self-approval-dropped",
+      "adr": "0071",
+      "description": "scaffold drops allowSelfApproval from the spec, so the application differs from what was planned and verified.",
+      "file": "packages/engineer/src/scaffold.ts",
+      "find": "${s.allowSelfApproval ? \"\\n      allowSelfApproval: true,\" : \"\"}",
+      "replace": "",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.unknown-field-unreported",
+      "adr": "0071",
+      "description": "plan accepts a view or check naming a field the Type does not have.",
+      "file": "packages/engineer/src/plan.ts",
+      "find": "if (!membersOf(t).includes(name)) {",
+      "replace": "if (!membersOf(t).includes(name) && name === \"\") {",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.workflow-shadowing",
+      "adr": "0071",
+      "description": "plan accepts a mission workflow named like one the host already runs.",
+      "file": "packages/engineer/src/plan.ts",
+      "find": "if (spec.workflow && workflows.some((w) => w.name === spec.workflow!.name))",
+      "replace": "if (spec.workflow && workflows.some((w) => w.name === \"\"))",
+      "tests": [
+        "packages/engineer/test/loop.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.mcp-root-escape",
+      "adr": "0071",
+      "description": "The engineer MCP tools accept a path outside their root.",
+      "file": "packages/engineer/src/mcp.ts",
+      "find": "if (rel.startsWith(\"..\") || path.isAbsolute(rel)) throw",
+      "replace": "if (rel.startsWith(\"../../../..\") && path.isAbsolute(rel)) throw",
+      "tests": [
+        "packages/engineer/test/surfaces.test.ts"
+      ]
     }
   ]
 }
