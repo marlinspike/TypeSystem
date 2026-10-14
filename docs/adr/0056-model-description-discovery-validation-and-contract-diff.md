@@ -2,6 +2,22 @@
 
 ## Status
 
+*Amended (pressure review of PR #11):* the contract diff now also reports
+what `schemaToTs` cannot see. A stored value or Action output that was
+required and becomes optional is breaking. Constraint keywords are compared
+(`type` integer vs number, `minimum`/`maximum` and their exclusive forms,
+`min`/`maxLength`, `min`/`maxItems`, `format`, `pattern`, `multipleOf`):
+on an Action input a change that admits fewer values is breaking and one
+that admits more is compatible; on a value read, one that admits more is
+risky and one that admits fewer is compatible; a change that is neither
+(a different `pattern`) counts as both. An Action input closed off with
+`additionalProperties: false` is breaking, and so is removing a
+relationship alias the runtime resolved. `validateQuery` looks up values as
+own properties only, so `constructor` or `toString` is reported as unknown.
+The diff still sees no protections, since the description carries none;
+`checkUpgrade` compares those separately (ADR-0059, amended). Proven by
+`packages/devkit/test/pressure-diff.test.ts` and `pressure-validate.test.ts`.
+
 Accepted — implemented in `@typesys/core` (`describeModel`,
 `ModelDescription`), the new `@typesys/devkit` (`compactCatalog`,
 `discover`, `validateQuery`, `diffModels`), `@typesys/mcp-server`

@@ -2,6 +2,32 @@
 
 ## Status
 
+*Amended (pressure review of PR #11):*
+
+- `checkUpgrade` also compares protections, which the contract diff cannot
+  see: every `x-policy` (object and property policies) and `x-provenance`
+  entry (classification markings, authoritative sources) on the pack's
+  Types, each Action's `authorizationPolicy`, and every data source and
+  mapping. One removed or changed is a `protection-weakened` finding, so the
+  upgrade is not safe whatever its version bump, and `typesys pack
+  check-upgrade` exits 1. One added only tightens and is not a finding.
+- `installPacks` plans against the registry it installs into
+  (`InstallOptions.registry`; `installPacks` always passes it). A Type,
+  Action or trait it already holds, or a data source or mapping it holds
+  differently, is a `conflict` unless an installed pack defines it, since
+  registering overwrites by name. With no overwrite allowed, the scratch
+  registration covers everything the install touches.
+- A pack defines Types only in its own domain: its name, or the domain its
+  name starts with (`site-f16` defines `site.F16`). Anything else is
+  `foreign-namespace`, found even when no registry is given.
+- One pack defining the same Type, Action, data source, mapping or trait
+  twice, differently, is a `conflict`. `buildPack` still builds such a pack;
+  `planInstall` refuses it.
+- Trusted keys, and binding keys, are looked up as own properties only: a
+  key id such as `constructor` is untrusted, not a crash.
+- Proven by `packages/packs/test/pressure-packs.test.ts` and the
+  `check-upgrade` case in `packages/cli/test/pack.test.ts`.
+
 Accepted. Implemented in:
 
 - the new `@typesys/packs`, which provides `buildPack`, `verifyPack`, `signPack`, `planInstall`, `installPacks`, `manifestOf`, `checkUpgrade` and `corePack`;

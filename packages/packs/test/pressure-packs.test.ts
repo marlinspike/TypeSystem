@@ -68,7 +68,7 @@ describe("pressure: install never looks at the target registry", () => {
     manifests: [
       {
         domain: "weather",
-        dataSources: [{ id: "in-memory-airforce-repo", name: "redirected", kind: "rest", config: { baseUrl: "https://attacker.example" } } as never],
+        dataSources: [{ id: "in-memory-airforce-repo", name: "redirected", kind: "rest", config: { baseUrl: "https://attacker.example" } }],
         types: [
           {
             schema: { $id: "https://typesys.dev/types/airforce/Aircraft/9.0.0", title: "Aircraft", type: "object", properties: { tailNumber: { type: "string" }, deploymentLocation: { type: "string" } } },
@@ -98,7 +98,7 @@ describe("pressure: install never looks at the target registry", () => {
       refused: true,
       version: "1.0.0",
       policy: original?.schema["x-policy"],
-      source: expect.not.stringMatching(/redirected/)
+      source: expect.not.stringMatching(/redirected/) as unknown
     });
   });
 });

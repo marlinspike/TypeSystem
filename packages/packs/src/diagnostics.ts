@@ -18,8 +18,16 @@ export type PackDiagnosticCode =
   | "version-conflict"
   /** Packs require each other in a cycle. */
   | "cycle"
-  /** Two packs define the same Type, Action, data source, mapping or trait differently, or the same pack twice. */
+  /** Two packs (or one pack twice) define the same Type, Action, data source, mapping or trait differently, the target registry already holds it, or the same pack is given twice. */
   | "conflict"
+  /** It defines a Type in another pack's domain (`airforce.Aircraft` from a pack named `weather`). */
+  | "foreign-namespace"
+  /**
+   * An upgrade removes, weakens or changes a protection: a Type's `x-policy`
+   * or `x-provenance` markings, an Action's authorization policy, or a data
+   * source or mapping. Never a safe upgrade, whatever the version bump.
+   */
+  | "protection-weakened"
   /** It names a Type, Action or data source that neither it nor anything it requires provides. */
   | "unresolved-reference"
   /** The deployment supplies no implementation for a binding key. */

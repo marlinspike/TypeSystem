@@ -31,6 +31,12 @@ export interface InstallOptions {
   readonly dataSources?: Readonly<Record<string, Partial<Omit<DataSource, "id">>>>;
   /** Packs already installed in the target registry: they satisfy requirements and are not registered again. */
   readonly installed?: readonly PackArchive[];
+  /**
+   * The registry the packs will be installed into (`installPacks` always
+   * passes it). Whatever it holds that no installed pack defines may not be
+   * redefined, since registering overwrites by name.
+   */
+  readonly registry?: SemanticRegistry;
 }
 
 export interface InstallPlan {
@@ -130,19 +136,84 @@ function conflicts(all: readonly PackArchive[], out: PackDiagnostic[]): void {
         const seen = owner.get(k);
         // A trait or data source declared identically by two packs is the same thing; anything else defined twice is a conflict.
         const shareable = kind === "trait" || kind === "data source";
-        if (seen && seen.pack !== p.name && !(shareable && seen.value === value))
-          out.push({ code: "conflict", pack: p.name, subject: k, message: `${kind} ${k} is also defined by ${seen.pack}` });
+        // Within one pack, only an identical repeat is harmless: otherwise the last definition would silently win.
+        if (seen && (seen.pack === p.name ? seen.value !== value : !(shareable && seen.value === value)))
+          out.push({ code: "conflict", pack: p.name, subject: k, message: seen.pack === p.name ? `${kind} ${k} is defined twice, differently` : `${kind} ${k} is also defined by ${seen.pack}` });
         else if (!seen) owner.set(k, { pack: p.name, value });
       }
   }
 }
 
 /**
+ * A Type is named `<domain>.<Name>`. A pack defines Types only in its own
+ * domain: its name, or the domain its name starts with (`site-f16` may
+ * define `site.F16`). Otherwise any pack could ship `airforce.Aircraft`.
+ */
+function foreignNamespaces(p: PackArchive, out: PackDiagnostic[]): void {
+  for (const t of p.contents.types) {
+    const domain = t.name.split(".")[0]!;
+    if (p.name !== domain && !p.name.startsWith(`${domain}-`) && !p.name.startsWith(`${domain}.`))
+      out.push({ code: "foreign-namespace", pack: p.name, subject: t.name, message: `Defines Type ${t.name}, in the ${domain} domain, which pack ${p.name} does not own` });
+  }
+}
+
+const withoutId = (schema: object): object => {
+  const { $id: _id, ...rest } = schema as { $id?: unknown };
+  return rest;
+};
+
+/**
+ * What the target registry already holds that no installed pack defines:
+ * registering would overwrite it by name (ADR-0059, amended). A data source
+ * or mapping declared exactly as registered is the same thing and allowed.
+ */
+async function alreadyRegistered(
+  registry: SemanticRegistry,
+  archives: readonly PackArchive[],
+  installed: readonly PackArchive[],
+  dataSources: NonNullable<InstallOptions["dataSources"]>,
+  out: PackDiagnostic[]
+): Promise<void> {
+  const owned = {
+    types: new Set(installed.flatMap((p) => p.contents.types.map((t) => t.name))),
+    actions: new Set(installed.flatMap((p) => p.contents.actions.map((a) => a.name))),
+    dataSources: new Set(installed.flatMap((p) => p.contents.dataSources.map((d) => d.id))),
+    mappings: new Set(installed.flatMap((p) => p.contents.mappings.map((m) => m.id))),
+    traits: new Set(installed.flatMap((p) => p.contents.traits.map((t) => t.name)))
+  };
+  const clash = (pack: string, kind: string, subject: string) =>
+    out.push({ code: "conflict", pack, subject, message: `${kind} ${subject} is already in the target registry, and no installed pack defines it` });
+  for (const a of archives) {
+    for (const t of a.contents.types) if (!owned.types.has(t.name) && (await registry.getType(t.name))) clash(a.name, "Type", t.name);
+    for (const x of a.contents.actions) if (!owned.actions.has(x.name) && (await registry.getAction(x.name))) clash(a.name, "Action", x.name);
+    for (const d of a.contents.dataSources) {
+      if (owned.dataSources.has(d.id)) continue;
+      const existing = await registry.getDataSource(d.id);
+      if (existing && canonical(existing) !== canonical({ ...d, ...dataSources[d.id], id: d.id })) clash(a.name, "data source", d.id);
+    }
+    for (const m of a.contents.mappings) {
+      if (owned.mappings.has(m.id)) continue;
+      const existing = (await registry.listMappings(m.typeName)).find((x) => x.id === m.id);
+      if (existing && canonical(existing) !== canonical(m)) clash(a.name, "mapping", m.id);
+    }
+    for (const t of a.contents.traits) {
+      if (owned.traits.has(t.name)) continue;
+      const existing = registry.getTraitSchema(t.name);
+      if (existing && canonical(withoutId(existing)) !== canonical(withoutId(t.schema))) clash(a.name, "trait", t.name);
+    }
+  }
+}
+
+/**
  * Everything that would stop `archives` installing, found before anything
  * is registered (ADR-0059): integrity and signatures, dependencies and
- * their versions, conflicts, references nothing provides, missing code,
- * policy rules and adapters, and finally a registration of every pack into
- * a scratch registry, which catches whatever the registry itself refuses.
+ * their versions, conflicts (within a pack, between packs, and with what
+ * the target registry already holds), Types outside a pack's own domain,
+ * references nothing provides, missing code, policy rules and adapters, and
+ * finally a registration of every pack into a scratch registry, which
+ * catches whatever the registry itself refuses. With no overwrite of the
+ * target registry allowed, the scratch registry holds everything the
+ * install touches, so it validates what the real registry would become.
  */
 export async function planInstall(archives: readonly PackArchive[], opts: InstallOptions): Promise<InstallPlan> {
   const out: PackDiagnostic[] = [];
@@ -166,6 +237,8 @@ export async function planInstall(archives: readonly PackArchive[], opts: Instal
     }
   const order = ordered(archives, out);
   conflicts(all, out);
+  for (const a of archives) foreignNamespaces(a, out);
+  if (opts.registry) await alreadyRegistered(opts.registry, archives, installed, opts.dataSources ?? {}, out);
 
   for (const a of archives) {
     const reachable = closure(a, byName);
@@ -181,9 +254,9 @@ export async function planInstall(archives: readonly PackArchive[], opts: Instal
     for (const d of a.requirements.dataSources)
       if (!provides.dataSources.has(d)) out.push({ code: "unresolved-reference", pack: a.name, subject: d, message: `Uses data source ${d}, which no pack it requires declares` });
     for (const b of a.requirements.computed)
-      if (!(b in opts.bindings.computed)) out.push({ code: "missing-binding", pack: a.name, subject: b, message: `No computed implementation supplied for binding "${b}"` });
+      if (!Object.hasOwn(opts.bindings.computed, b)) out.push({ code: "missing-binding", pack: a.name, subject: b, message: `No computed implementation supplied for binding "${b}"` });
     for (const b of a.requirements.preconditions)
-      if (!(b in opts.bindings.preconditions)) out.push({ code: "missing-binding", pack: a.name, subject: b, message: `No precondition implementation supplied for binding "${b}"` });
+      if (!Object.hasOwn(opts.bindings.preconditions, b)) out.push({ code: "missing-binding", pack: a.name, subject: b, message: `No precondition implementation supplied for binding "${b}"` });
     if (opts.policies) {
       const known = new Set(opts.policies);
       for (const p of a.requirements.policies) if (!known.has(p)) out.push({ code: "unknown-policy", pack: a.name, subject: p, message: `The policy engine has no rule "${p}"; every request it governs would be refused` });
@@ -214,7 +287,7 @@ export async function planInstall(archives: readonly PackArchive[], opts: Instal
  * and registers nothing. Returns what to record as installed.
  */
 export async function installPacks(registry: SemanticRegistry, archives: readonly PackArchive[], opts: InstallOptions): Promise<InstalledPack[]> {
-  const plan = await planInstall(archives, opts);
+  const plan = await planInstall(archives, { ...opts, registry });
   if (plan.diagnostics.length > 0) throw new PackError(plan.diagnostics);
   for (const p of plan.order) await registerDomain(registry, manifestOf(p, opts.bindings, opts.dataSources));
   return [...(opts.installed ?? []), ...plan.order].map((p) => ({ name: p.name, version: p.version, digest: p.digest }));

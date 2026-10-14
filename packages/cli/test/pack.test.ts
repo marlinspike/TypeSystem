@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, it, expect } from "vitest";
+import { digestOf, requirementsOf, type PackArchive } from "@typesys/packs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.resolve(__dirname, "../dist/bin.js");
@@ -53,5 +54,17 @@ describe("typesys pack", () => {
     const same = await typesys("pack", "check-upgrade", airforce, "--installed", core, "--installed", airforce);
     expect(same).toMatchObject({ code: 1, out: { needs: "patch", made: "none", diagnostics: [{ code: "under-versioned" }] } });
     expect(await typesys("pack", "check-upgrade", airforce, "--installed", core)).toMatchObject({ code: 1, out: { diagnostics: [{ code: "missing-dependency" }] } });
+  });
+
+  it("fails a patch upgrade that strips a property policy", async () => {
+    const pack = JSON.parse(await readFile(airforce, "utf8")) as PackArchive;
+    const types = pack.contents.types.map((t) => (t.name === "airforce.Aircraft" ? { ...t, schema: { ...t.schema, "x-policy": { objectPolicy: "airforce.read-aircraft" } } } : t));
+    const body = { ...pack, version: "1.0.1", contents: { ...pack.contents, types } };
+    const stripped = { ...body, requirements: requirementsOf(body.contents) };
+    const file = path.join(await mkdtemp(path.join(tmpdir(), "typesys-pack-")), "stripped.json");
+    await writeFile(file, JSON.stringify({ ...stripped, digest: digestOf(stripped) }));
+    const report = await typesys("pack", "check-upgrade", file, "--installed", core, "--installed", airforce);
+    expect(report.code).toBe(1);
+    expect((report.out.diagnostics as { code: string }[]).map((d) => d.code)).toContain("protection-weakened");
   });
 });

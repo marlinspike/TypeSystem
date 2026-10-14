@@ -265,7 +265,8 @@ export function verifyPack(archive: unknown, opts: VerifyOptions = {}): PackDiag
   if (opts.trustedKeys) {
     let trusted = false;
     for (const s of full.signatures ?? []) {
-      const key = opts.trustedKeys[s.keyId];
+      // Own keys only: a key id such as "constructor" names no trusted key.
+      const key = Object.hasOwn(opts.trustedKeys, s.keyId) ? opts.trustedKeys[s.keyId] : undefined;
       if (key === undefined) continue;
       const publicKey = typeof key === "string" ? createPublicKey(key) : key;
       if (s.algorithm === "ed25519" && verify(null, Buffer.from(full.digest, "utf8"), publicKey, Buffer.from(s.value, "base64"))) trusted = true;
