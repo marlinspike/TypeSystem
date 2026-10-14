@@ -9,6 +9,7 @@ import {
   type DataSource,
   type Mapping,
   type QueryResult,
+  type AuditEventListOptions,
   type RegistryStore,
   type RelationshipDefinition,
   type TypeDefinition
@@ -275,8 +276,11 @@ export class PostgresRegistryStore implements RegistryStore {
     );
   }
 
-  async listAuditEvents(opts: { limit?: number; before?: string } = {}): Promise<QueryResult<AuditEvent>> {
+  async listAuditEvents(opts: AuditEventListOptions = {}): Promise<QueryResult<AuditEvent>> {
     const limit = opts.limit ?? 100;
+    // Rows of one action only, when asked (ADR-0069); the cursor pages within them.
+    const actionParam = opts.action === undefined ? [] : [opts.action];
+    const onlyAction = (at: number) => (opts.action === undefined ? "" : ` AND action = $${at}`);
 
     // Keyset (not OFFSET) pagination on (timestamp, id) DESC: correct and index-friendly
     // even as this table grows without bound and rows are concurrently inserted —
@@ -290,15 +294,15 @@ export class PostgresRegistryStore implements RegistryStore {
     if (cursor && cursor.rows.length > 0) {
       const { timestamp, id } = cursor.rows[0]!;
       ({ rows } = await this.pool.query<AuditEventRow>(
-        `SELECT * FROM audit_events WHERE ("timestamp", id) < ($1, $2) ORDER BY "timestamp" DESC, id DESC LIMIT $3`,
-        [timestamp, id, limit]
+        `SELECT * FROM audit_events WHERE ("timestamp", id) < ($1, $2)${onlyAction(4)} ORDER BY "timestamp" DESC, id DESC LIMIT $3`,
+        [timestamp, id, limit, ...actionParam]
       ));
     } else {
       // No cursor, or an unrecognized one: fail safe by starting from the newest event —
       // same fallback behavior as InMemoryRegistryStore.
       ({ rows } = await this.pool.query<AuditEventRow>(
-        `SELECT * FROM audit_events ORDER BY "timestamp" DESC, id DESC LIMIT $1`,
-        [limit]
+        `SELECT * FROM audit_events WHERE TRUE${onlyAction(2)} ORDER BY "timestamp" DESC, id DESC LIMIT $1`,
+        [limit, ...actionParam]
       ));
     }
 
@@ -307,8 +311,8 @@ export class PostgresRegistryStore implements RegistryStore {
     if (items.length === limit) {
       const last = items[items.length - 1]!;
       const { rows: probe } = await this.pool.query(
-        `SELECT 1 FROM audit_events WHERE ("timestamp", id) < ($1, $2) LIMIT 1`,
-        [last.timestamp, last.id]
+        `SELECT 1 FROM audit_events WHERE ("timestamp", id) < ($1, $2)${onlyAction(3)} LIMIT 1`,
+        [last.timestamp, last.id, ...actionParam]
       );
       if (probe.length > 0) nextCursor = last.id;
     }

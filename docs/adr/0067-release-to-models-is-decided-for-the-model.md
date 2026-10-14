@@ -113,3 +113,45 @@ send the SECRET location is refused for both.
   by the initiator, sent as given), the runtime's own handling of a
   model's *output* (an AI step's output is journaled and governed as the
   workflow's, ADR-0057), and a reviewed release scheme for real markings.
+
+## Amended after the independent review (2026-10-14)
+
+The review ([`docs/reviews/m2-adversarial-review.md`](../reviews/m2-adversarial-review.md))
+found three High-severity and three lesser gaps. All are fixed, each with
+its test and a catalogued mutation:
+
+- **Run outputs (H1).** `WorkflowEngine.outputs` refuses a caller reading
+  for an audience unless the run read for that same audience. Before, an
+  agent API bound to a commercial model returned what a run started from the
+  people's UI had read, the SECRET location included.
+- **Re-resolution (H2).** A re-resolved, re-authorized or self-cancelled
+  run keeps the audience it was started for, never one the resolver
+  supplies under the same id. An identity that now reads for a different
+  audience suspends the run.
+- **Conditions (H3).** Releasing an AI step's input decides every upstream
+  step's `when` again on what the model may receive. A step the model's
+  view would skip contributes nothing, and a step the person's view skipped
+  but the model's would run is run again as the model may see it. An AI
+  step whose own `when` holds only on data the model may not receive is
+  refused, whatever its `release` says.
+- **Refusals (M8).** A caller reading for an audience is told only
+  `Refused while reading for <audience>`, whatever was refused and why.
+  Before, "Not releasable" appeared exactly when the person could read the
+  row, which told the model the row existed. The audit row keeps the full
+  reason.
+- **Audit (L6, L7).** The audit row for an Action's outcome, and every
+  workflow audit row, carries the audience its subject reads for.
+
+One limit remains, by design. Whether an AI step runs is the workflow's
+decision on the person's data. A step that the person's data skips, and
+that would run on what the model may receive, is skipped, so the model is
+not called, and the absence of that call is one bit about withheld data. A
+model that sees every call it receives could count them. Write an AI step's
+`when` over what its model may receive.
+
+Seen in the review's code reading but not demonstrated, and still open:
+
+- `invokeAction` over MCP and HTTP returns an Action's result to a bound
+  agent without deciding it for the audience.
+- `asSeenBy` passes compute and AI outputs to an approver unchanged.
+- No shipped host calls `bindAudience`.

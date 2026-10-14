@@ -1,7 +1,7 @@
 import { ulid } from "ulid";
 import type { Ajv2020 } from "ajv/dist/2020.js";
 import { createSemanticValidator, SchemaValidationError } from "./validation.js";
-import type { RegistryStore } from "./registry-store.js";
+import type { AuditEventListOptions, RegistryStore } from "./registry-store.js";
 import type { SemanticTypeSchema, XRelationshipSpec, XComputed, XPolicy, XProvenance } from "../model/vocabulary.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
@@ -372,7 +372,7 @@ export class SemanticRegistry {
     await this.store.appendAuditEvent(evt);
   }
 
-  async listAuditEvents(opts?: { limit?: number; before?: string }): Promise<QueryResult<AuditEvent>> {
+  async listAuditEvents(opts?: AuditEventListOptions): Promise<QueryResult<AuditEvent>> {
     return this.store.listAuditEvents(opts);
   }
 

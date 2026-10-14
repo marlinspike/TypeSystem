@@ -107,6 +107,14 @@ export function workflowJournalContract(name: string, make: () => Promise<Workfl
       }
     });
 
+    it("stores any string an Action may return, NUL and the escape characters included", async () => {
+      const j = await make();
+      const run = newRun();
+      const output = { nul: "before\u0000after", escaped: "\\u0000 is not NUL", wrapperLike: { "$typesys-json": "{}" } };
+      await j.append(run, 0, [started(), { type: "step-completed", step: "s", attempt: 1, output, source: "compute" }], AT);
+      expect((await j.read(run))[1]).toEqual({ type: "step-completed", step: "s", attempt: 1, output, source: "compute", seq: 1, at: AT });
+    });
+
     it("hands out copies: changing what was read changes nothing stored", async () => {
       const j = await make();
       const run = newRun();

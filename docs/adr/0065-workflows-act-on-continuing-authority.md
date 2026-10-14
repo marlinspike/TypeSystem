@@ -101,3 +101,38 @@ advance a run and the others skip it.
   limit; there is no delegation (a run handed to another person who then
   carries it forward rather than only undoing it); timers are checked when
   `tick()` is called, so their precision is the schedule's.
+
+## Amended after the independent review (2026-10-14)
+
+An adversarial review of this ADR ([`docs/reviews/m2-adversarial-review.md`](../reviews/m2-adversarial-review.md))
+found seven defects. Each is fixed, each has the review's failing test, and
+each has a mutation in `tools/mutation/catalog.json` that the test kills:
+
+- **Cancel during an unrecorded Action (H6).** Cancelling a run whose
+  Action step is in flight, or failed in a way that says nothing about
+  whether it ran, now ends the run `needs-reconciliation` rather than
+  `cancelled`. Compensation undoes only what is recorded as completed, so
+  `cancelled` would claim a clean undo it did not make. The cancel's append
+  is conditional on the journal it read, so a process that records the
+  Action's outcome first wins and the cancel is refused.
+- **Retries (M1).** Authority is checked again before every in-process
+  retry, so credentials that expire during a backoff stop the next attempt.
+- **Suspended undo (M2).** A run suspended while compensating may be
+  cancelled by anyone the cancel policy admits, who then carries the rest of
+  the undo. Before, only the initiator could finish it, and they might be
+  the reason it stopped.
+- **Sweeps (M3).** `tick()` and `resumeAll()` advance every run on its own.
+  A failure in one run (a resolver timing out for one initiator, a journal
+  that cannot be read) is collected while the others go on. The failures are
+  then thrown together, as one error or an `AggregateError`.
+- **Deadlines (M4).** Registration refuses an approval deadline that is not
+  a positive, finite number of milliseconds (`invalid-deadline`).
+- **Cancel audit (L4).** A canceller's expired credentials are checked
+  before anything is audited, and the refusal is audited as `deny`.
+- **Options (L5).** `identityMaxAgeMs` and `inlineWaitMs` must be finite
+  and 0 or more, or the engine refuses to build. The age comparison also
+  fails closed.
+
+A run started by an identity bound to an audience keeps that audience when
+it is re-resolved, re-authorized or cancelled by its initiator (ADR-0067,
+review H2).

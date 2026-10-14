@@ -38,8 +38,6 @@ describe.skipIf(!hasDb)("ADV: PostgresWorkflowJournal", () => {
       (e: Error) => e.message
     );
     const left = (await j.read("trunc-run")).length;
-    // Cleanup so later tests' sweeps don't hit an event-less run (the runs table has no protection either).
-    await pool.query("DELETE FROM typesys_workflow_runs WHERE run_id = 'trunc-run'");
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- asymmetric matcher
     expect({ truncated, left }).toEqual({ truncated: expect.stringMatching(/append-only/), left: 1 });
   });

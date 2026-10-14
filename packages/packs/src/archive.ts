@@ -58,8 +58,22 @@ export interface PackRequirements {
 export interface PackSignature {
   readonly keyId: string;
   readonly algorithm: "ed25519";
-  /** Base64 Ed25519 signature over the UTF-8 bytes of `digest`. */
+  /**
+   * Base64 Ed25519 signature over the UTF-8 bytes of `digest`, or, when
+   * `after` is present, of the canonical JSON of `{ digest, after }`.
+   */
   readonly value: string;
+  /**
+   * The key ids that had already signed when this key signed, sorted, and
+   * covered by this signature (ADR-0069): removing an earlier signature
+   * cannot hide that it was there, so a revoked co-signer is still seen.
+   */
+  readonly after?: readonly string[];
+}
+
+/** What a signature signs: the digest, bound to the key ids that signed before it. */
+export function signedMessage(digest: string, after?: readonly string[]): Buffer {
+  return Buffer.from(after && after.length > 0 ? canonical({ digest, after: [...after] }) : digest, "utf8");
 }
 
 /**
@@ -221,11 +235,16 @@ export function buildPack(def: PackDefinition): PackArchive {
 
 export type KeyInput = KeyObject | string;
 
-/** Adds an Ed25519 signature over the pack's digest. Signing never changes the digest. */
+/**
+ * Adds an Ed25519 signature over the pack's digest and the key ids that
+ * signed it before (ADR-0069). Signing never changes the digest.
+ */
 export function signPack(archive: PackArchive, keyId: string, privateKey: KeyInput): PackArchive {
   const key = typeof privateKey === "string" ? createPrivateKey(privateKey) : privateKey;
-  const value = sign(null, Buffer.from(archive.digest, "utf8"), key).toString("base64");
-  return { ...archive, signatures: [...(archive.signatures ?? []).filter((s) => s.keyId !== keyId), { keyId, algorithm: "ed25519", value }] };
+  const others = (archive.signatures ?? []).filter((s) => s.keyId !== keyId);
+  const after = sorted(others.map((s) => s.keyId));
+  const value = sign(null, signedMessage(archive.digest, after), key).toString("base64");
+  return { ...archive, signatures: [...others, { keyId, algorithm: "ed25519", value, ...(after.length > 0 ? { after } : {}) }] };
 }
 
 /** Why and since when a key or a pack is no longer trusted (ADR-0069). */
@@ -233,6 +252,12 @@ export interface Revocation {
   /** ISO 8601. Recorded for the audit trail; a revocation applies to every pack, whenever it was signed. */
   readonly revokedAt?: string;
   readonly reason?: string;
+  /**
+   * The revoked key itself, for a key not among the trusted keys. A key is
+   * revoked, not a name: whatever id the same public key is trusted under is
+   * revoked with it.
+   */
+  readonly publicKey?: KeyInput;
 }
 
 export interface VerifyOptions {
@@ -245,9 +270,47 @@ export interface VerifyOptions {
    * through its holder. A revoked key id in `trustedKeys` is not trusted.
    */
   readonly revokedKeys?: Readonly<Record<string, Revocation>>;
-  /** Pack digests no longer trusted, such as a release withdrawn for a defect (ADR-0069). */
+  /** Pack digests (`sha256:<hex>`, any case) no longer trusted, such as a release withdrawn for a defect (ADR-0069). */
   readonly revokedDigests?: Readonly<Record<string, Revocation>>;
 }
+
+/** What a pack's signatures say about who handled it: every key id that signed, and every one a signature says signed before it. */
+export interface PackSigners {
+  readonly name: string;
+  readonly version: string;
+  readonly digest: string;
+  readonly keyIds: readonly string[];
+}
+
+export function signersOf(archive: PackArchive): PackSigners {
+  const keyIds: unknown[] = (archive.signatures ?? []).flatMap((s): unknown[] => [s.keyId, ...(Array.isArray(s.after) ? (s.after as readonly unknown[]) : [])]);
+  return { name: archive.name, version: archive.version, digest: archive.digest, keyIds: sorted(keyIds.filter((k): k is string => typeof k === "string")) };
+}
+
+const toKey = (key: KeyInput): KeyObject => (typeof key === "string" ? createPublicKey(key) : key);
+const fingerprint = (key: KeyInput): string => createHash("sha256").update(toKey(key).export({ type: "spki", format: "der" })).digest("hex");
+const own = <T>(record: Readonly<Record<string, T>> | undefined, key: string): T | undefined => (record && Object.hasOwn(record, key) ? record[key] : undefined);
+
+/**
+ * Revoked keys by id, and by the fingerprint of each revoked key's public
+ * key wherever it is known (from the revocation or the trusted keys), so a
+ * key trusted under a second id is revoked under that one too.
+ */
+function revokedKeyOf(opts: Pick<VerifyOptions, "revokedKeys" | "trustedKeys">): (keyId: string) => Revocation | undefined {
+  const byFingerprint = new Map<string, Revocation>();
+  for (const [id, r] of Object.entries(opts.revokedKeys ?? {})) {
+    const key = r.publicKey ?? own(opts.trustedKeys, id);
+    if (key !== undefined) byFingerprint.set(fingerprint(key), r);
+  }
+  return (keyId) => {
+    const direct = own(opts.revokedKeys, keyId);
+    if (direct) return direct;
+    const key = byFingerprint.size > 0 ? own(opts.trustedKeys, keyId) : undefined;
+    return key === undefined ? undefined : byFingerprint.get(fingerprint(key));
+  };
+}
+
+const normalDigest = (digest: string): string => digest.toLowerCase();
 
 const revocationNote = (r: Revocation | undefined): string => [r?.revokedAt ? ` on ${r.revokedAt}` : "", r?.reason ? `: ${r.reason}` : ""].join("");
 
@@ -256,13 +319,16 @@ const revocationNote = (r: Revocation | undefined): string => [r?.revokedAt ? ` 
  * signature by a revoked key, verified or not, since an unverifiable
  * signature by a revoked key id is no reason to accept the pack either.
  */
-export function revocationsOf(archive: PackArchive, opts: Pick<VerifyOptions, "revokedKeys" | "revokedDigests">): PackDiagnostic[] {
+export function revocationsOf(archive: PackArchive | PackSigners, opts: Pick<VerifyOptions, "revokedKeys" | "revokedDigests" | "trustedKeys">): PackDiagnostic[] {
+  const signers = "keyIds" in archive ? archive : signersOf(archive);
   const out: PackDiagnostic[] = [];
-  const revokedDigest = opts.revokedDigests && Object.hasOwn(opts.revokedDigests, archive.digest) ? opts.revokedDigests[archive.digest] : undefined;
-  if (revokedDigest) out.push({ code: "revoked", pack: archive.name, subject: archive.digest, message: `This build of ${archive.name} ${archive.version} was withdrawn${revocationNote(revokedDigest)}` });
-  for (const s of archive.signatures ?? []) {
-    const revoked = opts.revokedKeys && Object.hasOwn(opts.revokedKeys, s.keyId) ? opts.revokedKeys[s.keyId] : undefined;
-    if (revoked) out.push({ code: "revoked", pack: archive.name, subject: s.keyId, message: `Signed by "${s.keyId}", a key revoked${revocationNote(revoked)}` });
+  const digests = new Map(Object.entries(opts.revokedDigests ?? {}).map(([d, r]) => [normalDigest(d), r]));
+  const revokedDigest = digests.get(normalDigest(signers.digest));
+  if (revokedDigest) out.push({ code: "revoked", pack: signers.name, subject: signers.digest, message: `This build of ${signers.name} ${signers.version} was withdrawn${revocationNote(revokedDigest)}` });
+  const revokedKey = revokedKeyOf(opts);
+  for (const keyId of signers.keyIds) {
+    const revoked = revokedKey(keyId);
+    if (revoked) out.push({ code: "revoked", pack: signers.name, subject: keyId, message: `Signed by "${keyId}", a key revoked${revocationNote(revoked)}` });
   }
   return out;
 }
@@ -300,12 +366,13 @@ export function verifyPack(archive: unknown, opts: VerifyOptions = {}): PackDiag
   out.push(...revocationsOf(full, opts));
   if (opts.trustedKeys) {
     let trusted = false;
+    const revokedKey = revokedKeyOf(opts);
     for (const s of full.signatures ?? []) {
       // Own keys only: a key id such as "constructor" names no trusted key.
-      const key = Object.hasOwn(opts.trustedKeys, s.keyId) ? opts.trustedKeys[s.keyId] : undefined;
-      if (key === undefined || (opts.revokedKeys && Object.hasOwn(opts.revokedKeys, s.keyId))) continue;
-      const publicKey = typeof key === "string" ? createPublicKey(key) : key;
-      if (s.algorithm === "ed25519" && verify(null, Buffer.from(full.digest, "utf8"), publicKey, Buffer.from(s.value, "base64"))) trusted = true;
+      const key = own(opts.trustedKeys, s.keyId);
+      if (key === undefined || revokedKey(s.keyId)) continue;
+      const after = Array.isArray(s.after) ? s.after : undefined;
+      if (s.algorithm === "ed25519" && verify(null, signedMessage(full.digest, after), toKey(key), Buffer.from(s.value, "base64"))) trusted = true;
       else out.push({ code: "bad-signature", pack, subject: s.keyId, message: `The signature by "${s.keyId}" does not verify` });
     }
     if (!trusted) out.push({ code: "untrusted", pack, message: "No valid signature by a trusted key" });

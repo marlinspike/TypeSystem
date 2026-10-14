@@ -55,11 +55,16 @@ const MAPPING: readonly [ErrorClass, number, ProblemCode, string][] = [
   [CircuitOpenError, 503, "unavailable", "Source unavailable"]
 ];
 
-/** The problem an error becomes; anything unrecognized is a 500 that says nothing about itself. */
-export function toProblem(err: unknown): Problem {
+/**
+ * The problem an error becomes; anything unrecognized is a 500 that says
+ * nothing about itself. With `withholdReasons` (any discovery mode but
+ * `open`, ADR-0068), a refusal says it was refused and not why: a policy's
+ * reason can name the roles or attributes it wants, which is the model.
+ */
+export function toProblem(err: unknown, opts: { withholdReasons?: boolean } = {}): Problem {
   for (const [ErrorClass, status, code, title] of MAPPING) {
     if (err instanceof ErrorClass) {
-      const reason = err instanceof AuthorizationError ? err.reason : undefined;
+      const reason = err instanceof AuthorizationError && !opts.withholdReasons ? err.reason : undefined;
       const errors = err instanceof InvalidInputError ? err.errors : undefined;
       return {
         type: `https://typesys.dev/problems/${code}`,

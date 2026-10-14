@@ -75,3 +75,25 @@ too. What it lacked was a journal that survives the process.
   journaled values at rest (protect the table as you protect the audit
   log, ADR-0057), a pushed notification when a timer is due (timers fire
   when `tick` is called), and the Temporal and DBOS bindings above.
+
+## Amended after the independent review (2026-10-14)
+
+The review ([`docs/reviews/m2-adversarial-review.md`](../reviews/m2-adversarial-review.md))
+found three Low-severity gaps in the Postgres journal. All three are fixed
+by `migrations/0002_journal_integrity.sql`, which `migrateWorkflowJournal`
+now runs after `0001`, in order:
+
+- `TRUNCATE` of either table is refused (L1).
+- The runs table follows the events table (L2). A row starts empty and
+  unfinished. Its length is always the number of its events. It becomes
+  finished only once its events hold a `run-finished` event, and never goes
+  back. It is never deleted or truncated. Before this, marking a run
+  finished behind the journal's back dropped it from `unfinished()`, and its
+  deadline never fired.
+- An event holding U+0000, which JSONB cannot store, is kept as its JSON
+  text under a key no event has, and read back as it was written (L3). The
+  journal contract now covers this case, so every journal must pass it.
+
+These are integrity checks against mistakes and against tampering by
+anything short of the table's owner. They are not a defense against an
+attacker who can replace the triggers.

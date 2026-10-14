@@ -250,6 +250,17 @@ export function runRegistryStoreContractTests(
       expect(defaultPage.items.length).toBeGreaterThan(0);
     });
 
+    it("audit events: listed by action, newest first, with the cursor paging within that action (ADR-0069)", async () => {
+      for (let i = 0; i < 4; i++)
+        await store.appendAuditEvent({ ...auditEvent(`evt-act-${i}`, new Date(2026, 1, 1, 0, 0, i).toISOString()), action: i % 2 === 0 ? "pack.install" : "read" });
+      const first = await store.listAuditEvents({ limit: 1, action: "pack.install" });
+      expect(first.items.map((e) => e.id)).toEqual(["evt-act-2"]);
+      expect(first.nextCursor).toBe("evt-act-2");
+      const second = await store.listAuditEvents({ limit: 1, action: "pack.install", before: first.nextCursor });
+      expect(second.items.map((e) => e.id)).toEqual(["evt-act-0"]);
+      expect(second.nextCursor).toBeUndefined();
+    });
+
     it("audit events: the operation and the details round-trip, and a row without an operation reads back without one (ADR-0042)", async () => {
       await store.appendAuditEvent({ ...auditEvent("evt-op", "2026-02-01T00:00:00.000Z"), operation: "listActions", details: { control: "classification", markings: ["SECRET"] } });
       await store.appendAuditEvent(auditEvent("evt-no-op", "2026-02-01T00:00:01.000Z"));

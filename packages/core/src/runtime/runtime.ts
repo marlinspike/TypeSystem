@@ -19,7 +19,7 @@ import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
-import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery } from "./discovery.js";
+import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery, type DiscoveryGate } from "./discovery.js";
 import { describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
@@ -302,9 +302,13 @@ interface RequestContext {
  */
 const requests = new AsyncLocalStorage<RequestContext>();
 
-function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason?: string): AuthorizationError {
+function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason: string | undefined, identity: Identity): AuthorizationError {
   const target = resource.actionName ?? resource.propertyPath ?? resource.objectId;
-  return new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, reason);
+  // A caller reading for an audience (a model, ADR-0067) is told one thing whatever was refused, and why: whether
+  // the person or the audience was refused would say whether the row exists and the person may read it. The
+  // audit row keeps the reason.
+  const told = identity.audience ? `Refused while reading for ${identity.audience.id}` : reason;
+  return new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, told);
 }
 
 /**
@@ -917,7 +921,7 @@ export class SemanticRuntime {
 
   private async requireAllowed(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<void> {
     const decision = await this.evaluate(identity, action, policyName, resource);
-    if (!decision.allow) throw notAuthorized(action, resource, decision.reason);
+    if (!decision.allow) throw notAuthorized(action, resource, decision.reason, identity);
   }
 
   /**
@@ -1006,7 +1010,7 @@ export class SemanticRuntime {
     resource: PolicyResource,
     action: "read" | "invoke" = "read"
   ): Promise<void> {
-    if (!(await this.clearedFor(identity, markings, resource, action))) throw notAuthorized(action, resource, CLEARANCE_REASON);
+    if (!(await this.clearedFor(identity, markings, resource, action))) throw notAuthorized(action, resource, CLEARANCE_REASON, identity);
   }
 
   /**
@@ -1478,7 +1482,7 @@ export class SemanticRuntime {
         if (plan.kind === "never") {
           const reason = "No object of this Type is readable by this subject";
           await this.audit(identity, "read", typeResource, { allow: false, reason }, { control: "row-plan", ...planSummary(plan) });
-          throw notAuthorized("read", typeResource, reason);
+          throw notAuthorized("read", typeResource, reason, identity);
         }
         // A predicate excludes objects without deciding them one by one, so the query records it once.
         if (plan.kind === "predicate") await this.audit(identity, "read", typeResource, { allow: true }, { control: "row-plan", ...planSummary(plan) });
@@ -1606,7 +1610,7 @@ export class SemanticRuntime {
         let rows = q.filter;
         if (!typeLevel.allow) {
           const plan = await this.planRead(typeDef, identity);
-          if (!(plan.kind === "predicate" && plan.exact)) throw notAuthorized("read", typeResource, typeLevel.reason);
+          if (!(plan.kind === "predicate" && plan.exact)) throw notAuthorized("read", typeResource, typeLevel.reason, identity);
           // An aggregate has no per-object check after it: under a profile, only a plan derived from the rule's
           // own structure may admit one (ADR-0046).
           if (this.profile && (await this.planAssurance(typeDef, identity)) !== "structural") {
@@ -2059,25 +2063,46 @@ export class SemanticRuntime {
         }
         const definitions = new Map((await this.registry.listTypes()).map((t) => [t.name, t]));
         const actionDefinitions = new Map((await this.registry.listActions()).map((a) => [a.name, a]));
-        const { model, withheld } = await narrowModel(full, definitions, actionDefinitions, {
-          typeReadable: async (typeDef) =>
-            this.clearedToKnow(identity, objectMarkings(typeDef), { typeName: typeDef.name }, "read") &&
-            this.admitsSome(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name }),
-          memberReadable: async (typeDef, member) => {
-            const at: PolicyResource = { typeName: typeDef.name, propertyPath: member };
-            if (!this.clearedToKnow(identity, memberMarkings(typeDef, member), at, "read")) return false;
-            const policyName = memberPolicyOf(typeDef, member);
-            return !policyName || this.admitsSome(identity, "read", policyName, at);
-          },
-          actionInvocable: async (action, typeName) => {
-            const at: PolicyResource = { typeName, actionName: action.name };
-            return (await this.admitsSome(identity, "invoke", action.authorizationPolicy, at)) && this.clearedToKnow(identity, await this.actionMarkings(action), at, "invoke");
-          }
-        });
+        const { model, withheld } = await narrowModel(full, definitions, actionDefinitions, this.discoveryGate(identity));
         await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, withheld });
         return model;
       }
     ));
+  }
+
+  /** The questions need-to-know asks for one caller (ADR-0068), each decided without reading an object and not audited on its own. */
+  private discoveryGate(identity: Identity): DiscoveryGate {
+    return {
+      typeReadable: async (typeDef) =>
+        this.clearedToKnow(identity, objectMarkings(typeDef), { typeName: typeDef.name }, "read") &&
+        this.admitsSome(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name }),
+      memberReadable: async (typeDef, member) => {
+        const at: PolicyResource = { typeName: typeDef.name, propertyPath: member };
+        if (!this.clearedToKnow(identity, memberMarkings(typeDef, member), at, "read")) return false;
+        const policyName = memberPolicyOf(typeDef, member);
+        return !policyName || this.admitsSome(identity, "read", policyName, at);
+      },
+      actionInvocable: async (action, typeName) => {
+        const at: PolicyResource = { typeName, actionName: action.name };
+        return (await this.admitsSome(identity, "invoke", action.authorizationPolicy, at)) && this.clearedToKnow(identity, await this.actionMarkings(action), at, "invoke");
+      }
+    };
+  }
+
+  /**
+   * Whether need-to-know would describe `action` to this caller (ADR-0068),
+   * by `narrowModel`'s rule: invocable on some Type the caller may read, and
+   * acting on a Type they may read.
+   */
+  private async actionDescribed(identity: Identity, action: ActionDefinition): Promise<boolean> {
+    const gate = this.discoveryGate(identity);
+    const readable = async (typeName: string) => {
+      const typeDef = await this.registry.getType(typeName);
+      return typeDef !== undefined && (await gate.typeReadable(typeDef));
+    };
+    if (action.target?.type && !(await readable(action.target.type))) return false;
+    for (const typeName of action.applicableTypes) if ((await readable(typeName)) && (await gate.actionInvocable(action, typeName))) return true;
+    return false;
   }
 
   /**
@@ -2166,6 +2191,18 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
+        // A preview describes an Action: refused or withheld as listActions and describeModel are (ADR-0068). A
+        // withheld Action is answered exactly as one that does not exist; the audit row says which it was.
+        const resource: PolicyResource = { typeName: action.applicableTypes[0] ?? "unknown", actionName: action.name };
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          const reason = "Describing the model needs an authenticated caller";
+          await this.audit(identity, "invoke", resource, { allow: false, reason }, { control: "preview", discovery: this.discovery });
+          throw new AuthorizationError(`Not authorized: preview ${action.name}`, reason);
+        }
+        if (this.discovery === "need-to-know" && !(await this.actionDescribed(identity, action))) {
+          await this.audit(identity, "invoke", resource, { allow: false, reason: "Withheld by need-to-know discovery" }, { control: "preview", discovery: this.discovery });
+          throw new NotFoundError(`Unknown action "${actionName}"`);
+        }
         const blockers: ActionBlocker[] = [];
         const preconditions: ActionPreview["preconditions"] = (action.preconditions ?? []).map((p) => ({ description: p.description, satisfied: null }));
         let inputValid: boolean | null = null;
@@ -2247,7 +2284,7 @@ export class SemanticRuntime {
       async () => {
         await this.checkRateLimit(identity);
         const { decision, typeName, target } = await this.gateAction(identity, action, input);
-        if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason);
+        if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason, identity);
         // After the policy check, so every attempt by an unauthorized caller is still audited as a
         // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
         this.inputValidator.validateActionInput(action, input);
@@ -2280,7 +2317,8 @@ export class SemanticRuntime {
             action: action.name,
             resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
-            outcome: "success"
+            outcome: "success",
+            ...(identity.audience ? { details: { audience: identity.audience.id } } : {})
           });
         }
 

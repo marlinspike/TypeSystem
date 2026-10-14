@@ -325,8 +325,15 @@ async function packCommand(sub: string | undefined, args: ParsedArgs): Promise<v
         if (at <= 0) throw new Error(`--trust takes <keyId>=<public.pem>, got "${t}"`);
         trustedKeys[t.slice(0, at)] = await readFile(t.slice(at + 1), "utf8");
       }
-      const revokedKeys = Object.fromEntries(args.revoke.filter((r) => !r.startsWith("sha256:")).map((r) => [r, {}]));
-      const revokedDigests = Object.fromEntries(args.revoke.filter((r) => r.startsWith("sha256:")).map((r) => [r, {}]));
+      // A digest, however it is spelled, is a digest: a value that looks like one but is malformed is refused, never taken as a key id.
+      const digestOf = (r: string): string | undefined => {
+        const hex = /^sha256:/i.test(r) ? r.slice("sha256:".length) : /^[0-9a-f]{64}$/i.test(r) ? r : undefined;
+        if (hex === undefined) return undefined;
+        if (!/^[0-9a-f]{64}$/i.test(hex)) throw new Error(`--revoke ${r} is not a sha256 digest`);
+        return `sha256:${hex.toLowerCase()}`;
+      };
+      const revokedKeys = Object.fromEntries(args.revoke.filter((r) => digestOf(r) === undefined).map((r) => [r, {}]));
+      const revokedDigests = Object.fromEntries(args.revoke.flatMap((r) => (digestOf(r) ? [[digestOf(r)!, {}]] : [])));
       const found = verifyPack(pack, { ...(args.trust.length > 0 ? { trustedKeys } : {}), revokedKeys, revokedDigests });
       printResult(args.json, found.length === 0, { name: pack.name, version: pack.version, digest: pack.digest, diagnostics: found }, found.length === 0 ? [`OK — ${pack.name} ${pack.version} is intact${args.trust.length > 0 ? " and signed by a trusted key" : ""}`] : found.map(diagnosticLine));
     } else if (sub === "sign") {

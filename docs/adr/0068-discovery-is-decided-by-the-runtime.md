@@ -142,3 +142,30 @@ change (ADR-0046).
   which need-to-know withholds with the property but open discovery
   sends), and per-object value markings from a source, which are decided
   per object and so do not narrow a description.
+
+## Amended after the independent review (2026-10-14)
+
+The review ([`docs/reviews/m2-adversarial-review.md`](../reviews/m2-adversarial-review.md))
+found six ways a description named something need-to-know withholds. All
+are fixed, each with its test and a catalogued mutation:
+
+- **Previews (H4).** `previewAction` follows the discovery mode, as
+  `listActions` does. An anonymous caller is refused under `authenticated`
+  and `need-to-know`. Under `need-to-know`, an Action the caller is not
+  told of is answered exactly as one that does not exist (`Unknown
+  action`), and the audit row records that it was withheld.
+- **MCP Type documents (H5).** The schema a document carries is built
+  from an allowlist of keywords. `allOf` keeps the base Type's `$ref` only
+  when the base is described, a trait's only when the trait is, and an
+  inline entry only if it refers to nothing. `traits` are those the runtime
+  described.
+- **Deprecations (M5).** `deprecated.supersededBy` is dropped unless its
+  successor is described, for Types and Actions alike. The devkit's
+  suggestions and MCP's documents read the narrowed model.
+- **Inverse relationships (M6).** An MCP relationship names its inverse
+  only when the inverse is described.
+- **REST reasons (M7).** Under any mode but `open`, a REST refusal says it
+  was refused and not why, since a policy's reason can name the roles it
+  wants. MCP already sent only "Not authorized".
+- **No subject (L10).** An identity with no subject id, or a blank one, is
+  anonymous.

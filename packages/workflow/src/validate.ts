@@ -64,6 +64,10 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
       }
     }
     if (step.kind === "approval" && !step.policy) add({ code: "missing-policy", step: step.name, message: `approval "${step.name}" names no policy` });
+    // A deadline is a time to come: NaN or Infinity would journal a timer no clock can reach, and zero or less expires at once.
+    if (step.kind === "approval" && step.deadline !== undefined && !(Number.isFinite(step.deadline.afterMs) && step.deadline.afterMs > 0)) {
+      add({ code: "invalid-deadline", step: step.name, message: `approval "${step.name}" has a deadline that is not a positive, finite number of milliseconds` });
+    }
     if (step.kind === "action") {
       const action = actions.get(step.action);
       if (!action) add({ code: "unknown-action", step: step.name, message: `step "${step.name}" invokes unknown Action "${step.action}"` });

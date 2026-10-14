@@ -50,8 +50,44 @@ about installs: everything is still checked before anything is registered.
   from being refused everywhere that configuration reaches, including on a
   disconnected install, which needs only the updated options.
 - Co-signing no longer lets a good key launder a pack a revoked key
-  touched; that is deliberate, at the cost of a re-signing step.
+  touched; that is deliberate, at the cost of a re-signing step. As first
+  written this did not hold against the revoked key's holder, who could
+  strip their own signature; the amendment below binds co-signers.
 - Not addressed: distributing revocation lists (a signed list, or a
   transparency log), key validity periods, `checkUpgrade` (a contract
   check; the upgraded pack's trust is checked when it is installed), and
   removing a revoked pack from a registry (packs have no uninstall).
+
+## Amended after the independent review (2026-10-14)
+
+The review ([`docs/reviews/m2-adversarial-review.md`](../reviews/m2-adversarial-review.md))
+showed that the claim above about co-signing did not hold against the
+revoked key's own holder. It found four more gaps. All are fixed, each with
+its test and a catalogued mutation:
+
+- **Co-signers are bound (M9).** A signature now signs the digest together
+  with the sorted key ids that had signed before it (`PackSignature.after`).
+  Stripping or renaming an earlier signature leaves every later signature
+  still naming the earlier signer. Every key id a pack's signatures name is
+  checked against revocations. A first signature, with no `after`, signs the
+  digest alone as before, so packs signed earlier still verify. One case is
+  out of reach. If a good key signed before the revoked one, stripping the
+  revoked key's signature leaves exactly the pack the good key vouched for,
+  and that pack verifies.
+- **A key, not a name (L8).** A revocation applies to the key: whatever
+  other id the same public key is trusted under is revoked too, by the
+  fingerprint of its SPKI encoding. A `Revocation` can carry `publicKey` for
+  a key that is not among the trusted keys.
+- **What is installed (M10).** Every `pack.install` row records each pack
+  it registered, with every key id its signatures name. A later install
+  checks revocations against every pack the registry's audit trail records,
+  as well as those the caller lists in `installed`.
+  `RegistryStore.listAuditEvents` gained an `action` filter, with a Postgres
+  index, so this reads only install rows.
+- **Every attempt audited (M11).** `installPacks` writes its audit row in a
+  `finally` block, so a malformed offer, a refusal and a failure part way
+  through registering are all recorded. A partial registration records the
+  packs it touched.
+- **Digests (L9).** `typesys pack verify --revoke` reads a digest in any
+  case, with or without its `sha256:` prefix, and rejects a malformed one.
+  `verifyPack` compares digests without regard to case.

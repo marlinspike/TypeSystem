@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { JournalConflictError, type JournalEvent, type JournalRecord, type WorkflowJournal } from "@typesys/workflow";
@@ -7,15 +7,16 @@ import type { Pool, PoolClient } from "pg";
 const MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../migrations");
 
 /**
- * Creates the journal's tables if they are missing. Idempotent, and
- * serialized by an advisory lock so replicas may all run it at start.
+ * Creates or updates the journal's tables and triggers, running every
+ * migration in order. Each is idempotent, and the run is serialized by an
+ * advisory lock so replicas may all run it at start.
  */
 export async function migrateWorkflowJournal(pool: Pool): Promise<void> {
-  const sql = await readFile(path.join(MIGRATIONS, "0001_workflow_journal.sql"), "utf8");
+  const files = (await readdir(MIGRATIONS)).filter((f) => f.endsWith(".sql")).sort();
   const client = await pool.connect();
   try {
     await client.query("SELECT pg_advisory_lock(hashtext('typesys_workflow_journal'))");
-    await client.query(sql);
+    for (const f of files) await client.query(await readFile(path.join(MIGRATIONS, f), "utf8"));
   } finally {
     const unlocked = await client.query("SELECT pg_advisory_unlock(hashtext('typesys_workflow_journal'))").then(
       () => true,
@@ -24,6 +25,21 @@ export async function migrateWorkflowJournal(pool: Pool): Promise<void> {
     client.release(!unlocked);
   }
 }
+
+/**
+ * JSONB cannot hold U+0000, which an Action's output may. An event whose
+ * JSON has one is stored as its JSON text under a key no event has (every
+ * event has a `type`), where the NUL is the six characters of its escape.
+ */
+const WRAPPED = "$typesys-json";
+const encode = (event: JournalEvent): string => {
+  const json = JSON.stringify(event);
+  return json.includes("\\u0000") ? JSON.stringify({ [WRAPPED]: json }) : json;
+};
+const decode = (stored: JournalEvent | { [WRAPPED]: string }): JournalEvent => {
+  const keys = Object.keys(stored);
+  return keys.length === 1 && keys[0] === WRAPPED ? (JSON.parse((stored as { [WRAPPED]: string })[WRAPPED]) as JournalEvent) : (stored as JournalEvent);
+};
 
 /**
  * The durable `WorkflowJournal` (ADR-0066). An append is one transaction:
@@ -48,7 +64,7 @@ export class PostgresWorkflowJournal implements WorkflowJournal {
       }
       let seq = expectedLength;
       for (const event of events) {
-        await client.query("INSERT INTO typesys_workflow_events (run_id, seq, at, event) VALUES ($1, $2, $3, $4)", [runId, seq++, at, JSON.stringify(event)]);
+        await client.query("INSERT INTO typesys_workflow_events (run_id, seq, at, event) VALUES ($1, $2, $3, $4)", [runId, seq++, at, encode(event)]);
       }
       const finished = events.some((e) => e.type === "run-finished");
       await client.query("UPDATE typesys_workflow_runs SET length = $2, finished = finished OR $3, updated_at = $4 WHERE run_id = $1", [runId, seq, finished, at]);
@@ -80,7 +96,7 @@ export class PostgresWorkflowJournal implements WorkflowJournal {
 
   async read(runId: string): Promise<JournalRecord[]> {
     const { rows } = await this.pool.query<{ seq: number; at: string; event: JournalEvent }>("SELECT seq, at, event FROM typesys_workflow_events WHERE run_id = $1 ORDER BY seq", [runId]);
-    return rows.map((r) => ({ ...r.event, seq: r.seq, at: r.at }));
+    return rows.map((r) => ({ ...decode(r.event), seq: r.seq, at: r.at }));
   }
 
   async runs(): Promise<string[]> {

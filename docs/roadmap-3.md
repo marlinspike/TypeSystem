@@ -237,8 +237,8 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | M2b release boundary | ✅ | [0067](adr/0067-release-to-models-is-decided-for-the-model.md) | `release-boundary.test.ts` in domain-airforce (property-based intersection over generated principals), domain-hospital (row-level plan conjunction) and workflow; `packages/mcp-server/test/audience.test.ts`; Cedar parity with bound audiences |
 | M2c durable execution | ✅ | [0066](adr/0066-durable-execution-on-the-journal-seam.md) | `packages/workflow/test/journal-contract.test.ts`, `packages/workflow-postgres/test/postgres-journal.test.ts` (contract on real Postgres, append-only trigger, crash recovered by two processes at once, deadline expired by another process); durable timers in `continuing-authority.test.ts` |
 | M2d discovery security | ✅ | [0068](adr/0068-discovery-is-decided-by-the-runtime.md) | `packages/domain-airforce/test/discovery.test.ts` (need-to-know per caller and audience, property-based over generated principals, modes, `HIGH_ASSURANCE_V2`); `packages/mcp-server/test/discovery-security.test.ts` (one description over runtime, REST, MCP tools, resources and HTTP `tools/list`; anonymous refused); Studio in `packages/studio/test/studio.test.ts` |
-| M2e integrity | 🚧 | [0069](adr/0069-pack-trust-can-be-revoked.md) | Key and digest revocation with audited installs: `packages/packs/test/revocation.test.ts`, `typesys pack verify --revoke`. Waiting on the independent M2 review's findings |
-| M3 reproducible verification | 🚧 | [0070](adr/0070-mutation-evidence-is-regenerated-not-asserted.md) | `npm run mutation` over `tools/mutation/catalog.json` (45 mutations); record in `docs/evidence/mutation/latest.json`; `.github/workflows/mutation.yml`; read-path property test in `packages/domain-hospital/test/read-path-invariants.test.ts`. Waiting on the independent review |
+| M2e integrity | ✅ | [0069](adr/0069-pack-trust-can-be-revoked.md) | Key and digest revocation with audited installs: `packages/packs/test/revocation.test.ts`, `typesys pack verify --revoke`. The independent review's 27 findings across M2 are fixed, with its tests (`packages/*/test/m2-adv-*.test.ts`) and a disposition in [`reviews/m2-adversarial-review.md`](reviews/m2-adversarial-review.md) |
+| M3 reproducible verification | ✅ | [0070](adr/0070-mutation-evidence-is-regenerated-not-asserted.md) | `npm run mutation` over `tools/mutation/catalog.json` (74 mutations, one per review fix among them); record in [`evidence/mutation/latest.json`](evidence/mutation/latest.json); `.github/workflows/mutation.yml`; property tests in `packages/domain-airforce/test/discovery.test.ts` and `packages/domain-hospital/test/read-path-invariants.test.ts` |
 | M4 engineering loop | ⏳ | | |
 | M5 interoperability | ⏳ | | |
 | M6 evaluation | ⏳ | | |
@@ -256,6 +256,8 @@ pull request at the end of M2 and of M4.
 Kept current at each commit so the work can be picked up exactly where it
 stopped.
 
-- Done: M1, M2a, M2b, M2c, M2d; M2e's revocation; M3's harness, catalog
-  and evidence. Waiting on: the independent review of M2 (its own thread),
-  whose findings close M2e and M3. Next meanwhile: M4.
+- Done: M1, M2a–M2e, M3, with the independent review of M2 fixed and its
+  fixes mutation-checked. Open from that review, recorded not fixed: the
+  items under "Seen in code, not demonstrated" (ADR-0067 and
+  `docs/completeness.md`). Next: M4, the engineering loop; an independent
+  review of M4 follows it.

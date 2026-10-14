@@ -11,7 +11,7 @@ import {
   type RegisterTypeOptions,
   type TraitDefinition
 } from "@typesys/core";
-import { revocationsOf, verifyPack, type PackArchive, type VerifyOptions } from "./archive.js";
+import { revocationsOf, signersOf, verifyPack, type PackArchive, type PackSignature, type PackSigners, type VerifyOptions } from "./archive.js";
 import { PackError, type PackDiagnostic } from "./diagnostics.js";
 
 export interface InstallOptions {
@@ -36,7 +36,11 @@ export interface InstallOptions {
    * name, stays.
    */
   readonly dataSources?: Readonly<Record<string, Partial<Omit<DataSource, "id">>>>;
-  /** Packs already installed in the target registry: they satisfy requirements and are not registered again. */
+  /**
+   * Packs already installed in the target registry: they satisfy requirements and are not registered again.
+   * Revocations are checked against these and against every pack the registry's audit trail records installing,
+   * whether or not it is listed here (ADR-0069).
+   */
   readonly installed?: readonly PackArchive[];
   /**
    * The registry the packs will be installed into (`installPacks` always
@@ -211,6 +215,24 @@ async function alreadyRegistered(
   }
 }
 
+/** Every pack an allowed `pack.install` row of `registry` records registering (ADR-0069), as its signatures named it. */
+export async function installedRecord(registry: SemanticRegistry): Promise<PackSigners[]> {
+  const out: PackSigners[] = [];
+  let before: string | undefined;
+  do {
+    const page = await registry.listAuditEvents({ action: "pack.install", limit: 500, ...(before ? { before } : {}) });
+    for (const e of page.items) {
+      const details = (e.details ?? {}) as { registered?: unknown };
+      if (!Array.isArray(details.registered)) continue;
+      for (const p of details.registered as Partial<PackSigners & { signedBy: string[] }>[])
+        if (p && typeof p.name === "string" && typeof p.digest === "string")
+          out.push({ name: p.name, version: String(p.version ?? ""), digest: p.digest, keyIds: Array.isArray(p.keyIds) ? p.keyIds.filter((k) => typeof k === "string") : [] });
+    }
+    before = page.nextCursor;
+  } while (before);
+  return out;
+}
+
 /**
  * Everything that would stop `archives` installing, found before anything
  * is registered (ADR-0059): integrity and signatures, dependencies and
@@ -230,9 +252,19 @@ export async function planInstall(archives: readonly PackArchive[], opts: Instal
     ...(opts.revokedKeys ? { revokedKeys: opts.revokedKeys } : {}),
     ...(opts.revokedDigests ? { revokedDigests: opts.revokedDigests } : {})
   };
+  const malformed = [...archives, ...installed].some((a) => !a || typeof a !== "object");
+  if (malformed) return { order: [], diagnostics: [{ code: "invalid-pack", pack: "(unnamed)", message: "A pack offered or listed as installed is not a pack document" }] };
   for (const a of archives) out.push(...verifyPack(a, trust));
-  // What is already installed was trusted when it was installed; a revocation since then still applies to it.
-  for (const a of installed) out.push(...revocationsOf(a, trust));
+  // What is already installed was trusted when it was installed; a revocation since then still applies to it,
+  // whether the caller lists it or only the registry's audit trail records it.
+  const recorded = opts.registry ? await installedRecord(opts.registry) : [];
+  const seen = new Set<string>();
+  for (const a of [...installed.map(signersOf), ...recorded]) {
+    const key = `${a.digest} ${a.keyIds.join(",")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(...revocationsOf(a, trust));
+  }
   if (out.length > 0) return { order: [], diagnostics: out };
 
   const names = new Set<string>();
@@ -298,14 +330,47 @@ export async function planInstall(archives: readonly PackArchive[], opts: Instal
 /**
  * Installs packs into `registry`, dependencies first, after `planInstall`
  * finds nothing wrong; otherwise throws a `PackError` listing every problem
- * and registers nothing. Returns what to record as installed.
+ * and registers nothing. Returns what to record as installed. Every attempt
+ * writes one `pack.install` audit row, however it ends (ADR-0069): refused,
+ * failed part way through registering, or done. The row lists each pack
+ * registered with every key id its signatures name, which later installs
+ * check against revocations.
  */
 export async function installPacks(registry: SemanticRegistry, archives: readonly PackArchive[], opts: InstallOptions): Promise<InstalledPack[]> {
-  const plan = await planInstall(archives, { ...opts, registry });
-  // Every attempt is audited, refused or not (ADR-0069): what was offered, by digest and signer, and why it was refused.
-  const offered = archives.map((a) => ({ name: a.name, version: a.version, digest: a.digest, signedBy: (a.signatures ?? []).map((s) => s.keyId) }));
-  const audit = (decision: "allow" | "deny", details: Record<string, unknown>, reason?: string) =>
-    registry.appendAuditEvent({
+  // What was offered, by digest and the key ids its signatures claim (not all of them verified), and why it was refused.
+  const offered = (Array.isArray(archives) ? archives : []).map((a) => {
+    const p = (a && typeof a === "object" ? a : {}) as Partial<PackArchive>;
+    return { name: String(p.name ?? "(unnamed)"), version: String(p.version ?? ""), digest: String(p.digest ?? ""), signedBy: Array.isArray(p.signatures) ? (p.signatures as readonly Partial<PackSignature>[]).map((s) => String(s?.keyId)) : [] };
+  });
+  const registered: PackArchive[] = [];
+  let decision: "allow" | "deny" = "deny";
+  let details: Record<string, unknown> = {};
+  let reason: string | undefined;
+  try {
+    const plan = await planInstall(archives, { ...opts, registry });
+    if (plan.diagnostics.length > 0) {
+      details = { diagnostics: plan.diagnostics.map((d) => ({ code: d.code, pack: d.pack, ...(d.subject ? { subject: d.subject } : {}) })) };
+      reason = [...new Set(plan.diagnostics.map((d) => d.code))].join(", ");
+      throw new PackError(plan.diagnostics);
+    }
+    for (const p of plan.order) {
+      // Recorded before registering: a pack that fails part way through has some of itself in the registry.
+      registered.push(p);
+      await registerDomain(registry, manifestOf(p, opts.bindings, opts.dataSources));
+    }
+    decision = "allow";
+    details = { order: plan.order.map((p) => p.name) };
+    return [...(opts.installed ?? []), ...plan.order].map((p) => ({ name: p.name, version: p.version, digest: p.digest }));
+  } catch (err) {
+    if (!reason) {
+      reason = "error";
+      details = { error: err instanceof Error ? err.message : String(err) };
+    }
+    throw err;
+  } finally {
+    // A pack registered even in part is recorded, so a later revocation of it is still seen.
+    const partial = registered.length > 0;
+    await registry.appendAuditEvent({
       id: randomUUID(),
       timestamp: new Date().toISOString(),
       subjectId: opts.actor ?? "system",
@@ -313,13 +378,7 @@ export async function installPacks(registry: SemanticRegistry, archives: readonl
       resource: { typeName: "*" },
       decision,
       ...(reason ? { reason } : {}),
-      details: { packs: offered, signed: opts.trustedKeys !== undefined, ...details }
+      details: { packs: offered, signed: opts.trustedKeys !== undefined, ...details, ...(partial ? { registered: registered.map(signersOf) } : {}) }
     });
-  if (plan.diagnostics.length > 0) {
-    await audit("deny", { diagnostics: plan.diagnostics.map((d) => ({ code: d.code, pack: d.pack, ...(d.subject ? { subject: d.subject } : {}) })) }, [...new Set(plan.diagnostics.map((d) => d.code))].join(", "));
-    throw new PackError(plan.diagnostics);
   }
-  for (const p of plan.order) await registerDomain(registry, manifestOf(p, opts.bindings, opts.dataSources));
-  await audit("allow", { order: plan.order.map((p) => p.name) });
-  return [...(opts.installed ?? []), ...plan.order].map((p) => ({ name: p.name, version: p.version, digest: p.digest }));
 }

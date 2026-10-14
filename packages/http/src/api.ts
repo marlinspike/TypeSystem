@@ -76,7 +76,7 @@ export function createApiRouter(opts: ApiOptions): Router {
     try {
       res.status(status).json(await handler(req, identity));
     } catch (err) {
-      const problem = toProblem(err);
+      const problem = toProblem(err, { withholdReasons: runtime.discovery !== "open" });
       if (problem.status === 500) onError(err, req);
       sendProblem(res, problem);
     }
@@ -146,7 +146,7 @@ export function createApiRouter(opts: ApiOptions): Router {
   // Anything else under the API, and a body that never parsed, is a problem too: never Express's HTML page, its stack or the server's paths.
   router.use((_req: Request, res: Response) => sendProblem(res, notFound()));
   router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
-    const problem = bodyProblem(err) ?? toProblem(err);
+    const problem = bodyProblem(err) ?? toProblem(err, { withholdReasons: runtime.discovery !== "open" });
     if (problem.status === 500) onError(err, req);
     sendProblem(res, problem);
   });

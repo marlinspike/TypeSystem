@@ -8,6 +8,7 @@ export interface WorkflowDiagnostic {
     | "unreviewed-ai-output"
     | "retry-not-idempotent"
     | "invalid-retry"
+    | "invalid-deadline"
     | "invalid-schema"
     | "missing-policy"
     | "unreleasable-ai-input";

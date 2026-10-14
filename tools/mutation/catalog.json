@@ -65,7 +65,7 @@
       "adr": "0067",
       "description": "An AI step's input is computed from what the person read, not what the model may receive.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "const input = step.input(contextFor(state.runId, state.input, step, released));",
+      "find": "const input = step.input(modelCtx);",
       "replace": "const input = step.input(ctx);",
       "tests": [
         "packages/workflow/test/release-boundary.test.ts"
@@ -92,7 +92,8 @@
       "tests": [
         "packages/domain-airforce/test/discovery.test.ts",
         "packages/mcp-server/test/discovery-security.test.ts"
-      ]
+      ],
+      "occurrence": 1
     },
     {
       "id": "discovery.unnarrowed",
@@ -227,8 +228,8 @@
       "adr": "0068",
       "description": "MCP Type documents carry x-provenance markings again.",
       "file": "packages/mcp-server/src/reads.ts",
-      "find": "[\"x-policy\", \"x-provenance\", ",
-      "replace": "[\"x-policy\", ",
+      "find": "\"$comment\"]);",
+      "replace": "\"$comment\", \"x-policy\", \"x-provenance\"]);",
       "tests": [
         "packages/mcp-server/test/discovery-security.test.ts"
       ]
@@ -294,7 +295,7 @@
       "adr": "0065",
       "description": "Without a resolver, the held identity is used however old it is.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "if (age > max) return this.suspend(",
+      "find": "if (!(age <= max)) return this.suspend(",
       "replace": "if (false) return this.suspend(",
       "tests": [
         "packages/workflow/test/continuing-authority.test.ts"
@@ -398,8 +399,8 @@
       "adr": "0066",
       "description": "tick() and resumeAll() advance runs of workflows this engine does not have.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "if (!state.finished && this.definitions.get(state.workflow)?.has(state.version)) own.push({ runId, state });",
-      "replace": "if (!state.finished) own.push({ runId, state });",
+      "find": "if (!state.finished && this.definitions.get(state.workflow)?.has(state.version)) runs.push({ runId, state });",
+      "replace": "if (!state.finished) runs.push({ runId, state });",
       "tests": [
         "packages/workflow/test/continuing-authority.test.ts",
         "packages/workflow-postgres/test/postgres-journal.test.ts"
@@ -422,7 +423,7 @@
       "adr": "0069",
       "description": "A revoked key still listed as trusted counts as a trusted signature.",
       "file": "packages/packs/src/archive.ts",
-      "find": "if (key === undefined || (opts.revokedKeys && Object.hasOwn(opts.revokedKeys, s.keyId))) continue;",
+      "find": "if (key === undefined || revokedKey(s.keyId)) continue;",
       "replace": "if (key === undefined) continue;",
       "tests": [
         "packages/packs/test/revocation.test.ts"
@@ -433,8 +434,8 @@
       "adr": "0069",
       "description": "A revoked installed pack does not block further installs.",
       "file": "packages/packs/src/install.ts",
-      "find": "for (const a of installed) out.push(...revocationsOf(a, trust));",
-      "replace": "",
+      "find": "seen.add(key);\n    out.push(...revocationsOf(a, trust));",
+      "replace": "seen.add(key);",
       "tests": [
         "packages/packs/test/revocation.test.ts"
       ]
@@ -444,8 +445,8 @@
       "adr": "0069",
       "description": "A refused install writes no audit row.",
       "file": "packages/packs/src/install.ts",
-      "find": "if (plan.diagnostics.length > 0) {\n    await audit(",
-      "replace": "if (plan.diagnostics.length > 0) {\n    if (plan.order.length < 0) await audit(",
+      "find": "await registry.appendAuditEvent({\n      id: randomUUID(),",
+      "replace": "if (decision === \"allow\") await registry.appendAuditEvent({\n      id: randomUUID(),",
       "tests": [
         "packages/packs/test/revocation.test.ts"
       ]
@@ -517,6 +518,342 @@
       "replace": "(?![a-zA-Z])",
       "tests": [
         "tools/terminology/test/terminology.test.ts"
+      ]
+    },
+    {
+      "id": "release.outputs-ignore-audience",
+      "adr": "0067",
+      "description": "A caller reading for a model gets a run's outputs though the run did not read for it (review H1).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (identity.audience && identity.audience.id !== state.initiator.audience?.id) {",
+      "replace": "if (identity.audience && identity.audience.id === \"\") {",
+      "tests": [
+        "packages/workflow/test/m2-adv-release.test.ts",
+        "packages/http/test/m2-adv-release.test.ts"
+      ]
+    },
+    {
+      "id": "release.reresolve-drops-audience",
+      "adr": "0067",
+      "description": "A re-resolved identity reads as the person alone, dropping the run's audience (review H2).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "const bound = this.keepAudience(held, current);",
+      "replace": "const bound: Identity | string = current;",
+      "tests": [
+        "packages/workflow/test/m2-adv-release.test.ts"
+      ]
+    },
+    {
+      "id": "release.when-not-redecided",
+      "adr": "0067",
+      "description": "An upstream step's when is not decided again on what the model may receive (review H3).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "released.set(s.name, holds(s, sctx) ? await",
+      "replace": "released.set(s.name, true ? await",
+      "tests": [
+        "packages/workflow/test/m2-adv-release.test.ts"
+      ]
+    },
+    {
+      "id": "release.ai-when-not-redecided",
+      "adr": "0067",
+      "description": "An AI step runs though its own when holds only on what its model may not receive (review H3).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (!holds(step, modelCtx)) {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/workflow/test/m2-adv-release.test.ts"
+      ]
+    },
+    {
+      "id": "release.refusal-names-cause",
+      "adr": "0067",
+      "description": "A caller reading for a model is told whether the person or the model was refused (review M8).",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "const told = identity.audience ? `Refused while reading for ${identity.audience.id}` : reason;",
+      "replace": "const told = reason;",
+      "tests": [
+        "packages/domain-hospital/test/m2-adv-release.test.ts",
+        "packages/domain-airforce/test/release-boundary.test.ts"
+      ]
+    },
+    {
+      "id": "release.action-outcome-without-audience",
+      "adr": "0067",
+      "description": "An Action's outcome audit row omits the audience the caller read for (review L6).",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "...(identity.audience ? { details: { audience: identity.audience.id } } : {})",
+      "replace": "...({})",
+      "tests": [
+        "packages/domain-airforce/test/m2-adv-release.test.ts"
+      ]
+    },
+    {
+      "id": "release.workflow-audit-without-audience",
+      "adr": "0067",
+      "description": "Workflow audit rows omit the audience their subject reads for (review L7).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": ": who.audience ? { audience: who.audience.id } : {}),",
+      "replace": ": {}),",
+      "tests": [
+        "packages/workflow/test/m2-adv-release.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.preview-anonymous",
+      "adr": "0068",
+      "description": "An anonymous caller is shown an Action's preview under authenticated and need-to-know (review H4).",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (this.discovery !== \"open\" && isAnonymous(principalsOf(identity).person)) {\n          const reason",
+      "replace": "if (this.discovery !== \"open\" && isAnonymous(principalsOf(identity).person) && identity.roles.includes(\"never\")) {\n          const reason",
+      "tests": [
+        "packages/core/test/m2-adv-discovery.test.ts",
+        "packages/mcp-server/test/m2-adv-discovery.test.ts",
+        "packages/domain-airforce/test/discovery.test.ts"
+      ],
+      "occurrence": 2
+    },
+    {
+      "id": "discovery.preview-withheld",
+      "adr": "0068",
+      "description": "A withheld Action's preview tells the caller its preconditions, effects and policy (review H4).",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (this.discovery === \"need-to-know\" && !(await this.actionDescribed(identity, action))) {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/core/test/m2-adv-discovery.test.ts",
+        "packages/mcp-server/test/m2-adv-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.mcp-allof-names-base",
+      "adr": "0068",
+      "description": "An MCP Type document names a withheld base Type through allOf (review H5).",
+      "file": "packages/mcp-server/src/reads.ts",
+      "find": "if (typeof ref === \"string\") return allowedRefs.has(ref) && Object.keys(entry).length === 1;",
+      "replace": "if (typeof ref === \"string\") return true;",
+      "tests": [
+        "packages/mcp-server/test/m2-adv-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.superseded-by-withheld",
+      "adr": "0068",
+      "description": "A deprecation names a withheld successor (review M5).",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "|| described.has(deprecated.supersededBy)) return deprecated;",
+      "replace": "|| described.size >= 0) return deprecated;",
+      "tests": [
+        "packages/core/test/m2-adv-discovery.test.ts",
+        "packages/mcp-server/test/m2-adv-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.mcp-inverse-names-withheld",
+      "adr": "0068",
+      "description": "An MCP relationship names a withheld inverse relationship (review M6).",
+      "file": "packages/mcp-server/src/reads.ts",
+      "find": "inverseName: r.inverseName !== undefined && members.has(r.inverseName) ? r.inverseName : undefined",
+      "replace": "inverseName: r.inverseName",
+      "tests": [
+        "packages/mcp-server/test/m2-adv-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.rest-sends-reasons",
+      "adr": "0068",
+      "description": "REST refusals send the policy's reason under need-to-know (review M7).",
+      "file": "packages/http/src/problems.ts",
+      "find": "err instanceof AuthorizationError && !opts.withholdReasons ? err.reason : undefined",
+      "replace": "err instanceof AuthorizationError ? err.reason : undefined",
+      "tests": [
+        "packages/mcp-server/test/m2-adv-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.no-subject-authenticated",
+      "adr": "0068",
+      "description": "An identity with no subject id is taken as authenticated (review L10).",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "find": "const subjectId: unknown = identity.subjectId;",
+      "replace": "const subjectId: unknown = identity.subjectId ?? \"someone\";",
+      "tests": [
+        "packages/core/test/m2-adv-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "authority.cancel-claims-clean-undo",
+      "adr": "0065",
+      "description": "Cancelling while a non-idempotent Action's outcome is unrecorded ends cancelled, the effect left in place (review H6).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "(step) => step.kind === \"action\" && ((w.state.steps.get(step.name)?.inFlight ?? false) || this.indeterminate(step, w.state))",
+      "replace": "(step) => step.kind === \"action\" && false",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.retry-skips-recheck",
+      "adr": "0065",
+      "description": "An in-process retry runs on credentials that expired during its backoff (review M1).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (attempt > first && !(await this.stillAuthorized(w, workflow, identity))) return \"waiting\";",
+      "replace": "if (attempt < first && !(await this.stillAuthorized(w, workflow, identity))) return \"waiting\";",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.suspended-undo-uncancellable",
+      "adr": "0065",
+      "description": "A run suspended while undoing cannot be cancelled by an admitted canceller (review M2).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (state.compensating && !state.suspended) throw",
+      "replace": "if (state.compensating && state.runId !== \"\") throw",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.sweep-stops-on-one-run",
+      "adr": "0065",
+      "description": "One run's failure stops tick() and resumeAll() for every other run (review M3).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (!(err instanceof JournalConflictError)) failures.push(err);",
+      "replace": "if (!(err instanceof JournalConflictError)) throw err;",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.deadline-unchecked",
+      "adr": "0065",
+      "description": "Registration accepts an approval deadline that is NaN, infinite or not in the future (review M4).",
+      "file": "packages/workflow/src/validate.ts",
+      "find": "if (step.kind === \"approval\" && step.deadline !== undefined && !(Number.isFinite(step.deadline.afterMs) && step.deadline.afterMs > 0)) {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.expired-canceller-proceeds",
+      "adr": "0065",
+      "description": "A canceller whose credentials expired is audited as allowed and cancels (review L4).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (expired) return deny(expired);",
+      "replace": "if (expired === \"\") return deny(expired);",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "authority.max-age-unvalidated",
+      "adr": "0065",
+      "description": "An identityMaxAgeMs that is not a number is accepted (review L5).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (v !== undefined && !(Number.isFinite(v) && v >= 0)) throw",
+      "replace": "if (false) throw",
+      "tests": [
+        "packages/workflow/test/m2-adv-authority.test.ts"
+      ]
+    },
+    {
+      "id": "journal.truncate-allowed",
+      "adr": "0066",
+      "description": "TRUNCATE empties the append-only events table (review L1).",
+      "file": "packages/workflow-postgres/migrations/0002_journal_integrity.sql",
+      "find": "CREATE TRIGGER typesys_workflow_events_no_truncate\n  BEFORE TRUNCATE ON typesys_workflow_events\n  FOR EACH STATEMENT EXECUTE FUNCTION typesys_workflow_events_append_only();",
+      "replace": "SELECT 1;",
+      "tests": [
+        "packages/workflow-postgres/test/m2-adv-postgres.test.ts"
+      ],
+      "requires": [
+        "DATABASE_URL"
+      ]
+    },
+    {
+      "id": "journal.finished-behind-its-back",
+      "adr": "0066",
+      "description": "A run can be marked finished with no run-finished event, so its deadline never fires (review L2).",
+      "file": "packages/workflow-postgres/migrations/0002_journal_integrity.sql",
+      "find": "IF NEW.finished AND NOT OLD.finished AND NOT EXISTS (",
+      "replace": "IF FALSE AND NOT EXISTS (",
+      "tests": [
+        "packages/workflow-postgres/test/m2-adv-postgres.test.ts"
+      ],
+      "requires": [
+        "DATABASE_URL"
+      ]
+    },
+    {
+      "id": "journal.nul-unencoded",
+      "adr": "0066",
+      "description": "An event holding U+0000 cannot be stored in Postgres (review L3).",
+      "file": "packages/workflow-postgres/src/postgres-journal.ts",
+      "find": "return json.includes(\"\\\\u0000\") ? JSON.stringify({ [WRAPPED]: json }) : json;",
+      "replace": "return json;",
+      "tests": [
+        "packages/workflow-postgres/test/postgres-journal.test.ts",
+        "packages/workflow-postgres/test/m2-adv-postgres.test.ts"
+      ],
+      "requires": [
+        "DATABASE_URL"
+      ]
+    },
+    {
+      "id": "packs.cosigners-unbound",
+      "adr": "0069",
+      "description": "A co-signature does not bind the key ids that signed before it, so a revoked signer's signature can be stripped (review M9).",
+      "file": "packages/packs/src/archive.ts",
+      "find": "const after = sorted(others.map((s) => s.keyId));",
+      "replace": "const after: string[] = [];",
+      "tests": [
+        "packages/packs/test/m2-adv-revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.revoked-by-id-only",
+      "adr": "0069",
+      "description": "A revoked key trusted under a second id still verifies (review L8).",
+      "file": "packages/packs/src/archive.ts",
+      "find": "if (key !== undefined) byFingerprint.set(fingerprint(key), r);",
+      "replace": "if (key !== undefined && byFingerprint.size < 0) byFingerprint.set(fingerprint(key), r);",
+      "tests": [
+        "packages/packs/test/m2-adv-revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.recorded-installs-unchecked",
+      "adr": "0069",
+      "description": "A revoked pack the registry's audit trail records installing does not block an install (review M10).",
+      "file": "packages/packs/src/install.ts",
+      "find": "const recorded = opts.registry ? await installedRecord(opts.registry) : [];",
+      "replace": "const recorded: PackSigners[] = [];",
+      "tests": [
+        "packages/packs/test/m2-adv-revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.failed-install-unaudited",
+      "adr": "0069",
+      "description": "An install that fails while registering writes no audit row (review M11).",
+      "file": "packages/packs/src/install.ts",
+      "find": "await registry.appendAuditEvent({\n      id: randomUUID(),",
+      "replace": "if (reason !== \"error\") await registry.appendAuditEvent({\n      id: randomUUID(),",
+      "tests": [
+        "packages/packs/test/m2-adv-revocation.test.ts"
+      ]
+    },
+    {
+      "id": "packs.revoke-digest-misspelled",
+      "adr": "0069",
+      "description": "pack verify --revoke takes an upper-case or bare digest as a key id (review L9).",
+      "file": "packages/cli/src/bin.ts",
+      "find": "const hex = /^sha256:/i.test(r) ? r.slice(\"sha256:\".length) : /^[0-9a-f]{64}$/i.test(r) ? r : undefined;",
+      "replace": "const hex = /^sha256:/.test(r) ? r.slice(\"sha256:\".length) : undefined;",
+      "tests": [
+        "packages/cli/test/m2-adv-revoke.test.ts"
       ]
     }
   ]

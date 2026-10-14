@@ -148,3 +148,55 @@ Fix: an in-flight or indeterminate non-idempotent Action makes cancellation end 
   - A bad signature from a trusted key refuses the pack.
   - A withdrawn digest stays refused after re-signing.
   - `checkUpgrade` registers only into a scratch registry.
+
+## Disposition (2026-10-14)
+
+All 27 findings are fixed on the same branch. Each review test now passes,
+and each fix has a mutation in [`tools/mutation/catalog.json`](../../tools/mutation/catalog.json)
+that the review's test kills (`npm run mutation`; the evidence names the
+revision it ran on). The ADRs record what changed, in an "Amended after the
+independent review" section of each.
+
+| Finding | Fix | Mutation |
+|---|---|---|
+| H1 run outputs | `outputs()` refuses an audience the run did not read for | `release.outputs-ignore-audience` |
+| H2 re-resolution drops audience | the run's audience is re-applied; a different one suspends | `release.reresolve-drops-audience` |
+| H3 `when` leaks | upstream `when` re-decided on the model's view; AI step's own `when` too | `release.when-not-redecided`, `release.ai-when-not-redecided` |
+| H4 previewAction | follows the discovery mode; withheld reads as unknown | `discovery.preview-anonymous`, `discovery.preview-withheld` |
+| H5 MCP `allOf` | allowlisted keywords; `allOf` narrowed | `discovery.mcp-allof-names-base` |
+| H6 cancel orphans an Action | in-flight or indeterminate Action ends `needs-reconciliation` | `authority.cancel-claims-clean-undo` |
+| M1 retry authority | checked before every in-process retry | `authority.retry-skips-recheck` |
+| M2 suspended undo | an admitted canceller takes it over | `authority.suspended-undo-uncancellable` |
+| M3 sweeps | each run on its own; failures thrown after | `authority.sweep-stops-on-one-run` |
+| M4 deadlines | `invalid-deadline` at registration | `authority.deadline-unchecked` |
+| M5 `supersededBy` | dropped unless described | `discovery.superseded-by-withheld` |
+| M6 `inverseName` | only when described | `discovery.mcp-inverse-names-withheld` |
+| M7 REST reasons | withheld unless discovery is `open` | `discovery.rest-sends-reasons` |
+| M8 refusal oracle | one reason for an audience caller | `release.refusal-names-cause` |
+| M9 stripped co-signature | signatures bind earlier signers | `packs.cosigners-unbound` |
+| M10 unlisted installed pack | installs recorded in the audit trail and checked | `packs.recorded-installs-unchecked` |
+| M11 unaudited installs | audit row in `finally` | `packs.failed-install-unaudited` |
+| L1 TRUNCATE | refused by trigger | `journal.truncate-allowed` |
+| L2 runs table | follows the events table by trigger | `journal.finished-behind-its-back` |
+| L3 NUL | encoded; in the journal contract | `journal.nul-unencoded` |
+| L4 cancel audit | expiry first, audited `deny` | `authority.expired-canceller-proceeds` |
+| L5 NaN max age | refused at construction; comparison fails closed | `authority.max-age-unvalidated` |
+| L6 Action outcome audit | carries the audience | `release.action-outcome-without-audience` |
+| L7 workflow audit | carries the audience | `release.workflow-audit-without-audience` |
+| L8 revocation by name | by key fingerprint too | `packs.revoked-by-id-only` |
+| L9 digest spelling | normalised; malformed refused | `packs.revoke-digest-misspelled` |
+| L10 no subject | anonymous | `discovery.no-subject-authenticated` |
+
+Three review tests were adjusted, each because the fix chose a different
+secure behavior from the one the test assumed. The `when`-laundering test
+declares `release: "redact"`, since the default refusal fails that run,
+which is also secure. The NaN `identityMaxAgeMs` test expects the engine to
+refuse to build. The poisoned-sweep test journals the poisoned run directly,
+since registration now refuses the definition that made it.
+
+The items under "Seen in code, not demonstrated" remain open. ADR-0067
+lists those about release. The others (pack audit failure handling,
+`signedBy` listing claimed key ids, a caller-supplied `actor`, two services
+sharing a workflow name on one journal) are recorded in
+[`docs/completeness.md`](../completeness.md).
+

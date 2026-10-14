@@ -20,9 +20,17 @@ export const DISCOVERY_MODES: readonly Discovery[] = ["open", "authenticated", "
 /** The subject an identity resolver gives a caller with no valid credentials (`@typesys/auth-oidc`, the demo resolvers). */
 export const ANONYMOUS_SUBJECT_ID = "anonymous";
 
-/** Whether this caller presented no credentials the resolver accepted. */
+/** Whether this caller presented no credentials the resolver accepted: the anonymous subject, or no subject at all. */
 export function isAnonymous(identity: Identity): boolean {
-  return identity.subjectId === ANONYMOUS_SUBJECT_ID || identity.subjectId === "";
+  const subjectId: unknown = identity.subjectId;
+  return typeof subjectId !== "string" || subjectId === ANONYMOUS_SUBJECT_ID || subjectId.trim() === "";
+}
+
+/** A deprecation that names its successor only when the caller is told of it too. */
+function deprecationWithin<D extends { readonly supersededBy?: string }>(deprecated: D | undefined, described: ReadonlySet<string>): D | undefined {
+  if (!deprecated?.supersededBy || described.has(deprecated.supersededBy)) return deprecated;
+  const { supersededBy: _withheld, ...rest } = deprecated;
+  return rest as D;
 }
 
 /**
@@ -82,6 +90,11 @@ export async function narrowModel(
     else withheld.actions++;
   }
   const invocable = new Set(actions.map((a) => a.name));
+  for (const [i, a] of actions.entries()) {
+    const { deprecated, ...rest } = a;
+    const kept = deprecationWithin(deprecated, invocable);
+    actions[i] = { ...rest, ...(kept ? { deprecated: kept } : {}) };
+  }
 
   const types: TypeDescription[] = [];
   for (const type of model.types) {
@@ -118,9 +131,11 @@ export async function narrowModel(
     }
 
     const aliases = Object.fromEntries(Object.entries(type.aliases ?? {}).filter(([, current]) => members.has(current)));
-    const { extends: base, aliases: _all, ...rest } = type;
+    const { extends: base, aliases: _all, deprecated, ...rest } = type;
+    const kept = deprecationWithin(deprecated, readable);
     types.push({
       ...rest,
+      ...(kept ? { deprecated: kept } : {}),
       ...(base && readable.has(base) ? { extends: base } : {}),
       properties,
       required: type.required.filter((r) => members.has(r)),

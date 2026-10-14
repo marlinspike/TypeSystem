@@ -24,10 +24,13 @@ async function values(runtime: SemanticRuntime, id: string, who: Identity): Prom
 
 describe("the release boundary on the read path (ADR-0067)", () => {
   it("a maintainer may read the aircraft; a commercial model may receive none of it, so a maintainer reading for it gets nothing", async () => {
-    const { runtime } = await buildAirforceTestbed();
+    const { runtime, registry } = await buildAirforceTestbed();
     expect(await values(runtime, AIRCRAFT, maintainer)).toMatchObject({ tailNumber: AIRCRAFT, maintenanceStatus: "degraded" });
     const forCommercial = withAudience(maintainer, commercialModel);
-    await expect(runtime.getObject("airforce.Aircraft", AIRCRAFT, forCommercial)).rejects.toMatchObject({ reason: expect.stringMatching(/^Not releasable to model:commercial-api\/general/) as unknown });
+    // The caller is told only that it was refused while reading for the model (the review's M8); the audit row says why.
+    await expect(runtime.getObject("airforce.Aircraft", AIRCRAFT, forCommercial)).rejects.toMatchObject({ reason: "Refused while reading for model:commercial-api/general" });
+    const { items } = await registry.listAuditEvents({ limit: 20 });
+    expect(items.some((e) => e.decision === "deny" && /^Not releasable to model:commercial-api\/general/.test(e.reason ?? ""))).toBe(true);
     await expect(runtime.query({ type: "airforce.Aircraft" }, forCommercial)).rejects.toThrow(AuthorizationError);
     await expect(runtime.invokeAction("CreateMaintenanceWorkOrder", { maintenanceEventId: "EVT-9002", assignedTo: "SSgt Rivera" }, forCommercial)).rejects.toThrow(AuthorizationError);
   });

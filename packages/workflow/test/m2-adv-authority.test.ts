@@ -168,13 +168,17 @@ describe("ADV: approval deadlines are validated", () => {
     });
   }
 
-  it("a non-finite deadline journals a run that then poisons resumeAll for every run", async () => {
+  it("a run its definition cannot advance does not stop resumeAll for every other run", async () => {
+    // Registration now refuses a non-finite deadline, so the poisoned run is journaled as an older definition might have left it.
     const journal = new InMemoryJournal();
-    const { engine } = await fixture({ journal, workflow: withDeadline(Number.POSITIVE_INFINITY) });
-    const started = await engine.start("airforce.GroundForRepair", START, maintainer).catch((e: Error) => e);
-    console.log("start ->", started instanceof Error ? `${started.name}: ${started.message}` : started.status, "; journaled runs:", (await journal.runs()).length);
-    // Secure: the sweep is not broken by a run its own definition cannot advance.
-    await expect(engine.resumeAll()).resolves.toBeDefined();
+    const { engine } = await fixture({ journal, faults: { openWorkOrder: [{ attempt: 1, crash: "after-effect" }] } });
+    const w = withDeadline();
+    await journal.append("poisoned", 0, [{ type: "run-started", workflow: w.name, version: w.version, initiator: maintainer, input: START }, { type: "step-completed", step: "gone", attempt: 1, output: 1, source: "compute" }], new Date(T0).toISOString());
+    const healthy = await engine.start("airforce.GroundForRepair", START, maintainer);
+    await expect(engine.approve(healthy.runId, "leadApproval", lead, { approved: true })).rejects.toThrow(/Simulated crash/);
+    // The healthy run, crashed mid-Action, is still advanced (to reconciliation) though the poisoned one throws.
+    await expect(engine.resumeAll()).rejects.toThrow(/gone/);
+    expect((await engine.status(healthy.runId)).status).toBe("needs-reconciliation");
   });
 });
 
@@ -191,11 +195,8 @@ describe("ADV: audit evidence of cancellation", () => {
 
 describe("ADV: identityMaxAgeMs", () => {
   it("a NaN identityMaxAgeMs must not disable the age limit", async () => {
-    const clock = { t: T0 };
-    const { engine } = await fixture({ clock, identityMaxAgeMs: Number.NaN, workflow: withDeadline(10 * 24 * 3600_000) });
-    const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);
-    clock.t += 7 * 24 * 3600_000; // a week later
-    const run = await engine.approve(runId, "leadApproval", lead, { approved: true });
-    expect(run.status).toBe("suspended");
+    // Refused when the engine is built, before any run could act on it; the comparison also fails closed.
+    await expect(fixture({ identityMaxAgeMs: Number.NaN })).rejects.toThrow(/identityMaxAgeMs/);
+    await expect(fixture({ identityMaxAgeMs: -1 })).rejects.toThrow(/identityMaxAgeMs/);
   });
 });

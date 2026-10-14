@@ -1,4 +1,4 @@
-import type { RegistryStore } from "./registry-store.js";
+import type { AuditEventListOptions, RegistryStore } from "./registry-store.js";
 import { latestFirst, resolveVersion } from "./version-resolution.js";
 import type { TypeDefinition } from "../model/type.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
@@ -78,11 +78,11 @@ export class InMemoryRegistryStore implements RegistryStore {
     this.auditEvents.push(evt);
   }
 
-  async listAuditEvents(opts: { limit?: number; before?: string } = {}): Promise<QueryResult<AuditEvent>> {
-    const { limit = 100, before } = opts;
+  async listAuditEvents(opts: AuditEventListOptions = {}): Promise<QueryResult<AuditEvent>> {
+    const { limit = 100, before, action } = opts;
     // Newest first, by insertion order (append-only) — ids are ULIDs, so this
     // also happens to be lexicographic id order, but we don't rely on that here.
-    const newestFirst = [...this.auditEvents].reverse();
+    const newestFirst = [...this.auditEvents].reverse().filter((e) => action === undefined || e.action === action);
     const startIndex = before ? newestFirst.findIndex((e) => e.id === before) + 1 : 0;
     const page = newestFirst.slice(startIndex, startIndex + limit);
     const nextCursor = startIndex + limit < newestFirst.length ? page[page.length - 1]?.id : undefined;

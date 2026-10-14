@@ -150,6 +150,9 @@ describe("discovery modes (ADR-0068)", () => {
     await expect(tb.runtime.describeModel(anonymous)).rejects.toThrow(AuthorizationError);
     await expect(tb.runtime.describeModel({ ...anonymous, subjectId: "" })).rejects.toThrow(AuthorizationError);
     expect((await tb.runtime.describeModel(viewer)).actions).toHaveLength(2);
+    // An Action's preview describes it too (the review's H4): refused to an anonymous caller, shown to anyone else.
+    await expect(tb.runtime.previewAction("CreateMaintenanceWorkOrder", {}, anonymous)).rejects.toThrow(AuthorizationError);
+    expect((await tb.runtime.previewAction("CreateMaintenanceWorkOrder", {}, viewer)).action).toBe("CreateMaintenanceWorkOrder");
   });
 
   it("a mode the runtime does not know is refused at construction", async () => {

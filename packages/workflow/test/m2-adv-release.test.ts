@@ -47,7 +47,9 @@ describe("m2-adv: AI-step release (ADR-0067)", () => {
           needs: ["aircraft", "atFob"],
           prompt: "p",
           input: (ctx: { output: <T>(n: string) => T | undefined }) => ({ atFob: ctx.output("atFob") ?? false }),
-          outputSchema: { type: "string" }
+          outputSchema: { type: "string" },
+          // Redaction sends what the model may receive; the default refusal would fail the FOB run instead.
+          release: "redact"
         }
       ]
     } as unknown as AnyWorkflow;
