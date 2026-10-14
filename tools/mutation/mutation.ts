@@ -48,7 +48,9 @@ export type MutationStatus =
   /** Not run, because an environment variable it requires is unset. */
   | "not-run"
   /** `find` no longer matches the file as the catalog says: the catalog must be updated. */
-  | "stale";
+  | "stale"
+  /** The test run ended without a verdict (a signal, a timeout, a crash with no failing test): it proves nothing. */
+  | "inconclusive";
 
 export interface MutationResult {
   readonly id: string;
@@ -124,19 +126,20 @@ export function catalogHash(bytes: string | Uint8Array): string {
 }
 
 /** What a mutation's outcome is, from what happened when it ran. */
-export function classify(m: Pick<Mutation, "equivalent">, run: { compiled: boolean; testsFailed: boolean }): MutationStatus {
+export function classify(m: Pick<Mutation, "equivalent">, run: { compiled: boolean; testsFailed: boolean; inconclusive?: boolean }): MutationStatus {
   if (!run.compiled) return "killed-by-compiler";
+  if (run.inconclusive) return "inconclusive";
   if (run.testsFailed) return "killed";
   return m.equivalent ? "equivalent" : "survived";
 }
 
 export function summarize(results: readonly Pick<MutationResult, "status">[]): Record<MutationStatus, number> {
-  const summary: Record<MutationStatus, number> = { killed: 0, "killed-by-compiler": 0, survived: 0, equivalent: 0, "not-run": 0, stale: 0 };
+  const summary: Record<MutationStatus, number> = { killed: 0, "killed-by-compiler": 0, survived: 0, equivalent: 0, "not-run": 0, stale: 0, inconclusive: 0 };
   for (const r of results) summary[r.status]++;
   return summary;
 }
 
 /** Whether a run is evidence that every catalogued defect is caught: nothing survived, went stale, or was left unrun unless allowed. */
 export function passed(summary: Readonly<Record<MutationStatus, number>>, opts: { allowNotRun?: boolean } = {}): boolean {
-  return summary.survived === 0 && summary.stale === 0 && (opts.allowNotRun === true || summary["not-run"] === 0);
+  return summary.survived === 0 && summary.stale === 0 && summary.inconclusive === 0 && (opts.allowNotRun === true || summary["not-run"] === 0);
 }

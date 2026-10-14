@@ -9,7 +9,7 @@
  *
  *   npm run mutation [-- --only <id,...>] [--out <evidence.json>] [--allow-dirty] [--allow-not-run]
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { cpus, release, tmpdir } from "node:os";
 import path from "node:path";
@@ -38,8 +38,31 @@ const out = value("--out") ?? "docs/evidence/mutation/latest.json";
 const only = value("--only")?.split(",").filter(Boolean);
 
 const git = (...a: string[]) => execFileSync("git", a, { encoding: "utf8" }).trim();
-const run = (cmd: string, a: string[], env: NodeJS.ProcessEnv = process.env) => spawnSync(cmd, a, { encoding: "utf8", env, maxBuffer: 64 * 1024 * 1024 });
-const npx = (a: string[]) => run("npx", a);
+const npxSync = (a: string[]) => spawnSync("npx", a, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+/** The child running now, so a signal can stop it before the tree is restored. */
+let current: ChildProcess | undefined;
+/** The longest one build or test run may take before it is stopped and called inconclusive. */
+const STEP_TIMEOUT_MS = 20 * 60_000;
+/**
+ * Runs `npx …` without blocking the event loop, so a signal reaches this
+ * script's handler while a build or a test run is under way (P3-M1).
+ */
+const npx = (a: string[]): Promise<{ status: number | null; signal: NodeJS.Signals | null }> =>
+  new Promise((resolve) => {
+    const child = spawn("npx", a, { stdio: "ignore" });
+    current = child;
+    const timer = setTimeout(() => child.kill("SIGKILL"), STEP_TIMEOUT_MS);
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve({ status: null, signal: null });
+    });
+    child.once("exit", (status, signal) => {
+      clearTimeout(timer);
+      if (current === child) current = undefined;
+      resolve({ status, signal });
+    });
+  });
 
 const rootProjects = new Set((JSON.parse(readFileSync("tsconfig.json", "utf8")) as { references: { path: string }[] }).references.map((r) => r.path));
 const bytes = readFileSync(CATALOG, "utf8");
@@ -66,7 +89,7 @@ if (!clean && !flag("--allow-dirty")) {
 }
 
 const startedAt = new Date().toISOString();
-const versionOf = (cmd: string, a: string[]) => npx([cmd, ...a]).stdout.trim().split("\n")[0] ?? "";
+const versionOf = (cmd: string, a: string[]) => npxSync([cmd, ...a]).stdout.trim().split("\n")[0] ?? "";
 const environment = {
   node: process.version,
   platform: process.platform,
@@ -86,9 +109,24 @@ const restore = () => {
   for (const [file, text] of originals) writeFileSync(file, text);
   originals.clear();
 };
+/** A synchronous forced rebuild, for the signal handler: the output must not keep the defect either. */
+const rebuildSync = (files: Iterable<string>) => {
+  for (const file of new Set(files)) spawnSync("npx", ["tsc", "-b", "--force", ".", ...extraProject(file)], { stdio: "ignore" });
+};
+let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
   process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    current?.kill("SIGKILL");
+    const mutated = [...originals.keys()];
     restore();
+    if (mutated.length > 0) rebuildSync(mutated);
+    try {
+      rmSync(scratch, { recursive: true, force: true });
+    } catch {
+      // A signal before the scratch directory exists.
+    }
     process.exit(130);
   });
 
@@ -97,51 +135,68 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
  * file's own package when the root leaves it out (the Postgres packages,
  * built by `npm run build:postgres`), so no test runs against stale output.
  */
-const build = (file?: string) => {
+function extraProject(file?: string): string[] {
   const own = file?.match(/^packages\/[^/]+/)?.[0];
-  const extra = own && existsSync(path.join(own, "tsconfig.json")) && !rootProjects.has(own) ? [own] : [];
-  return npx(["tsc", "-b", "--force", ".", ...extra]);
-};
+  return own && existsSync(path.join(own, "tsconfig.json")) && !rootProjects.has(own) ? [own] : [];
+}
+const build = (file?: string) => npx(["tsc", "-b", "--force", ".", ...extraProject(file)]);
 const scratch = mkdtempSync(path.join(tmpdir(), "typesys-mutation-"));
-/** Runs vitest on `tests`; returns whether any failed, and up to five failing test names. */
-const test = (tests: readonly string[]) => {
+/**
+ * Runs vitest on `tests`; returns whether a test or a test file failed, up
+ * to five failing names, and whether the run was inconclusive: stopped by a
+ * signal or the step timeout, or exiting non-zero with no report or with a
+ * report in which nothing failed (P3-M4). Only a reported failure is a kill.
+ */
+const test = async (tests: readonly string[]) => {
   const report = path.join(scratch, "report.json");
   rmSync(report, { force: true });
-  const r = npx(["vitest", "run", ...tests, "--reporter=json", `--outputFile=${report}`]);
+  const r = await npx(["vitest", "run", ...tests, "--reporter=json", `--outputFile=${report}`]);
   let failing: string[] = [];
   let ran = 0;
+  let failedFiles = 0;
+  let reported = false;
   try {
-    const json = JSON.parse(readFileSync(report, "utf8")) as { numPassedTests: number; numFailedTests: number; testResults: { assertionResults: { fullName: string; status: string }[] }[] };
+    const json = JSON.parse(readFileSync(report, "utf8")) as { numPassedTests: number; numFailedTests: number; numFailedTestSuites?: number; testResults: { status?: string; name?: string; assertionResults: { fullName: string; status: string }[] }[] };
+    reported = true;
     ran = json.numPassedTests + json.numFailedTests;
-    failing = json.testResults.flatMap((f) => f.assertionResults.filter((a) => a.status === "failed").map((a) => a.fullName));
+    failedFiles = json.numFailedTestSuites ?? 0;
+    failing = json.testResults.flatMap((f) => {
+      const tests = f.assertionResults.filter((a) => a.status === "failed").map((a) => a.fullName);
+      // A file that failed with no failing test did not load: the mutated module broke it.
+      return tests.length > 0 || f.status !== "failed" ? tests : [`${path.relative(process.cwd(), f.name ?? "")} (did not load)`];
+    });
   } catch {
-    // No report: vitest itself failed (a module that no longer loads), which is a failure of the tests.
+    // No report: the run ended before vitest could write one.
   }
-  return { failed: r.status !== 0, failing: failing.slice(0, 5), ran };
+  const failed = reported && (failing.length > 0 || failedFiles > 0);
+  const inconclusive = r.signal !== null || (r.status !== 0 && !failed);
+  return { failed, failing: failing.slice(0, 5), ran, inconclusive };
 };
 
 console.log(`mutation: ${selected.length} mutation(s) from ${CATALOG} at ${git("rev-parse", "--short", "HEAD")}${clean ? "" : " (dirty tree)"}`);
-if ([...new Set(selected.map((m) => m.file))].some((file) => build(file).status !== 0)) {
-  console.error("mutation: the unmutated tree does not build");
-  process.exit(2);
+for (const file of new Set(selected.map((m) => m.file))) {
+  if ((await build(file)).status !== 0) {
+    console.error("mutation: the unmutated tree does not build");
+    process.exit(2);
+  }
 }
 const baselineTests = [...new Set(selected.filter((m) => (m.requires ?? []).every((v) => process.env[v])).flatMap((m) => m.tests))];
-const baseline = test(baselineTests);
-if (baseline.failed) {
+const baseline = await test(baselineTests);
+if (baseline.failed || baseline.inconclusive) {
   console.error(`mutation: the named tests fail without any mutation, so no result would mean anything:\n- ${baseline.failing.join("\n- ")}`);
   process.exit(2);
 }
 
 const results: MutationResult[] = [];
 try {
-  for (const m of selected) results.push(runOne(m));
+  for (const m of selected) results.push(await runOne(m));
 } finally {
   restore();
-  for (const file of new Set(selected.map((m) => m.file))) build(file);
+  for (const file of new Set(selected.map((m) => m.file))) await build(file);
   rmSync(scratch, { recursive: true, force: true });
 }
 
-function runOne(m: Mutation): MutationResult {
+async function runOne(m: Mutation): Promise<MutationResult> {
   const started = Date.now();
   const base = { id: m.id, adr: m.adr, file: m.file };
   const missing = (m.requires ?? []).filter((v) => !process.env[v]);
@@ -152,9 +207,9 @@ function runOne(m: Mutation): MutationResult {
   originals.set(m.file, source);
   writeFileSync(m.file, applied.mutated);
   try {
-    const compiled = build(m.file).status === 0;
-    const tests = compiled ? test(m.tests) : { failed: false, failing: [], ran: 0 };
-    const status = classify(m, { compiled, testsFailed: tests.failed });
+    const compiled = (await build(m.file)).status === 0;
+    const tests = compiled ? await test(m.tests) : { failed: false, failing: [], ran: 0, inconclusive: false };
+    const status = classify(m, { compiled, testsFailed: tests.failed, inconclusive: tests.inconclusive });
     const result: MutationResult = { ...base, status, durationMs: Date.now() - started, ...(tests.failing.length > 0 ? { failing: tests.failing } : {}), ...(m.equivalent && status === "equivalent" ? { detail: m.equivalent } : {}) };
     console.log(`  ${status.padEnd(18)} ${m.id}${status === "killed" ? `  (${tests.failing[0] ?? "the test run failed"})` : ""}`);
     return result;
@@ -181,6 +236,6 @@ writeFileSync(out, `${JSON.stringify(evidence, null, 2)}\n`);
 const ok = passed(summary, { allowNotRun: flag("--allow-not-run") });
 console.log(`mutation: ${Object.entries(summary).filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s}`).join(", ")}; evidence in ${out}`);
 if (!ok) {
-  for (const r of results.filter((x) => x.status === "survived" || x.status === "stale" || x.status === "not-run")) console.error(`  ${r.status}: ${r.id}${r.detail ? ` (${r.detail})` : ""}`);
+  for (const r of results.filter((x) => x.status === "survived" || x.status === "stale" || x.status === "not-run" || x.status === "inconclusive")) console.error(`  ${r.status}: ${r.id}${r.detail ? ` (${r.detail})` : ""}`);
   process.exit(1);
 }

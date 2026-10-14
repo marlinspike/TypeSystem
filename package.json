@@ -37,7 +37,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "npm run build && changeset publish",
-    "mutation": "tsx scripts/mutation.ts",
+    "mutation": "node --import tsx scripts/mutation.ts",
     "evaluate": "node packages/evaluation/dist/bin.js"
   },
   "devDependencies": {
