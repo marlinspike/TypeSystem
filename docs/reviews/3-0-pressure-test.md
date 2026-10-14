@@ -295,3 +295,60 @@ client-credentials 401 renews once; viewers refused filter and sort on
 withheld properties; `bindAudience` keeps the host's audience over a forged
 one; approvers bound to a model are decided for both principals; Postgres
 start/append races.
+
+## Addendum: mutation evidence, evaluation harness, terminology check
+
+Run in a separate worktree at `1df78c9` with its own database. `npm run
+mutation` with `DATABASE_URL` set: **108 killed** (exit 0, about 15 minutes),
+confirming the committed claim. The committed `latest.json` is verifiable: its
+revision `bb1b568` is an ancestor of HEAD, its catalog sha256 matches
+`tools/mutation/catalog.json`, and no mutated file or named test changed since.
+
+**14 more findings: 1 High, 5 Medium, 8 Low.** With the 34 above, the totals
+are **48 findings: 4 High, 19 Medium, 25 Low.** Ten new tests fail; six pass
+today and exist to kill surviving mutations.
+
+| # | Sev | Finding | Test |
+|---|---|---|---|
+| P3-M1 | High | Ctrl-C or SIGTERM during `npm run mutation` leaves the security defect in source (5 of 6 tries) and in `dist` (6 of 6) | tools/mutation `p3-mutation` M1 |
+| P3-M2 | Medium | `decideForIdentity`'s fail-closed branch is untested: two mutations (throwing engine allows; `allow: "yes"` allows) survive the full suite | workflow `p3-workflow-policy` M2 (passes; kills both) |
+| P3-M3 | Medium | ADR-0067's audience check on workflow start and approval is untested: two mutations survive the full suite | workflow `p3-workflow-policy` M3 (passes; kills both) |
+| P3-V1 | Medium | An application that refuses everything passes 6 of 43 hidden checks | evaluation `p3-evaluation` V1 |
+| P3-V2 | Medium | Hidden checks are readable and writable from the sandbox through `node_modules/vitest/../../packages/evaluation/hidden` | evaluation `p3-evaluation` V2 |
+| P3-V3 | Medium | Off-arm imports by relative path, or of unlisted `@typesys` packages, are not reported | evaluation `p3-evaluation` V3 |
+| P3-M4 | Low | Any non-zero vitest exit (crash, timeout, signal) counts as killed | none (`scripts/mutation.ts:120`) |
+| P3-M5 | Low | The mutation workflow runs on PRs only when the harness or catalog changes, not the guarded code or tests | none (`.github/workflows/mutation.yml:12-15`) |
+| P3-V4 | Low | A loss is computed against the best run of any arm, including the run's own | evaluation `p3-evaluation` V4 |
+| P3-V5 | Low | Prior art and not-run arms never reach REPORT.md | evaluation `p3-evaluation` V5 |
+| P3-V6 | Low | `evaluate report` crashes without `results/`; `--out` to an existing dir fails; ADR's prior-art count is 4, actual 5 | none |
+| P3-T1 | Low | A text file with one NUL byte, or saved as UTF-16, is skipped by `check:terminology` | tools/terminology `p3-terminology` T1 (two cases) |
+| P3-T2 | Low | File paths are never checked for the retired name | tools/terminology `p3-terminology` T2 |
+| P3-T3 | Low | A bare allow marker suppresses a line; ADR-0064 requires a reason | tools/terminology `p3-terminology` T3 |
+
+**P3-M1.** `scripts/mutation.ts:85-93` installs restore handlers, but the script
+blocks in `spawnSync` for the whole run, and tsx's signal relay SIGKILLs a child
+that doesn't acknowledge within 30 ms (`relaySignals` in `tsx/dist/cli.mjs`).
+Even a successful restore never rebuilds, so `dist` keeps the mutation and the
+next `npm test` runs a defective build while `git status` may look clean. The
+test runs the real script in a `git archive` copy and interrupts it.
+
+**P3-M2, P3-M3.** `packages/core/src/model/policy.ts:150-158` decides workflow
+start, approve and cancel. Changing `:152`'s fail-closed result to `allow:
+true`, `:151`'s `d?.allow === true` to `d?.allow`, or short-circuiting either
+audience test at `:156` and `:158`, leaves the full suite (with Postgres and
+Redis) at 1,274 passed, 0 failed. The catalog's 14 `release.*` entries never
+touch this function. The new tests pass on current code and kill all four; they
+should be adopted and the four mutations added to the catalog.
+
+**P3-V2.** `packages/evaluation/src/sandbox.ts:37` links each third-party
+`node_modules` entry as an absolute symlink into the real repo, so a relative
+path through one reaches `hidden/`, `references/`, `results/` and `.git`.
+ADR-0073 concedes only reading the repo "by its absolute path". The agent arm
+runs Claude Code with `bypassPermissions`, so it could also alter the checks.
+
+Held: `applyMutation` requires exactly one match; the runner force-rebuilds,
+runs a baseline and refuses a dirty tree; 33 of 37 hand-made mutations of
+uncatalogued checks (classification, redaction, guards, OIDC audience, pack
+signatures, encryption AAD, cache expiry) were killed; the evaluation's spend
+guard throws before any model is called (nothing was spent); no leftover
+retired name exists in any case, file type or path.
