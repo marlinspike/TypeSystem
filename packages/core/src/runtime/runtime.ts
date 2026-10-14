@@ -604,13 +604,13 @@ export class SemanticRuntime {
         }
 
         // With a policy the breaker/timeout/retry wrap the budget, so backoff sleeps don't hold a
-        // permit and each attempt takes a fresh one (ADR-0026). The deadline's signal is appended as
-        // the method's optional trailing `AdapterCallOptions`; runtime call sites never pass one, so
-        // appending is unambiguous, and it's added only when a timeout is actually configured.
+        // permit and each attempt takes a fresh one (ADR-0026). The deadline's signal goes in the
+        // method's own `AdapterCallOptions` position, whatever the caller left out before it: a
+        // computation calling `queryByType(type, filter)` must not have the signal taken as its `limit`.
         return (...args: unknown[]) => {
           const retryable = isRetryableAdapterCall(prop, args);
           return resilience.run(dataSourceId, retryable, (signal) => {
-            const callArgs = signal ? [...args, { signal }] : args;
+            const callArgs = signal ? withSignal(prop, args, signal) : args;
             return underBudget(() => method.apply(target, callArgs));
           });
         };
@@ -2372,4 +2372,22 @@ export class SemanticRuntime {
       }
     ));
   }
+}
+
+/** Where each adapter method takes its `AdapterCallOptions` (see `Adapter`). */
+const OPTIONS_INDEX: Readonly<Record<string, number>> = { resolveProperties: 3, queryByType: 5, resolveRelationship: 2, executeAction: 3, aggregate: 1 };
+
+/**
+ * `args` with the deadline's signal in the method's options position: missing
+ * arguments before it are left `undefined`, and options the caller passed keep
+ * everything but their signal. A method that takes no options gets `args` as they are.
+ */
+function withSignal(method: PropertyKey, args: readonly unknown[], signal: AbortSignal): unknown[] {
+  const at = typeof method === "string" && Object.hasOwn(OPTIONS_INDEX, method) ? OPTIONS_INDEX[method] : undefined;
+  if (at === undefined) return [...args];
+  const out = [...args];
+  while (out.length < at) out.push(undefined);
+  const given = out[at];
+  out[at] = given !== null && typeof given === "object" ? { ...given, signal } : { signal };
+  return out.slice(0, at + 1);
 }
