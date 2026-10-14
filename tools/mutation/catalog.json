@@ -1283,6 +1283,50 @@
       "tests": [
         "packages/engineer/test/p3-engineer.test.ts"
       ]
+    },
+    {
+      "id": "workflow-policy.throw-allows",
+      "adr": "0065",
+      "description": "A policy engine that throws allows a workflow start, approval or cancel (P3-M2).",
+      "file": "packages/core/src/model/policy.ts",
+      "find": "() => ({ allow: false, reason: `Policy \"${r.policyName}\" failed to evaluate (fail closed)` })",
+      "replace": "() => ({ allow: true, reason: `Policy \"${r.policyName}\" failed to evaluate (fail closed)` })",
+      "tests": [
+        "packages/workflow/test/p3-workflow-policy.test.ts"
+      ]
+    },
+    {
+      "id": "workflow-policy.truthy-allows",
+      "adr": "0065",
+      "description": "A truthy non-boolean allow (\"yes\") allows a workflow decision (P3-M2).",
+      "file": "packages/core/src/model/policy.ts",
+      "find": "(d) => (d?.allow === true ? d :",
+      "replace": "(d) => (d?.allow ? d :",
+      "tests": [
+        "packages/workflow/test/p3-workflow-policy.test.ts"
+      ]
+    },
+    {
+      "id": "workflow-policy.audience-skipped",
+      "adr": "0067",
+      "description": "The workflow engine decides only for the person, not the audience it reads for (P3-M3).",
+      "file": "packages/core/src/model/policy.ts",
+      "find": "if (!audience || !forPerson.allow) return forPerson;",
+      "replace": "if (true) return forPerson;",
+      "tests": [
+        "packages/workflow/test/p3-workflow-policy.test.ts"
+      ]
+    },
+    {
+      "id": "workflow-policy.audience-ignored",
+      "adr": "0067",
+      "description": "An audience's refusal does not refuse a workflow decision (P3-M3).",
+      "file": "packages/core/src/model/policy.ts",
+      "find": "return forAudience.allow ? forPerson :",
+      "replace": "return true ? forPerson :",
+      "tests": [
+        "packages/workflow/test/p3-workflow-policy.test.ts"
+      ]
     }
   ]
 }

@@ -8,11 +8,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "17 6 * * 1"
+  # Every pull request: a change to guarded code or to the tests that kill
+  # its mutations matters as much as a change to the catalog (P3-M5).
   pull_request:
-    paths:
-      - "tools/mutation/**"
-      - "scripts/mutation.ts"
-      - ".github/workflows/mutation.yml"
 
 jobs:
   mutation:
