@@ -1183,9 +1183,17 @@ export class SemanticRuntime {
     identity: Identity
   ): Promise<{ stored: ResolvedProperties; attributes: Attributes }> {
     await this.requireCleared(identity, objectMarkings(typeDef), { typeName: typeDef.name, objectId });
-    const stored = await this.resolveObjectProperties(typeDef, objectId);
+    // A source that refuses TypeSystem's own credential for this record (ADR-0072) is decided as a record it does not
+    // have: the caller's policy first, so a denied caller learns nothing about whether the id exists (ADR-0048).
+    let refused: SourceRefusedError | undefined;
+    const stored = await this.resolveObjectProperties(typeDef, objectId).catch((err: unknown) => {
+      if (!(err instanceof SourceRefusedError)) throw err;
+      refused = err;
+      return { values: {}, provenance: [] } as ResolvedProperties;
+    });
     const attributes = snapshot(stored.values);
     await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
+    if (refused) throw refused;
     if (Object.keys(stored.values).length === 0) throw new ObjectNotFoundError(typeDef.name, objectId);
     return { stored, attributes };
   }
