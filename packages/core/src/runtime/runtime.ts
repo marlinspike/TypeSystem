@@ -1189,7 +1189,7 @@ export class SemanticRuntime {
     const stored = await this.resolveObjectProperties(typeDef, objectId).catch((err: unknown) => {
       if (!(err instanceof SourceRefusedError)) throw err;
       refused = err;
-      return { values: {}, provenance: [] } as ResolvedProperties;
+      return { values: {}, provenance: [] };
     });
     const attributes = snapshot(stored.values);
     await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
