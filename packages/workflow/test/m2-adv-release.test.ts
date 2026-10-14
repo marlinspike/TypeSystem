@@ -92,7 +92,7 @@ describe("m2-adv: AI-step release (ADR-0067)", () => {
       version: "1.0.0",
       startPolicy: "airforce.maintainer-only",
       inputSchema: { type: "object" },
-      steps: [{ kind: "read", name: "aircraft", run: async (af) => (af as { get: (t: string, id: string) => Promise<unknown> }).get("airforce.Aircraft", AIRCRAFT) }]
+      steps: [{ kind: "read", name: "aircraft", run: async (af: unknown) => (af as { get: (t: string, id: string) => Promise<unknown> }).get("airforce.Aircraft", AIRCRAFT) }]
     } as unknown as AnyWorkflow;
     // A directory lookup, as ADR-0065 describes resolveIdentity: it returns the person, as directories do.
     const { engine } = await engineWith(wf, { resolveIdentity: async () => maintainer });
@@ -124,7 +124,7 @@ describe("m2-adv: AI-step release (ADR-0067)", () => {
       version: "1.0.0",
       startPolicy: "airforce.maintainer-only",
       inputSchema: { type: "object" },
-      steps: [{ kind: "read", name: "aircraft", run: async (af) => (af as { get: (t: string, id: string) => Promise<unknown> }).get("airforce.Aircraft", AIRCRAFT) }]
+      steps: [{ kind: "read", name: "aircraft", run: async (af: unknown) => (af as { get: (t: string, id: string) => Promise<unknown> }).get("airforce.Aircraft", AIRCRAFT) }]
     } as unknown as AnyWorkflow;
     const { engine } = await engineWith(wf);
     // The maintainer starts the run themselves (a web UI, no model behind it).

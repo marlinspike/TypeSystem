@@ -40,6 +40,7 @@ describe.skipIf(!hasDb)("ADV: PostgresWorkflowJournal", () => {
     const left = (await j.read("trunc-run")).length;
     // Cleanup so later tests' sweeps don't hit an event-less run (the runs table has no protection either).
     await pool.query("DELETE FROM typesys_workflow_runs WHERE run_id = 'trunc-run'");
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- asymmetric matcher
     expect({ truncated, left }).toEqual({ truncated: expect.stringMatching(/append-only/), left: 1 });
   });
 
@@ -62,6 +63,7 @@ describe.skipIf(!hasDb)("ADV: PostgresWorkflowJournal", () => {
     );
     clock.t += 61_000;
     await engine.tick();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- asymmetric matcher
     expect({ tampered, status: (await engine.status(runId)).status }).toEqual({ tampered: expect.not.stringMatching(/^updated$/), status: "rejected" });
     void lead;
   });

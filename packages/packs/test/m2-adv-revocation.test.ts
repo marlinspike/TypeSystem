@@ -69,7 +69,7 @@ describe("ADR-0069 adversarial", () => {
     (registry as unknown as { registerType: typeof orig }).registerType = (async (...args: Parameters<typeof orig>) => {
       if (++writes === 2) throw new Error("store unavailable");
       return orig(...args);
-    }) as typeof orig;
+    });
     await expect(installPacks(registry, [corePack], options)).rejects.toThrow("store unavailable");
     expect((await registry.listTypes()).length).toBeGreaterThan(0); // something was registered
     expect(await auditRows(registry)).toHaveLength(1);

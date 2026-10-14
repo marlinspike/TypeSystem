@@ -15,7 +15,7 @@ async function connect(backend: { registry: SemanticRegistry; runtime: SemanticR
   await Promise.all([mcp.connect(c), server.connect(s)]);
   return mcp;
 }
-const text = (r: { content: unknown }) => (r.content as { text: string }[])[0]!.text;
+const text = (r: unknown) => ((r as { content: { text: string }[] }).content)[0]!.text;
 
 describe("ADR-0068 adversarial over MCP and REST (airforce, need-to-know)", () => {
   let tb: AirforceTestbed;
@@ -35,7 +35,7 @@ describe("ADR-0068 adversarial over MCP and REST (airforce, need-to-know)", () =
   });
 
   it("typesys_describe_type does not name the viewer's withheld base Type core.Asset (schema.allOf $ref)", async () => {
-    const model = await tb.runtime.describeModel(resolveDemoIdentity("demo-viewer-token") as Identity);
+    const model = await tb.runtime.describeModel(await resolveDemoIdentity("demo-viewer-token"));
     expect(model.types.find((t) => t.name === "airforce.Aircraft")?.extends).toBeUndefined(); // withheld by the runtime
     const described = text(await mcp.callTool({ name: "typesys_describe_type", arguments: { type: "airforce.Aircraft", authToken: "demo-viewer-token" } }));
     expect(described).not.toMatch(/core[./]Asset/);

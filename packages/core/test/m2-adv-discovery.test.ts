@@ -103,7 +103,7 @@ describe("ADR-0068 adversarial: need-to-know", () => {
 
   it("previewAction does not tell a viewer a withheld Action's preconditions, effects or the roles its policy wants", async () => {
     const { runtime } = await world();
-    let text = "";
+    let text: string;
     try {
       text = JSON.stringify(await runtime.previewAction("test.CompartmentPromote", {}, viewer));
     } catch (err) {
