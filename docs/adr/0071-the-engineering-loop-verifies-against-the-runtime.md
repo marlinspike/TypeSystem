@@ -182,3 +182,11 @@ The MCP tools' root is now checked on real paths, so a symlink cannot
 lead out of it. A host module given as a path must be inside the root
 before it is imported, and a file that is not a mission is reported
 without its contents.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). Host modules are confined by real path, and a package
+specifier with a `.` or `..` segment is refused under a root (E1). A
+`query` check counts every page (E2). A `starts` check may name `failsAt`,
+the step the run must fail at (E3). The plan and scaffold tools stop any
+services the host started (E4).

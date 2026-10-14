@@ -160,3 +160,15 @@ TypeSystem's credential:
     Those still fail the read.
   - A service's list larger than `maxPages` pages is refused rather than
     streamed.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). The adapter never follows a redirect (any 3xx is unavailable),
+so credentials stay with the configured origin (H1). A token endpoint's 403
+is a refusal and a non-JSON answer is unavailable (H2, H3); concurrent reads
+share one token request (H7). A numeric `next` cursor is followed and `next`
+needs `cursorParam` (H4). Ids `.` and `..` are absent (H5); `baseUrl`
+userinfo never appears in errors (H6); provenance names decoded fields (H8).
+Exceeding `maxPages` is not retryable (H9). An object policy is decided
+before a source's refusal is reported (I1), and a nested include's failure
+is not blamed on its optional parent (I3).

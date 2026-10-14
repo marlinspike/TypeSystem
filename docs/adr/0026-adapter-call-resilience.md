@@ -158,3 +158,10 @@ concurrent requests.
   half-fix: it papers over the pool-starvation symptom without giving a hung
   or flapping backend a bounded, observable failure. The defaults are aligned
   *and* the timeout/breaker are added.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). The abort signal goes into each Adapter method's own options
+argument, so a call with omitted optional arguments is not shifted (H10).
+An answer is not an outage: `SourceRefusedError` and a non-retryable
+`AdapterUnavailableError` record success on the breaker (I2, H9).

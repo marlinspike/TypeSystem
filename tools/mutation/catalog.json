@@ -158,11 +158,12 @@
       "adr": "0068",
       "description": "listActions reports every Action under need-to-know.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "            !needToKnow ||",
-      "replace": "            true ||",
+      "find": "const listed = !needToKnow ||",
+      "replace": "const listed = true ||",
       "tests": [
         "packages/domain-airforce/test/discovery.test.ts",
-        "packages/mcp-server/test/discovery-security.test.ts"
+        "packages/mcp-server/test/discovery-security.test.ts",
+        "packages/core/test/p3-discovery.test.ts"
       ]
     },
     {
@@ -791,11 +792,12 @@
       "adr": "0066",
       "description": "An event holding U+0000 cannot be stored in Postgres (review L3).",
       "file": "packages/workflow-postgres/src/postgres-journal.ts",
-      "find": "return json.includes(\"\\\\u0000\") ? JSON.stringify({ [WRAPPED]: json }) : json;",
+      "find": "return UNSTORABLE.test(json) ? JSON.stringify({ type: event.type, [WRAPPED]: json }) : json;",
       "replace": "return json;",
       "tests": [
         "packages/workflow-postgres/test/postgres-journal.test.ts",
-        "packages/workflow-postgres/test/m2-adv-postgres.test.ts"
+        "packages/workflow-postgres/test/m2-adv-postgres.test.ts",
+        "packages/workflow-postgres/test/p3-journal.test.ts"
       ],
       "requires": [
         "DATABASE_URL"
@@ -1040,8 +1042,8 @@
       "adr": "0071",
       "description": "verify accepts a query answer with no list of items as zero results (M4 review M4).",
       "file": "packages/engineer/src/verify.ts",
-      "find": "if (!Array.isArray(items)) return unanswered(a, \"with a list of items\");\n      const n = items.length;",
-      "replace": "const n = Array.isArray(items) ? items.length : 0;",
+      "find": "if (!Array.isArray(items)) return unanswered(a, \"with a list of items\");\n        n += items.length;",
+      "replace": "n += Array.isArray(items) ? items.length : 0;",
       "tests": [
         "packages/engineer/test/m4-adv-fast.test.ts"
       ]
@@ -1150,8 +1152,8 @@
       "adr": "0072",
       "description": "A required relationship whose source fails is left out of the answer instead of failing the read.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "const reason = rel?.optional ? sourceFailure(err) : undefined;",
-      "replace": "const reason = sourceFailure(err);",
+      "find": "const reason = rel?.optional && !nestedFailure ? sourceFailure(err) : undefined;",
+      "replace": "const reason = !nestedFailure ? sourceFailure(err) : undefined;",
       "tests": [
         "packages/core/test/optional-relationships.test.ts"
       ]
@@ -1234,6 +1236,52 @@
       "replace": "if (res.status === 0 && this.config.auth?.kind === \"client-credentials\") res =",
       "tests": [
         "packages/adapter-http/test/http-adapter.test.ts"
+      ]
+    },
+    {
+      "id": "http.redirect-followed",
+      "adr": "0072",
+      "description": "The HTTP adapter follows redirects, carrying its credentials to another origin (P3-H1).",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "res = await this.fetch(url, { ...init, redirect: \"manual\" });",
+      "replace": "res = await this.fetch(url, { ...init });",
+      "tests": [
+        "packages/adapter-http/test/p3-http.test.ts"
+      ]
+    },
+    {
+      "id": "discovery.explain-anonymous",
+      "adr": "0068",
+      "description": "explainQuery answers an anonymous caller when discovery is not open (P3-D1).",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (this.discovery !== \"open\" && isAnonymous(principalsOf(identity).person)) {\n          const reason = \"Describing the model needs an authenticated caller\";\n          await this.audit(identity, \"read\", { typeName: typeof claimedType === \"string\" ? claimedType : \"unknown\" }, { allow: false, reason }, { control: \"explain\", discovery: this.discovery });",
+      "replace": "if (false) {\n          const reason = \"Describing the model needs an authenticated caller\";\n          await this.audit(identity, \"read\", { typeName: typeof claimedType === \"string\" ? claimedType : \"unknown\" }, { allow: false, reason }, { control: \"explain\", discovery: this.discovery });",
+      "tests": [
+        "packages/core/test/p3-discovery.test.ts",
+        "packages/http/test/p3-discovery.test.ts",
+        "packages/mcp-server/test/p3-discovery.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.first-page-only",
+      "adr": "0071",
+      "description": "A query check counts only the first page, ignoring nextCursor (P3-E2).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (typeof next !== \"string\" || next === \"\" || (check.atMost !== undefined && n > check.atMost)) break;",
+      "replace": "break;",
+      "tests": [
+        "packages/engineer/test/p3-engineer.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.fails-anywhere",
+      "adr": "0071",
+      "description": "A starts check expecting failure passes whichever step failed (P3-E3).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (at !== check.failsAt) return fail(",
+      "replace": "if (false) return fail(",
+      "tests": [
+        "packages/engineer/test/p3-engineer.test.ts"
       ]
     }
   ]

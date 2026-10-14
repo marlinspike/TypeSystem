@@ -169,3 +169,12 @@ are fixed, each with its test and a catalogued mutation:
   wants. MCP already sent only "Not authorized".
 - **No subject (L10).** An identity with no subject id, or a blank one, is
   anonymous.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). `explainQuery` is a discovery surface: an anonymous caller is
+refused unless discovery is `open`, a withheld Type is "Unknown type", and
+the plan names only described members (D1–D3). Described schemas drop a
+`$ref` to a withheld Type (D4), `listActions` lists only described Actions
+(D9), MCP narrows `examples` (D8), and preview blockers carry a policy's
+reason only when discovery is `open` (D6).

@@ -466,8 +466,9 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 1,053 tests (2026-10-14): 992 run with no infrastructure, the other 61
-  need PostgreSQL, Redis or a KMS emulator. Four of the 992 drive the
+- 1,330 tests (2026-10-14, after the 3.0 pressure test): 1,245 run with no
+  infrastructure, the other 85 need PostgreSQL, Redis or a KMS emulator.
+  Four of the 1,245 drive the
   Studio and the mission application in Chromium and skip where no
   Chromium is installed. Plus stdio
   and HTTP MCP smoke tests and the MCP conformance suite, all green.

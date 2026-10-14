@@ -58,11 +58,14 @@ flowchart TB
     reg --- meta
 ```
 
-TypeSys does not replace your databases and does not copy your data into a
-store of its own. Your systems of record stay where they are; TypeSys reads
-from them (and writes to them through Actions) on every request. The only
-data it owns is its own metadata: the model, the mappings, the audit log and,
-if you use workflows, the workflow journal.
+TypeSys does not replace your databases. Your systems of record stay where
+they are; TypeSys reads from them (and writes to them through Actions) on every
+request. What it stores itself is the model, the mappings and the audit log.
+Two optional parts also hold copies of business data, which matters if you are
+deciding data residency or accreditation: the Redis cache (when you enable it)
+keeps adapter output and computed values as plaintext JSON until they expire,
+and the workflow journal keeps each step's inputs and outputs for as long as
+the run's history is kept.
 
 You run it either as a library inside your Node service
 (`new SemanticRuntime(...)`) or as a server that exposes it over REST
@@ -125,7 +128,8 @@ properties: { tailNumber: { type: "string" }, model: { type: "string" }, deploym
   maintenance: { target: "airforce.MaintenanceEvent", cardinality: "one-to-many",
                  resolution: { dataSourceId: "mock-remis-rest",       operation: "byForeignKey:aircraftId" } }
 },
-"x-computed": { needsAttention: { dependsOn: ["maintenanceStatus"], binding: "computeNeedsAttention", schema: { type: "boolean" } } },
+"x-computed": { needsAttention: { dependsOn: ["maintenanceStatus"], releases: ["maintenanceStatus"],
+                                  binding: "computeNeedsAttention", schema: { type: "boolean" } } },
 "x-policy":   { objectPolicy: "airforce.read-aircraft", propertyPolicies: { maintenanceStatus: "airforce.maintainer-only" } },
 "x-provenance": { properties: { deploymentLocation: { classification: "SECRET" } } }
 ```
@@ -139,8 +143,8 @@ properties: { tailNumber: { type: "string" }, model: { type: "string" }, deploym
 | Your business data | In your existing systems, reached through an **adapter** per system | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, or your own |
 | The model: Types, relationships, Actions, data sources, mappings | Registry tables `types`, `relationships`, `actions`, `data_sources`, `mappings` | `registry-store-postgres` (or in memory for tests) |
 | The audit log | Table `audit_events`; update and delete are blocked by a trigger | `registry-store-postgres` |
-| Workflow runs, approvals and timers | Tables `typesys_workflow_runs` and `typesys_workflow_events`; events are append-only, enforced by triggers | `workflow-postgres` |
-| Optional cache and rate limits shared across instances | Redis | `redis` |
+| Workflow runs, approvals and timers, including each step's inputs and outputs | Tables `typesys_workflow_runs` and `typesys_workflow_events`; events are append-only, enforced by triggers | `workflow-postgres` |
+| Optional cache and rate limits shared across instances; the cache holds copies of adapter output and computed values until they expire | Redis | `redis` |
 
 An **adapter** is the only code that talks to a store. It implements one
 small interface ([`packages/core/src/runtime/adapter.ts`](packages/core/src/runtime/adapter.ts)):
@@ -182,7 +186,8 @@ object_id = $2`. A query's filter is compiled to a parameterized `WHERE` over
 the JSONB column, using the GIN index for equality, and every row that comes
 back is checked again in TypeScript, so a filter SQL can only approximate
 never lets through a row it shouldn't. A relationship such as
-`byForeignKey:aircraftId` becomes `WHERE type_name = $1 AND values ->> 'aircraftId' = $2`.
+`byForeignKey:aircraftId` becomes `WHERE type_name = $1 AND values @> '{"aircraftId": "AF86-0147"}'`,
+a containment test the same GIN index serves.
 
 For a high-volume Type with its own table and columns, write an adapter for
 that table; nothing above the adapter changes. To put a TypeSys model over an
@@ -204,10 +209,14 @@ What `runtime.getObject(type, id, identity)` does, in order
 3. Decide the Type's object policy on the stored values. This is how
    row-level rules work: "a clinician reads only patients assigned to them"
    is decided on each record's own fields.
-4. Remove properties whose own policy refuses this caller, and properties
-   whose classification is above the caller's clearance.
-5. Run computed properties the caller may see.
-6. Attach provenance if asked, write the audit rows, and return.
+4. Run the Type's computed properties, each over only the inputs its
+   `dependsOn` names.
+5. Remove properties whose classification is above the caller's clearance,
+   then properties whose own policy refuses this caller. A computed value goes
+   too when any input it was derived from is withheld, unless the model
+   `releases` that input for it.
+6. Attach provenance if asked (a computed value's provenance names its inputs
+   and every system its code consulted), write the audit rows, and return.
 
 `runtime.query` does the same for many objects. Before reading, it turns the
 caller's read policy into a filter and pushes it into the adapter's query
@@ -316,8 +325,11 @@ await runtime.getObject("fleet.Truck", "T-100", dispatcher);
 //   values: { id: "T-100", plate: "7ABC123", status: "in-service" } }   driverNotes withheld
 
 await runtime.invokeAction("SetTruckStatus", { truckId: "T-100", status: "out-of-service" }, mechanic);
-await runtime.invokeAction("SetTruckStatus", { truckId: "T-100", status: "in-service" }, dispatcher);
-// throws AuthorizationError: Not authorized: invoke fleet.Truck/SetTruckStatus
+try {
+  await runtime.invokeAction("SetTruckStatus", { truckId: "T-100", status: "in-service" }, dispatcher);
+} catch (err) {
+  console.log(String(err)); // AuthorizationError: Not authorized: invoke fleet.Truck/SetTruckStatus
+}
 
 const tokens: Record<string, Identity> = { "dana-token": dispatcher, "mo-token": mechanic };
 createApiApp({

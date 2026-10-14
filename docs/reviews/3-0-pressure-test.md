@@ -295,3 +295,48 @@ client-credentials 401 renews once; viewers refused filter and sort on
 withheld properties; `bindAudience` keeps the host's audience over a forged
 one; approvers bound to a model are decided for both principals; Postgres
 start/append races.
+
+## Disposition (2026-10-14)
+
+All 34 findings are fixed on the PR #14 branch. Every `p3-*` test passes
+unchanged. New or re-pointed mutations in
+[`tools/mutation/catalog.json`](../../tools/mutation/catalog.json) guard the
+fixes most likely to regress: `discovery.explain-anonymous`,
+`http.redirect-followed`, `engineer.first-page-only` and
+`engineer.fails-anywhere` are new, and four existing mutations moved to the
+changed code.
+
+| Finding | Fix |
+|---|---|
+| D1, D2, D3, D5, D7 | `explainQuery` refuses an anonymous caller unless discovery is `open` (audited, control `explain`); under `need-to-know` a withheld Type is "Unknown type" and the plan names only members `describeModel` would describe |
+| D4 | `narrowModel` replaces a `$ref` to a withheld Type with `{}` in property, computed and Action input/output schemas |
+| D6, RL1 | preview blockers say "Refused while reading for X" to an audience-bound caller and "Not authorized" when discovery is not `open`; otherwise the policy's reason |
+| D8 | MCP narrows `examples` to the described members |
+| D9 | `listActions` under `need-to-know` lists only Actions `describeModel` describes |
+| H1 | the HTTP adapter sends with `redirect: "manual"` and treats any 3xx as unavailable, so no credential follows a redirect |
+| H2 | a non-JSON token response is `AdapterUnavailableError`, not a `SyntaxError` |
+| H3 | a token endpoint's 403 is `SourceRefusedError` |
+| H4 | a numeric `next` cursor is followed; any other non-string is an error; `next` without `cursorParam` is refused at construction |
+| H5 | object ids `.` and `..` read as absent |
+| H6 | userinfo in `baseUrl` is removed from every error message |
+| H7 | concurrent reads share one token request |
+| H8 | provenance names the decoded field, not the escaped pointer token |
+| H9 | exceeding `maxPages` is a non-retryable `AdapterUnavailableError` that the breaker does not count |
+| H10 | the resilience proxy places the abort signal in each Adapter method's options argument, padding positional arguments |
+| I1 | the object policy is decided on empty values before a source's refusal is reported, so a refused caller learns nothing |
+| I2 | `SourceRefusedError` and non-retryable unavailability record success on the circuit breaker |
+| I3 | a nested include's failure is marked and propagates instead of being blamed on its optional parent |
+| R1 | computed provenance re-runs the computation over recording adapters and names every system it consulted |
+| RL2 | a run's status is not found for an audience other than the initiator's |
+| RL3 | workflow start refusals are masked for an audience, per the ADR-0067 amendment |
+| W1 | `approve` and `pendingApproval` check the approver's credential expiry first |
+| J1, J2 | events whose JSON holds `\u0000` or a lone surrogate are stored wrapped, keeping `type` readable |
+| A1 | migration 0005 adds a `BEFORE TRUNCATE` trigger on `audit_events` |
+| E1 | `host.module` paths are confined by real path; a package specifier with a `.` or `..` segment is refused under a root |
+| E2 | `query` checks follow `nextCursor` across pages, bounded at 100 pages and refusing a repeated cursor |
+| E3 | `starts` checks take `failsAt`; sortie-readiness's `unassigned-pilot-fails` now requires `pilotAssigned` |
+| E4 | the plan and scaffold tools stop any services the host started |
+| R2 | README says the Redis cache and workflow journal hold copies of business data |
+| R3 | relationship lookups (`byForeignKey`, `byJoinTable`, `byCompositeKey`) use `@>` containment, which the GIN index serves; a number or boolean key still matches its text, as `->>` did |
+| R4 | README read path shows computed properties running before classification and policy redaction |
+| R5 | README Aircraft snippet has `releases`; the Truck example catches the refused invoke so `listen` runs; completeness.md has the current test count |

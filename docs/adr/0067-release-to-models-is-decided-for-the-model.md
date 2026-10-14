@@ -155,3 +155,9 @@ Seen in the review's code reading but not demonstrated, and still open:
   agent without deciding it for the audience.
 - `asSeenBy` passes compute and AI outputs to an approver unchanged.
 - No shipped host calls `bindAudience`.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). Preview blockers and workflow start refusals are masked for an
+audience (RL1, RL3), and a run's status is not found for an audience other
+than its initiator's (RL2).

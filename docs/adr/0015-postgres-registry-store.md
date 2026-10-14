@@ -301,3 +301,8 @@ this in ADR-0014's original plan.
   SQL)**: rejected — the `semver` npm package is already a dependency and
   already correct; duplicating its range logic in SQL would be a second
   implementation of the same rules, guaranteed to drift eventually.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). Migration 0005 refuses `TRUNCATE` on `audit_events`, as the
+journal already did (A1).

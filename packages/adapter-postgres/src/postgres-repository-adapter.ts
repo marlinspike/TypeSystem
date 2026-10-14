@@ -140,13 +140,14 @@ export class PostgresRepositoryAdapter implements Adapter {
     const strategy = parseResolution(relationship.resolution.operation);
     switch (strategy.kind) {
       case "byForeignKey": {
-        // Pushed down as a real JSONB query (indexed by the GIN index in the migration),
+        // Pushed down as a JSONB containment query, which the GIN index in the migration serves,
         // not a fetch-everything-then-filter-in-JS pass like the in-memory adapter can afford —
         // being backed by a real database changes how resolution is implemented, not just where
         // the bytes live.
+        const params: unknown[] = [relationship.targetType];
         const { rows } = await this.pool.query<{ object_id: string }>(
-          `SELECT object_id FROM objects WHERE type_name = $1 AND values ->> $2 = $3`,
-          [relationship.targetType, strategy.field, sourceObjectId]
+          `SELECT object_id FROM objects WHERE type_name = $1 AND ${keyEquals(params, strategy.field, sourceObjectId)}`,
+          params
         );
         return rows.map((r) => ({ objectId: r.object_id }));
       }
@@ -167,9 +168,10 @@ export class PostgresRepositoryAdapter implements Adapter {
         }
         // Association rows are ordinary objects of the join type; read the target key off each
         // row whose source key matches this source object.
+        const params: unknown[] = [strategy.joinType, strategy.targetKey];
         const { rows } = await this.pool.query<{ target: string | null }>(
-          `SELECT values ->> $2 AS target FROM objects WHERE type_name = $1 AND values ->> $3 = $4`,
-          [strategy.joinType, strategy.targetKey, strategy.sourceKey, sourceObjectId]
+          `SELECT values ->> $2 AS target FROM objects WHERE type_name = $1 AND ${keyEquals(params, strategy.sourceKey, sourceObjectId)}`,
+          params
         );
         return rows
           .map((r) => r.target)
@@ -191,9 +193,8 @@ export class PostgresRepositoryAdapter implements Adapter {
           if (typeof sourceValue !== "string" && typeof sourceValue !== "number" && typeof sourceValue !== "boolean") {
             return [];
           }
-          // Compare as text against the JSONB ->> extraction, the same shape byForeignKey uses.
-          params.push(k.targetField, String(sourceValue));
-          conditions.push(`values ->> $${params.length - 1} = $${params.length}`);
+          // The same text comparison byForeignKey uses, as containment the GIN index serves.
+          conditions.push(keyEquals(params, k.targetField, String(sourceValue)));
         }
         const { rows } = await this.pool.query<{ object_id: string }>(
           `SELECT object_id FROM objects WHERE type_name = $1 AND ${conditions.join(" AND ")}`,
@@ -207,4 +208,23 @@ export class PostgresRepositoryAdapter implements Adapter {
   async executeAction(action: ActionDefinition, _input: unknown, _ctx: ActionContext): Promise<unknown> {
     throw new Error(`PostgresRepositoryAdapter has no implementation for action "${action.name}"`);
   }
+}
+
+/**
+ * `values ->> field = text`, written as JSONB containment so the GIN index
+ * on `values` serves it (`jsonb_ops` indexes `@>`, not `->>` equality). A
+ * key stored as a string matches its text; one stored as a number or a
+ * boolean matches the text that spells it, as `->>` would. Binds into
+ * `params` and returns the condition.
+ */
+function keyEquals(params: unknown[], field: string, text: string): string {
+  params.push(field, text);
+  const f = `$${params.length - 1}::text`;
+  const forms = [`values @> jsonb_build_object(${f}, $${params.length}::text)`];
+  if (/^-?(0|[1-9]\d*)(\.\d*[1-9])?$/.test(text)) {
+    params.push(text);
+    forms.push(`values @> jsonb_build_object(${f}, $${params.length}::numeric)`);
+  }
+  if (text === "true" || text === "false") forms.push(`values @> jsonb_build_object(${f}, ${text})`);
+  return forms.length === 1 ? forms[0]! : `(${forms.join(" OR ")})`;
 }

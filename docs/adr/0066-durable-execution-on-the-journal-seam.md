@@ -97,3 +97,9 @@ now runs after `0001`, in order:
 These are integrity checks against mistakes and against tampering by
 anything short of the table's owner. They are not a defense against an
 attacker who can replace the triggers.
+
+## Amended after the 3.0 pressure test
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). An event whose JSON holds `\u0000` or a lone UTF-16
+surrogate, which Postgres `jsonb` refuses, is stored wrapped with its
+`type` beside it, so such a run can still finish (J1, J2).
