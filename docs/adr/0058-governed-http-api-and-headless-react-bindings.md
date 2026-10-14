@@ -19,7 +19,7 @@ whose HTTP transport now uses the Host, Origin and bearer helpers from
   `code` and the policy's `reason`; bad input is `invalid-input` with the
   schema errors, a missing object `not-found`, a failed precondition
   `precondition-failed`. A 500 carries no detail of the error (a
-  connection string thrown by the identity resolver reaches `onError`, not
+  connection string thrown while a route runs reaches `onError`, not
   the caller). A foreign Origin and a rebound Host are refused before
   identity is resolved. Discovery, query validation and the model
   description are served. A governed workflow runs over HTTP: started by
@@ -54,6 +54,34 @@ appending; `useLoad` ignoring its dependencies; no field required; an
 integer field accepting fractions; a computed column sortable. Each fails
 at least one test.
 
+**Amended 2026-10-13** (pressure tests, `packages/http/test/pressure-api.test.ts`,
+`packages/react/test/pressure-identity.test.ts`,
+`packages/sdk/test/pressure-sdk.test.ts`,
+`packages/mcp-server/test/pressure-origin.test.ts`):
+
+- A token the `IdentityResolver` throws on (expired, badly signed) is a
+  401 problem with the new code `unauthorized` and `WWW-Authenticate:
+  Bearer`, not a 500, and does not reach `onError`. A resolver that fails
+  for its own reasons is reported the same way: the API cannot tell the
+  two apart.
+- A body that is not JSON is a 400 `invalid-input` problem, one over the
+  limit a 413, and an unknown route under the API a 404 `not-found`
+  problem: never Express's HTML page with its stack and the server's paths.
+- API responses carry `X-Content-Type-Options: nosniff` and a
+  Content Security Policy of `default-src 'none'; frame-ancestors 'none'`.
+- `/query/validate` and the OpenAPI document follow the runtime's
+  `queryLimits`, as the MCP server's tools do.
+- The Host check accepts only `host[:port]` (or a bracketed IPv6 address)
+  before parsing it, so `evil.example@localhost` is refused.
+  `allowedHosts: "*"` turns off only the Host check: with no
+  `allowedOrigins`, any request carrying an `Origin` is refused, since no
+  host is left to check it against. Requests without `Origin` still pass.
+- `httpCall` turns a non-JSON error body (a proxy's 502 page) into an
+  `ApiError` with code `internal` instead of throwing a `SyntaxError`.
+- The React hooks start from an empty resource when the provider's client
+  changes (another caller signs in, or out), so the previous caller's data
+  is never kept visible while loading or after a refusal.
+
 ## Context
 
 The runtime was reachable in process, over MCP for agents, and through the
@@ -87,7 +115,7 @@ authorization plan, the same rule as over MCP (ADR-0038, ADR-0054).
 problems: `forbidden` 403 (with the policy's `reason`), `not-found` 404,
 `invalid-input` 400 (with schema errors), `precondition-failed` 422,
 `rate-limited` 429, `conflict` and `workflow-diverged` 409, `unavailable`
-503. Anything unrecognized is a 500 whose detail is the constant "Internal
+503, and (amended) `unauthorized` 401 for a token the resolver refuses. Anything unrecognized is a 500 whose detail is the constant "Internal
 error"; the error itself goes to `onError`. The SDK's `httpTransport`
 turns a problem back into an `ApiError` with the same code and reason, so
 a client branches on `code`, never on message text.

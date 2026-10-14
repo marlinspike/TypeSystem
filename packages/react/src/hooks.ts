@@ -43,15 +43,27 @@ export function createTypeSHooks<M extends ModelShape>() {
     return client;
   }
 
-  function useResource<T>(): [Resource<T>, ResourceState<T>] {
-    const [resource] = useState(() => new Resource<T>());
+  /**
+   * A resource for this client's caller. A new client (another caller signed
+   * in, or signed out) gets a new resource, so nothing the previous caller
+   * read is kept visible, not even while loading or after a refusal; a run
+   * still in flight for them settles a resource no one reads.
+   */
+  function useResource<T>(client: Client<M>): [Resource<T>, ResourceState<T>] {
+    const [held, setHeld] = useState(() => ({ client, resource: new Resource<T>() }));
+    let current = held;
+    if (held.client !== client) {
+      current = { client, resource: new Resource<T>() };
+      setHeld(current);
+    }
+    const { resource } = current;
     return [resource, useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot)];
   }
 
   /** Loads `load(client)` whenever `deps` change; `null` means nothing to load yet. */
   function useLoad<T>(load: ((client: Client<M>) => Promise<T>) | null, deps: readonly unknown[]): Loaded<T> {
     const client = useClient();
-    const [resource, state] = useResource<T>();
+    const [resource, state] = useResource<T>(client);
     const latest = useRef(load);
     latest.current = load;
     const refresh = useCallback(() => {
@@ -69,7 +81,7 @@ export function createTypeSHooks<M extends ModelShape>() {
    */
   function useQuery<R>(build: (client: Client<M>) => PageSource<R> | null, deps: readonly unknown[]): ListState<R> {
     const client = useClient();
-    const [resource, state] = useResource<{ items: readonly R[]; nextCursor?: string }>();
+    const [resource, state] = useResource<{ items: readonly R[]; nextCursor?: string }>(client);
     const source = useRef<PageSource<R> | null>(null);
     const latest = useRef(build);
     latest.current = build;
@@ -106,8 +118,8 @@ export function createTypeSHooks<M extends ModelShape>() {
   /** One Action: preview what it would do, then invoke it. Each keeps its own state. */
   function useAction<A extends ActionName<M>>(name: A): ActionState<M, A> {
     const client = useClient();
-    const [previewing, previewed] = useResource<ActionPreview>();
-    const [invoking, invoked] = useResource<M["actions"][A]["output"]>();
+    const [previewing, previewed] = useResource<ActionPreview>(client);
+    const [invoking, invoked] = useResource<M["actions"][A]["output"]>(client);
     const handle = client.action(name);
     return {
       preview: (input) => previewing.run(() => handle.preview(input)),

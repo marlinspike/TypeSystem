@@ -51,7 +51,8 @@ try {
 Refusals arrive as RFC 9457 problems with a stable `code`: `forbidden`,
 `not-found`, `invalid-input` (with the schema's `errors`),
 `precondition-failed`, `rate-limited`, `conflict`, `workflow-diverged`,
-`unavailable`, `internal`. Branch on `code`, not on the message.
+`unavailable`, `unauthorized` (a token the identity resolver refused),
+`internal`. Branch on `code`, not on the message.
 
 ## 3. Bind it to React
 

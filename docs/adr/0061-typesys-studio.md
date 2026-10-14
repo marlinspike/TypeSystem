@@ -38,6 +38,11 @@ Mutation-checked: 21 mutations, each failing at least one test.
 
 Two further `querySource` mutants are equivalent and were not counted. Naming every nested include's parameter `q` only shadows a name. Dropping an include's `limit` of 0 only affects a query the runtime refuses anyway, since its minimum is 1.
 
+**Amended 2026-10-13** (`packages/studio/test/pressure-studio.test.ts`, `packages/sdk/test/pressure-sdk.test.ts`):
+
+- The API beside the page now carries `nosniff` and `frame-ancestors 'none'` itself (ADR-0058, amended), not only the static client. A malformed body to it is a problem document with no stack trace.
+- `querySource` writes only the query DSL's own operators and integer limits into the code it emits, and throws on anything else. The query it is given may come from a log, an agent or a pasted link, and the code it returns is code a developer runs.
+
 ## Context
 
 Slices 4 to 8 gave developers and agents a typed SDK, validation with suggestions, execution plans, Action previews, an HTTP API and generated forms and columns. Each was reachable only from code. The people who decide what a mission application should do (an analyst, a product owner, an accreditor) had no way to see the model, try a query, or watch the same screen answer two people differently. A developer had no fast loop from "what am I allowed to ask?" to code.

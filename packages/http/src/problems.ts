@@ -8,6 +8,7 @@ import {
   PreconditionFailedError,
   RateLimitExceededError
 } from "@typesys/core";
+import type { Response } from "express";
 import { JournalConflictError, ReplayDivergenceError, WorkflowStateError } from "@typesys/workflow";
 
 /** Every code a TypeS API answers with. Stable: a client branches on these, never on a message. */
@@ -20,6 +21,7 @@ export type ProblemCode =
   | "conflict"
   | "workflow-diverged"
   | "unavailable"
+  | "unauthorized"
   | "internal";
 
 /**
@@ -71,4 +73,26 @@ export function toProblem(err: unknown): Problem {
     }
   }
   return { type: "https://typesys.dev/problems/internal", title: "Internal error", status: 500, code: "internal", detail: "Internal error" };
+}
+
+const plain = (status: number, code: ProblemCode, title: string, detail: string): Problem => ({ type: `https://typesys.dev/problems/${code}`, title, status, code, detail });
+
+/** A bearer token the identity resolver refused: expired, badly signed, or for someone else. */
+export const unauthorized = (): Problem => plain(401, "unauthorized", "Not authenticated", "The bearer token was not accepted");
+
+/** A route the API does not serve. */
+export const notFound = (): Problem => plain(404, "not-found", "Not found", "No such route");
+
+/** The problem for a request body Express could not read (malformed JSON, too large), or `undefined` for any other error. */
+export function bodyProblem(err: unknown): Problem | undefined {
+  const { type, status } = (err ?? {}) as { type?: unknown; status?: unknown };
+  if (typeof type !== "string" || typeof status !== "number" || status < 400 || status >= 500) return undefined;
+  if (type === "entity.parse.failed") return plain(400, "invalid-input", "Invalid input", "The request body is not valid JSON");
+  if (type === "entity.too.large") return plain(413, "invalid-input", "Invalid input", "The request body is too large");
+  return plain(status, "invalid-input", "Invalid input", "The request body could not be read");
+}
+
+/** Writes a problem as `application/problem+json`. */
+export function sendProblem(res: Response, problem: Problem): void {
+  res.status(problem.status).type("application/problem+json").send(JSON.stringify(problem));
 }

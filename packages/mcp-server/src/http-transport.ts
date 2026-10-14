@@ -16,13 +16,14 @@ export interface HttpTransportOptions {
    * Host names (no port) the server answers to on `/mcp` (ADR-0053). Default:
    * `localhost`, `127.0.0.1` and `[::1]`, so a web page cannot reach a local
    * server through DNS rebinding. A server behind a real name lists it; `"*"`
-   * disables the check, for a server whose proxy already enforces it.
+   * disables the check, for a server whose proxy already enforces it. With
+   * `"*"`, a browser `Origin` passes only if `allowedOrigins` lists it.
    */
   allowedHosts?: readonly string[] | "*";
   /**
    * Browser origins allowed to call `/mcp`. A request with no `Origin` header
    * (any non-browser client) is unaffected. Default: `http(s)://` on any
-   * allowed host, any port.
+   * allowed host, any port; none at all when `allowedHosts` is `"*"`.
    */
   allowedOrigins?: readonly string[];
 }

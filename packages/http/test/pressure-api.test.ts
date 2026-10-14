@@ -25,7 +25,6 @@ const resolve = async (t: string | null | undefined): Promise<Identity> => {
 
 let testbed: AirforceTestbed;
 let server: Server;
-let base: string;
 let port: number;
 const errors: unknown[] = [];
 
@@ -36,7 +35,6 @@ beforeAll(async () => {
   const app = createApiApp({ backend: testbed, identityResolver: resolve, workflows, onError: (err) => errors.push(err) });
   await new Promise<void>((r) => (server = app.listen(0, "127.0.0.1", () => r())));
   port = (server.address() as { port: number }).port;
-  base = `http://127.0.0.1:${port}`;
 });
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
 

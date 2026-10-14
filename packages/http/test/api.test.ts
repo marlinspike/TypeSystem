@@ -10,7 +10,15 @@ const PEOPLE = { maintainer: demoIdentities.maintainer, lead: demoIdentities.lea
 type Who = keyof typeof PEOPLE;
 const token = (who: Who) => (who === "anonymous" ? undefined : `token-${who}`);
 const resolve = async (t: string | null | undefined): Promise<Identity> => {
-  if (t === "explode") throw new Error("connection string postgres://admin:hunter2@db");
+  // An identity that fails once a route uses it: a resolver that throws is a 401 instead (a refused token).
+  if (t === "explode")
+    return {
+      subjectId: "x",
+      attributes: {},
+      get roles(): string[] {
+        throw new Error("connection string postgres://admin:hunter2@db");
+      }
+    };
   const who = (Object.keys(PEOPLE) as Who[]).find((w) => token(w) === t);
   return who ? PEOPLE[who] : demoIdentities.anonymous;
 };
@@ -89,7 +97,7 @@ describe("the governed REST API (ADR-0058)", () => {
   });
 
   it("an internal error says nothing about itself to the caller", async () => {
-    const res = await fetch(`${base}/api/model`, { headers: { authorization: "Bearer explode" } });
+    const res = await fetch(`${base}/api/me`, { headers: { authorization: "Bearer explode" } });
     const text = await res.text();
     expect(res.status).toBe(500);
     expect(JSON.parse(text)).toMatchObject({ code: "internal", detail: "Internal error" });
