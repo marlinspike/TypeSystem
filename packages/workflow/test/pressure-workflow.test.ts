@@ -54,12 +54,12 @@ describe("AI output reaching a side effect without approval", () => {
     const steps = base.steps.map((s) => (s.name === "leadApproval" ? { ...approval, when: () => false } : s));
     const engine = await engineFor(tb, base, { eventId: "EVT-9002", priority: "routine", rationale: "x" });
     // Swap the registered definition's steps after registration's check.
-    (base as { steps: AnyStep[] }).steps.splice(0, base.steps.length, ...steps);
+    (base as unknown as { steps: AnyStep[] }).steps.splice(0, base.steps.length, ...steps);
     try {
       const run = await engine.start(base.name, START, maintainer);
       expect({ status: run.status, workOrders: (await workOrders(tb)).length }).toEqual({ status: "waiting-approval", workOrders: 0 });
     } finally {
-      (base as { steps: AnyStep[] }).steps.splice(0, base.steps.length, ...original);
+      (base as unknown as { steps: AnyStep[] }).steps.splice(0, base.steps.length, ...original);
     }
   });
 
