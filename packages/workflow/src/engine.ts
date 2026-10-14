@@ -181,7 +181,8 @@ export class WorkflowEngine {
       resource: { typeName: workflow.name, actionName: "start" }
     });
     await this.audit(initiator, "workflow.start", workflow, runId, decision.allow ? "allow" : "deny", { reason: decision.reason });
-    if (!decision.allow) throw new AuthorizationError(`Not authorized: start ${workflow.name}`, decision.reason);
+    // A caller acting for an audience is told one thing whoever its user is (ADR-0067); the audit row keeps the reason.
+    if (!decision.allow) throw new AuthorizationError(`Not authorized: start ${workflow.name}`, initiator.audience ? `Refused while reading for ${initiator.audience.id}` : decision.reason);
     const validate = this.validators.get(`${workflow.name}@${workflow.version}`)!;
     if (!validate(input)) throw new InvalidInputError(`Invalid input for workflow "${workflow.name}": ${this.ajv.errorsText(validate.errors)}`, validate.errors);
 
@@ -450,6 +451,9 @@ export class WorkflowEngine {
    */
   async status(runId: string, viewer?: Identity): Promise<RunView> {
     const { state, workflow } = await this.load(runId);
+    // A run's control flow encodes what it read (which branch, which steps skipped): a caller reading for an audience
+    // sees only runs that read for that same audience, as with outputs (ADR-0067).
+    if (viewer?.audience && viewer.audience.id !== state.initiator.audience?.id) throw new NotFoundError(`No run ${runId}`);
     if (viewer && viewer.subjectId !== state.initiator.subjectId) {
       const approval = state.waitingOn ? this.approvalStep(workflow, state.waitingOn.step) : undefined;
       const admitted = approval ? await this.admitApprover(workflow, state, approval, viewer, "workflow.view-run", false).then(() => true, () => false) : false;
@@ -623,6 +627,12 @@ export class WorkflowEngine {
     operation: string,
     auditDenial = true
   ): Promise<void> {
+    // Credentials that have expired decide nothing, here as for cancel and reauthorize.
+    const expired = this.expiry(approver);
+    if (expired) {
+      if (auditDenial) await this.audit(approver, operation, workflow, state.runId, "deny", { step: step.name, reason: expired });
+      throw new AuthorizationError(`Not authorized: ${operation} ${workflow.name}/${step.name}`, expired);
+    }
     if (!step.allowSelfApproval && approver.subjectId === state.initiator.subjectId) {
       const reason = "The initiator of a run may not approve it";
       if (auditDenial) await this.audit(approver, operation, workflow, state.runId, "deny", { step: step.name, reason });

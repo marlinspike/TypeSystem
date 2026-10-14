@@ -2155,6 +2155,13 @@ export class SemanticRuntime {
     ));
   }
 
+  /** Why a refusal happened, as the caller may be told it: masked for an audience (ADR-0067), withheld unless discovery is open (ADR-0068). */
+  private toldReason(reason: string | undefined, identity: Identity): string {
+    if (identity.audience) return `Refused while reading for ${identity.audience.id}`;
+    if (this.discovery !== "open") return "Not authorized";
+    return reason ?? "Not authorized";
+  }
+
   /** The questions need-to-know asks for one caller (ADR-0068), each decided without reading an object and not audited on its own. */
   private discoveryGate(identity: Identity): DiscoveryGate {
     return {
@@ -2293,7 +2300,9 @@ export class SemanticRuntime {
         let gate: Awaited<ReturnType<SemanticRuntime["gateAction"]>> | undefined;
         try {
           gate = await this.gateAction(identity, action, input);
-          if (!gate.decision.allow) blockers.push({ kind: "authorization", message: gate.decision.reason ?? "Not authorized" });
+          // Told as invokeAction's refusal is (ADR-0067), and without the policy's reason when discovery is not open
+          // (ADR-0068): which roles or attributes a policy wants describes it. The audit row keeps the reason.
+          if (!gate.decision.allow) blockers.push({ kind: "authorization", message: this.toldReason(gate.decision.reason, identity) });
         } catch (err) {
           // Raised only after the caller was allowed to read the target type: the id names no object.
           if (!(err instanceof ObjectNotFoundError)) throw err;
