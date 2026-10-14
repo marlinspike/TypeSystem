@@ -397,3 +397,24 @@ changed code.
 | R3 | relationship lookups (`byForeignKey`, `byJoinTable`, `byCompositeKey`) use `@>` containment, which the GIN index serves; a number or boolean key still matches its text, as `->>` did |
 | R4 | README read path shows computed properties running before classification and policy redaction |
 | R5 | README Aircraft snippet has `releases`; the Truck example catches the refused invoke so `listen` runs; completeness.md has the current test count |
+
+### Addendum disposition
+
+The 14 addendum findings are fixed on main after PR #14, and the addendum's
+tests pass unchanged. ADR-0064, ADR-0070 and ADR-0073 record what changed.
+
+| Finding | Fix |
+|---|---|
+| M1 | the runner runs as `node --import tsx` with asynchronous child processes, so a signal reaches its handler, which stops the child, restores the source and force-rebuilds it before exiting |
+| M2, M3 | the four `workflow-policy.*` mutations in the catalog, killed by the addendum's tests |
+| M4 | a run with no reported failure (signal, step timeout, crash) is `inconclusive` and fails the run |
+| M5 | the mutation job runs on every pull request |
+| V1 | every negative hidden check first asserts a permitted caller is served |
+| V2 | sandboxes link third-party packages from a store outside the repository |
+| V3 | path imports that leave the application and unlisted `@typesys` packages are off-arm, for every arm |
+| V4 | a loss is measured against the best run of another arm |
+| V5 | the report shows each run's notes and every arm without a run |
+| V6 | `evaluate report` works with no `results/`; `--out` refuses a non-empty directory; the ADR says five files |
+| T1 | UTF-16 is decoded and NUL bytes are dropped instead of skipping the file |
+| T2 | every tracked path is checked |
+| T3 | the allow marker needs `terminology-allow:` and a reason |

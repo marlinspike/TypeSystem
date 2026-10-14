@@ -79,3 +79,16 @@ test.
 - Not addressed: generated mutations (operators flipped across a whole
   file, as Stryker does), which would find gaps the catalog's authors did
   not think of; the catalog checks the mechanisms its authors named.
+
+## Amended after the 3.0 pressure test's addendum
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). The runner runs as `node --import tsx` and never blocks its
+event loop, so Ctrl-C or SIGTERM reaches its handler: it stops the running
+build or test, restores every mutated file and force-rebuilds them before it
+exits (P3-M1). Only a reported test or test-file failure kills a mutation; a
+run stopped by a signal or the 20-minute step limit, or exiting non-zero with
+nothing failed, is `inconclusive` and fails the run (P3-M4). The mutation job
+runs on every pull request, since a change to guarded code or to the tests
+that kill its mutations matters as much as a change to the catalog (P3-M5).
+The catalog now covers the workflow engine's own decisions: fail-closed on a
+throwing engine or a non-boolean `allow`, and the audience half (P3-M2, M3).
