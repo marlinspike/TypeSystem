@@ -37,6 +37,9 @@ describe("the Studio server (ADR-0061)", () => {
     for (const directive of ["default-src 'none'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'"])
       expect(csp).toContain(directive);
     expect(csp).not.toMatch(/unsafe-inline|unsafe-eval|\*/);
+    // Every source the policy allows is the page's own (or an inline data: image): no other origin, of any kind.
+    const sources = csp.split(";").flatMap((d) => d.trim().split(/\s+/).slice(1));
+    expect(sources.filter((s) => !["'none'", "'self'", "data:"].includes(s))).toEqual([]);
     expect(page.headers.get("x-content-type-options")).toBe("nosniff");
     expect(page.headers.get("referrer-policy")).toBe("no-referrer");
     expect(page.headers.get("cross-origin-opener-policy")).toBe("same-origin");
