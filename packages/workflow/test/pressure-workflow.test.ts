@@ -168,8 +168,8 @@ describe("no replay / honest status for a non-idempotent Action", () => {
             await target.invokeAction(...args);
             throw Object.assign(new Error("timed out"), { retryable: true });
           };
-        const v = Reflect.get(target, prop, receiver);
-        return typeof v === "function" ? v.bind(target) : v;
+        const v: unknown = Reflect.get(target, prop, receiver);
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
       }
     });
     const engine = await WorkflowEngine.create({ host: { ...tb, runtime }, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "x" } }), sleep: async () => {} });

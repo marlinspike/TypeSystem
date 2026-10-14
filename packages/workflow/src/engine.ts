@@ -226,7 +226,7 @@ export class WorkflowEngine {
       let v = views.get(key);
       if (!v) {
         v = this.options.host.runtime.getObject(type, id, viewer).then(
-          (o) => o.values as Record<string, unknown>,
+          (o) => o.values,
           () => undefined
         );
         views.set(key, v);
