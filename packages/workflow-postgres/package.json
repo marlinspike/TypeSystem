@@ -1,0 +1,30 @@
+{
+  "name": "@typesys/workflow-postgres",
+  "version": "0.1.0",
+  "description": "A durable, append-only PostgreSQL journal for TypeSys governed workflows: conditional appends, an index of unfinished runs, and timers that survive restarts.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/workflow-postgres"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/workflow-postgres#readme",
+  "keywords": ["typesys", "workflow", "durable-execution", "postgres"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["dist", "migrations"],
+  "dependencies": {
+    "@typesys/workflow": "0.1.0",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
+  }
+}

@@ -16,8 +16,8 @@ import { createClient, runtimeTransport, type ModelShape, type Transport } from 
 import type { ValidateFunction } from "ajv";
 import type { AiModel } from "./ai.js";
 import type { AnyStep, AnyWorkflow, StepContext, WorkflowDefinition } from "./definition.js";
-import { AiOutputError, SimulatedCrash, WorkflowDefinitionError, WorkflowStateError, isRetryable } from "./errors.js";
-import type { FinalStatus, JournalEvent, JournalRecord, OutputSource, WorkflowJournal } from "./journal.js";
+import { AiOutputError, JournalConflictError, SimulatedCrash, WorkflowDefinitionError, WorkflowStateError, isRetryable } from "./errors.js";
+import type { CompensationCause, FinalStatus, JournalEvent, JournalRecord, OutputSource, WorkflowJournal } from "./journal.js";
 import { InMemoryJournal } from "./journal.js";
 import { contextFor, outputsOf, reviewsAiOutput, verifyReplay } from "./replay.js";
 import { fold, viewOf, type RunState, type RunView } from "./state.js";
@@ -51,11 +51,24 @@ export interface WorkflowEngineOptions {
   /** Required by any workflow with an AI step. */
   readonly model?: AiModel;
   /**
-   * Re-resolves the initiator each time a run advances, so a run started by
-   * someone whose roles were since revoked continues with what they hold now.
-   * Without it, a run acts as the initiator was at start.
+   * Re-resolves the identity a run acts as each time it advances (ADR-0065),
+   * from your directory or identity provider, so a run continues with what its
+   * initiator holds now, never with what they held at start. Throw an
+   * `AuthorizationError` or `NotFoundError` for a subject that is revoked or
+   * gone: the run is suspended. Any other error is transient: the run is left
+   * as it was, to be resumed. Without it, a run acts on the identity it holds
+   * only until that is `identityMaxAgeMs` old, then waits for its initiator
+   * to re-authorize.
    */
   readonly resolveIdentity?: (snapshot: Identity) => Promise<Identity>;
+  /** How long a run may act on an identity it cannot re-resolve. Default 15 minutes. */
+  readonly identityMaxAgeMs?: number;
+  /**
+   * A retry's backoff up to this long is waited out in process (and is still
+   * journaled, so a crash during it honors it); a longer one ends the call
+   * with the run `waiting-timer`, for `tick()` to continue. Default 1 second.
+   */
+  readonly inlineWaitMs?: number;
   /** For tests and game days, never production. */
   readonly faults?: FaultPlan;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -78,6 +91,9 @@ const newer = (a: string, b: string) => {
   for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
   return false;
 };
+const DEFAULT_IDENTITY_MAX_AGE_MS = 15 * 60_000;
+const DEFAULT_INLINE_WAIT_MS = 1_000;
+const due = (dueAt: string | undefined, now: Date) => dueAt !== undefined && Date.parse(dueAt) <= now.getTime();
 const recorded = (err: unknown) => ({ name: err instanceof Error ? err.name : "Error", message: err instanceof Error ? err.message : String(err) });
 
 /** Appends to one run, conditionally on its length, and keeps the folded state current. */
@@ -181,6 +197,12 @@ export class WorkflowEngine {
     if (state.finished || state.waitingOn?.step !== step) throw new WorkflowStateError(`Run ${runId} is not waiting on approval "${step}"`);
     // Before the decision is recorded: a definition that no longer reproduces the run must not take one.
     verifyReplay(workflow, state);
+    // A decision that arrives after the deadline is too late, whether or not a tick has expired the approval yet.
+    const deadline = state.timers.get(`approval:${step}`);
+    if (due(deadline, this.options.now?.() ?? new Date())) {
+      await this.advance(runId);
+      throw new WorkflowStateError(`Approval "${step}" of run ${runId} expired at ${deadline}`);
+    }
     const approval = this.approvalStep(workflow, step);
     await this.admitApprover(workflow, state, approval, approver, "workflow.approve");
     // Conditional on the journal as read above: a second, concurrent decision fails with JournalConflictError.
@@ -258,15 +280,14 @@ export class WorkflowEngine {
   /**
    * Every approval waiting on someone `approver` may be: each run waiting on
    * an approval is decided for them as `pendingApproval` decides it, and
-   * audited, and only the admitted ones are returned. It reads every run in
-   * the journal, which suits the reference journal; a durable journal would
-   * index runs by what they wait on.
+   * audited, and only the admitted ones are returned. It reads every
+   * unfinished run of a workflow registered here (an index, in a journal that
+   * keeps one: `PostgresWorkflowJournal`).
    */
   async approvalsFor(approver: Identity): Promise<PendingApproval[]> {
     const found: PendingApproval[] = [];
-    for (const runId of await this.journal.runs()) {
-      const { state } = await this.load(runId);
-      if (state.finished || !state.waitingOn) continue;
+    for (const { runId, state } of await this.ownUnfinished()) {
+      if (!state.waitingOn) continue;
       try {
         // A denial here is not an attempt on that run, only a listing passing it by: it is not audited, or
         // every listing by anyone would write a denial per waiting run.
@@ -283,14 +304,94 @@ export class WorkflowEngine {
     return this.advance(runId);
   }
 
-  /** Resumes every unfinished run that is not waiting on a person. */
+  /** Resumes every unfinished run that is not waiting on a person (an approval, or a re-authorization). */
   async resumeAll(): Promise<RunView[]> {
     const views: RunView[] = [];
-    for (const runId of await this.journal.runs()) {
-      const { state } = await this.load(runId);
-      if (!state.finished && !state.waitingOn) views.push(await this.advance(runId));
+    for (const { runId, state } of await this.ownUnfinished()) {
+      if (!state.waitingOn && !state.suspended) views.push(await this.advance(runId));
     }
     return views;
+  }
+
+  /**
+   * Fires every durable timer that is due (ADR-0065): an approval past its
+   * deadline expires and its run compensates; a retry whose backoff has
+   * passed runs. Call it on a schedule, from any number of processes: two
+   * that reach one run at once cannot both write (the journal's conditional
+   * append), and the one that loses skips it.
+   */
+  async tick(): Promise<RunView[]> {
+    const now = this.options.now?.() ?? new Date();
+    const views: RunView[] = [];
+    for (const { runId, state } of await this.ownUnfinished()) {
+      if (state.suspended || ![...state.timers.values()].some((dueAt) => due(dueAt, now))) continue;
+      try {
+        views.push(await this.advance(runId));
+      } catch (err) {
+        if (!(err instanceof JournalConflictError)) throw err;
+      }
+    }
+    return views;
+  }
+
+  /**
+   * Lets a suspended run act again (ADR-0065), as `identity`: the same
+   * subject the run acts as, with fresh credentials, still admitted by the
+   * policy that lets them carry it. Anything else is refused and audited.
+   */
+  async reauthorize(runId: string, identity: Identity): Promise<RunView> {
+    const { records, state, workflow } = await this.load(runId);
+    if (state.finished) throw new WorkflowStateError(`Run ${runId} has finished`);
+    const holder = state.authority.identity.subjectId;
+    const refuse = async (reason: string): Promise<never> => {
+      await this.audit(identity.subjectId, "workflow.reauthorize", workflow, runId, "deny", { reason });
+      throw new AuthorizationError(`Not authorized: reauthorize run ${runId}`, reason);
+    };
+    if (identity.subjectId !== holder) await refuse("Only the subject the run acts as may re-authorize it");
+    const problem = this.expiry(identity) ?? (await this.authorityRefusal(workflow, state, identity));
+    if (problem) await refuse(problem);
+    await this.audit(identity.subjectId, "workflow.reauthorize", workflow, runId, "allow", {});
+    await this.writer(state, records).append({ type: "authority-restored", identity: structuredClone(identity), role: state.authority.role });
+    return this.advance(runId);
+  }
+
+  /**
+   * Cancels a run that has not finished: what it completed is undone, newest
+   * first, and it ends `cancelled`. The initiator may always cancel their own
+   * run; anyone else needs the workflow's `cancelPolicy`, and the run then
+   * acts as them while it undoes, since its initiator may be the reason it
+   * is being cancelled.
+   */
+  async cancel(runId: string, by: Identity, reason?: string): Promise<RunView> {
+    const { records, state, workflow } = await this.load(runId);
+    if (state.finished) throw new WorkflowStateError(`Run ${runId} has finished`);
+    if (state.compensating) throw new WorkflowStateError(`Run ${runId} is already being undone`);
+    const own = by.subjectId === state.initiator.subjectId;
+    if (!own) {
+      const decision = workflow.cancelPolicy
+        ? await this.options.host.policyEngine.evaluate({
+            subject: by,
+            action: "invoke",
+            policyName: workflow.cancelPolicy,
+            resource: { typeName: workflow.name, actionName: "cancel" },
+            context: { runId, initiator: state.initiator.subjectId }
+          })
+        : { allow: false, reason: "Only the initiator may cancel a run of a workflow with no cancelPolicy" };
+      await this.audit(by.subjectId, "workflow.cancel", workflow, runId, decision.allow ? "allow" : "deny", { reason: decision.reason });
+      if (!decision.allow) throw new AuthorizationError(`Not authorized: cancel run ${runId}`, decision.reason);
+    } else {
+      await this.audit(by.subjectId, "workflow.cancel", workflow, runId, "allow", {});
+    }
+    const expired = this.expiry(by);
+    if (expired) throw new AuthorizationError(`Not authorized: cancel run ${runId}`, expired);
+    const waiting = state.waitingOn?.step ?? [...state.steps.keys()].at(-1) ?? "(start)";
+    await this.writer(state, records).append(
+      { type: "cancelled", by: by.subjectId, ...(reason !== undefined ? { reason } : {}) },
+      // Fresh authority to undo with: the canceller's (the initiator's own, refreshed, when it is them).
+      { type: "authority-restored", identity: structuredClone(by), role: own ? "initiator" : "canceller" },
+      { type: "compensating", cause: "cancelled", step: waiting }
+    );
+    return this.advance(runId);
   }
 
   /**
@@ -337,6 +438,90 @@ export class WorkflowEngine {
     const workflow = this.definitions.get(state.workflow)?.get(state.version);
     if (!workflow) throw new WorkflowStateError(`Run ${runId} is of ${state.workflow}@${state.version}, which is not registered`);
     return { records, state, workflow };
+  }
+
+  private async unfinishedRuns(): Promise<string[]> {
+    return this.journal.unfinished ? this.journal.unfinished() : this.journal.runs();
+  }
+
+  /**
+   * The unfinished runs this engine can advance: a journal shared by several
+   * services holds runs of workflows registered elsewhere, which a sweep
+   * (`tick`, `resumeAll`, `approvalsFor`) leaves to their own engines.
+   */
+  private async ownUnfinished(): Promise<{ runId: string; state: RunState }[]> {
+    const own: { runId: string; state: RunState }[] = [];
+    for (const runId of await this.unfinishedRuns()) {
+      const state = fold(runId, await this.journal.read(runId));
+      if (!state.finished && this.definitions.get(state.workflow)?.has(state.version)) own.push({ runId, state });
+    }
+    return own;
+  }
+
+  /** Why `identity` may no longer be acted on, if it has expired. */
+  private expiry(identity: Identity): string | undefined {
+    if (identity.expiresAt === undefined) return undefined;
+    const at = Date.parse(identity.expiresAt);
+    const now = (this.options.now?.() ?? new Date()).getTime();
+    return Number.isNaN(at) || at <= now ? `The credentials of ${identity.subjectId} expired at ${identity.expiresAt}` : undefined;
+  }
+
+  /**
+   * Why `identity` may not carry this run any more, if it may not: the start
+   * policy for the initiator, the cancel policy for a canceller. While a run
+   * only undoes what it did, no workflow policy applies: each compensating
+   * Action is decided by the runtime on its own policy.
+   */
+  private async authorityRefusal(workflow: AnyWorkflow, state: RunState, identity: Identity): Promise<string | undefined> {
+    if (state.compensating) return undefined;
+    const policyName = state.authority.role === "canceller" ? workflow.cancelPolicy : workflow.startPolicy;
+    if (!policyName) return "No policy admits a canceller to carry this run";
+    const decision = await this.options.host.policyEngine.evaluate({
+      subject: identity,
+      action: "invoke",
+      policyName,
+      resource: { typeName: workflow.name, actionName: state.authority.role === "canceller" ? "cancel" : "start" },
+      context: { runId: state.runId, initiator: state.initiator.subjectId }
+    });
+    return decision.allow ? undefined : `${identity.subjectId} is no longer admitted by "${policyName}"${decision.reason ? `: ${decision.reason}` : ""}`;
+  }
+
+  /**
+   * The identity the run may act as now (ADR-0065), or `undefined` with the
+   * run suspended: re-resolved when the host can, never older than
+   * `identityMaxAgeMs` when it cannot, never expired, the same subject, and
+   * still admitted by the policy that lets it carry the run.
+   */
+  private async currentAuthority(w: RunWriter, workflow: AnyWorkflow): Promise<Identity | undefined> {
+    if (w.state.suspended) return undefined;
+    const { identity: held, at } = w.state.authority;
+    let current = held;
+    if (this.options.resolveIdentity) {
+      try {
+        current = await this.options.resolveIdentity(structuredClone(held));
+      } catch (err) {
+        if (!(err instanceof AuthorizationError || err instanceof NotFoundError)) throw err;
+        return this.suspend(w, workflow, `${held.subjectId} could not be re-resolved: ${err.message}`);
+      }
+    } else {
+      const age = (this.options.now?.() ?? new Date()).getTime() - Date.parse(at);
+      const max = this.options.identityMaxAgeMs ?? DEFAULT_IDENTITY_MAX_AGE_MS;
+      if (age > max) return this.suspend(w, workflow, `The identity this run acts as is ${Math.round(age / 1000)}s old, past the ${Math.round(max / 1000)}s it may be used without being re-resolved`);
+    }
+    if (current.subjectId !== held.subjectId) return this.suspend(w, workflow, `${held.subjectId} re-resolved as a different subject`);
+    return this.stillAuthorized(w, workflow, current);
+  }
+
+  /** `identity`, if it has not expired and still carries the run; otherwise the run is suspended. Checked before every step. */
+  private async stillAuthorized(w: RunWriter, workflow: AnyWorkflow, identity: Identity): Promise<Identity | undefined> {
+    const problem = this.expiry(identity) ?? (await this.authorityRefusal(workflow, w.state, identity));
+    return problem ? this.suspend(w, workflow, problem) : identity;
+  }
+
+  private async suspend(w: RunWriter, workflow: AnyWorkflow, reason: string): Promise<undefined> {
+    await w.append({ type: "authority-suspended", reason });
+    await this.audit(w.state.authority.identity.subjectId, "workflow.authority", workflow, w.state.runId, "deny", { reason });
+    return undefined;
   }
 
   private writer(state: RunState, records: JournalRecord[]): RunWriter {
@@ -415,7 +600,15 @@ export class WorkflowEngine {
     if (state.finished) return view(state);
     verifyReplay(workflow, state);
     const w = this.writer(state, records);
-    const identity = this.options.resolveIdentity ? await this.options.resolveIdentity(state.initiator) : state.initiator;
+    const now = () => this.options.now?.() ?? new Date();
+    // An approval that missed its deadline expires before anything else, even for a suspended run.
+    const waiting = w.state.waitingOn?.step;
+    if (waiting && !w.state.compensating && due(w.state.timers.get(`approval:${waiting}`), now())) {
+      await w.append({ type: "approval-expired", step: waiting }, { type: "compensating", cause: "expired", step: waiting });
+    }
+    if (w.state.waitingOn) return view(w.state);
+    const identity = await this.currentAuthority(w, workflow);
+    if (!identity) return view(w.state);
 
     if (!w.state.compensating) {
       for (const step of workflow.steps) {
@@ -439,7 +632,12 @@ export class WorkflowEngine {
         if (step.kind === "approval") {
           const decision = s?.approval?.decision;
           if (!decision) {
-            if (!s?.approval?.requested) await w.append({ type: "approval-requested", step: step.name, policy: step.policy });
+            if (!s?.approval?.requested) {
+              await w.append(
+                { type: "approval-requested", step: step.name, policy: step.policy },
+                ...(step.deadline ? [{ type: "timer-set" as const, timer: `approval:${step.name}`, dueAt: new Date(now().getTime() + step.deadline.afterMs).toISOString() }] : [])
+              );
+            }
             return view(w.state);
           }
           if (!decision.approved) {
@@ -454,7 +652,14 @@ export class WorkflowEngine {
             await this.finish(w, workflow, "needs-reconciliation", `Action "${step.action}" of step "${step.name}" may have run: its outcome was not recorded, and it is not idempotent`)
           );
         }
-        if (!(await this.attempt(w, workflow, step, ctx, identity))) {
+        // A retry backing off on a durable timer waits until it is due.
+        const backoff = w.state.timers.get(`retry:${step.name}`);
+        if (backoff !== undefined && !due(backoff, now())) return view(w.state);
+        // Authority is checked again before every step: a policy change or an expiry between steps stops the run here.
+        if (!(await this.stillAuthorized(w, workflow, identity))) return view(w.state);
+        const attempted = await this.attempt(w, workflow, step, ctx, identity);
+        if (attempted === "waiting") return view(w.state);
+        if (!attempted) {
           // A retryable error (a timeout, a dropped connection) says the outcome is unknown, not that nothing
           // happened: for an Action that is not idempotent, the write may have landed, so a person reconciles it.
           if (this.indeterminate(step, w.state)) {
@@ -477,8 +682,8 @@ export class WorkflowEngine {
     return step.kind === "action" && outcome?.kind === "failed" && outcome.retryable && this.actions.get(step.action)!.idempotency === "none";
   }
 
-  /** Runs one step, retrying what may be retried. True when it completed. */
-  private async attempt(w: RunWriter, workflow: AnyWorkflow, step: AnyStep, ctx: StepContext, identity: Identity): Promise<boolean> {
+  /** Runs one step, retrying what may be retried. True when it completed; `"waiting"` when a retry backs off on a durable timer. */
+  private async attempt(w: RunWriter, workflow: AnyWorkflow, step: AnyStep, ctx: StepContext, identity: Identity): Promise<boolean | "waiting"> {
     const maxAttempts = step.retry?.maxAttempts ?? 1;
     for (let attempt = (w.state.steps.get(step.name)?.attempts ?? 0) + 1; ; attempt++) {
       let input: unknown;
@@ -509,7 +714,12 @@ export class WorkflowEngine {
         await w.append({ type: "step-failed", step: step.name, attempt, error: recorded(err), retryable, final });
         if (final) return false;
         const delay = (step.retry?.backoffMs ?? 0) * 2 ** (attempt - 1);
-        if (delay > 0) await (this.options.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(delay);
+        if (delay > 0) {
+          const dueAt = new Date((this.options.now?.() ?? new Date()).getTime() + delay).toISOString();
+          await w.append({ type: "timer-set", timer: `retry:${step.name}`, dueAt });
+          if (delay > (this.options.inlineWaitMs ?? DEFAULT_INLINE_WAIT_MS)) return "waiting";
+          await (this.options.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(delay);
+        }
       }
     }
   }
@@ -569,6 +779,7 @@ export class WorkflowEngine {
         await w.append({ type: "compensation-failed", step: step.name, error: recorded(err) });
         return this.finish(w, workflow, "needs-reconciliation", `Compensation of step "${step.name}" failed: ${recorded(err).message}`);
       }
+      if (!(await this.stillAuthorized(w, workflow, identity))) return w.state;
       await w.append({ type: "compensation-started", step: step.name, action: undo.name, input });
       const fault = this.faults(`${step.name}.compensate`, 1);
       try {
@@ -584,11 +795,14 @@ export class WorkflowEngine {
       }
     }
     const s = w.state.steps.get(cause.step);
-    const reason =
-      cause.cause === "rejected"
-        ? `Approval "${cause.step}" was rejected by ${s?.approval?.decision?.approver ?? "an approver"}`
-        : `Step "${cause.step}" failed: ${s?.outcome?.kind === "failed" ? `${s.outcome.error.name}: ${s.outcome.error.message}` : "unknown error"}`;
-    return this.finish(w, workflow, cause.cause, reason);
+    const reasons: Record<CompensationCause, () => string> = {
+      rejected: () => `Approval "${cause.step}" was rejected by ${s?.approval?.decision?.approver ?? "an approver"}`,
+      expired: () => `Approval "${cause.step}" expired with no decision`,
+      cancelled: () => `Cancelled by ${w.state.cancelled?.by ?? "someone"}${w.state.cancelled?.reason ? `: ${w.state.cancelled.reason}` : ""}`,
+      failed: () => `Step "${cause.step}" failed: ${s?.outcome?.kind === "failed" ? `${s.outcome.error.name}: ${s.outcome.error.message}` : "unknown error"}`
+    };
+    const status: Record<CompensationCause, FinalStatus> = { rejected: "rejected", expired: "rejected", cancelled: "cancelled", failed: "failed" };
+    return this.finish(w, workflow, status[cause.cause], reasons[cause.cause]());
   }
 
   private async finish(w: RunWriter, workflow: AnyWorkflow, status: FinalStatus, reason?: string): Promise<RunState> {

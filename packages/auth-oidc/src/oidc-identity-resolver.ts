@@ -78,7 +78,9 @@ export function createOidcIdentityResolver(config: OidcIdentityResolverConfig): 
         roles: extractRoles(payload, rolesClaim),
         attributes: payload,
         ...(typeof scope === "string" ? { tokenScopes: scope.split(" ").filter(Boolean) } : {}),
-        ...(typeof clearance === "string" ? { clearance } : {})
+        ...(typeof clearance === "string" ? { clearance } : {}),
+        // So anything holding the identity past this request (a workflow run, ADR-0065) stops at the token's expiry.
+        ...(typeof payload.exp === "number" ? { expiresAt: new Date(payload.exp * 1000).toISOString() } : {})
       };
     } catch (err) {
       if (!failOpen) throw err;

@@ -127,9 +127,39 @@ started on.
 
 ## Durability
 
-The default journal is in memory and is lost on restart. Implement
-`WorkflowJournal` over a store whose append is conditional on the run's
-length (a unique `(run_id, seq)` key is enough). For long-running
-production workflows, ADR-0057 maps steps onto Temporal activities or DBOS
-steps; that binding is not implemented yet. The journal holds the
-initiator's identity and what the run read: protect it like the audit log.
+The default journal is in memory and is lost on restart. For anything that
+must survive one, use `@typesys/workflow-postgres` (ADR-0066):
+
+```ts
+import { PostgresWorkflowJournal, migrateWorkflowJournal } from "@typesys/workflow-postgres";
+
+await migrateWorkflowJournal(pool);            // idempotent; safe from every replica
+const engine = await WorkflowEngine.create({ host, model, journal: new PostgresWorkflowJournal(pool), resolveIdentity });
+setInterval(() => void engine.tick(), 5_000);  // fires due approval deadlines and retry backoffs
+```
+
+Any other store can back a journal if it passes `workflowJournalContract`
+(run it in your tests, as `packages/workflow/test/journal-contract.test.ts`
+does). Temporal and DBOS bindings are designed, not built (ADR-0066). The
+journal holds the initiator's identity and what the run read: protect it
+like the audit log.
+
+## Who a run acts as, over time
+
+A run does not keep the permissions its initiator had when they started it
+(ADR-0065). Before every step it re-resolves the initiator with your
+`resolveIdentity` (or, without one, refuses an identity older than
+`identityMaxAgeMs`, default 15 minutes), refuses one past its `expiresAt`,
+and decides the workflow's `startPolicy` for them again. When any of those
+fails the run is `suspended`, with nothing executed and the reason audited:
+
+```ts
+const run = await engine.status(runId);       // { status: "suspended", reason: "user-maintainer-1 is no longer admitted by ..." }
+await engine.reauthorize(runId, freshIdentity); // the same subject, signed in again, still admitted
+await engine.cancel(runId, lead, "reassigned"); // or undo what it completed; others need the workflow's cancelPolicy
+```
+
+Over HTTP, `POST /workflow-runs/:id/reauthorize` uses the caller's own
+bearer identity, and `POST /workflow-runs/:id/cancel` takes a `reason`.
+An approval may declare `deadline: { afterMs }`: undecided by then, it
+expires and the run compensates as on a rejection.

@@ -244,10 +244,19 @@ document that gap rather than close it in this pass.
   is checked before every advance; `simulate` previews instead of
   invoking, with scripted model answers and approvals and injected faults
   and crashes. Proven by `packages/workflow/test/` and
-  `packages/devkit/test/synthesize.test.ts`, and mutation-checked. Not
-  addressed: the only journal is in memory (a Postgres journal and a
-  Temporal or DBOS binding are designed, not built); no durable timers or
-  approval deadlines; no classification check on what is sent to a model.
+  `packages/devkit/test/synthesize.test.ts`, and mutation-checked.
+  Since ADR-0065 a run acts on continuing authority: the initiator is
+  re-resolved (or the snapshot ages out), expiry and the start policy are
+  decided again before every step, and a refusal suspends the run until
+  re-authorization or cancellation; approvals may have deadlines and retry
+  backoffs are journaled timers fired by `tick()`
+  (`packages/workflow/test/continuing-authority.test.ts`). Since ADR-0066
+  `@typesys/workflow-postgres` is a durable, append-only journal that
+  passes the same contract as the in-memory one and recovers a crashed run
+  from two processes at once without repeating an Action
+  (`packages/workflow-postgres/test/`). Not addressed: Temporal and DBOS
+  bindings (designed, not built); retention of finished runs; delegation
+  of a run to another person to carry forward.
 - A governed HTTP API and headless React bindings (ADR-0058):
   `@typesys/http` serves the runtime over REST, one runtime call per
   request as the bearer token's caller, with RFC 9457 problems carrying a

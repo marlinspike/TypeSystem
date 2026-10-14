@@ -5,10 +5,22 @@ export interface WorkflowRun {
   readonly runId: string;
   readonly workflow: string;
   readonly version: string;
-  readonly status: "running" | "waiting-approval" | "compensating" | "completed" | "failed" | "rejected" | "needs-reconciliation";
+  readonly status:
+    | "running"
+    | "waiting-approval"
+    | "waiting-timer"
+    | "suspended"
+    | "compensating"
+    | "completed"
+    | "failed"
+    | "rejected"
+    | "cancelled"
+    | "needs-reconciliation";
   readonly initiator: string;
   readonly waitingOn?: { readonly step: string; readonly policy: string };
+  /** Why it finished as it did, or why it is suspended (ADR-0065). */
   readonly reason?: string;
+  readonly timers?: readonly { readonly name: string; readonly dueAt: string }[];
   readonly steps: readonly { readonly name: string; readonly status: string; readonly attempts: number }[];
   readonly startedAt: string;
   readonly updatedAt: string;
@@ -35,6 +47,10 @@ export interface WorkflowsClient {
   approve(runId: string, step: string, decision: { readonly approved: boolean; readonly comment?: string }): Promise<WorkflowRun>;
   /** Every approval waiting on someone this caller may be. */
   approvals(): Promise<WorkflowApproval[]>;
+  /** Lets a suspended run act again, as this caller: only the subject it acts as, signed in afresh (ADR-0065). */
+  reauthorize(runId: string): Promise<WorkflowRun>;
+  /** Cancels a run and undoes what it completed: its initiator, or someone the workflow's cancel policy admits. */
+  cancel(runId: string, reason?: string): Promise<WorkflowRun>;
 }
 
 /** Calls a TypeSys REST API's workflow routes (`@typesys/http` with `workflows`). Refusals are `ApiError`s, as for `httpTransport`. */
@@ -47,6 +63,8 @@ export function httpWorkflows(opts: HttpTransportOptions): WorkflowsClient {
     outputs: async (runId) => (await call("GET", `/workflow-runs/${seg(runId)}/outputs`)) as Record<string, unknown>,
     approval: async (runId) => (await call("GET", `/workflow-runs/${seg(runId)}/approval`)) as WorkflowApproval,
     approve: async (runId, step, decision) => (await call("POST", `/workflow-runs/${seg(runId)}/approvals/${seg(step)}`, decision)) as WorkflowRun,
-    approvals: async () => (await call("GET", "/workflow-approvals")) as WorkflowApproval[]
+    approvals: async () => (await call("GET", "/workflow-approvals")) as WorkflowApproval[],
+    reauthorize: async (runId) => (await call("POST", `/workflow-runs/${seg(runId)}/reauthorize`, {})) as WorkflowRun,
+    cancel: async (runId, reason) => (await call("POST", `/workflow-runs/${seg(runId)}/cancel`, reason === undefined ? {} : { reason })) as WorkflowRun
   };
 }

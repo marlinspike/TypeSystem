@@ -155,6 +155,15 @@ export function openApiDocument(
         requestBody: { required: true, ...json({ type: "object", properties: { approved: { type: "boolean" }, comment: { type: "string" } }, required: ["approved"] }) }
       })
     };
+    paths["/workflow-runs/{id}/reauthorize"] = {
+      post: op("reauthorizeRun", "Let a suspended run act again, as this caller with fresh credentials: the subject it acts as only (ADR-0065)", run, { parameters: [pathParam("id")] })
+    };
+    paths["/workflow-runs/{id}/cancel"] = {
+      post: op("cancelRun", "Cancel a run and undo what it completed: its initiator, or someone its cancel policy admits (ADR-0065)", run, {
+        parameters: [pathParam("id")],
+        requestBody: { required: false, ...json({ type: "object", properties: { reason: { type: "string" } } }) }
+      })
+    };
   }
 
   return {

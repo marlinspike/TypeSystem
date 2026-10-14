@@ -22,8 +22,12 @@ await engine.approve(run.runId, "leadApproval", lead, { approved: true });
 previewed, model answers and approvals scripted, and faults injected;
 `replay(workflow, runId, journal)` checks a definition against a recorded
 run. The engine decides nothing the runtime decides: every read and Action
-is the initiator's, through `SemanticRuntime`. The reference journal is in
-memory; a durable journal, or a Temporal or DBOS binding, goes behind
-`WorkflowJournal`.
+is the initiator's, through `SemanticRuntime`, and the initiator's authority
+is decided again before every step: a revoked, expired or re-scoped
+initiator suspends the run until `reauthorize` or `cancel` (ADR-0065).
+Approval deadlines and retry backoffs are durable timers, fired by
+`tick()`. The reference journal is in memory; `@typesys/workflow-postgres`
+is the durable one (ADR-0066), and any journal must pass
+`workflowJournalContract`.
 
 See [`docs/how-to/write-a-governed-workflow.md`](../../docs/how-to/write-a-governed-workflow.md).

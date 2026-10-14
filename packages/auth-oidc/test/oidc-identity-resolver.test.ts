@@ -44,6 +44,8 @@ describe("createOidcIdentityResolver", () => {
     expect(identity.roles).toEqual(["maintainer", "viewer"]);
     expect(identity.tokenScopes).toEqual(["read", "write"]);
     expect(identity.attributes.sub).toBe("user-42");
+    // The token's exp, as an instant a workflow run must not act past (ADR-0065).
+    expect(identity.expiresAt).toBe(new Date((identity.attributes.exp as number) * 1000).toISOString());
   });
 
   it("reads roles from a nested claim path (rolesClaim)", async () => {

@@ -20,6 +20,14 @@ export interface Identity {
    * subject holds only the scheme's lowest level.
    */
   clearance?: string;
+  /**
+   * When the credentials this identity was resolved from stop being valid
+   * (ISO 8601), as a verifying resolver reads it from the token (`exp`).
+   * Requests are resolved fresh, so the runtime does not read it; anything
+   * that holds an identity beyond one request (a workflow run, ADR-0065)
+   * must not act on it after this instant.
+   */
+  expiresAt?: string;
 }
 
 /**

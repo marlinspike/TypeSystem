@@ -314,8 +314,9 @@ describe("retries, compensation and recovery", () => {
     const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);
     current = { ...maintainer, roles: [] }; // revoked while the run waited
     const run = await engine.approve(runId, "leadApproval", lead, { approved: true });
-    expect(run.status).toBe("failed");
-    expect(run.steps.find((s) => s.name === "openWorkOrder")?.error?.name).toBe("AuthorizationError");
+    // Suspended before the Action, not failed at it (ADR-0065): nothing was attempted as the revoked maintainer.
+    expect(run.status).toBe("suspended");
+    expect(run.steps.find((s) => s.name === "openWorkOrder")?.status).toBe("pending");
     expect(await workOrders(tb)).toHaveLength(0);
   });
 });

@@ -56,13 +56,33 @@ export type JournalEvent =
     }
   | { readonly type: "approval-requested"; readonly step: string; readonly policy: string }
   | { readonly type: "approval-decided"; readonly step: string; readonly approver: string; readonly approved: boolean; readonly comment?: string }
-  | { readonly type: "compensating"; readonly cause: "failed" | "rejected"; readonly step: string }
+  | { readonly type: "compensating"; readonly cause: CompensationCause; readonly step: string }
   | { readonly type: "compensation-started"; readonly step: string; readonly action: string; readonly input: unknown }
   | { readonly type: "compensation-completed"; readonly step: string; readonly output: unknown }
   | { readonly type: "compensation-failed"; readonly step: string; readonly error: RecordedError }
-  | { readonly type: "run-finished"; readonly status: FinalStatus; readonly reason?: string };
+  | { readonly type: "run-finished"; readonly status: FinalStatus; readonly reason?: string }
+  /**
+   * The run stopped acting (ADR-0065): the identity it acts as could not be
+   * re-resolved, expired, became another subject, or is no longer admitted by
+   * the policy that lets it carry the run. Nothing runs until `reauthorized`.
+   */
+  | { readonly type: "authority-suspended"; readonly reason: string }
+  /**
+   * From here on the run acts as `identity`: the same subject with fresh
+   * credentials (`role: "initiator"`), or whoever cancelled it, to undo what
+   * completed (`role: "canceller"`).
+   */
+  | { readonly type: "authority-restored"; readonly identity: Identity; readonly role: AuthorityRole }
+  /** A durable timer: an approval's deadline (`approval:<step>`) or a retry's backoff (`retry:<step>`). It survives a restart. */
+  | { readonly type: "timer-set"; readonly timer: string; readonly dueAt: string }
+  /** No decision came before the approval's deadline: treated as a rejection. */
+  | { readonly type: "approval-expired"; readonly step: string }
+  | { readonly type: "cancelled"; readonly by: string; readonly reason?: string };
 
-export type FinalStatus = "completed" | "failed" | "rejected" | "needs-reconciliation";
+export type FinalStatus = "completed" | "failed" | "rejected" | "cancelled" | "needs-reconciliation";
+export type CompensationCause = "failed" | "rejected" | "expired" | "cancelled";
+/** Who the run is acting as: its initiator, or whoever cancelled it. */
+export type AuthorityRole = "initiator" | "canceller";
 
 /** One appended event: its position in the run (from 0) and when it was written. */
 export type JournalRecord = JournalEvent & { readonly seq: number; readonly at: string };
@@ -79,6 +99,11 @@ export interface WorkflowJournal {
   read(runId: string): Promise<JournalRecord[]>;
   /** Every run with a journal, for a process that resumes unfinished runs after a restart. */
   runs(): Promise<string[]>;
+  /**
+   * Runs not yet finished, if the journal can say so cheaply (an index on a
+   * finished flag). Optional: without it the engine reads every run.
+   */
+  unfinished?(): Promise<string[]>;
 }
 
 /** The reference journal, in memory: for tests, simulation, and a single process that may lose its runs. */
@@ -98,5 +123,9 @@ export class InMemoryJournal implements WorkflowJournal {
 
   async runs(): Promise<string[]> {
     return [...this.byRun.keys()];
+  }
+
+  async unfinished(): Promise<string[]> {
+    return [...this.byRun].filter(([, records]) => records.at(-1)?.type !== "run-finished").map(([runId]) => runId);
   }
 }

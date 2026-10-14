@@ -79,6 +79,12 @@ export interface ApprovalStep<I> extends StepBase<I> {
   readonly allowSelfApproval?: boolean;
   /** What the approver is shown. Default: the outputs of the steps it `needs`. Only an approver the policy admits sees it. */
   readonly present?: (ctx: StepContext<I>) => unknown;
+  /**
+   * How long the approval may wait (ADR-0065). A durable timer: undecided by
+   * then, the approval expires and the run compensates as on a rejection,
+   * whether or not the process that requested it is still alive.
+   */
+  readonly deadline?: { readonly afterMs: number };
 }
 
 type ActionInput<M extends ModelShape, A extends ActionName<M>> = M["actions"][A]["input"];
@@ -109,8 +115,19 @@ export interface WorkflowDefinition<M extends ModelShape = ModelShape, I = unkno
   /** Semver. A run finishes on the version it started on. */
   readonly version: string;
   readonly description?: string;
-  /** Who may start a run: evaluated with action `invoke` on `{ typeName: <workflow>, actionName: "start" }`. */
+  /**
+   * Who may start a run: evaluated with action `invoke` on `{ typeName:
+   * <workflow>, actionName: "start" }`. It is continuing authority, not a
+   * gate passed once: it is decided again for the initiator as they are now
+   * before the run takes any step (ADR-0065).
+   */
   readonly startPolicy: string;
+  /**
+   * Who besides the initiator may cancel a run (`{ typeName: <workflow>,
+   * actionName: "cancel" }`), and then carries it while it undoes what it
+   * completed. Without it only the initiator may.
+   */
+  readonly cancelPolicy?: string;
   readonly inputSchema: JsonSchema2020;
   readonly steps: readonly Step<M, I>[];
 }

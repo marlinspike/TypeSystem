@@ -1,5 +1,5 @@
 import { NotFoundError, type Identity } from "@typesys/core";
-import type { FinalStatus, JournalRecord, OutputSource, RecordedError } from "./journal.js";
+import type { AuthorityRole, CompensationCause, FinalStatus, JournalRecord, OutputSource, RecordedError } from "./journal.js";
 import { WorkflowStateError } from "./errors.js";
 
 export interface StepState {
@@ -10,7 +10,7 @@ export interface StepState {
   action?: string;
   input?: unknown;
   outcome?: { kind: "completed"; output: unknown; source: OutputSource } | { kind: "skipped" } | { kind: "failed"; error: RecordedError; retryable: boolean };
-  approval?: { requested: boolean; decision?: { approver: string; approved: boolean; comment?: string } };
+  approval?: { requested: boolean; decision?: { approver: string; approved: boolean; comment?: string }; expired?: boolean };
   compensation?: "started" | "completed" | "failed";
 }
 
@@ -20,11 +20,21 @@ export interface RunState {
   workflow: string;
   version: string;
   initiator: Identity;
+  /**
+   * Who the run acts as now, and since when (ADR-0065): the initiator as they
+   * started it, until they are re-authorized or someone cancels the run.
+   */
+  authority: { identity: Identity; role: AuthorityRole; at: string };
+  /** Set while the run may not act: why. */
+  suspended?: { reason: string };
+  /** Pending durable timers, by name, with when each is due. */
+  timers: Map<string, string>;
+  cancelled?: { by: string; reason?: string };
   input: unknown;
   simulation: boolean;
   steps: Map<string, StepState>;
-  /** Set when a step failed or an approval was rejected and completed Actions are being undone. */
-  compensating?: { cause: "failed" | "rejected"; step: string };
+  /** Set when a step failed, an approval was rejected or expired, or the run was cancelled, and completed Actions are being undone. */
+  compensating?: { cause: CompensationCause; step: string };
   finished?: { status: FinalStatus; reason?: string };
   waitingOn?: { step: string; policy: string };
   length: number;
@@ -40,6 +50,8 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
     workflow: first.workflow,
     version: first.version,
     initiator: first.initiator,
+    authority: { identity: first.initiator, role: "initiator", at: first.at },
+    timers: new Map(),
     input: first.input,
     simulation: first.simulation === true,
     steps: new Map(),
@@ -58,6 +70,7 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
         step(e.step).outcome = { kind: "skipped" };
         break;
       case "step-started": {
+        state.timers.delete(`retry:${e.step}`);
         const s = step(e.step);
         s.attempts = e.attempt;
         s.inFlight = true;
@@ -80,6 +93,26 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
         break;
       case "approval-decided":
         step(e.step).approval = { requested: true, decision: { approver: e.approver, approved: e.approved, ...(e.comment !== undefined ? { comment: e.comment } : {}) } };
+        state.timers.delete(`approval:${e.step}`);
+        delete state.waitingOn;
+        break;
+      case "approval-expired":
+        step(e.step).approval = { requested: true, expired: true };
+        state.timers.delete(`approval:${e.step}`);
+        delete state.waitingOn;
+        break;
+      case "authority-suspended":
+        state.suspended = { reason: e.reason };
+        break;
+      case "authority-restored":
+        state.authority = { identity: e.identity, role: e.role, at: e.at };
+        delete state.suspended;
+        break;
+      case "timer-set":
+        state.timers.set(e.timer, e.dueAt);
+        break;
+      case "cancelled":
+        state.cancelled = { by: e.by, ...(e.reason !== undefined ? { reason: e.reason } : {}) };
         delete state.waitingOn;
         break;
       case "compensating":
@@ -96,7 +129,9 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
         break;
       case "run-finished":
         state.finished = { status: e.status, ...(e.reason !== undefined ? { reason: e.reason } : {}) };
+        state.timers.clear();
         delete state.waitingOn;
+        delete state.suspended;
         break;
       case "run-started":
         throw new WorkflowStateError(`Run ${runId} was started twice`);
@@ -105,7 +140,12 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
   return state;
 }
 
-export type RunStatus = "running" | "waiting-approval" | "compensating" | FinalStatus;
+/**
+ * `suspended`: the run may not act until its initiator re-authorizes or
+ * someone cancels it (ADR-0065). `waiting-timer`: a retry is backing off
+ * on a durable timer.
+ */
+export type RunStatus = "running" | "waiting-approval" | "waiting-timer" | "suspended" | "compensating" | FinalStatus;
 
 /**
  * A run as anyone holding its id may see it: where it is and how each step
@@ -119,7 +159,10 @@ export interface RunView {
   readonly status: RunStatus;
   readonly initiator: string;
   readonly waitingOn?: { readonly step: string; readonly policy: string };
+  /** Why it finished as it did, or why it is suspended. */
   readonly reason?: string;
+  /** Pending durable timers: an approval's deadline, a retry's backoff. */
+  readonly timers?: readonly { readonly name: string; readonly dueAt: string }[];
   readonly simulation: boolean;
   readonly steps: readonly {
     readonly name: string;
@@ -134,7 +177,11 @@ export interface RunView {
 }
 
 export function viewOf(state: RunState, stepOrder: readonly string[]): RunView {
-  const status: RunStatus = state.finished?.status ?? (state.compensating ? "compensating" : state.waitingOn ? "waiting-approval" : "running");
+  const retrying = [...state.timers.keys()].some((t) => t.startsWith("retry:"));
+  const status: RunStatus =
+    state.finished?.status ??
+    (state.suspended ? "suspended" : state.compensating ? "compensating" : state.waitingOn ? "waiting-approval" : retrying ? "waiting-timer" : "running");
+  const reason = state.finished?.reason ?? state.suspended?.reason;
   return {
     runId: state.runId,
     workflow: state.workflow,
@@ -142,13 +189,14 @@ export function viewOf(state: RunState, stepOrder: readonly string[]): RunView {
     status,
     initiator: state.initiator.subjectId,
     ...(state.waitingOn ? { waitingOn: state.waitingOn } : {}),
-    ...(state.finished?.reason !== undefined ? { reason: state.finished.reason } : {}),
+    ...(reason !== undefined ? { reason } : {}),
+    ...(state.timers.size ? { timers: [...state.timers].map(([name, dueAt]) => ({ name, dueAt })) } : {}),
     simulation: state.simulation,
     steps: stepOrder.map((name) => {
       const s = state.steps.get(name);
       const decided = s?.approval?.decision;
       const stepStatus =
-        decided && !decided.approved
+        (decided && !decided.approved) || s?.approval?.expired
           ? "rejected"
           : s?.outcome?.kind ?? (s?.approval?.requested ? "waiting-approval" : s?.inFlight ? "in-flight" : "pending");
       return {

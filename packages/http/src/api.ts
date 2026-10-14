@@ -133,6 +133,15 @@ export function createApiRouter(opts: ApiOptions): Router {
       return workflows().approve(param(req, "id"), param(req, "step"), who, { approved, ...(typeof comment === "string" ? { comment } : {}) });
     })
   );
+  // The caller's own, freshly resolved identity is what re-authorizes (ADR-0065): no credential travels in the body.
+  router.post("/workflow-runs/:id/reauthorize", route(200, (req, who) => workflows().reauthorize(param(req, "id"), who)));
+  router.post(
+    "/workflow-runs/:id/cancel",
+    route(200, (req, who) => {
+      const { reason } = (req.body ?? {}) as { reason?: unknown };
+      return workflows().cancel(param(req, "id"), who, typeof reason === "string" ? reason : undefined);
+    })
+  );
 
   // Anything else under the API, and a body that never parsed, is a problem too: never Express's HTML page, its stack or the server's paths.
   router.use((_req: Request, res: Response) => sendProblem(res, notFound()));
