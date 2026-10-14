@@ -1312,7 +1312,7 @@
       "description": "The workflow engine decides only for the person, not the audience it reads for (P3-M3).",
       "file": "packages/core/src/model/policy.ts",
       "find": "if (!audience || !forPerson.allow) return forPerson;",
-      "replace": "if (true) return forPerson;",
+      "replace": "if (!audience || forPerson.allow) return forPerson;",
       "tests": [
         "packages/workflow/test/p3-workflow-policy.test.ts"
       ]
@@ -1323,7 +1323,7 @@
       "description": "An audience's refusal does not refuse a workflow decision (P3-M3).",
       "file": "packages/core/src/model/policy.ts",
       "find": "return forAudience.allow ? forPerson :",
-      "replace": "return true ? forPerson :",
+      "replace": "return forAudience.allow || forPerson.allow ? forPerson :",
       "tests": [
         "packages/workflow/test/p3-workflow-policy.test.ts"
       ]
