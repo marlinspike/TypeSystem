@@ -409,6 +409,9 @@ what changed in its "Amended after the independent review" section.
 | L7 diagnostics | a reads 404 says the object was not found; a passing approves check records the status that decided it; the application is ready only on `typesys-engineer-ready <nonce> <url>` with a nonce verify gives it; `typesys engineer` says "install it" only when the package itself is missing | covered by the H1 and H3 mutations |
 | L8 plan vs scaffold | plan lists `index.html` and `tsconfig.json`; the scaffold replaces each file rather than writing through what is there; `dist/` is cleaned (H2) | none |
 
-New tests beyond the review's: `packages/engineer/test/verify-signals.test.ts`
+New tests beyond the review's: `packages/engineer/test/review-fixes.test.ts`
 (a corroborated 404, an approval on a run not waiting on its step, a 409
-approval, a 403 on the Action list).
+approval, a 403 on the Action list, a check on an object that does not
+exist, and a non-JSON mission inside the MCP root). Three of the first 26
+`engineer.*` mutations survived the review's own tests; these tests kill
+them.
