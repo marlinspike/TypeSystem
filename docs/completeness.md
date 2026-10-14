@@ -307,7 +307,13 @@ document that gap rather than close it in this pass.
   pack inspect | verify | sign | check-upgrade`. Proven by
   `packages/packs/test/` and `packages/cli/test/pack.test.ts`, and
   mutation-checked. Not addressed: workflows and sample data in packs,
-  packing YAML domains, a pack registry, key revocation, uninstall.
+  packing YAML domains, a pack registry, uninstall.
+  Since ADR-0069 a deployment can revoke signing keys and withdraw builds
+  by digest: a pack any revoked key signed is refused, an installed one
+  blocks further installs, and every install is audited
+  (`packages/packs/test/revocation.test.ts`, `typesys pack verify
+  --revoke`). Not addressed: distributing revocation lists, key expiry,
+  and a transparency log.
 - A subtype keeps its base's protections (ADR-0060): registration merges
   the base's property policies and markings into a subtype and applies the
   base's object policy when the subtype names none; replacing an inherited

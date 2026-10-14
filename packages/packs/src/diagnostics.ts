@@ -12,6 +12,8 @@ export type PackDiagnosticCode =
   | "untrusted"
   /** A signature by a trusted key id does not verify. */
   | "bad-signature"
+  /** It is signed by a revoked key, or this build was withdrawn (ADR-0069). */
+  | "revoked"
   /** A pack it requires is not present. */
   | "missing-dependency"
   /** A pack it requires is present at a version outside the range. */

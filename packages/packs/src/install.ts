@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import semver from "semver";
 import {
   InMemoryRegistryStore,
@@ -10,7 +11,7 @@ import {
   type RegisterTypeOptions,
   type TraitDefinition
 } from "@typesys/core";
-import { verifyPack, type PackArchive, type VerifyOptions } from "./archive.js";
+import { revocationsOf, verifyPack, type PackArchive, type VerifyOptions } from "./archive.js";
 import { PackError, type PackDiagnostic } from "./diagnostics.js";
 
 export interface InstallOptions {
@@ -18,6 +19,12 @@ export interface InstallOptions {
   readonly bindings: BindingRegistry;
   /** When given, every pack must be signed by one of these keys. */
   readonly trustedKeys?: VerifyOptions["trustedKeys"];
+  /** Keys no longer trusted: a pack signed by one is refused, and so is any install while an installed pack is (ADR-0069). */
+  readonly revokedKeys?: VerifyOptions["revokedKeys"];
+  /** Pack builds withdrawn, by digest, refused as revoked keys are. */
+  readonly revokedDigests?: VerifyOptions["revokedDigests"];
+  /** Who is installing, for the audit row `installPacks` writes. Default `"system"`. */
+  readonly actor?: string;
   /** The rule names the deployment's policy engine has. When given, a pack naming another is refused. */
   readonly policies?: readonly string[];
   /** The deployment's adapters. When given, every data source a pack declares needs one. */
@@ -218,7 +225,14 @@ async function alreadyRegistered(
 export async function planInstall(archives: readonly PackArchive[], opts: InstallOptions): Promise<InstallPlan> {
   const out: PackDiagnostic[] = [];
   const installed = opts.installed ?? [];
-  for (const a of archives) out.push(...verifyPack(a, opts.trustedKeys ? { trustedKeys: opts.trustedKeys } : {}));
+  const trust: VerifyOptions = {
+    ...(opts.trustedKeys ? { trustedKeys: opts.trustedKeys } : {}),
+    ...(opts.revokedKeys ? { revokedKeys: opts.revokedKeys } : {}),
+    ...(opts.revokedDigests ? { revokedDigests: opts.revokedDigests } : {})
+  };
+  for (const a of archives) out.push(...verifyPack(a, trust));
+  // What is already installed was trusted when it was installed; a revocation since then still applies to it.
+  for (const a of installed) out.push(...revocationsOf(a, trust));
   if (out.length > 0) return { order: [], diagnostics: out };
 
   const names = new Set<string>();
@@ -288,7 +302,24 @@ export async function planInstall(archives: readonly PackArchive[], opts: Instal
  */
 export async function installPacks(registry: SemanticRegistry, archives: readonly PackArchive[], opts: InstallOptions): Promise<InstalledPack[]> {
   const plan = await planInstall(archives, { ...opts, registry });
-  if (plan.diagnostics.length > 0) throw new PackError(plan.diagnostics);
+  // Every attempt is audited, refused or not (ADR-0069): what was offered, by digest and signer, and why it was refused.
+  const offered = archives.map((a) => ({ name: a.name, version: a.version, digest: a.digest, signedBy: (a.signatures ?? []).map((s) => s.keyId) }));
+  const audit = (decision: "allow" | "deny", details: Record<string, unknown>, reason?: string) =>
+    registry.appendAuditEvent({
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      subjectId: opts.actor ?? "system",
+      action: "pack.install",
+      resource: { typeName: "*" },
+      decision,
+      ...(reason ? { reason } : {}),
+      details: { packs: offered, signed: opts.trustedKeys !== undefined, ...details }
+    });
+  if (plan.diagnostics.length > 0) {
+    await audit("deny", { diagnostics: plan.diagnostics.map((d) => ({ code: d.code, pack: d.pack, ...(d.subject ? { subject: d.subject } : {}) })) }, [...new Set(plan.diagnostics.map((d) => d.code))].join(", "));
+    throw new PackError(plan.diagnostics);
+  }
   for (const p of plan.order) await registerDomain(registry, manifestOf(p, opts.bindings, opts.dataSources));
+  await audit("allow", { order: plan.order.map((p) => p.name) });
   return [...(opts.installed ?? []), ...plan.order].map((p) => ({ name: p.name, version: p.version, digest: p.digest }));
 }

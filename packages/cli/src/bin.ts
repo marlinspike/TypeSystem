@@ -23,7 +23,7 @@ Usage:
   typesys discover <dir> <task words...> [--bindings <module.js>] [--limit <n>] [--json]
   typesys check-query <dir> <query.json> [--bindings <module.js>] [--json]
   typesys pack inspect <pack.json> [--json]
-  typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--json]
+  typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--revoke <keyId|sha256:digest>]... [--json]
   typesys pack sign <pack.json> --key-id <id> --private-key <private.pem> --out <signed.json>
   typesys pack check-upgrade <next.json> --installed <pack.json>... [--json]
 
@@ -59,7 +59,8 @@ traits are always pre-registered, so \`extends: core.Asset\` etc. just works.
                 pack contains and what a deployment must supply (bindings,
                 policy rules, data sources, other packs). verify checks the
                 digest and, with --trust, an Ed25519 signature by one of the
-                given keys. sign adds one. check-upgrade compares a new
+                given keys; --revoke refuses a pack any revoked key signed,
+                or a withdrawn build by digest (ADR-0069). sign adds one. check-upgrade compares a new
                 version with the installed packs: the contract diff, the
                 version bump it needs, and every dependent's range. verify
                 and check-upgrade exit 1 on any finding.
@@ -93,6 +94,7 @@ interface ParsedArgs {
   check: boolean;
   limit?: number;
   trust: string[];
+  revoke: string[];
   installed: string[];
   keyId?: string;
   privateKey?: string;
@@ -102,7 +104,7 @@ interface ParsedArgs {
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, dir, ...rest] = argv;
-  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, trust: [], installed: [], positionals: [] };
+  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, trust: [], revoke: [], installed: [], positionals: [] };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--bindings") result.bindings = rest[++i];
     else if (rest[i] === "--out") result.out = rest[++i];
@@ -112,6 +114,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (rest[i] === "--check") result.check = true;
     else if (rest[i] === "--limit") result.limit = Number(rest[++i]);
     else if (rest[i] === "--trust") result.trust.push(rest[++i]!);
+    else if (rest[i] === "--revoke") result.revoke.push(rest[++i]!);
     else if (rest[i] === "--installed") result.installed.push(rest[++i]!);
     else if (rest[i] === "--key-id") result.keyId = rest[++i];
     else if (rest[i] === "--private-key") result.privateKey = rest[++i];
@@ -322,7 +325,9 @@ async function packCommand(sub: string | undefined, args: ParsedArgs): Promise<v
         if (at <= 0) throw new Error(`--trust takes <keyId>=<public.pem>, got "${t}"`);
         trustedKeys[t.slice(0, at)] = await readFile(t.slice(at + 1), "utf8");
       }
-      const found = verifyPack(pack, args.trust.length > 0 ? { trustedKeys } : {});
+      const revokedKeys = Object.fromEntries(args.revoke.filter((r) => !r.startsWith("sha256:")).map((r) => [r, {}]));
+      const revokedDigests = Object.fromEntries(args.revoke.filter((r) => r.startsWith("sha256:")).map((r) => [r, {}]));
+      const found = verifyPack(pack, { ...(args.trust.length > 0 ? { trustedKeys } : {}), revokedKeys, revokedDigests });
       printResult(args.json, found.length === 0, { name: pack.name, version: pack.version, digest: pack.digest, diagnostics: found }, found.length === 0 ? [`OK — ${pack.name} ${pack.version} is intact${args.trust.length > 0 ? " and signed by a trusted key" : ""}`] : found.map(diagnosticLine));
     } else if (sub === "sign") {
       if (!args.keyId || !args.privateKey || !args.out) throw new Error("sign needs --key-id, --private-key and --out");

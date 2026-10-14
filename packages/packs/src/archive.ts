@@ -228,9 +228,43 @@ export function signPack(archive: PackArchive, keyId: string, privateKey: KeyInp
   return { ...archive, signatures: [...(archive.signatures ?? []).filter((s) => s.keyId !== keyId), { keyId, algorithm: "ed25519", value }] };
 }
 
+/** Why and since when a key or a pack is no longer trusted (ADR-0069). */
+export interface Revocation {
+  /** ISO 8601. Recorded for the audit trail; a revocation applies to every pack, whenever it was signed. */
+  readonly revokedAt?: string;
+  readonly reason?: string;
+}
+
 export interface VerifyOptions {
   /** Key id to public key. When given, the pack must carry a valid signature by one of them. */
   readonly trustedKeys?: Readonly<Record<string, KeyInput>>;
+  /**
+   * Key ids no longer trusted (ADR-0069). A pack carrying any signature by
+   * one is refused, whether or not trusted keys are given and whatever else
+   * signed it: a signature by a compromised key says the pack passed
+   * through its holder. A revoked key id in `trustedKeys` is not trusted.
+   */
+  readonly revokedKeys?: Readonly<Record<string, Revocation>>;
+  /** Pack digests no longer trusted, such as a release withdrawn for a defect (ADR-0069). */
+  readonly revokedDigests?: Readonly<Record<string, Revocation>>;
+}
+
+const revocationNote = (r: Revocation | undefined): string => [r?.revokedAt ? ` on ${r.revokedAt}` : "", r?.reason ? `: ${r.reason}` : ""].join("");
+
+/**
+ * The revocations that apply to `archive`: a withdrawn digest, and every
+ * signature by a revoked key, verified or not, since an unverifiable
+ * signature by a revoked key id is no reason to accept the pack either.
+ */
+export function revocationsOf(archive: PackArchive, opts: Pick<VerifyOptions, "revokedKeys" | "revokedDigests">): PackDiagnostic[] {
+  const out: PackDiagnostic[] = [];
+  const revokedDigest = opts.revokedDigests && Object.hasOwn(opts.revokedDigests, archive.digest) ? opts.revokedDigests[archive.digest] : undefined;
+  if (revokedDigest) out.push({ code: "revoked", pack: archive.name, subject: archive.digest, message: `This build of ${archive.name} ${archive.version} was withdrawn${revocationNote(revokedDigest)}` });
+  for (const s of archive.signatures ?? []) {
+    const revoked = opts.revokedKeys && Object.hasOwn(opts.revokedKeys, s.keyId) ? opts.revokedKeys[s.keyId] : undefined;
+    if (revoked) out.push({ code: "revoked", pack: archive.name, subject: s.keyId, message: `Signed by "${s.keyId}", a key revoked${revocationNote(revoked)}` });
+  }
+  return out;
 }
 
 function shapeProblems(a: Partial<PackArchive>): string[] {
@@ -249,8 +283,9 @@ function shapeProblems(a: Partial<PackArchive>): string[] {
 /**
  * Every reason not to trust `archive`: a malformed document, requirements
  * that do not match its contents, a digest that does not match, and, when
- * trusted keys are given, no valid signature by one of them. Empty means
- * it is intact (and, with keys, from a trusted signer).
+ * trusted keys are given, no valid signature by one of them; and any
+ * revocation that applies (ADR-0069). Empty means it is intact (and, with
+ * keys, from a trusted signer).
  */
 export function verifyPack(archive: unknown, opts: VerifyOptions = {}): PackDiagnostic[] {
   const a = (archive ?? {}) as Partial<PackArchive>;
@@ -262,12 +297,13 @@ export function verifyPack(archive: unknown, opts: VerifyOptions = {}): PackDiag
   if (canonical(requirementsOf(full.contents)) !== canonical(full.requirements))
     out.push({ code: "invalid-pack", pack, message: "The requirements it states are not the ones its contents need" });
   if (digestOf(full) !== full.digest) out.push({ code: "digest-mismatch", pack, message: "The digest does not match the contents: the pack was changed after it was built" });
+  out.push(...revocationsOf(full, opts));
   if (opts.trustedKeys) {
     let trusted = false;
     for (const s of full.signatures ?? []) {
       // Own keys only: a key id such as "constructor" names no trusted key.
       const key = Object.hasOwn(opts.trustedKeys, s.keyId) ? opts.trustedKeys[s.keyId] : undefined;
-      if (key === undefined) continue;
+      if (key === undefined || (opts.revokedKeys && Object.hasOwn(opts.revokedKeys, s.keyId))) continue;
       const publicKey = typeof key === "string" ? createPublicKey(key) : key;
       if (s.algorithm === "ed25519" && verify(null, Buffer.from(full.digest, "utf8"), publicKey, Buffer.from(s.value, "base64"))) trusted = true;
       else out.push({ code: "bad-signature", pack, subject: s.keyId, message: `The signature by "${s.keyId}" does not verify` });
