@@ -23,9 +23,8 @@ points into.
    not-yet-built extension point. Read this before assuming a capability
    exists just because an ADR discusses it.
 5. **[Production readiness](PRODUCTION-READINESS.md)** — the ranked list
-   of what stands between this reference implementation and real
-   production traffic, kept current as items are actually closed. Read it
-   before betting production traffic on any of this.
+   of what to decide and configure for a production deployment, kept
+   current as items are closed.
 
 ## Building something? (how-to guides)
 

@@ -1,7 +1,7 @@
 # Production readiness
 
-This is the living, ranked assessment of what stands between this
-reference implementation and real production traffic. It is meant to
+This is the living, ranked list of what to decide and configure when you
+run TypeSystem in production. It is meant to
 change: when an item is genuinely closed, against real requirements and
 not a speculative pass, edit it here and reflect it in
 [`completeness.md`](completeness.md).

@@ -786,6 +786,5 @@ your project. Use it as a pattern (multi-stage, non-root, a `/healthz`
 check) and point its `CMD` at your own compiled entry point.
 
 Before production traffic, read
-[`PRODUCTION-READINESS.md`](../PRODUCTION-READINESS.md). It ranks what
-still stands between this reference implementation and real production
-use.
+[`PRODUCTION-READINESS.md`](../PRODUCTION-READINESS.md). It lists what to
+decide and configure for a production deployment.

@@ -1,8 +1,8 @@
 # Contributing to TypeSys
 
-Thanks for considering a contribution. This is a reference implementation
-with an unusually strong emphasis on *why* things are shaped the way they
-are, so the most useful thing you can do before writing code is read the
+Thanks for considering a contribution. TypeSystem puts unusual weight on
+*why* things are shaped the way they are, so the most useful thing you can
+do before writing code is read the
 relevant [ADR](docs/adr/) — and if you're changing a hard-to-reverse
 decision, add or amend one.
 

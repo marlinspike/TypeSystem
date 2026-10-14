@@ -42,14 +42,14 @@ message queue.
   no canonical-layer overhead to justify. TypeSys's entire value proposition
   is unifying *multiple* physical systems behind one model — with one
   system, there's nothing to unify.
-- **You need a mature, battle-tested 1.0 product today.** This is a
-  reference implementation of a real architecture, not a product with a
-  release history. Read [`docs/completeness.md`](completeness.md) for
-  exactly what's proven-in-tests versus a documented, not-yet-built
-  extension point, and
-  [`docs/PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md) for the
-  specific, ranked list of what closing the gap to real production
-  traffic would actually take, before betting production traffic on it.
+- **You need a vendor-supported package with a published release and an
+  external security audit.** TypeSystem's packages are versioned 0.x and
+  not yet published to npm, and it has not had an external audit. Its
+  controls are tested in CI, by a mutation suite and by independent
+  adversarial reviews; [`docs/completeness.md`](completeness.md) lists what
+  each test proves, and
+  [`docs/PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md) what to decide
+  for a production deployment.
 - **Sub-millisecond, zero-indirection latency is the whole point.** Every
   layer here — policy check, audit write, provenance tracking — is real
   work done on every call. It's fast enough for the workloads it was
