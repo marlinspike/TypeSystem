@@ -65,15 +65,15 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
 
       // What the engine protects against: Cedar itself rejects an entity carrying an undeclared attribute.
       const raw = isAuthorized({
-        principal: { type: "TypeS::User", id: "u" },
-        action: { type: "TypeS::Action", id: "hospital.read-patient" },
+        principal: { type: "TypeSys::User", id: "u" },
+        action: { type: "TypeSys::Action", id: "hospital.read-patient" },
         resource: { type: "hospital::Patient", id: "PT-1001" },
         context: {},
         schema: SCHEMA,
         validateRequest: true,
         policies: { staticPolicies: POLICIES },
         entities: [
-          { uid: { type: "TypeS::User", id: "u" }, attrs: {}, parents: [] },
+          { uid: { type: "TypeSys::User", id: "u" }, attrs: {}, parents: [] },
           { uid: { type: "hospital::Patient", id: "PT-1001" }, attrs: { name: "Jordan Lee" }, parents: [] }
         ]
       });
@@ -84,7 +84,7 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
       const errors: CedarErrorDetail[] = [];
       const e = engine({}, errors);
       const provider = (subject: Identity): PolicyRequest => ({ subject, action: "read", policyName: "hospital.read-provider", resource: { typeName: "hospital.Provider" } });
-      const forged: unknown[] = [["PR-2001"], 2001, 2001.5, Number.NaN, { __entity: { type: "TypeS::User", id: "PR-2001" } }, { toString: () => "PR-2001" }];
+      const forged: unknown[] = [["PR-2001"], 2001, 2001.5, Number.NaN, { __entity: { type: "TypeSys::User", id: "PR-2001" } }, { toString: () => "PR-2001" }];
       for (const providerId of forged) {
         const subject: Identity = { ...clinicianA, attributes: { providerId } };
         expect((await e.evaluate(readPatient(subject, PT_1001))).allow).toBe(false);
@@ -92,7 +92,7 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
         expect((await e.evaluate(provider(subject))).allow).toBe(false);
       }
       expect(errors).toHaveLength(forged.length * 2);
-      const forgedResource = { ...PT_1001, assignedClinicianId: { __entity: { type: "TypeS::User", id: "user-clinician-1" } } };
+      const forgedResource = { ...PT_1001, assignedClinicianId: { __entity: { type: "TypeSys::User", id: "user-clinician-1" } } };
       expect((await e.evaluate(readPatient(clinicianA, forgedResource))).allow).toBe(false);
     });
 
@@ -106,7 +106,7 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
     it("a wrong-typed value cannot silently disable a forbid — the reason it's refused rather than dropped", async () => {
       const schema = SCHEMA.replace("assignedClinicianId?: String", "assignedClinicianId?: String, classification?: String");
       const policies = `${POLICIES}
-@id("forbid-secret") forbid (principal, action == TypeS::Action::"hospital.read-patient", resource) when { resource has classification && resource.classification == "secret" };`;
+@id("forbid-secret") forbid (principal, action == TypeSys::Action::"hospital.read-patient", resource) when { resource has classification && resource.classification == "secret" };`;
       const e = engine({ schema, policies });
       const as = (classification: unknown) => e.evaluate(readPatient(admin, { id: "PT-9", classification }, "PT-9"));
       expect((await as("secret")).reason).toBe("Forbidden by forbid-secret");
@@ -132,22 +132,22 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
     });
 
     it("rejects a policy that reads an undeclared attribute", () => {
-      const policies = `permit (principal, action == TypeS::Action::"hospital.read-patient", resource) when { resource.name == "x" };`;
+      const policies = `permit (principal, action == TypeSys::Action::"hospital.read-patient", resource) when { resource.name == "x" };`;
       expect(loads({ policies })).toThrow(/attribute `name` on entity type `hospital::Patient` not found/);
     });
 
     it("rejects an impossible policy — a typo'd attribute behind `has`, which in a forbid would silently never fire", () => {
-      const policies = `${POLICIES}\n@id("typo") forbid (principal, action == TypeS::Action::"hospital.read-patient", resource) when { resource has asignedClinicianId };`;
+      const policies = `${POLICIES}\n@id("typo") forbid (principal, action == TypeSys::Action::"hospital.read-patient", resource) when { resource has asignedClinicianId };`;
       expect(loads({ policies })).toThrow(/typo: .*policy is impossible/);
     });
 
     it("rejects a policy that reads an optional attribute without a `has` guard — the type-level contract, checked statically", () => {
-      const policies = `permit (principal, action == TypeS::Action::"hospital.read-patient", resource) when { resource.assignedClinicianId == principal.providerId };`;
+      const policies = `permit (principal, action == TypeSys::Action::"hospital.read-patient", resource) when { resource.assignedClinicianId == principal.providerId };`;
       expect(loads({ policies })).toThrow(/optional attribute/);
     });
 
     it("rejects a schema that doesn't parse", () => {
-      expect(loads({ schema: "namespace TypeS { entity" })).toThrow(CedarPolicyError);
+      expect(loads({ schema: "namespace TypeSys { entity" })).toThrow(CedarPolicyError);
     });
 
     it("rejects a required resource attribute, which every type-level request would lack", () => {
@@ -156,7 +156,7 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
     });
 
     it("rejects a schema without the identity model the mapping relies on", () => {
-      expect(loads({ schema: SCHEMA.replace("entity Role;", "").replace("entity User in [Role]", "entity User") })).toThrow(/TypeS::Role/);
+      expect(loads({ schema: SCHEMA.replace("entity Role;", "").replace("entity User in [Role]", "entity User") })).toThrow(/TypeSys::Role/);
       expect(loads({ schema: SCHEMA.replace("entity User in [Role]", "entity User") })).toThrow(/in \[Role\]/);
     });
 
@@ -170,7 +170,7 @@ describe("CedarPolicyEngine (ADR-0031)", () => {
     const LEVELLED = SCHEMA.replace("assignedClinicianId?: String", "assignedClinicianId?: String, level?: Long");
     const ERRORING_FORBID = `${POLICIES}
 @id("forbid-high-level")
-forbid (principal, action == TypeS::Action::"hospital.read-patient", resource) when { resource has level && resource.level * 9223372036854775807 > 0 };`;
+forbid (principal, action == TypeSys::Action::"hospital.read-patient", resource) when { resource has level && resource.level * 9223372036854775807 > 0 };`;
 
     it("an erroring forbid can't fall through to a matching permit", async () => {
       const errors: CedarErrorDetail[] = [];
@@ -185,16 +185,16 @@ forbid (principal, action == TypeS::Action::"hospital.read-patient", resource) w
 
       // The trap: Cedar alone skips the erroring forbid and allows.
       const raw = isAuthorized({
-        principal: { type: "TypeS::User", id: "a" },
-        action: { type: "TypeS::Action", id: "hospital.read-patient" },
+        principal: { type: "TypeSys::User", id: "a" },
+        action: { type: "TypeSys::Action", id: "hospital.read-patient" },
         resource: { type: "hospital::Patient", id: "PT-9" },
         context: {},
         schema: LEVELLED,
         validateRequest: true,
         policies: { staticPolicies: ERRORING_FORBID },
         entities: [
-          { uid: { type: "TypeS::User", id: "a" }, attrs: {}, parents: [{ type: "TypeS::Role", id: "admin" }] },
-          { uid: { type: "TypeS::Role", id: "admin" }, attrs: {}, parents: [] },
+          { uid: { type: "TypeSys::User", id: "a" }, attrs: {}, parents: [{ type: "TypeSys::Role", id: "admin" }] },
+          { uid: { type: "TypeSys::Role", id: "admin" }, attrs: {}, parents: [] },
           { uid: { type: "hospital::Patient", id: "PT-9" }, attrs: { level: 2 }, parents: [] }
         ]
       });
@@ -234,8 +234,8 @@ forbid (principal, action == TypeS::Action::"hospital.read-patient", resource) w
   });
 
   it("engines keep their own policy sets — preparsed state is never shared", async () => {
-    const open = engine({ policies: `permit (principal, action == TypeS::Action::"hospital.read-provider", resource);` });
-    const closed = engine({ policies: `forbid (principal, action == TypeS::Action::"hospital.read-provider", resource);` });
+    const open = engine({ policies: `permit (principal, action == TypeSys::Action::"hospital.read-provider", resource);` });
+    const closed = engine({ policies: `forbid (principal, action == TypeSys::Action::"hospital.read-provider", resource);` });
     const request: PolicyRequest = { subject: admin, action: "read", policyName: "hospital.read-provider", resource: { typeName: "hospital.Provider" } };
     expect((await open.evaluate(request)).allow).toBe(true);
     expect((await closed.evaluate(request)).allow).toBe(false);

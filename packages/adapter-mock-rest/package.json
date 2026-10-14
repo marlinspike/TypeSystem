@@ -1,7 +1,7 @@
 {
   "name": "@typesys/adapter-mock-rest",
   "version": "0.1.0",
-  "description": "Mocked external REST Adapter implementation for TypeS, simulating a real system's own shape and network latency.",
+  "description": "Mocked external REST Adapter implementation for TypeSys, simulating a real system's own shape and network latency.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

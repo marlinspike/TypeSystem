@@ -32,7 +32,7 @@ function withAuthToken(schema: JsonSchema2020): JsonSchema2020 {
 }
 
 /**
- * Every tool TypeS itself provides is named with this prefix, and no Action
+ * Every tool TypeSys itself provides is named with this prefix, and no Action
  * may be (ADR-0051), so a domain's Actions can never shadow a read. An
  * underscore, not a dot: the Claude and OpenAI tool-calling APIs accept only
  * `[A-Za-z0-9_-]` in a tool name, and many agent frameworks pass MCP tool
@@ -53,7 +53,7 @@ const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false,
  * An Action's annotations, from what its definition already declares
  * (ADR-0051). All four are set, since MCP's defaults (destructive, not
  * idempotent, open world) would otherwise speak for the Action. An
- * `external` side effect is reported as possibly destructive: TypeS cannot
+ * `external` side effect is reported as possibly destructive: TypeSys cannot
  * see what the external system does with it. Hints only — the runtime
  * enforces policy whatever a client makes of them.
  */
@@ -224,7 +224,7 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
 }
 
 /**
- * Actions map 1:1 onto MCP tools, beside TypeS's own read, query, and
+ * Actions map 1:1 onto MCP tools, beside TypeSys's own read, query, and
  * aggregate tools (ADR-0012, ADR-0051). Every call routes through the same
  * SemanticRuntime/PolicyEngine as any other consumer.
  */

@@ -6,7 +6,7 @@ export function messagesOf(errors: DetailedError[]): string[] {
   return errors.map((e) => e.message);
 }
 
-/** A name used inside namespace `ns`, fully qualified: `User` in `TypeS` is `TypeS::User`; `hospital::Patient` stays as it is. */
+/** A name used inside namespace `ns`, fully qualified: `User` in `TypeSys` is `TypeSys::User`; `hospital::Patient` stays as it is. */
 function qualify(ns: string, name: string): string {
   return name.includes("::") || ns === "" ? name : `${ns}::${name}`;
 }
@@ -14,7 +14,7 @@ function qualify(ns: string, name: string): string {
 /**
  * Parses the schema into the index of what a policy may see — each entity
  * type's declared attribute names — and enforces the engine's structural
- * rules (ADR-0031): `TypeS::User` and `TypeS::Role` exist, a user can be a
+ * rules (ADR-0031): `TypeSys::User` and `TypeSys::Role` exist, a user can be a
  * member of a role, and every resource attribute is optional, because a
  * type-level request carries none (ADR-0030). Throws `CedarPolicyError`
  * listing every problem at once.

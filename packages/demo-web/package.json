@@ -1,7 +1,7 @@
 {
   "name": "@typesys/demo-web",
   "version": "0.1.0",
-  "description": "Interactive web demo for TypeS: two domains on one runtime, row-level and classification controls, a Cedar/ABAC engine switch, encryption at rest, provenance, live guardrail scenarios, the MCP console, and a live audit log.",
+  "description": "Interactive web demo for TypeSys: two domains on one runtime, row-level and classification controls, a Cedar/ABAC engine switch, encryption at rest, provenance, live guardrail scenarios, the MCP console, and a live audit log.",
   "private": true,
   "type": "module",
   "main": "./dist/server.js",

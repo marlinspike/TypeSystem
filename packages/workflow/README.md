@@ -1,6 +1,6 @@
 # @typesys/workflow
 
-Governed workflows over TypeS
+Governed workflows over TypeSys
 ([ADR-0057](../../docs/adr/0057-governed-workflows.md)): read, compute, AI,
 approval and Action steps, run as the person who started them, with a
 journal, retries, compensation and replay checks.

@@ -8,7 +8,7 @@ import { ALWAYS, NEVER, allPlans, anyPlan, isPlanIdentifier, predicatePlan, unkn
  * only `&&` and `||` — is replaced by `true`, which only ever admits more.
  */
 export interface ResidualContext {
-  /** The TypeS policy name: what limitations name. */
+  /** The TypeSys policy name: what limitations name. */
   policyName: string;
   /** The queried Type, as a Cedar entity type: what `resource is T` is decided against. */
   cedarType: string;

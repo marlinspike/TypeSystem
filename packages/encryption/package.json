@@ -1,7 +1,7 @@
 {
   "name": "@typesys/encryption",
   "version": "0.1.0",
-  "description": "Field-level encryption at rest for TypeS — an EncryptingAdapter decorator (AES-256-GCM, HMAC blind indexes for equality) around any Adapter, behind a KeyProvider seam.",
+  "description": "Field-level encryption at rest for TypeSys — an EncryptingAdapter decorator (AES-256-GCM, HMAC blind indexes for equality) around any Adapter, behind a KeyProvider seam.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

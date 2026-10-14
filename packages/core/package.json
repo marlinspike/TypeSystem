@@ -1,7 +1,7 @@
 {
   "name": "@typesys/core",
   "version": "0.1.0",
-  "description": "The TypeS meta-model, registry, runtime, policy engine, and audit log — the foundation every adapter, domain, and transport builds on.",
+  "description": "The TypeSys meta-model, registry, runtime, policy engine, and audit log — the foundation every adapter, domain, and transport builds on.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

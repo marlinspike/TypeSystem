@@ -1,7 +1,7 @@
 {
   "name": "@typesys/mcp-server",
   "version": "0.1.0",
-  "description": "Model Context Protocol server exposing a TypeS semantic registry as governed resources and tools.",
+  "description": "Model Context Protocol server exposing a TypeSys semantic registry as governed resources and tools.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

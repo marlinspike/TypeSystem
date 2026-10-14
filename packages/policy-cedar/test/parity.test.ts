@@ -251,7 +251,7 @@ describe("row-level authorization under Cedar (ADR-0030 + ADR-0031)", () => {
 
     it("an identity whose declared claim has the wrong type is refused everything under Cedar", async () => {
       const { abac, cedar } = await worlds();
-      for (const providerId of [["PR-2001"], { __entity: { type: "TypeS::User", id: "PR-2001" } }, 2001]) {
+      for (const providerId of [["PR-2001"], { __entity: { type: "TypeSys::User", id: "PR-2001" } }, 2001]) {
         const malformed = identity("c-malformed", ["clinician"], { providerId });
         await expect(abac.getObject("hospital.Patient", "PT-1001", malformed)).rejects.toBeInstanceOf(AuthorizationError);
         await expect(cedar.getObject("hospital.Patient", "PT-1001", malformed)).rejects.toBeInstanceOf(AuthorizationError);

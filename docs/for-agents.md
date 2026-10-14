@@ -1,7 +1,7 @@
-# TypeS for AI Agents
+# TypeSys for AI Agents
 
 This page is for an AI agent (or the developer building one) that needs to
-read and act on a TypeS-backed domain over MCP. It is procedural, not
+read and act on a TypeSys-backed domain over MCP. It is procedural, not
 architectural — for *why* the system is shaped this way, see
 [`why-typesys.md`](why-typesys.md) and
 [ADR-0012](adr/0012-mcp-mapping-and-stateless-identity.md).
@@ -17,12 +17,12 @@ this server is a real authorization decision, not a bug to route around.
 ## Two primitives, not a REST API
 
 MCP's own vocabulary maps directly onto this project's meta-model — there
-is nothing TypeS-specific to learn beyond the URI/argument shapes below:
+is nothing TypeSys-specific to learn beyond the URI/argument shapes below:
 
 | MCP primitive | What it is here |
 |---|---|
 | **Resources** (`resources/list`, `resources/read`) | Read-only browsing: Types, objects, relationships, provenance. Never mutates anything. |
-| **Tools** (`tools/list`, `tools/call`) | One tool per registered Action, plus seven read-only tools TypeS provides: `typesys_list_types`, `typesys_describe_type`, `typesys_get_object`, `typesys_get_relationship`, `typesys_get_provenance`, `typesys_query`, and `typesys_aggregate`. Calling an Action's tool is the only way to change anything. |
+| **Tools** (`tools/list`, `tools/call`) | One tool per registered Action, plus seven read-only tools TypeSys provides: `typesys_list_types`, `typesys_describe_type`, `typesys_get_object`, `typesys_get_relationship`, `typesys_get_provenance`, `typesys_query`, and `typesys_aggregate`. Calling an Action's tool is the only way to change anything. |
 
 **If your framework uses only tools, you lose nothing.** Each resource read
 has a tool twin that runs the same code, so it returns the same value and
@@ -81,7 +81,7 @@ Type's own definition before guessing at a relationship or property name.
 
 `tools/list` returns one tool per registered Action (its `inputSchema` is
 the exact JSON Schema you must satisfy — always includes an `authToken`
-string field) plus TypeS's own tools, all named `typesys_…` (no Action may
+string field) plus TypeSys's own tools, all named `typesys_…` (no Action may
 use that prefix):
 
 | Tool | Arguments | Returns (`structuredContent`) |
@@ -108,7 +108,7 @@ minor version, but are no longer listed under them.
 annotations taken from its definition: `readOnlyHint` when it has no side
 effects, `destructiveHint` when it mutates existing data or calls an
 external system, `idempotentHint` when repeating it changes nothing more,
-and `openWorldHint` when it reaches outside the registry's systems. TypeS's
+and `openWorldHint` when it reaches outside the registry's systems. TypeSys's
 own tools are all read-only. Use them to decide what needs a human's
 confirmation. They are hints: whether you may invoke an Action is still
 decided by the server on every call.

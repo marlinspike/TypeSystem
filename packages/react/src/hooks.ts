@@ -25,21 +25,21 @@ export interface ActionState<M extends ModelShape, A extends ActionName<M>> {
 
 /**
  * Headless hooks typed by a generated model (ADR-0058):
- * `const { TypeSProvider, useQuery, useAction } = createTypeSHooks<AirforceModel>()`.
+ * `const { TypeSysProvider, useQuery, useAction } = createTypeSysHooks<AirforceModel>()`.
  * They render nothing and decide nothing: each one calls the SDK client the
  * provider holds, so what a component shows is what the runtime returned for
  * that client's caller, in process or over HTTP.
  */
-export function createTypeSHooks<M extends ModelShape>() {
+export function createTypeSysHooks<M extends ModelShape>() {
   const ClientContext = createContext<Client<M> | null>(null);
 
-  function TypeSProvider(props: { readonly client: Client<M>; readonly children?: ReactNode }) {
+  function TypeSysProvider(props: { readonly client: Client<M>; readonly children?: ReactNode }) {
     return createElement(ClientContext.Provider, { value: props.client }, props.children);
   }
 
   function useClient(): Client<M> {
     const client = useContext(ClientContext);
-    if (!client) throw new Error("A TypeS hook was used outside its TypeSProvider");
+    if (!client) throw new Error("A TypeSys hook was used outside its TypeSysProvider");
     return client;
   }
 
@@ -133,5 +133,5 @@ export function createTypeSHooks<M extends ModelShape>() {
     };
   }
 
-  return { TypeSProvider, useClient, useLoad, useQuery, useObject, useActions, useAction };
+  return { TypeSysProvider, useClient, useLoad, useQuery, useObject, useActions, useAction };
 }

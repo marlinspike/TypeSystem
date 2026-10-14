@@ -1,4 +1,4 @@
-# Conformance scenarios the TypeS HTTP server is expected to fail, for
+# Conformance scenarios the TypeSys HTTP server is expected to fail, for
 # `npm run conformance:mcp` (scripts/mcp-conformance.ts, ADR-0051).
 #
 # The suite exits non-zero on a failure not listed here, and on a listed
@@ -10,7 +10,7 @@
 server:
   # Fixtures: these call tools and read resources that exist only in the
   # suite's reference "everything" server (test_image_content,
-  # test://static-text, test://template/{id}/data, ...). A TypeS server
+  # test://static-text, test://template/{id}/data, ...). A TypeSys server
   # serves a registry's Types and Actions, never those names.
   - tools-call-image
   - tools-call-audio
@@ -26,7 +26,7 @@ server:
   - resources-read-binary
   - resources-templates-read
 
-  # Capabilities TypeS does not declare, answered with -32601 Method not
+  # Capabilities TypeSys does not declare, answered with -32601 Method not
   # found as the spec requires: logging, completions, resource
   # subscriptions, and prompts.
   - logging-set-level

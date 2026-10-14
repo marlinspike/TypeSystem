@@ -160,7 +160,7 @@ export function openApiDocument(
   return {
     openapi: "3.1.0",
     jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema",
-    info: { title: opts.title ?? "TypeS API", version: opts.version ?? "0.1.0" },
+    info: { title: opts.title ?? "TypeSys API", version: opts.version ?? "0.1.0" },
     servers: [{ url: "/api" }],
     security: [{ bearer: [] }],
     paths,

@@ -9,7 +9,7 @@ production, [`PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md).
 
 ## The goal, in one paragraph
 
-TypeS already gives every consumer one governed path to enterprise data:
+TypeSys already gives every consumer one governed path to enterprise data:
 one model, one enforcement point, one audit trail. The next step is to make
 that path the *fastest* way to build an application or an agent, not just
 the safest one. A developer (or a coding agent) should be able to take a
@@ -17,7 +17,7 @@ mission requirement, discover the semantic capabilities that serve it,
 compose a typed query, a governed workflow and a user interface over them,
 check the composition mechanically before running it, and ship it with
 very little handwritten integration code. Every one of those steps has to
-keep the guarantee TypeS exists for: the runtime decides, once, for people
+keep the guarantee TypeSys exists for: the runtime decides, once, for people
 and models alike.
 
 ## Principles this roadmap is held to
@@ -86,7 +86,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | 6 | `@typesys/workflow`: governed workflows, AI steps, approvals, simulation, replay | ✅ | [0057](adr/0057-governed-workflows.md) | `packages/workflow/test/` (crash recovery without repeating a non-idempotent Action; start and approval decisions identical under Cedar), `packages/devkit/test/synthesize.test.ts`, 11 mutations caught; [`evidence/workflow-2026-10-13.md`](evidence/workflow-2026-10-13.md), which also records a core fix: one request context per process instead of one per runtime |
 | 7 | Governed HTTP API and `@typesys/react` headless bindings | ✅ | [0058](adr/0058-governed-http-api-and-headless-react-bindings.md) | `packages/http/test/api.test.ts` (8 SDK reads identical in process and over HTTP for 3 callers; OpenAPI request schemas admit and refuse what the runtime does), `packages/react/test/react.test.ts` (same component, different values per caller), 14 mutations caught; [`evidence/http-react-2026-10-13.md`](evidence/http-react-2026-10-13.md) |
 | 8 | Domain packs: versioned, signed, offline, specializable | ✅ | [0059](adr/0059-domain-packs.md), [0060](adr/0060-subtypes-keep-their-base-protections.md) | `packages/packs/test/packs.test.ts` (core and airforce installed from their files are the same model and answer 3 callers identically; one install reports every missing requirement and registers nothing; upgrades checked against dependents), `packages/cli/test/pack.test.ts`, `packages/core/test/subtype-protections.test.ts`, 24 mutations caught; [`evidence/packs-2026-10-13.md`](evidence/packs-2026-10-13.md), which also records a core fix: a subtype no longer drops its base's property policies and markings |
-| 9 | TypeS Studio | ✅ | [0061](adr/0061-typesys-studio.md) | `packages/studio/test/` (security headers; the API beside the page answers each caller as the runtime does; Chromium drives the built client as the viewer and the maintainer: a suggestion applied, the SECRET column empty only for the viewer, Invoke offered only for a previewed input that would run), `packages/sdk/test/source.test.ts` (2,000 generated queries round-trip through `querySource`), 21 mutations caught; [`evidence/studio-2026-10-13.md`](evidence/studio-2026-10-13.md) |
+| 9 | TypeSys Studio | ✅ | [0061](adr/0061-typesys-studio.md) | `packages/studio/test/` (security headers; the API beside the page answers each caller as the runtime does; Chromium drives the built client as the viewer and the maintainer: a suggestion applied, the SECRET column empty only for the viewer, Invoke offered only for a previewed input that would run), `packages/sdk/test/source.test.ts` (2,000 generated queries round-trip through `querySource`), 21 mutations caught; [`evidence/studio-2026-10-13.md`](evidence/studio-2026-10-13.md) |
 | 10 | Mission application and productivity comparison, with computed reads coalesced | ✅ | [0062](adr/0062-coalesced-computed-reads.md), [0063](adr/0063-a-mission-application-composed-and-by-hand.md) | Coalescing: `packages/core/test/read-coalescer.test.ts`, `packages/domain-airforce/test/computed-read-coalescing.test.ts` (identical answers for 3 callers over 3 generated fleets), 13 mutations caught; [`evidence/computed-reads-2026-10-13.md`](evidence/computed-reads-2026-10-13.md): 225 maintenance calls per page become 12 to 14, and p50 falls 20% to 30%. Mission application: `packages/mission-readiness/test/` (Chromium drives the composed and the hand-written versions through one scenario as a viewer, a maintainer and a lead, and both must show the same), 22 of 24 mutations caught, 2 equivalent; [`evidence/mission-app-2026-10-13.md`](evidence/mission-app-2026-10-13.md): 193 lines against 355, no access rule restated against 4 distinct rules at 7 places, five of six shared seeded mistakes caught by the compiler instead of the browser, three hand-written-only mistakes (two of them holes) caught by nothing, a policy change followed with no edit, the same latency |
 | 11 | Independent pressure test of slices 1 to 10 | ✅ | — | `packages/*/test/pressure-*.test.ts` (50 cases that failed before the fixes, about 35 defects, six high severity, all fixed); [`evidence/pressure-test-2026-10-14.md`](evidence/pressure-test-2026-10-14.md), which also lists the evidence claims that did not hold: mutation counts cannot be re-run because no harness is committed, and the composed mission client types one response shape by hand |
 
@@ -95,7 +95,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 - **Workflow durability.** Mature engines exist and are the right home for
   long-running production workflows: Temporal (a separate cluster, SDKs in
   several languages) and DBOS Transact (a library that checkpoints to
-  Postgres). TypeS will not build a competing orchestrator. It defines the
+  Postgres). TypeSys will not build a competing orchestrator. It defines the
   *governed* part a workflow engine cannot know about (which steps are
   authoritative, which are probabilistic, what needs approval, what each
   step may touch) and runs it through a small journaled interpreter whose

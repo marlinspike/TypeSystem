@@ -49,7 +49,7 @@ import type { AirforceModel } from "@typesys/domain-airforce";
 // In process, as one caller:
 const af = createClient<AirforceModel>(runtimeTransport(runtime, identity));
 
-// Or against a TypeS MCP server, with any client that has callTool():
+// Or against a TypeSys MCP server, with any client that has callTool():
 const remote = createClient<AirforceModel>(mcpTransport(mcpClient, { authToken }));
 ```
 
@@ -94,7 +94,7 @@ await af.action("UpdateWorkOrderStatus").invoke({ workOrderId, status: "closed" 
 
 ## From a query to code
 
-`querySource` turns any `SemanticQuery` (one composed in TypeS Studio,
+`querySource` turns any `SemanticQuery` (one composed in TypeSys Studio,
 proposed by an agent or found in a log) into the code that builds it:
 
 ```ts

@@ -60,7 +60,7 @@ export function createApiRouter(opts: ApiOptions): Router {
   if (!opts?.backend?.registry || !opts.backend.runtime) throw new TypeError("createApiRouter needs a backend: { registry, runtime }");
   if (typeof opts.identityResolver !== "function") throw new TypeError("createApiRouter needs an identity resolver; it assumes no identity of its own");
   const { registry, runtime } = opts.backend;
-  const onError = opts.onError ?? ((err: unknown) => console.error("TypeS API error:", err));
+  const onError = opts.onError ?? ((err: unknown) => console.error("TypeSys API error:", err));
   const router = express.Router();
   router.use(apiHardening);
   router.use(express.json({ limit: "256kb" }));

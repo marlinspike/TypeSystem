@@ -4,11 +4,11 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { describeModel, type ModelDescription } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
-import { Resource, coerceForm, columnsFor, createTypeSHooks, dataOf, errorOf, formFields, type ResourceState } from "../src/index.js";
+import { Resource, coerceForm, columnsFor, createTypeSysHooks, dataOf, errorOf, formFields, type ResourceState } from "../src/index.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { TypeSProvider, useQuery, useObject, useAction, useActions } = createTypeSHooks<AirforceModel>();
+const { TypeSysProvider, useQuery, useObject, useAction, useActions } = createTypeSysHooks<AirforceModel>();
 
 let testbed: AirforceTestbed;
 let model: ModelDescription;
@@ -28,7 +28,7 @@ async function mount<T>(who: keyof typeof demoIdentities, useProbe: () => T): Pr
   }
   let renderer!: ReactTestRenderer;
   await act(async () => {
-    renderer = create(createElement(TypeSProvider, { client: clientFor(who) }, createElement(Probe)) as ReactElement);
+    renderer = create(createElement(TypeSysProvider, { client: clientFor(who) }, createElement(Probe)) as ReactElement);
   });
   return { latest: () => latest as T, renderer };
 }
@@ -74,7 +74,7 @@ describe("Resource", () => {
   });
 });
 
-describe("the TypeS hooks (ADR-0058)", () => {
+describe("the TypeSys hooks (ADR-0058)", () => {
   it("useQuery loads a page, appends the next on loadMore, and shows each caller what the runtime gives them", async () => {
     const probe = () => useQuery((c) => c.from("airforce.Aircraft").select("tailNumber", "deploymentLocation").orderBy("tailNumber").limit(1), []);
     const maintainer = await mount("maintainer", probe);
@@ -160,7 +160,7 @@ describe("the TypeS hooks (ADR-0058)", () => {
       } catch (err) {
         thrown = err;
       }
-      expect(String(thrown)).toMatch(/outside its TypeSProvider/);
+      expect(String(thrown)).toMatch(/outside its TypeSysProvider/);
     } finally {
       console.error = quiet;
     }

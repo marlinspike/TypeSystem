@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Implemented in the private `@typesys/mission-readiness` package: a squadron readiness application written twice over one airforce system, once composed from TypeS and once by hand. It adds four small pieces to the published packages, each needed by the composed version and none specific to it:
+Accepted. Implemented in the private `@typesys/mission-readiness` package: a squadron readiness application written twice over one airforce system, once composed from TypeSys and once by hand. It adds four small pieces to the published packages, each needed by the composed version and none specific to it:
 
 - `@typesys/http`: `clientRouter`, which serves a bundled client beside the API (the Studio now uses it), and `GET /workflow-approvals`.
 - `@typesys/workflow`: `WorkflowEngine.approvalsFor`.

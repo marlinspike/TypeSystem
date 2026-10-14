@@ -1,7 +1,7 @@
 import type { JsonSchema2020 } from "@typesys/core";
 
 /**
- * JSON Schema 2020-12 to a TypeScript type expression, for the subset TypeS
+ * JSON Schema 2020-12 to a TypeScript type expression, for the subset TypeSys
  * models author: primitives, `enum`/`const`, unions of `type`, arrays, nested
  * objects with `required` and `additionalProperties`, and `anyOf`/`oneOf`.
  * Anything it cannot express exactly (a `$ref`, a constraint TypeScript has no

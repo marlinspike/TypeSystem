@@ -1,5 +1,5 @@
 /**
- * The static shape of a TypeS model, as `generateModel` emits it from a
+ * The static shape of a TypeSys model, as `generateModel` emits it from a
  * registry (ADR-0055). It is a type only: nothing here exists at run time, so
  * the model a client is typed against is never a second schema to keep in
  * step with the registry, only a generated view of it, checked for drift by

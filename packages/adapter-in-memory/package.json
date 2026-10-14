@@ -1,7 +1,7 @@
 {
   "name": "@typesys/adapter-in-memory",
   "version": "0.1.0",
-  "description": "In-memory Adapter implementation for TypeS — a database-backed store stand-in for tests and demos.",
+  "description": "In-memory Adapter implementation for TypeSys — a database-backed store stand-in for tests and demos.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

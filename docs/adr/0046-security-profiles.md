@@ -51,7 +51,7 @@ run against real AWS KMS when `TYPESYS_AWS_KMS_KEY_ID` and
 
 ## Context
 
-Most of TypeS's security options default to the behavior the runtime had
+Most of TypeSys's security options default to the behavior the runtime had
 before the option existed: post-filtered row security, subject ids in
 traces, whatever key provider the adapter was given. That keeps upgrades
 safe, but it means a deployment that needs the strongest guarantees has to

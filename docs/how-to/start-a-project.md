@@ -1,6 +1,6 @@
-# How to start a project that uses TypeS
+# How to start a project that uses TypeSys
 
-This guide is for building your own application on TypeS, in its own
+This guide is for building your own application on TypeSys, in its own
 repository: a console tool or batch job, a web app or API, an AI agent, or
 an AI workflow. The [quickstart](../quickstart.md) shows the model from
 inside this repo. This guide shows the project you build outside it, and
@@ -13,7 +13,7 @@ Every file below was built in a separate directory against this
 repository and run, including a real MCP client against both MCP
 transports, and type-checked under `strict` (2026-09-30).
 
-## Where TypeS plugs in
+## Where TypeSys plugs in
 
 Your consumers never talk to your systems of record directly, and they
 never build their own runtime. Each one imports one bootstrap module,
@@ -48,7 +48,7 @@ flowchart TB
     ident -.-> cli & web & mcp & wf
 ```
 
-| You write | TypeS provides |
+| You write | TypeSys provides |
 |---|---|
 | Types (YAML or TypeScript) | Composition, validation, versioning (`SemanticRegistry`) |
 | Mappings: which system holds which property | Multi-source reads, relationship resolution |
@@ -67,7 +67,7 @@ The layout you'll end up with:
 fleet-app/
   package.json
   tsconfig.json
-  vendor/typesys/          # step 1: TypeS packages, until they're on npm
+  vendor/typesys/          # step 1: TypeSys packages, until they're on npm
   fleet/                   # step 2: your Types, as YAML
     10-vehicle.yaml
     bindings.mjs
@@ -85,7 +85,7 @@ fleet-app/
     workflow.ts
 ```
 
-## Step 1. Install TypeS
+## Step 1. Install TypeSys
 
 `@typesys/*` isn't on the npm registry yet. The publishing infrastructure
 exists, but nothing has been published
@@ -98,7 +98,7 @@ and pack every package into your project. Build first: the packages have
 no `prepack` step, so an unbuilt checkout packs no code.
 
 ```bash
-cd TypeS && npm install && npm run build
+cd TypeSys && npm install && npm run build
 ```
 
 ```bash
@@ -111,7 +111,7 @@ Then install the ones you need from `fleet-app`:
 npm install ./vendor/typesys/typesys-core-0.1.0.tgz ./vendor/typesys/typesys-cli-0.1.0.tgz ./vendor/typesys/typesys-adapter-in-memory-0.1.0.tgz
 ```
 
-Commit `vendor/typesys/`. Your project then builds without a TypeS
+Commit `vendor/typesys/`. Your project then builds without a TypeSys
 checkout.
 
 **B. A linked checkout (fastest while evaluating).** Point `file:`
@@ -121,9 +121,9 @@ checkout is picked up immediately:
 ```json
 {
   "dependencies": {
-    "@typesys/core": "file:../TypeS/packages/core",
-    "@typesys/cli": "file:../TypeS/packages/cli",
-    "@typesys/adapter-in-memory": "file:../TypeS/packages/adapter-in-memory"
+    "@typesys/core": "file:../TypeSys/packages/core",
+    "@typesys/cli": "file:../TypeSys/packages/cli",
+    "@typesys/adapter-in-memory": "file:../TypeSys/packages/adapter-in-memory"
   }
 }
 ```
@@ -391,7 +391,7 @@ directly, and the production swap in step 9 is one line.
 
 ## Step 7. Assemble the runtime
 
-This module is where TypeS plugs into your project. `buildRuntime`
+This module is where TypeSys plugs into your project. `buildRuntime`
 registers the manifests in order, builds the policy engine from your
 rules, and constructs the runtime over your adapters:
 
@@ -592,7 +592,7 @@ curl -X POST -H "Authorization: Bearer dev-mechanic" localhost:3000/vehicles/veh
 
 An MCP server makes your domain available to any MCP client: a desktop
 or IDE assistant, or a hosted agent. Every registered Type becomes a
-resource and every Action a tool, plus TypeS's own read-only tools
+resource and every Action a tool, plus TypeSys's own read-only tools
 (`typesys_query`, `typesys_aggregate`, and a tool for each resource read,
 for agents that use tools only —
 [ADR-0051](../adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md)). `@typesys/mcp-server` serves any registry and runtime, and
@@ -699,7 +699,7 @@ const available = await runtime.listActions("fleet.Vehicle", identity);
 const tools = [
   {
     name: "find_vehicles",
-    description: "Query fleet.Vehicle objects with the TypeS query DSL (filter, sort, limit).",
+    description: "Query fleet.Vehicle objects with the TypeSys query DSL (filter, sort, limit).",
     inputSchema: { type: "object", properties: { filter: { type: "object" }, limit: { type: "number" } } },
     run: (input: Record<string, unknown>) => runtime.query({ ...input, type: "fleet.Vehicle" }, identity)
   },

@@ -133,7 +133,7 @@ code is machine-verified, not human-reviewed.
   doesn't exist still names what was asked for in the span and in the
   operation-duration metric's `type_name` label. The same goes for an
   unknown MCP tool name in `mcp.tool.name`.
-- **Logs are not traces.** This covers spans that TypeS creates. An
+- **Logs are not traces.** This covers spans that TypeSys creates. An
   application's own logging, and the `onError` hooks, are the operator's.
 - **Engine-authored deny reasons** reach the caller and the audit log as
   written. An engine's authors are responsible for keeping values out of

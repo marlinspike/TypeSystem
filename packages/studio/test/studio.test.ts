@@ -48,7 +48,7 @@ describe("the Studio server (ADR-0061)", () => {
 
   it("offers demo sign-ins only when given them", async () => {
     const plain = await (await fetch(`${await serve({ clientDir: "/nonexistent" })}/studio/config.json`)).json();
-    expect(plain).toEqual({ title: "TypeS Studio", demo: null });
+    expect(plain).toEqual({ title: "TypeSys Studio", demo: null });
     const demo = await (await fetch(`${await serve({ title: "Demo", demoTokens: { Viewer: "demo-viewer-token" } })}/studio/config.json`)).json();
     expect(demo).toEqual({ title: "Demo", demo: [{ label: "Viewer", token: "demo-viewer-token" }] });
   });

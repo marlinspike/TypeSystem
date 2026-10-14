@@ -1,4 +1,4 @@
-# Contributing to TypeS
+# Contributing to TypeSys
 
 Thanks for considering a contribution. This is a reference implementation
 with an unusually strong emphasis on *why* things are shaped the way they

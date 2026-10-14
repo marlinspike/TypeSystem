@@ -11,7 +11,7 @@ import {
 import type { Response } from "express";
 import { JournalConflictError, ReplayDivergenceError, WorkflowStateError } from "@typesys/workflow";
 
-/** Every code a TypeS API answers with. Stable: a client branches on these, never on a message. */
+/** Every code a TypeSys API answers with. Stable: a client branches on these, never on a message. */
 export type ProblemCode =
   | "forbidden"
   | "not-found"
@@ -25,7 +25,7 @@ export type ProblemCode =
   | "internal";
 
 /**
- * An RFC 9457 problem, plus TypeS's own `code`, and `reason` for a refusal
+ * An RFC 9457 problem, plus TypeSys's own `code`, and `reason` for a refusal
  * (the policy's, as the runtime audits it). `detail` is the error's own
  * message, which the runtime writes never to quote a value; an internal error
  * gets a fixed text instead, since its message was written for no caller.

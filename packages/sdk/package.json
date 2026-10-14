@@ -1,7 +1,7 @@
 {
   "name": "@typesys/sdk",
   "version": "0.1.0",
-  "description": "A typed, governed TypeScript client for TypeS, generated from the model: fluent queries with typed filters (computed properties included), typed includes and Actions, the same policy whether it runs in-process or over MCP.",
+  "description": "A typed, governed TypeScript client for TypeSys, generated from the model: fluent queries with typed filters (computed properties included), typed includes and Actions, the same policy whether it runs in-process or over MCP.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

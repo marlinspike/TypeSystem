@@ -11,7 +11,7 @@ import { scaffoldDomain } from "./scaffold.js";
 import { checkUpgrade, signPack, verifyPack, type PackArchive, type PackDiagnostic } from "@typesys/packs";
 
 function usage(): void {
-  console.log(`typesys — TypeS declarative authoring CLI
+  console.log(`typesys — TypeSys declarative authoring CLI
 
 Usage:
   typesys init <dir> [--name <domainName>] [--force] [--json]

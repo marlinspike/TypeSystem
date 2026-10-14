@@ -2,7 +2,7 @@
 
 ## A note on what this project is
 
-TypeS is a **reference implementation** of an architecture, not a
+TypeSys is a **reference implementation** of an architecture, not a
 battle-tested product with a release history. Before relying on it for
 anything sensitive, read [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md):
 it is a candid, ranked list of what stands between this codebase and real

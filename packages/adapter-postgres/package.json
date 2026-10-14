@@ -1,7 +1,7 @@
 {
   "name": "@typesys/adapter-postgres",
   "version": "0.1.0",
-  "description": "PostgreSQL-backed Adapter implementation for TypeS, proving the Adapter interface against a real database.",
+  "description": "PostgreSQL-backed Adapter implementation for TypeSys, proving the Adapter interface against a real database.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

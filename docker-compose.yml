@@ -1,4 +1,4 @@
-# Reference multi-replica topology for the TypeS MCP server (ADR-0025, ADR-0029).
+# Reference multi-replica topology for the TypeSys MCP server (ADR-0025, ADR-0029).
 #
 #   docker compose up --build --scale app=2
 #

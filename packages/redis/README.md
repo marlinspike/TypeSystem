@@ -1,6 +1,6 @@
 # @typesys/redis
 
-Redis-backed `Cache` and `RateLimiter` for running more than one TypeS
+Redis-backed `Cache` and `RateLimiter` for running more than one TypeSys
 runtime instance against shared state
 ([ADR-0025](../../docs/adr/0025-multi-instance-deployment.md)). Optional:
 `@typesys/core` never depends on it.

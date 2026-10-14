@@ -1,6 +1,6 @@
 # @typesys/studio
 
-TypeS Studio ([ADR-0061](../../docs/adr/0061-typesys-studio.md)): a
+TypeSys Studio ([ADR-0061](../../docs/adr/0061-typesys-studio.md)): a
 browser workbench over the governed API. Explore the model, compose a
 query with live validation, see its execution plan and the typed SDK code
 that builds it, and preview Actions before invoking them, always as the

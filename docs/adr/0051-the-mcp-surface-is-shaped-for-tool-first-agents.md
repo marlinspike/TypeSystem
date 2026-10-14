@@ -17,7 +17,7 @@ Proven by:
     identities (maintainer, viewer, anonymous): the same value or the same
     refusal, and the same audit rows, of which there are some for every
     runtime read;
-  - every TypeS tool returning `structuredContent`, validated by the MCP
+  - every TypeSys tool returning `structuredContent`, validated by the MCP
     client against the `outputSchema` it was listed with, and the same JSON
     as text;
   - the annotations of every `sideEffects` × `idempotency` combination, and
@@ -34,13 +34,13 @@ Proven by:
   baseline entry.
 
 Mutation-checked (16 mutations), each failing at least one test: a read
-tool skipping provenance, or ignoring the caller's identity; TypeS's tools
+tool skipping provenance, or ignoring the caller's identity; TypeSys's tools
 returning no `structuredContent`, a `structuredContent` that differs from
 the text, or a relationship's text that differs from its structured form;
 `typesys_list_types` skipping `describeType`; an `outputSchema` stricter
 than the runtime's result; an `external` Action not reported destructive;
 `key` idempotency not reported idempotent; Action tools sent without
-annotations; TypeS's tools claiming an open world; `tools/list` accepting
+annotations; TypeSys's tools claiming an open world; `tools/list` accepting
 an Action with the prefix; a prefixed name reaching `invokeAction`; the old
 names dropped, or listed; read-tool arguments unchecked.
 
@@ -85,19 +85,19 @@ classification, audit, and errors cannot drift apart. Read-tool arguments
 must be non-empty strings, checked before the runtime is asked, since the
 low-level SDK `Server` does not validate tool input. Resources stay.
 
-**2. TypeS's tools share the reserved prefix `typesys_`.** `query` and
+**2. TypeSys's tools share the reserved prefix `typesys_`.** `query` and
 `aggregate` become `typesys_query` and `typesys_aggregate`. An underscore,
 not the dot first proposed: the Claude and OpenAI tool-calling APIs accept
 only `[A-Za-z0-9_-]` in a tool name, and many agent frameworks pass MCP
 tool names straight through to them. The reservation is enforced in the
 MCP layer, not the registry: `tools/list` fails, naming the Actions, when
 the registry holds one with the prefix, and a call by a prefixed name that
-isn't TypeS's is refused without reaching `invokeAction`. Failing loudly
+isn't TypeSys's is refused without reaching `invokeAction`. Failing loudly
 beats hiding the Action, which would leave an agent unable to tell why it
 is missing. The old names are accepted on call, but not listed, for one
 minor version.
 
-**3. TypeS's tools return `structuredContent`** with a declared
+**3. TypeSys's tools return `structuredContent`** with a declared
 `outputSchema` (`output-schemas.ts`). One tool serves every Type, so an
 object's `values` are an open object rather than the Type's own schema; the
 Type's schema is one `typesys_describe_type` call away. `structuredContent`
@@ -114,7 +114,7 @@ validates with whatever it has.
 All four are always sent, because MCP's defaults (destructive, not
 idempotent, open world) would otherwise speak for the Action. An
 `external` side effect counts as possibly destructive, which the proposal
-did not: TypeS cannot see what the external system does with it. TypeS's
+did not: TypeSys cannot see what the external system does with it. TypeSys's
 own tools are all read-only, idempotent, and closed-world.
 
 **5. The code claims only what is tested.** The 2026-07-28 comments were
@@ -130,14 +130,14 @@ The suite's first run, before any change here and again after, gave the
 same result. Six scenarios pass (initialize, ping, tools list, simple
 text, tool error, resources list). Twenty-four are baselined. Thirteen
 use fixtures that exist only in the suite's reference server, nine probe
-capabilities TypeS does not declare (logging, completions, subscriptions,
+capabilities TypeSys does not declare (logging, completions, subscriptions,
 prompts), and one needs sessions, which a stateless server has none of.
 The last, `dns-rebinding-protection`, is a real gap (follow-up F).
 
 ## Consequences
 
 - An agent that uses only tools can do everything one that uses resources
-  can, with no TypeS-specific client code.
+  can, with no TypeSys-specific client code.
 - **Breaking for clients calling `query` or `aggregate` by name** once the
   alias window closes. `for-agents.md`, `llms.txt`, the smoke and load-test
   scripts, the demo's MCP Console, and every test moved to the new names.
@@ -207,10 +207,10 @@ The last, `dns-rebinding-protection`, is a real gap (follow-up F).
   public deployment mode would serve protected-resource metadata and take
   part in MCP's authorization-server discovery itself.
 - **E. An agent evaluation suite.** Tests of whether an agent behaves
-  correctly against TypeS: hidden properties, denied rows, short pages,
+  correctly against TypeSys: hidden properties, denied rows, short pages,
   provenance ambiguity, dangerous Actions, prompt injection stored in
   object fields, stale data, and unavailable adapters. Distinct from the
-  contract tests, which check that TypeS answers correctly.
+  contract tests, which check that TypeSys answers correctly.
 - **F. Host and Origin validation.** Found by the conformance suite: the
   HTTP server accepts any `Host` and `Origin`, so a web page can reach a
   server bound to localhost through DNS rebinding (GHSA-w48q-cv73-mx4w).

@@ -1,7 +1,7 @@
 {
   "name": "@typesys/redis",
   "version": "0.1.0",
-  "description": "Redis-backed Cache and RateLimiter for running more than one TypeS runtime instance against shared state.",
+  "description": "Redis-backed Cache and RateLimiter for running more than one TypeSys runtime instance against shared state.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

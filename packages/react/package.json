@@ -1,7 +1,7 @@
 {
   "name": "@typesys/react",
   "version": "0.1.0",
-  "description": "Headless React bindings for TypeS: typed hooks over the governed SDK client (queries, objects, Actions with preview), and form fields and table columns derived from the model. No components, no styling; every value still decided by the runtime per caller.",
+  "description": "Headless React bindings for TypeSys: typed hooks over the governed SDK client (queries, objects, Actions with preview), and form fields and table columns derived from the model. No components, no styling; every value still decided by the runtime per caller.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -98,7 +98,7 @@ class RunWriter {
 }
 
 /**
- * Runs governed workflows over a TypeS runtime (ADR-0057). It orchestrates
+ * Runs governed workflows over a TypeSys runtime (ADR-0057). It orchestrates
  * and remembers; it decides nothing the runtime decides. Every read and
  * Action of a run goes through the runtime as the run's initiator, so policy,
  * classification, preconditions and audit apply to a workflow exactly as to

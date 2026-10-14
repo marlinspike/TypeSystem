@@ -1,4 +1,4 @@
--- TypeS registry store schema (see docs/adr/0015-postgres-registry-store.md).
+-- TypeSys registry store schema (see docs/adr/0015-postgres-registry-store.md).
 -- Applied by the migration runner in src/migrate.ts, tracked in schema_migrations.
 -- Never applied automatically by PostgresRegistryStore itself.
 

@@ -23,7 +23,7 @@ export interface CedarErrorDetail {
 }
 
 export interface CedarPolicyEngineOptions {
-  /** The Cedar schema, in Cedar's schema syntax or its JSON form. It declares every policy name as a `TypeS::Action` and is the allow-list of attributes a policy can see. */
+  /** The Cedar schema, in Cedar's schema syntax or its JSON form. It declares every policy name as a `TypeSys::Action` and is the allow-list of attributes a policy can see. */
   schema: Schema;
   /** The policy set, in Cedar's policy syntax. A policy's `@id("...")` annotation becomes its id in decisions and audit reasons. */
   policies: string;
@@ -66,7 +66,7 @@ function policiesById(text: string): Record<string, string> {
  * so an engine that exists is one whose every policy type-checks and can
  * fire. Each decision
  * maps the `PolicyRequest` to a Cedar request — the policy name as a
- * `TypeS::Action`, only schema-declared attributes — and allows only on a
+ * `TypeSys::Action`, only schema-declared attributes — and allows only on a
  * Cedar `allow` with no evaluation errors: an erroring `forbid` Cedar would
  * skip is a deny here, as is any failed request.
  */

@@ -1,7 +1,7 @@
 {
   "name": "@typesys/registry-store-postgres",
   "version": "0.1.0",
-  "description": "Production PostgreSQL-backed RegistryStore for TypeS, with real migrations and an append-only, trigger-enforced audit table.",
+  "description": "Production PostgreSQL-backed RegistryStore for TypeSys, with real migrations and an append-only, trigger-enforced audit table.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

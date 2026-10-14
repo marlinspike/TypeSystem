@@ -203,7 +203,7 @@ document that gap rather than close it in this pass.
   properties typed by a declared value `schema` (which the registry compiles
   and the runtime enforces on every computation), relationships and
   Actions; `createClient<Model>()` builds immutable queries that compile to
-  the query DSL and nothing else, over the runtime in process or a TypeS
+  the query DSL and nothing else, over the runtime in process or a TypeSys
   MCP server. `typesys generate-sdk --check` and `npm run sdk:models --
   --check` catch a stale model. Proven by `packages/sdk/test/` (twelve
   compile-time refusals checked by `npm run typecheck`; six queries for
@@ -304,7 +304,7 @@ document that gap rather than close it in this pass.
   (`@typesys/http`), `approvalsFor` (`@typesys/workflow`), `httpWorkflows`
   (`@typesys/sdk`), `dataOf` and `errorOf` (`@typesys/react`). Not
   addressed: time to write either version, other browsers.
-- TypeS Studio (ADR-0061): `@typesys/studio` serves the governed API
+- TypeSys Studio (ADR-0061): `@typesys/studio` serves the governed API
   beside a browser client under a strict Content Security Policy. The
   client uses only the API, as the signed-in person: the model with
   discovery, a query editor with live validation and one-click

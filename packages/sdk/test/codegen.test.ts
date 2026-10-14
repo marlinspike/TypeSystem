@@ -10,7 +10,7 @@ import { generateModel, schemaToTs } from "../src/index.js";
 import { driftedModels } from "../../../scripts/generate-sdk-models.js";
 
 describe("schemaToTs", () => {
-  it("covers the vocabulary TypeS models author, and widens what it cannot express", () => {
+  it("covers the vocabulary TypeSys models author, and widens what it cannot express", () => {
     expect(schemaToTs({ type: "string" })).toBe("string");
     expect(schemaToTs({ type: "integer" })).toBe("number");
     expect(schemaToTs({ type: ["string", "null"] })).toBe("string | null");

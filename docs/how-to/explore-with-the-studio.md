@@ -1,6 +1,6 @@
-# How to explore a model with TypeS Studio
+# How to explore a model with TypeSys Studio
 
-TypeS Studio is a browser workbench over the governed API
+TypeSys Studio is a browser workbench over the governed API
 ([ADR-0061](../adr/0061-typesys-studio.md)). It shows the model, checks
 and explains queries, writes the typed SDK code for them, and previews
 Actions, always as the person signed in. It has no access of its own, so

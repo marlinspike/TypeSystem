@@ -37,7 +37,7 @@ export interface WorkflowsClient {
   approvals(): Promise<WorkflowApproval[]>;
 }
 
-/** Calls a TypeS REST API's workflow routes (`@typesys/http` with `workflows`). Refusals are `ApiError`s, as for `httpTransport`. */
+/** Calls a TypeSys REST API's workflow routes (`@typesys/http` with `workflows`). Refusals are `ApiError`s, as for `httpTransport`. */
 export function httpWorkflows(opts: HttpTransportOptions): WorkflowsClient {
   const call = httpCall(opts);
   const seg = encodeURIComponent;

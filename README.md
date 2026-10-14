@@ -1,4 +1,4 @@
-# TypeSys — Governed Semantic Runtime
+# TypeSystem — Governed Semantic Runtime
 
 ### Give your AI agents the enterprise, not the database.
 
@@ -8,7 +8,7 @@
 ![Policy](https://img.shields.io/badge/policy-ABAC%20%7C%20Cedar-2ea44f)
 ![JSON Schema](https://img.shields.io/badge/JSON%20Schema-2020--12-orange)
 
-**TypeSys** (_TypeS_ to its friends) is an open-source **governed semantic
+**TypeSystem** (_TypeSys_ for short) is an open-source **governed semantic
 runtime**: one model of your enterprise, spread across every database,
 REST API, and legacy system you run, that every application and every AI
 agent works inside. Ask for an Aircraft, a Patient, or a Work Order and get
@@ -23,7 +23,7 @@ Schema 2020-12, Cedar, the Model Context Protocol), as a codebase you can
 read, fork, and own. It is also a platform to build on. A typed SDK, a
 REST API with React bindings, governed workflows, signed domain packs and a
 browser workbench all go through that same boundary. So an application or
-an agent composed from TypeS inherits the rules instead of restating them.
+an agent composed from TypeSys inherits the rules instead of restating them.
 
 ## One call, three callers
 
@@ -71,7 +71,7 @@ checks, and the new AI agent gets an MCP server that runs `SELECT *` and
 hopes the prompt keeps it honest. Then someone asks who was allowed to see
 what.
 
-**Without TypeS**, every consumer re-implements the rules:
+**Without TypeSys**, every consumer re-implements the rules:
 
 ```mermaid
 flowchart TB
@@ -84,7 +84,7 @@ flowchart TB
     z3 --> leg1[("Legacy system")]
 ```
 
-**With TypeS**, there is one boundary, and it decides once:
+**With TypeSys**, there is one boundary, and it decides once:
 
 ```mermaid
 flowchart TB
@@ -96,7 +96,7 @@ flowchart TB
     rt --> leg2[("Legacy system")]
 ```
 
-With TypeS there is one enforcement point, so a person and a model can't
+With TypeSys there is one enforcement point, so a person and a model can't
 be governed differently, and adding a consumer adds no new rules to keep in
 sync.
 
@@ -104,22 +104,22 @@ sync.
 
 The usual way to give an agent enterprise data is to connect it to every
 API, or straight to the database, and rebuild authorization in the agent
-layer. TypeS does the opposite: **build one governed model of the domain,
+layer. TypeSys does the opposite: **build one governed model of the domain,
 and let the agent work inside it.**
 
 ```mermaid
 flowchart TB
     fw["Your agent or agent framework<br/>reasons, plans, talks to the user"]
     app["Your applications and workflows"]
-    ts["<b>TypeS</b> — one enforcement boundary<br/><br/>What exists? → Types<br/>How is it connected? → Relationships<br/>What may I read? → Policy, classification<br/>What may I do? → Actions<br/>Where did it come from? → Provenance<br/>What happened? → Audit"]
+    ts["<b>TypeSys</b> — one enforcement boundary<br/><br/>What exists? → Types<br/>How is it connected? → Relationships<br/>What may I read? → Policy, classification<br/>What may I do? → Actions<br/>Where did it come from? → Provenance<br/>What happened? → Audit"]
     src[("Systems of record<br/>databases, REST APIs, legacy platforms")]
     fw -- MCP --> ts
     app -- SemanticRuntime --> ts
     ts --> src
 ```
 
-**The agent reasons; TypeS decides what it may see and do.** Bring any
-framework that speaks MCP. TypeS handles the parts that keep enterprise
+**The agent reasons; TypeSys decides what it may see and do.** Bring any
+framework that speaks MCP. TypeSys handles the parts that keep enterprise
 agents out of production:
 
 - **No hand-written tool per backend.** Types, relationships, and Actions
@@ -172,7 +172,7 @@ its own.
 - **Tools for people and agents.** Agents find the few Types a task needs
   (`typesys_discover`) and check a query before running it
   (`typesys_validate_query`). `typesys diff` fails CI on a breaking model
-  change. TypeS Studio lets anyone explore the model, run and explain
+  change. TypeSys Studio lets anyone explore the model, run and explain
   queries, and preview Actions as themselves, then copy the SDK code
   ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md)).
 - **Domains as signed files.** A domain pack is one content-addressed,
@@ -182,7 +182,7 @@ its own.
   ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md)).
 
 **Measured, not claimed.** The same squadron readiness application was
-built twice over the same system: once composed from TypeS, once by hand
+built twice over the same system: once composed from TypeSys, once by hand
 the way the runtime had to be used before. Both pass one browser
 walkthrough as a viewer, a maintainer and a lead
 ([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md),
@@ -241,7 +241,7 @@ not measured.
 
 ## How it compares
 
-| | **TypeS** | Agent with direct DB/API access | Hand-rolled BFF | GraphQL federation | Proprietary ontology platforms |
+| | **TypeSys** | Agent with direct DB/API access | Hand-rolled BFF | GraphQL federation | Proprietary ontology platforms |
 |---|---|---|---|---|---|
 | One policy boundary for apps *and* agents | Yes | No: a second access path | Per facade, as you build it | You build it | Yes |
 | Row- and field-level rules decided on the data | Yes, pushed into queries | Whatever the DB grants | If you write it | Resolver by resolver | Yes |
@@ -253,7 +253,7 @@ not measured.
 
 GraphQL federation is the more mature choice if all you need is to stitch
 APIs into one schema. [`docs/why-typesys.md`](docs/why-typesys.md) makes the
-full case, including when not to use TypeS.
+full case, including when not to use TypeSys.
 
 ## Try it in a minute
 
@@ -269,7 +269,7 @@ audit log. To point a real agent at it, run `npm run mcp:http` and connect
 any MCP client to `http://localhost:3939/mcp` with
 `Authorization: Bearer demo-maintainer-token`.
 
-Two more, after the same build: `npm run studio` serves TypeS Studio over
+Two more, after the same build: `npm run studio` serves TypeSys Studio over
 the airforce demo on `http://localhost:4400`, and `npm run mission` serves
 the squadron readiness application, composed on `:4500` and written by
 hand on `:4501`.
@@ -278,7 +278,7 @@ hand on `:4501`.
 systems of record, authorization varies by who is asking, and more than
 one kind of consumer needs the data (applications, workflows, agents).
 Maintenance, logistics, healthcare, manufacturing, and government
-casework are typical. With one database behind one app, TypeS is overhead;
+casework are typical. With one database behind one app, TypeSys is overhead;
 see "Don't use it when" below.
 
 > **Where it stands: production-shaped, adoption underway.** The
@@ -294,7 +294,7 @@ see "Don't use it when" below.
 > **New here?** → [`docs/README.md`](docs/README.md) is the full
 > documentation index (tutorial, how-tos, reference, ADRs). Evaluating
 > whether this is the right tool? → [`docs/why-typesys.md`](docs/why-typesys.md).
-> Starting your own project on TypeS? →
+> Starting your own project on TypeSys? →
 > [`docs/how-to/start-a-project.md`](docs/how-to/start-a-project.md).
 > Building an AI agent against the MCP server? →
 > [`docs/for-agents.md`](docs/for-agents.md), or read
@@ -311,7 +311,7 @@ see "Don't use it when" below.
 | **Adapter** | how to talk to that source | an in-memory, REST, or Postgres adapter, or one you write |
 | **Policy** | who may do what | ABAC rules or a Cedar policy set, plus a classification scheme |
 | **Action** | what can be done to it | a governed capability with input schema, preconditions, side effects |
-| **Runtime** | the governed execution boundary | `SemanticRuntime`, which TypeS provides; you only configure it |
+| **Runtime** | the governed execution boundary | `SemanticRuntime`, which TypeSys provides; you only configure it |
 
 Everything else (authorization plans, provenance, security profiles,
 registry stores) refines one of these six.
@@ -336,7 +336,7 @@ registry stores) refines one of these six.
 | **Previews and instance-scoped Actions** | An Action can be decided on the object it targets ("its assignee, or a lead"); `listActions` and `previewAction` report authorization, input validity and each precondition without executing anything, and preconditions see only what the caller may see ([ADR-0053](docs/adr/0053-instance-scoped-actions-and-previews.md)). | Interfaces and agents offer only what would succeed, and a preview can't be used to probe hidden values. |
 | **Filtering on computed values, and execution plans** | Queries may filter on computed properties, evaluated on caller-visible values with exact paging; `explainQuery` returns the execution plan, under the same clearance checks as the query ([ADR-0054](docs/adr/0054-computed-filters-and-execution-plans.md)). Within one request, computed values' adapter reads can be shared and batched (`computedReads: "coalesce"`; 225 calls per page become 13 to 14) ([ADR-0062](docs/adr/0062-coalesced-computed-reads.md)). | "Aircraft that need attention" is one query, not a client-side scan, and you can see how it will run. |
 | **Governed Actions** | Writes run a policy check and the clearance their Types require, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
-| **AI agents over MCP** | Types, objects, relationships, and provenance are MCP resources, each with a tool twin for agents that use tools only; Actions are tools annotated with their side effects, beside `typesys_query` and `typesys_aggregate`; every TypeS tool returns structured content; identity is resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md), [`for-agents.md`](docs/for-agents.md)). | Agents discover and act on the same semantic contract applications use, under the same enforcement, with no hand-written tool per backend. |
+| **AI agents over MCP** | Types, objects, relationships, and provenance are MCP resources, each with a tool twin for agents that use tools only; Actions are tools annotated with their side effects, beside `typesys_query` and `typesys_aggregate`; every TypeSys tool returns structured content; identity is resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md), [`for-agents.md`](docs/for-agents.md)). | Agents discover and act on the same semantic contract applications use, under the same enforcement, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
 | **Operational controls** | Opt-in caching, per-identity rate limiting, one concurrency budget per request, per-adapter-call timeouts / retries / circuit-breaking, and OpenTelemetry tracing and metrics ([`enable-caching.md`](docs/how-to/enable-caching.md), [ADR-0026](docs/adr/0026-adapter-call-resilience.md), [`enable-observability.md`](docs/how-to/enable-observability.md)). | Tune cost, latency, and resilience per deployment, and see what the runtime is doing. |
 | **Runs as several replicas** | Shared Redis cache and rate limiter, concurrency-safe migrations, a load test, and ready-to-run deployment artifacts — a `Dockerfile`, `docker-compose`, reference Kubernetes manifests, and `/healthz`/`/readyz` probes ([`run-multiple-instances.md`](docs/how-to/run-multiple-instances.md), [`deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)). | Scale out behind a load balancer with one cache and one budget per identity — and an image to actually ship. |
@@ -347,8 +347,8 @@ registry stores) refines one of these six.
 | **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed, read steps cannot write, and an approver sees only what they may read ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
 | **HTTP API and React** | `@typesys/http` serves the runtime over REST with problems a client can branch on and an OpenAPI contract generated from the model; the SDK's `httpTransport` and `@typesys/react`'s typed, headless hooks put the same governed client in a browser, with forms and columns derived from the model ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md), [ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)). | Screens show what the runtime returns for their user; access is never re-decided in the UI. |
 | **Domain packs** | `@typesys/packs` ships a domain as one signed, content-addressed JSON file with no code in it, installed offline only after every requirement is checked (code by binding key, policy rules, adapters, dependency ranges), specialized by packs that extend it without weakening what it protects, and upgraded only when the contract diff and every dependent allow it ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md), [ADR-0059](docs/adr/0059-domain-packs.md)). | Domains move into accredited, disconnected enclaves as reviewable files, and sites specialize them without forking. |
-| **TypeS Studio** | `@typesys/studio`: a browser workbench over the governed API, with no access of its own. Explore the model, compose a query with live validation and suggestions, see its execution plan and the typed SDK code that builds it, and preview Actions before invoking them, as whoever is signed in ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md), [ADR-0061](docs/adr/0061-typesys-studio.md)). | Analysts, owners and accreditors see exactly what each role gets, and developers leave with working code. |
-| **A mission application, measured** | `packages/mission-readiness`: a squadron readiness application composed from TypeS (8 lines of server, no access rule of its own) beside the same application written by hand, both passing one browser scenario as a viewer, a maintainer and a lead ([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md), [ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)). | About half the app code, five of six shared mistakes caught by the compiler, and a policy change followed with no edit, measured rather than claimed. |
+| **TypeSys Studio** | `@typesys/studio`: a browser workbench over the governed API, with no access of its own. Explore the model, compose a query with live validation and suggestions, see its execution plan and the typed SDK code that builds it, and preview Actions before invoking them, as whoever is signed in ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md), [ADR-0061](docs/adr/0061-typesys-studio.md)). | Analysts, owners and accreditors see exactly what each role gets, and developers leave with working code. |
+| **A mission application, measured** | `packages/mission-readiness`: a squadron readiness application composed from TypeSys (8 lines of server, no access rule of its own) beside the same application written by hand, both passing one browser scenario as a viewer, a maintainer and a lead ([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md), [ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)). | About half the app code, five of six shared mistakes caught by the compiler, and a policy change followed with no edit, measured rather than claimed. |
 | **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
@@ -545,7 +545,7 @@ flowchart TB
 - **`packages/sdk`** (`@typesys/sdk`) — a TypeScript client typed by a
   model generated from the registry: typed queries (computed-property
   filters included), includes, projections, provenance and Actions, over
-  the runtime in process or a TypeS MCP server, every query still decided
+  the runtime in process or a TypeSys MCP server, every query still decided
   by the runtime per caller
   ([ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). See
   [`packages/sdk/README.md`](packages/sdk/README.md).
@@ -577,14 +577,14 @@ flowchart TB
   contract diff and every installed dependent
   ([ADR-0059](docs/adr/0059-domain-packs.md)). See
   [`packages/packs/README.md`](packages/packs/README.md).
-- **`packages/studio`** (`@typesys/studio`) — TypeS Studio: the governed
+- **`packages/studio`** (`@typesys/studio`) — TypeSys Studio: the governed
   API plus a browser client that uses nothing else, for exploring the
   model, checking, explaining and running queries with their SDK code,
   and previewing Actions as the signed-in person
   ([ADR-0061](docs/adr/0061-typesys-studio.md)). See
   [`packages/studio/README.md`](packages/studio/README.md).
 - **`packages/mission-readiness`** (private) — the squadron readiness
-  application twice, composed from TypeS and written by hand, with the
+  application twice, composed from TypeSys and written by hand, with the
   browser scenario both pass and the comparison script that measures them
   ([ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)).
   `npm run mission` serves both.
@@ -786,7 +786,7 @@ even when the decision was an allow.
   composition platform: derived-value release, Action previews, computed
   filters and execution plans, the typed SDK, discovery and contract diff,
   governed workflows, the HTTP API and React bindings, domain packs,
-  subtype protections, TypeS Studio, coalesced computed reads, and the
+  subtype protections, TypeSys Studio, coalesced computed reads, and the
   mission application comparison).
   [`docs/README.md`](docs/README.md) indexes all of them.
 - [`docs/roadmap.md`](docs/roadmap.md) — how the runtime became a

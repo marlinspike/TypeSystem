@@ -21,7 +21,7 @@ import { buildObjectUri, buildProvenanceUri, buildRelationshipUri, buildTypeList
 
 /**
  * The MCP surface is shaped for tool-first agents (ADR-0051): every read a
- * resource offers is also a tool, TypeS's own tools return
+ * resource offers is also a tool, TypeSys's own tools return
  * `structuredContent`, and Action tools say what their Action declares.
  */
 
@@ -148,7 +148,7 @@ describe("ADR-0051: the MCP surface is shaped for tool-first agents", () => {
     });
   });
 
-  describe("2. TypeS's own tools return structuredContent matching their outputSchema, and the same JSON as text", () => {
+  describe("2. TypeSys's own tools return structuredContent matching their outputSchema, and the same JSON as text", () => {
     const calls: [string, Record<string, unknown>][] = [
       ["typesys_list_types", {}],
       ["typesys_describe_type", { type: "airforce.Aircraft" }],
@@ -191,7 +191,7 @@ describe("ADR-0051: the MCP surface is shaped for tool-first agents", () => {
       }
     }
 
-    it("tools/list sends them: a registered Action's from its definition, and TypeS's own tools as reads", () => {
+    it("tools/list sends them: a registered Action's from its definition, and TypeSys's own tools as reads", () => {
       expect(tools.find((t) => t.name === "CreateMaintenanceWorkOrder")?.annotations).toEqual(
         actionAnnotations({ sideEffects: "creates", idempotency: "none" })
       );
@@ -205,7 +205,7 @@ describe("ADR-0051: the MCP surface is shaped for tool-first agents", () => {
     });
   });
 
-  describe("4. the typesys_ prefix is TypeS's alone", () => {
+  describe("4. the typesys_ prefix is TypeSys's alone", () => {
     let executed: string[];
 
     async function squattedBackend() {

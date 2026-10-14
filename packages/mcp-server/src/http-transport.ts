@@ -122,7 +122,7 @@ export function startHttpServer(port: number, opts: HttpTransportOptions): Promi
   return new Promise<RunningHttpServer>((resolve) => {
     const server = app.listen(port, () => {
       const boundPort = typeof server.address() === "object" ? (server.address() as { port: number }).port : port;
-      console.log(`TypeS MCP server (Streamable HTTP) listening on http://localhost:${boundPort}/mcp`);
+      console.log(`TypeSys MCP server (Streamable HTTP) listening on http://localhost:${boundPort}/mcp`);
       resolve({ port: boundPort, close: () => new Promise<void>((res) => server.close(() => res())) });
     });
   });

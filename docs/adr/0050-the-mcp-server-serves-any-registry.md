@@ -47,7 +47,7 @@ them unmodified. The entry points built on them were not:
   `Unknown type "airforce.Aircraft"`.
 - The package's two `bin` entries ran only the demo.
 
-So a project building on TypeS could not use `createServer()` or
+So a project building on TypeSys could not use `createServer()` or
 `createHttpApp()` at all. `docs/how-to/start-a-project.md` builds its server
 from the two handler functions instead, installs the airforce domain as a
 dependency to do so, and lists the stray resource as a known issue.

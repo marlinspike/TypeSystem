@@ -147,7 +147,7 @@ class Synthesizer {
 
 /**
  * A value `schema` admits, the same for the same seed (ADR-0057). It covers
- * the JSON Schema a TypeS model uses for values and Action outputs; a keyword
+ * the JSON Schema a TypeSys model uses for values and Action outputs; a keyword
  * it cannot honor (`pattern`, `not`, ...) is refused with
  * `UnsupportedSchemaError` rather than guessed at.
  */

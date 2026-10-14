@@ -1,6 +1,6 @@
 /**
  * Measures the squadron readiness application written two ways (ADR-0063):
- * composed from TypeS, and by hand the way the baseline allowed. Run after
+ * composed from TypeSys, and by hand the way the baseline allowed. Run after
  * `npm run build`: `npx tsx scripts/compare-mission-apps.ts`. It needs a
  * Chromium (scripts/find-chrome.ts) for the scenario runs.
  *
@@ -303,7 +303,7 @@ for (const ms of [0, 2]) latency.push({ ms, composed: await boardTimes("composed
 
 const sizes = { composed: size("composed"), handwritten: size("handwritten") };
 const out: string[] = [];
-out.push("| | Composed from TypeS | Written by hand |", "|---|---|---|");
+out.push("| | Composed from TypeSys | Written by hand |", "|---|---|---|");
 out.push(`| Server, lines of code | ${sizes.composed.server} | ${sizes.handwritten.server} |`);
 out.push(`| Client, lines of code | ${sizes.composed.client} | ${sizes.handwritten.client} |`);
 out.push(`| Total | ${sizes.composed.server + sizes.composed.client} | ${sizes.handwritten.server + sizes.handwritten.client} |`);
