@@ -18,6 +18,15 @@ function show(res) {
 function expectStatus(res, code, what) {
   if (res.status !== code) fail(`${what}: expected HTTP ${code}, got ${show(res)}`);
 }
+
+/**
+ * A refusal means something only where the application grants what it
+ * should: a caller allowed to read must read. Every negative check starts
+ * here, so an application that refuses everything passes none (P3-V1).
+ */
+async function expectServing(api) {
+  expectStatus(await api.call(MAINTAINER, "GET", "/api/objects/airforce.Aircraft/AF86-0147"), 200, "maintainer reads AF86-0147 (a refusal below means something only if this is allowed)");
+}
 async function start(api, token, input) {
   return api.call(token, "POST", WF, { input });
 }
@@ -206,6 +215,7 @@ export default [
     id: "cr-anonymous-sees-nothing",
     requirement: "Someone not signed in sees nothing.",
     run: async (api) => {
+      await expectServing(api);
       expectStatus(await api.call(ANON, "GET", "/api/objects/airforce.Aircraft/AF86-0147"), 403, "anonymous reads AF86-0147");
       expectStatus(await api.call(ANON, "GET", "/api/objects/airforce.Component/comp-001"), 403, "anonymous reads comp-001");
       expectStatus(await api.call(ANON, "GET", "/api/objects/airforce.MaintenanceEvent/EVT-9001"), 403, "anonymous reads EVT-9001");
@@ -219,6 +229,7 @@ export default [
     id: "cr-anonymous-cannot-request",
     requirement: "Someone not signed in sees nothing.",
     run: async (api) => {
+      await expectServing(api);
       expectStatus(await start(api, ANON, VALID), 403, "anonymous starts airforce.ReplaceComponent");
     }
   }

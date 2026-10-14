@@ -60,6 +60,8 @@ describe("what a run concludes", () => {
     expect(classify({}, { compiled: true, testsFailed: true })).toBe("killed");
     expect(classify({}, { compiled: true, testsFailed: false })).toBe("survived");
     expect(classify({ equivalent: "why" }, { compiled: true, testsFailed: false })).toBe("equivalent");
+    // A run that ended without a verdict is not a kill (P3-M4).
+    expect(classify({}, { compiled: true, testsFailed: true, inconclusive: true })).toBe("inconclusive");
   });
 
   it("passes only when nothing survived, went stale, or was left unrun", () => {
@@ -67,6 +69,7 @@ describe("what a run concludes", () => {
     expect(passed(s)).toBe(true);
     expect(passed(summarize([{ status: "killed" }, { status: "survived" }]))).toBe(false);
     expect(passed(summarize([{ status: "stale" }]))).toBe(false);
+    expect(passed(summarize([{ status: "inconclusive" }]))).toBe(false);
     expect(passed(summarize([{ status: "not-run" }]))).toBe(false);
     expect(passed(summarize([{ status: "not-run" }]), { allowNotRun: true })).toBe(true);
   });

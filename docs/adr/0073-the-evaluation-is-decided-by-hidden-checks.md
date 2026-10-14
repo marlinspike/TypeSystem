@@ -84,7 +84,7 @@ copy is scanned for files naming the task's workflow or approval step,
 and any such prior art is reported with the run. The first task was the
 engineering loop's own example before this evaluation existed, so it was
 not written blind. It stays in the evaluation, labelled as written before
-M4. Its scan finds four files in the agent-with sandbox naming its
+M4. Its scan finds five files in the agent-with sandbox naming its
 approval step `leadApproval`, which the airforce domain's own workflow
 also uses; the other two tasks have none.
 
@@ -135,3 +135,17 @@ behind them are written up by hand from those messages.
     guarantee.
   - Repair iterations are not counted for agent runs. Claude Code's JSON
     result reports turns, not why each was taken.
+
+## Amended after the 3.0 pressure test's addendum
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). Every negative hidden check first asserts that a permitted
+caller is served, so an application that refuses everything passes none
+(P3-V1). Sandboxes link third-party packages from a store outside the
+repository, made once per lockfile, so no relative path through
+`node_modules` reaches the hidden checks (P3-V2). An import by a path that
+leaves the application, or of a workspace package the arm does not list, is
+reported as off-arm for every arm (P3-V3). A loss is measured against the
+best run of another arm (P3-V4). The report shows each run's notes,
+including prior art, and every arm without a run as not run (P3-V5);
+`evaluate report` works with no results yet, and `--out` refuses a
+directory that already holds files (P3-V6).

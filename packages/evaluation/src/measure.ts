@@ -50,9 +50,15 @@ export function measureCode(dir: string): CodeMeasure {
     lines += code.length;
     largest = Math.max(largest, code.length);
     const text = code.join("\n");
-    for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)["']([^"'.][^"']*)["']/g)) {
+    for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)["']([^"']+)["']/g)) {
       const spec = m[1]!;
       if (spec.startsWith("node:")) continue;
+      if (spec.startsWith(".") || spec.startsWith("/")) {
+        // A relative or absolute path that leaves the application reaches code no arm lists (P3-V3).
+        const rel = path.relative(dir, path.resolve(path.dirname(file), spec)).split(path.sep).join("/");
+        if (rel === ".." || rel.startsWith("../") || path.isAbsolute(rel)) imports.add(`${/(?:^|\/)(packages\/[^/]+)/.exec(rel)?.[1] ?? rel} (by path)`);
+        continue;
+      }
       imports.add(spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]!);
     }
     branches += (text.match(/\bif\s*\(|\?(?![.?])|&&|\|\||\bcase\b|\bcatch\b/g) ?? []).length;

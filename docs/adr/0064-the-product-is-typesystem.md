@@ -54,3 +54,10 @@ React binding's factory and provider names, and a demo response header.
 - Proven by `tools/terminology/test/terminology.test.ts` (what is caught,
   what passes, the allow marker, skipped formats) and by the check itself
   passing in CI over the whole repository.
+
+## Amended after the 3.0 pressure test's addendum
+
+Found by the [3.0 pressure test](../reviews/3-0-pressure-test.md). The check reads a text file whatever its encoding (UTF-16
+with a byte order mark is decoded; NUL bytes no longer hide a file), checks
+every tracked path, binary files included, and skips a line only when the
+marker is written `terminology-allow:` followed by a reason (P3-T1 to T3).

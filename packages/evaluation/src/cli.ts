@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runAgent } from "./agent.js";
@@ -41,10 +41,12 @@ export async function evaluateCommand(argv: readonly string[], out: (s: string) 
   const taskId = flag(argv, "task");
   const armId = flag(argv, "arm") as ArmId | undefined;
   if (command === "report") {
+    // No results yet is a report of tasks not run, not a crash (P3-V6).
+    mkdirSync(RESULTS_DIR, { recursive: true });
     const scores = readdirSync(RESULTS_DIR)
       .filter((f) => f.endsWith(".json"))
       .map((f) => JSON.parse(readFileSync(path.join(RESULTS_DIR, f), "utf8")) as RunScore);
-    writeFileSync(path.join(RESULTS_DIR, "REPORT.md"), renderReport(scores));
+    writeFileSync(path.join(RESULTS_DIR, "REPORT.md"), renderReport(scores, { tasks: taskIds() }));
     out(`wrote ${path.join(RESULTS_DIR, "REPORT.md")} from ${scores.length} runs`);
     return 0;
   }
@@ -69,6 +71,10 @@ export async function evaluateCommand(argv: readonly string[], out: (s: string) 
   }
   if (command === "sandbox" || command === "agent") {
     const dir = flag(argv, "out") ?? path.join(tmpdir(), `typesys-eval-${taskId}-${armId}-${Date.now()}`);
+    if (existsSync(dir) && readdirSync(dir).length > 0) {
+      out(`${dir} already holds files: give --out an empty or new directory, so the sandbox holds nothing but what the arm is given`);
+      return 1;
+    }
     const repo = path.resolve(EVALUATION_DIR, "../..");
     createSandbox(repo, dir, task, arm, contractText());
     const prior = contamination(dir, task);

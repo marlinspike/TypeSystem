@@ -19,6 +19,15 @@ function show(res) {
 function expectStatus(res, code, what) {
   if (res.status !== code) fail(`${what}: expected HTTP ${code}, got ${show(res)}`);
 }
+
+/**
+ * A refusal means something only where the application grants what it
+ * should: a caller allowed to read must read. Every negative check starts
+ * here, so an application that refuses everything passes none (P3-V1).
+ */
+async function expectServing(api) {
+  expectStatus(await api.call(PLANNER, "GET", "/api/objects/ops.Aircraft/AF86-0147"), 200, "planner reads AF86-0147 (a refusal below means something only if this is allowed)");
+}
 function start(api, token, input) {
   return api.call(token, "POST", WF, { input });
 }
@@ -127,6 +136,7 @@ export default [
     id: "sc-viewer-and-anonymous-cannot-ask",
     requirement: "Its policy rule `ops.sortie-signoff` says who may sign off, and `ops.crew` who may ask.",
     run: async (api) => {
+      await expectServing(api);
       expectStatus(await start(api, VIEWER, VALID), 403, "viewer starts ops.ConfirmSortie");
       expectStatus(await start(api, ANON, VALID), 403, "someone not signed in starts ops.ConfirmSortie");
     }

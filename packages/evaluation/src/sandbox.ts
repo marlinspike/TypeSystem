@@ -1,4 +1,7 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { armBrief, type Arm } from "./arms.js";
 import { sourceFiles } from "./measure.js";
@@ -30,11 +33,13 @@ export function createSandbox(repo: string, dir: string, task: Task, arm: Arm, c
       return true;
     }
   });
-  // Third-party packages are shared read-only; the workspace's own resolve inside the sandbox.
+  // Third-party packages are shared from a store outside the repository, so no relative path through
+  // one leads back into it (P3-V2); the workspace's own resolve inside the sandbox.
+  const store = moduleStore(repo);
   const modules = path.join(dir, "node_modules");
   mkdirSync(path.join(modules, "@typesys"), { recursive: true });
-  for (const entry of readdirSync(path.join(repo, "node_modules"))) {
-    if (entry !== "@typesys") symlinkSync(path.join(repo, "node_modules", entry), path.join(modules, entry));
+  for (const entry of readdirSync(store)) {
+    if (entry !== "@typesys") symlinkSync(path.join(store, entry), path.join(modules, entry));
   }
   for (const pkg of readdirSync(path.join(dir, "packages"))) {
     const manifest = path.join(dir, "packages", pkg, "package.json");
@@ -47,6 +52,37 @@ export function createSandbox(repo: string, dir: string, task: Task, arm: Arm, c
   writeFileSync(path.join(dir, "BRIEF.md"), armBrief(arm));
   mkdirSync(path.join(dir, "app"), { recursive: true });
   return dir;
+}
+
+/**
+ * A copy of the repository's third-party `node_modules`, outside the
+ * repository, made once per lockfile and shared by every sandbox. Files are
+ * hard-linked where the file system allows, and copied otherwise.
+ */
+export function moduleStore(repo: string): string {
+  const lock = path.join(repo, "package-lock.json");
+  const key = createHash("sha256").update(path.resolve(repo)).update(existsSync(lock) ? readFileSync(lock) : "").digest("hex").slice(0, 16);
+  const store = path.join(tmpdir(), "typesys-evaluation-modules", key, "node_modules");
+  if (existsSync(store)) return store;
+  const partial = `${store}.${process.pid}.partial`;
+  rmSync(partial, { recursive: true, force: true });
+  mkdirSync(partial, { recursive: true });
+  const source = path.join(repo, "node_modules");
+  for (const entry of readdirSync(source)) {
+    if (entry === "@typesys") continue;
+    try {
+      execFileSync("cp", ["-al", path.join(source, entry), path.join(partial, entry)], { stdio: "ignore" });
+    } catch {
+      cpSync(path.join(source, entry), path.join(partial, entry), { recursive: true, verbatimSymlinks: true });
+    }
+  }
+  try {
+    renameSync(partial, store);
+  } catch {
+    // Another process finished the same store first.
+    rmSync(partial, { recursive: true, force: true });
+  }
+  return store;
 }
 
 /**
