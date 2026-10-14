@@ -79,7 +79,9 @@ export function verifyReplay(workflow: AnyWorkflow, state: RunState): void {
         throw new ReplayDivergenceError(step.name, "it would now invoke its Action with a different input");
       }
     }
-    if (step.kind === "ai" && recorded.attempts > 0 && canonical(evaluate("input", () => step.input(ctx))) !== canonical(recorded.input)) {
+    // What the model was given was computed from its released needs (ADR-0067): replay that, not what the person read.
+    const aiCtx = step.kind === "ai" && recorded.released ? contextFor(state.runId, state.input, step, new Map(Object.entries(recorded.released.needs))) : ctx;
+    if (step.kind === "ai" && recorded.attempts > 0 && canonical(evaluate("input", () => step.input(aiCtx))) !== canonical(recorded.input)) {
       throw new ReplayDivergenceError(step.name, "it would now give the model a different input");
     }
   }

@@ -1,4 +1,4 @@
-# 0061. TypeS Studio: A Browser Workbench With No Authority of Its Own
+# 0061. TypeSys Studio: A Browser Workbench With No Authority of Its Own
 
 ## Status
 
@@ -47,7 +47,7 @@ Two further `querySource` mutants are equivalent and were not counted. Naming ev
 
 Slices 4 to 8 gave developers and agents a typed SDK, validation with suggestions, execution plans, Action previews, an HTTP API and generated forms and columns. Each was reachable only from code. The people who decide what a mission application should do (an analyst, a product owner, an accreditor) had no way to see the model, try a query, or watch the same screen answer two people differently. A developer had no fast loop from "what am I allowed to ask?" to code.
 
-A workbench like this usually becomes a second, privileged path: an admin console with a service account, its own queries and its own idea of who may see what. That is exactly what TypeS exists to prevent.
+A workbench like this usually becomes a second, privileged path: an admin console with a service account, its own queries and its own idea of who may see what. That is exactly what TypeSys exists to prevent.
 
 ## Decision
 
@@ -95,7 +95,7 @@ The client signs in with a bearer token and sends it on every call, through the 
 
 ## Alternatives Considered
 
-- **An admin console with its own service identity.** Faster to build and able to show everything, but it is the second path TypeS exists to remove: a console that can see more than its user becomes the easiest way around policy.
+- **An admin console with its own service identity.** Faster to build and able to show everything, but it is the second path TypeSys exists to remove: a console that can see more than its user becomes the easiest way around policy.
 - **Extending the demo console (`demo-web`).** It is a demonstration with its own routes and inline scripts (ADR-0058 kept it as is). Building on it would carry those into a tool meant for real use.
 - **A full framework (Next.js, Vite).** A development server, routing and server rendering are more than three screens over one API need, and each adds dependencies and a build to accredit. One bundling step with `esbuild`, already a dependency of `tsx`, does the job.
 - **Generating the SDK code on the server.** It would cost an API call per keystroke for something the client can do with the SDK it already bundles.

@@ -27,7 +27,7 @@ function storeToken(token: string | undefined): void {
 }
 
 /**
- * TypeS Studio (ADR-0061). It signs in with a bearer token and then sees the
+ * TypeSys Studio (ADR-0061). It signs in with a bearer token and then sees the
  * model, queries and Actions exactly as the API answers that caller: change
  * the token and the same screens show what someone else may see.
  */
@@ -85,7 +85,7 @@ export function App() {
   return (
     <div className="studio">
       <header>
-        <h1>{config?.title ?? "TypeS Studio"}</h1>
+        <h1>{config?.title ?? "TypeSys Studio"}</h1>
         <div className="who" aria-live="polite">
           {me ? (
             <>

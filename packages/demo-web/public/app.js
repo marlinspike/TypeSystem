@@ -1,4 +1,4 @@
-// TypeS demo — vanilla JS, no build step, no framework. Talks to the
+// TypeSys demo — vanilla JS, no build step, no framework. Talks to the
 // Express API in server.ts, which drives one real SemanticRuntime hosting
 // two domains (and, via the MCP Console tab, the real MCP server on that
 // same runtime).
@@ -104,7 +104,7 @@ function tokenFor(key) {
 async function request(path, opts, label) {
   const res = await fetch(path, opts);
   const body = await res.json().catch(() => null);
-  const header = res.headers.get("X-TypeS-Stats");
+  const header = res.headers.get("X-TypeSys-Stats");
   const stats = header ? JSON.parse(header) : null;
   if (stats && label !== false) renderStats(label ?? `${opts?.method ?? "GET"} ${path.split("?")[0]}`, stats, res.status);
   return { status: res.status, ok: res.ok, body, stats };

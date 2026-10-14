@@ -29,10 +29,15 @@ describe.skipIf(!hasDb)("PostgresRegistryStore", () => {
   });
 
   async function truncateAll(): Promise<void> {
-    // TRUNCATE does not fire the row-level BEFORE DELETE trigger on audit_events
-    // (it's a statement-level operation) — safe here, but production operators
-    // must never run this against a real environment (see README.md).
-    await pool.query(`TRUNCATE types, relationships, actions, data_sources, mappings, audit_events`);
+    await pool.query(`TRUNCATE types, relationships, actions, data_sources, mappings`);
+    // audit_events refuses TRUNCATE (0005); a test database's owner lifts that for the reset alone. The runtime
+    // in production logs in as a role that does not own the table, so it cannot.
+    await pool.query(`ALTER TABLE audit_events DISABLE TRIGGER audit_events_no_truncate`);
+    try {
+      await pool.query(`TRUNCATE audit_events`);
+    } finally {
+      await pool.query(`ALTER TABLE audit_events ENABLE TRIGGER audit_events_no_truncate`);
+    }
   }
 
   // The shared contract suite (packages/core/src/testing/registry-store-contract.ts):

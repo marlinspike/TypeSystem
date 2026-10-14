@@ -43,7 +43,7 @@ offered on strings) each fail at least one test.
 
 ## Context
 
-Every name a developer wrote against TypeS was a string and every value was
+Every name a developer wrote against TypeSys was a string and every value was
 `unknown` (see `docs/evidence/baseline-2026-10-13.md`). `typesys
 generate-types` emitted interfaces, but nothing connected them to query
 results, includes, projections or Actions, and a computed property's value
@@ -93,7 +93,7 @@ on arrays, matching the shared filter interpreter; a filter is branded with
 its Type.
 
 **One client, two transports.** `runtimeTransport(runtime, identity)` calls
-a runtime in process; `mcpTransport(client, { authToken })` calls a TypeS
+a runtime in process; `mcpTransport(client, { authToken })` calls a TypeSys
 MCP server's tools and needs only a `callTool` method, so the SDK has no MCP
 dependency. Both return the runtime's wire shapes; the client converts.
 MCP carries only an error's message, so remote refusals are

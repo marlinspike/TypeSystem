@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AirforceModel } from "@typesys/domain-airforce";
-import { createTypeSHooks, dataOf, errorOf } from "@typesys/react";
+import { createTypeSysHooks, dataOf, errorOf } from "@typesys/react";
 import { createClient, httpCall, httpTransport, httpWorkflows, type Row } from "@typesys/sdk";
 import { Problem, Shell, useToken, type SignInOption } from "../../shared/client/shell.js";
 
-const { TypeSProvider, useClient, useQuery, useLoad, useActions, useAction } = createTypeSHooks<AirforceModel>();
+const { TypeSysProvider, useClient, useQuery, useLoad, useActions, useAction } = createTypeSysHooks<AirforceModel>();
 type Workflows = ReturnType<typeof httpWorkflows>;
 type WorkOrder = Row<AirforceModel, "airforce.WorkOrder">;
 const STATUSES: readonly NonNullable<WorkOrder["status"]>[] = ["open", "in-progress", "closed"];
 
 /**
- * The squadron readiness application, composed from TypeS (ADR-0063): the
+ * The squadron readiness application, composed from TypeSys (ADR-0063): the
  * typed SDK over the governed API, the React hooks, Action previews and the
  * ground-for-repair workflow. It holds no access rule of its own: whatever
  * it shows or offers is what the runtime and the workflow engine decided
@@ -35,11 +35,11 @@ export function App() {
 
   return (
     <Shell title="Squadron Readiness" signIns={signIns} token={token} onToken={setToken} who={who}>
-      <TypeSProvider client={client} key={token ?? "anonymous"}>
+      <TypeSysProvider client={client} key={token ?? "anonymous"}>
         <Board onOpen={setSelected} />
         {selected && <Aircraft tail={selected} workflows={workflows} />}
         <Approvals workflows={workflows} />
-      </TypeSProvider>
+      </TypeSysProvider>
     </Shell>
   );
 }

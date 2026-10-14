@@ -1,6 +1,6 @@
 # @typesys/cli
 
-A declarative authoring front-end and codegen tool for TypeS — the DX pass
+A declarative authoring front-end and codegen tool for TypeSys — the DX pass
 described in `docs/architecture.md`'s "extending the type system" notes.
 Two things, both optional and additive: nothing about `@typesys/core`,
 `registerType`, or `RegistryStore` changed to support this.
@@ -104,7 +104,7 @@ enforce (see `docs/adr/0003-relationships-as-first-class-records.md` and
 `0005-actions-as-first-class-governed-capabilities.md`).
 
 The JSON Schema to TypeScript conversion is `@typesys/sdk`'s `schemaToTs`,
-shared with `generate-sdk` below: it covers what TypeS models author and
+shared with `generate-sdk` below: it covers what TypeSys models author and
 widens anything it cannot express exactly (a `$ref`) to `unknown`. `extends`
 and traits are resolved through the registry's own
 `getType`/`getTraitSchema`, not by parsing raw schema JSON.

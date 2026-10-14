@@ -48,7 +48,7 @@ export function openApiDocument(
         type: { type: "string" },
         title: { type: "string" },
         status: { type: "integer" },
-        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "unauthorized", "internal"] },
+        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "source-refused", "unauthorized", "internal"] },
         detail: { type: "string" },
         reason: { type: "string" },
         errors: {}
@@ -56,9 +56,15 @@ export function openApiDocument(
       required: ["type", "title", "status", "code", "detail"]
     },
     Provenance: { type: "object", additionalProperties: true },
+    // A part of the answer left out because its source failed (ADR-0072).
+    Unavailable: {
+      type: "object",
+      properties: { path: { type: "string" }, dataSourceId: { type: "string" }, reason: { enum: ["unavailable", "timeout", "refused-by-source"] }, message: { type: "string" } },
+      required: ["path", "dataSourceId", "reason", "message"]
+    },
     ResolvedObject: {
       type: "object",
-      properties: { typeName: { type: "string" }, objectId: { type: "string" }, values: { type: "object" }, provenance: { type: "array", items: ref("Provenance") } },
+      properties: { typeName: { type: "string" }, objectId: { type: "string" }, values: { type: "object" }, provenance: { type: "array", items: ref("Provenance") }, unavailable: { type: "array", items: ref("Unavailable") } },
       required: ["typeName", "objectId", "values"]
     },
     ModelDescription: { type: "object", properties: { format: { const: "typesys.model/1" } }, required: ["format"] },
@@ -77,7 +83,7 @@ export function openApiDocument(
         required: ["subjectId", "roles"]
       })
     },
-    "/model": { get: op("describeModel", "The model: every Type and Action, composed", ref("ModelDescription")) },
+    "/model": { get: op("describeModel", "The model as this caller may learn it: every Type and Action, composed, or under need-to-know only those the caller could use (ADR-0068)", ref("ModelDescription")) },
     "/query": { post: op("query", "Objects of one Type, as this caller may read them", page(ref("ResolvedObject")), { requestBody: { required: true, ...json(query) } }) },
     "/query/explain": { post: op("explainQuery", "How a query would run, without running it", { type: "object" }, { requestBody: { required: true, ...json(query) } }) },
     "/query/validate": {
@@ -110,7 +116,7 @@ export function openApiDocument(
     schemas[type.name] = { type: "object", description: "Every value optional: policy may withhold any of them.", properties: values };
     schemas[`${type.name}.Object`] = {
       type: "object",
-      properties: { typeName: { const: type.name }, objectId: { type: "string" }, values: ref(type.name), provenance: { type: "array", items: ref("Provenance") } },
+      properties: { typeName: { const: type.name }, objectId: { type: "string" }, values: ref(type.name), provenance: { type: "array", items: ref("Provenance") }, unavailable: { type: "array", items: ref("Unavailable") } },
       required: ["typeName", "objectId", "values"]
     };
     paths[`/objects/${type.name}/{id}`] = {
@@ -155,12 +161,21 @@ export function openApiDocument(
         requestBody: { required: true, ...json({ type: "object", properties: { approved: { type: "boolean" }, comment: { type: "string" } }, required: ["approved"] }) }
       })
     };
+    paths["/workflow-runs/{id}/reauthorize"] = {
+      post: op("reauthorizeRun", "Let a suspended run act again, as this caller with fresh credentials: the subject it acts as only (ADR-0065)", run, { parameters: [pathParam("id")] })
+    };
+    paths["/workflow-runs/{id}/cancel"] = {
+      post: op("cancelRun", "Cancel a run and undo what it completed: its initiator, or someone its cancel policy admits (ADR-0065)", run, {
+        parameters: [pathParam("id")],
+        requestBody: { required: false, ...json({ type: "object", properties: { reason: { type: "string" } } }) }
+      })
+    };
   }
 
   return {
     openapi: "3.1.0",
     jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema",
-    info: { title: opts.title ?? "TypeS API", version: opts.version ?? "0.1.0" },
+    info: { title: opts.title ?? "TypeSys API", version: opts.version ?? "0.1.0" },
     servers: [{ url: "/api" }],
     security: [{ bearer: [] }],
     paths,

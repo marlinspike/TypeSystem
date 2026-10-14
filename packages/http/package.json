@@ -1,7 +1,7 @@
 {
   "name": "@typesys/http",
   "version": "0.1.0",
-  "description": "A governed REST API over a TypeS runtime: bearer identity per request, RFC 9457 problem responses with stable codes, an OpenAPI 3.1 document generated from the model, and optional governed workflow routes. Every route calls the runtime as the caller.",
+  "description": "A governed REST API over a TypeSys runtime: bearer identity per request, RFC 9457 problem responses with stable codes, an OpenAPI 3.1 document generated from the model, and optional governed workflow routes. Every route calls the runtime as the caller.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

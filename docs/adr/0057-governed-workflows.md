@@ -68,7 +68,7 @@ governed Action stops a workflow from committing it unreviewed.
 
 Mature durable-execution engines exist. Temporal runs workflows as code
 whose history is replayed deterministically; DBOS Transact checkpoints each
-step to Postgres from a library. Neither knows what TypeS knows: which
+step to Postgres from a library. Neither knows what TypeSys knows: which
 steps are authoritative and which are a model's guess, who a step acts as,
 which Actions have side effects and whether repeating one is safe, or who
 may approve. Building another general orchestrator would duplicate them;
@@ -148,7 +148,7 @@ process would. Its result is the run and its journal.
 **Durability sits behind the journal, and mature engines are the
 production answer.** The reference journal is in memory. A durable one is
 any store that appends conditionally by `(run_id, seq)`. For long-running
-production workflows the mapping is: a TypeS workflow step becomes a
+production workflows the mapping is: a TypeSys workflow step becomes a
 Temporal activity or a DBOS step, the journal becomes that engine's
 history or checkpoint table, and the governance (`needs`, the AI-review
 rule, policy-decided approvals, initiator identity, idempotency-aware

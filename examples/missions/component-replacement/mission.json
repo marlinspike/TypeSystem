@@ -1,0 +1,273 @@
+{
+  "format": "typesys.mission/1",
+  "name": "component-replacement",
+  "requirement": "When a component on an aircraft needs replacing, a maintainer requests the replacement against one of that aircraft's maintenance events. A maintenance lead other than the requester approves it, and only then is a work order opened and assigned; if the work order cannot finish, it is closed again. Viewers can see the fleet's components and aircraft without their maintenance status, and cannot request a replacement or open a work order. Someone not signed in sees nothing.",
+  "host": {
+    "module": "@typesys/domain-airforce",
+    "build": "buildAirforceTestbed",
+    "identities": "resolveDemoIdentity",
+    "workflows": "airforceWorkflows"
+  },
+  "callers": {
+    "maintainer": {
+      "token": "demo-maintainer-token",
+      "description": "SSgt Rivera, a maintainer"
+    },
+    "lead": {
+      "token": "demo-lead-token",
+      "description": "MSgt Okafor, a maintenance lead"
+    },
+    "viewer": {
+      "token": "demo-viewer-token",
+      "description": "a read-only viewer"
+    },
+    "anonymous": {
+      "token": "",
+      "description": "someone not signed in"
+    }
+  },
+  "uses": {
+    "types": [
+      "airforce.Aircraft",
+      "airforce.Component",
+      "airforce.MaintenanceEvent"
+    ],
+    "actions": [
+      "CreateMaintenanceWorkOrder",
+      "UpdateWorkOrderStatus"
+    ]
+  },
+  "workflow": {
+    "name": "airforce.ReplaceComponent",
+    "version": "1.0.0",
+    "description": "A maintainer requests a component replacement; a lead approves it; a work order is opened.",
+    "startPolicy": "airforce.maintainer-only",
+    "input": [
+      "componentId",
+      "maintenanceEventId",
+      "assignTo"
+    ],
+    "steps": [
+      {
+        "kind": "read",
+        "name": "component",
+        "type": "airforce.Component",
+        "id": "$input.componentId"
+      },
+      {
+        "kind": "read",
+        "name": "event",
+        "type": "airforce.MaintenanceEvent",
+        "id": "$input.maintenanceEventId"
+      },
+      {
+        "kind": "check",
+        "name": "sameAircraft",
+        "equal": [
+          "$component.aircraftId",
+          "$event.aircraftId"
+        ],
+        "message": "The maintenance event is for a different aircraft than the component"
+      },
+      {
+        "kind": "approval",
+        "name": "leadApproval",
+        "policy": "airforce.maintenance-lead",
+        "present": [
+          "component",
+          "event"
+        ]
+      },
+      {
+        "kind": "action",
+        "name": "openWorkOrder",
+        "action": "CreateMaintenanceWorkOrder",
+        "input": {
+          "maintenanceEventId": "$event.id",
+          "assignedTo": "$input.assignTo"
+        },
+        "compensate": {
+          "action": "UpdateWorkOrderStatus",
+          "input": {
+            "workOrderId": "$output.id",
+            "status": "closed"
+          }
+        }
+      }
+    ]
+  },
+  "views": [
+    {
+      "name": "ComponentList",
+      "title": "Components",
+      "type": "airforce.Component",
+      "fields": [
+        "name",
+        "partNumber",
+        "condition",
+        "aircraftId"
+      ],
+      "limit": 50
+    },
+    {
+      "name": "FleetList",
+      "title": "Aircraft",
+      "type": "airforce.Aircraft",
+      "fields": [
+        "tailNumber",
+        "model",
+        "readinessStatus"
+      ],
+      "limit": 50
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "viewer-reads-components",
+      "kind": "reads",
+      "as": "viewer",
+      "type": "airforce.Component",
+      "objectId": "comp-002",
+      "sees": [
+        "name",
+        "partNumber",
+        "condition"
+      ]
+    },
+    {
+      "id": "viewer-lacks-maintenance-status",
+      "kind": "reads",
+      "as": "viewer",
+      "type": "airforce.Aircraft",
+      "objectId": "AF86-0147",
+      "sees": [
+        "tailNumber"
+      ],
+      "withheld": [
+        "maintenanceStatus",
+        "deploymentLocation"
+      ]
+    },
+    {
+      "id": "anonymous-sees-nothing",
+      "kind": "refused",
+      "as": "anonymous",
+      "type": "airforce.Component",
+      "objectId": "comp-002"
+    },
+    {
+      "id": "viewer-lists-an-aircrafts-components",
+      "kind": "query",
+      "as": "viewer",
+      "query": {
+        "type": "airforce.Component",
+        "filter": {
+          "property": "aircraftId",
+          "operator": "eq",
+          "value": "AF86-0147"
+        }
+      },
+      "atLeast": 2
+    },
+    {
+      "id": "maintainer-offered-work-order",
+      "kind": "offered",
+      "as": "maintainer",
+      "type": "airforce.MaintenanceEvent",
+      "objectId": "EVT-9002",
+      "action": "CreateMaintenanceWorkOrder",
+      "offered": true
+    },
+    {
+      "id": "viewer-not-offered-work-order",
+      "kind": "offered",
+      "as": "viewer",
+      "type": "airforce.MaintenanceEvent",
+      "objectId": "EVT-9002",
+      "action": "CreateMaintenanceWorkOrder",
+      "offered": false
+    },
+    {
+      "id": "maintainer-requests-replacement",
+      "kind": "starts",
+      "as": "maintainer",
+      "workflow": "airforce.ReplaceComponent",
+      "input": {
+        "componentId": "comp-002",
+        "maintenanceEventId": "EVT-9002",
+        "assignTo": "SSgt Rivera"
+      },
+      "status": "waiting-approval",
+      "waitingOn": "leadApproval"
+    },
+    {
+      "id": "mismatched-aircraft-fails",
+      "kind": "starts",
+      "as": "maintainer",
+      "workflow": "airforce.ReplaceComponent",
+      "input": {
+        "componentId": "comp-003",
+        "maintenanceEventId": "EVT-9002",
+        "assignTo": "SSgt Rivera"
+      },
+      "status": "failed",
+      "because": "comp-003 is on AF86-0212, EVT-9002 on AF86-0147"
+    },
+    {
+      "id": "viewer-cannot-request",
+      "kind": "starts",
+      "as": "viewer",
+      "workflow": "airforce.ReplaceComponent",
+      "input": {
+        "componentId": "comp-002",
+        "maintenanceEventId": "EVT-9002",
+        "assignTo": "SSgt Rivera"
+      },
+      "status": "refused"
+    },
+    {
+      "id": "lead-approves-and-work-order-opens",
+      "kind": "approves",
+      "as": "lead",
+      "startedBy": "maintainer",
+      "workflow": "airforce.ReplaceComponent",
+      "input": {
+        "componentId": "comp-002",
+        "maintenanceEventId": "EVT-9002",
+        "assignTo": "SSgt Rivera"
+      },
+      "step": "leadApproval",
+      "admitted": true,
+      "then": "completed"
+    },
+    {
+      "id": "maintainer-cannot-approve",
+      "kind": "approves",
+      "as": "maintainer",
+      "startedBy": "maintainer",
+      "workflow": "airforce.ReplaceComponent",
+      "input": {
+        "componentId": "comp-002",
+        "maintenanceEventId": "EVT-9002",
+        "assignTo": "SSgt Rivera"
+      },
+      "step": "leadApproval",
+      "admitted": false
+    },
+    {
+      "id": "lead-cannot-approve-own-request",
+      "kind": "approves",
+      "as": "lead",
+      "startedBy": "lead",
+      "workflow": "airforce.ReplaceComponent",
+      "input": {
+        "componentId": "comp-002",
+        "maintenanceEventId": "EVT-9002",
+        "assignTo": "MSgt Okafor"
+      },
+      "step": "leadApproval",
+      "admitted": false,
+      "because": "the requirement says a lead other than the requester"
+    }
+  ]
+}

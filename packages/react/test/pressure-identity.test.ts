@@ -3,10 +3,10 @@ import { createElement, type ReactElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { buildAirforceTestbed, demoIdentities, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
-import { createTypeSHooks, dataOf, type Loaded } from "../src/index.js";
+import { createTypeSysHooks, dataOf, type Loaded } from "../src/index.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const { TypeSProvider, useObject } = createTypeSHooks<AirforceModel>();
+const { TypeSysProvider, useObject } = createTypeSysHooks<AirforceModel>();
 
 let testbed: AirforceTestbed;
 beforeAll(async () => {
@@ -25,7 +25,7 @@ describe("pressure: the hooks when the signed-in caller changes", () => {
       latest = useObject("airforce.Aircraft", "AF86-0147");
       return null;
     }
-    const tree = (client: ReturnType<typeof clientFor>) => createElement(TypeSProvider, { client }, createElement(Probe)) as ReactElement;
+    const tree = (client: ReturnType<typeof clientFor>) => createElement(TypeSysProvider, { client }, createElement(Probe)) as ReactElement;
     let renderer!: ReactTestRenderer;
     await act(async () => {
       renderer = create(tree(clientFor("maintainer")));

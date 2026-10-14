@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "tsc -b && tsx scripts/build-clients.ts",
-    "build:postgres": "tsc -b packages/registry-store-postgres packages/adapter-postgres",
+    "build:postgres": "tsc -b packages/registry-store-postgres packages/adapter-postgres packages/workflow-postgres",
     "migrate:postgres": "npm run migrate --workspace=@typesys/registry-store-postgres && npm run migrate --workspace=@typesys/adapter-postgres",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,6 +21,7 @@
     "lint": "node tools/eslint/node_modules/eslint/bin/eslint.js -c tools/eslint/eslint.config.js .",
     "lint:fix": "npm run lint -- --fix",
     "typecheck": "node tools/eslint/node_modules/typescript/bin/tsc -p tools/eslint/tsconfig.lint.json && node tools/eslint/node_modules/typescript/bin/tsc -p tools/eslint/tsconfig.client.json",
+    "check:terminology": "tsx scripts/check-terminology.ts",
     "smoke:mcp": "tsx scripts/smoke-test-mcp.ts",
     "smoke:mcp-http": "tsx scripts/smoke-test-mcp-http.ts",
     "conformance:mcp": "tsx scripts/mcp-conformance.ts",
@@ -35,13 +36,16 @@
     "clean": "tsc -b --clean",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "npm run build && changeset publish"
+    "release": "npm run build && changeset publish",
+    "mutation": "tsx scripts/mutation.ts",
+    "evaluate": "node packages/evaluation/dist/bin.js"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",
     "@modelcontextprotocol/conformance": "0.1.16",
     "@types/node": "26.6.2",
     "esbuild": "0.28.2",
+    "fast-check": "4.10.2",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "5.0.1"

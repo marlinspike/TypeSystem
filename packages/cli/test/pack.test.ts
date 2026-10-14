@@ -42,6 +42,10 @@ describe("typesys pack", () => {
     expect(await typesys("pack", "sign", airforce, "--key-id", "wing", "--private-key", key, "--out", signed)).toMatchObject({ code: 0 });
     expect(await typesys("pack", "verify", signed, "--trust", `wing=${pub}`)).toMatchObject({ code: 0, out: { ok: true, diagnostics: [] } });
     expect(await typesys("pack", "verify", signed, "--trust", `wing=${otherPub}`)).toMatchObject({ code: 1, out: { diagnostics: [{ code: "bad-signature" }, { code: "untrusted" }] } });
+    // Revoking the key, or withdrawing this build by digest, refuses what verified a moment ago (ADR-0069).
+    expect(await typesys("pack", "verify", signed, "--trust", `wing=${pub}`, "--revoke", "wing")).toMatchObject({ code: 1, out: { diagnostics: [{ code: "revoked", subject: "wing" }, { code: "untrusted" }] } });
+    const digest = (JSON.parse(await readFile(signed, "utf8")) as { digest: string }).digest;
+    expect(await typesys("pack", "verify", signed, "--revoke", digest)).toMatchObject({ code: 1, out: { diagnostics: [{ code: "revoked", subject: digest }] } });
 
     const tampered = JSON.parse(await readFile(signed, "utf8")) as { description: string };
     tampered.description = "Something else";

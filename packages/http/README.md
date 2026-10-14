@@ -1,6 +1,6 @@
 # @typesys/http
 
-The governed REST API for TypeS
+The governed REST API for TypeSys
 ([ADR-0058](../../docs/adr/0058-governed-http-api-and-headless-react-bindings.md)).
 Every route resolves the caller from the bearer token and makes one runtime
 call as them; refusals are RFC 9457 problems with a stable `code`, and the

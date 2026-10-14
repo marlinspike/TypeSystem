@@ -4,7 +4,7 @@
  * pinned in the root package.json) against the HTTP server, serving the
  * airforce demo on a free port (ADR-0051).
  *
- * Scenarios TypeS is known to fail are listed, each with its reason, in
+ * Scenarios TypeSys is known to fail are listed, each with its reason, in
  * `scripts/mcp-conformance-baseline.yml`. The suite exits non-zero on a
  * failure that isn't listed, and on a listed one that now passes, so the
  * baseline can only shrink deliberately.

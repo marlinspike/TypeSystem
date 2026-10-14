@@ -1,22 +1,19 @@
 # Security Policy
 
-## A note on what this project is
+## Before you report
 
-TypeS is a **reference implementation** of an architecture, not a
-battle-tested product with a release history. Before relying on it for
-anything sensitive, read [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md):
-it is a candid, ranked list of what stands between this codebase and real
-production traffic — a hardened policy engine, a threat model at the
-boundary, data-classification enforcement, encryption in transit and at
-rest, secrets management, and more.
+TypeSystem's security controls are tested in CI, by a mutation suite
+(`npm run mutation`) and by independent adversarial reviews recorded in
+[`docs/reviews/`](docs/reviews/). The packages are versioned 0.x and are
+not yet published to npm, and the code has not had an external security
+audit. [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) lists
+the deployment decisions that remain yours, such as key management, TLS
+and secrets.
 
-Items already documented there are **known limitations, not
-vulnerabilities**. Please don't file a report telling us there is no
-at-rest encryption or that the bundled `AbacPolicyEngine` hasn't had a
-security review — we know, it's written down, and a report restates the
-gap rather than revealing one. A report is valuable when it shows behaviour
-that contradicts what the docs claim, or a weakness the docs don't already
-name.
+Items documented there are **known deployment responsibilities, not
+vulnerabilities**, so a report that restates one doesn't reveal anything
+new. A report is valuable when it shows behaviour that contradicts what the
+docs claim, or a weakness the docs don't already name.
 
 ## Supported versions
 

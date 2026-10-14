@@ -23,8 +23,20 @@ export const HIGH_ASSURANCE_V1: SecurityProfile = Object.freeze({
   ])
 });
 
+/** V1's guarantees and one more (ADR-0068): discovery is need-to-know. V1's guarantees are unchanged, as a version's must be. */
+export const HIGH_ASSURANCE_V2: SecurityProfile = Object.freeze({
+  id: "typesys:high-assurance:2",
+  guarantees: Object.freeze([
+    ...HIGH_ASSURANCE_V1.guarantees,
+    'Discovery is need-to-know: discovery is "need-to-know", so an anonymous caller is told nothing about the model and any other caller only the Types, members and Actions they could use.'
+  ])
+});
+
 /** Every profile this runtime implements, by id. */
-export const SECURITY_PROFILES: ReadonlyMap<string, SecurityProfile> = new Map([[HIGH_ASSURANCE_V1.id, HIGH_ASSURANCE_V1]]);
+export const SECURITY_PROFILES: ReadonlyMap<string, SecurityProfile> = new Map([
+  [HIGH_ASSURANCE_V1.id, HIGH_ASSURANCE_V1],
+  [HIGH_ASSURANCE_V2.id, HIGH_ASSURANCE_V2]
+]);
 
 /** Where an encrypting component's keys come from (ADR-0046): a KMS, local material, or something it can't say. */
 export type KeyManagement = "local" | "managed" | "unknown";

@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createSemanticValidator, type Identity } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { ApiError, createClient, httpTransport, httpWorkflows, runtimeTransport, type Client, type WorkflowRun } from "@typesys/sdk";
 import { WorkflowEngine, scriptedModel, type RunStatus } from "@typesys/workflow";
 import { createApiApp } from "../src/index.js";
@@ -30,7 +30,7 @@ const errors: unknown[] = [];
 
 beforeAll(async () => {
   testbed = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
-  const workflows = await WorkflowEngine.create({ host: testbed, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "Avionics fault." } }) });
+  const workflows = await WorkflowEngine.create({ host: testbed, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "Avionics fault." } }, "scripted", demoAudiences.enclaveModel) });
   workflows.register(groundForRepair);
   const app = createApiApp({ backend: testbed, identityResolver: resolve, workflows, onError: (err) => errors.push(err) });
   await new Promise<void>((r) => (server = app.listen(0, "127.0.0.1", () => r())));
@@ -162,6 +162,17 @@ describe("the SDK's workflow client", () => {
     await expect(as("lead").outputs(run.runId)).rejects.toBeInstanceOf(ApiError);
     await expect(as("anonymous").start("airforce.GroundForRepair", { aircraftId: "AF86-0147", assignTo: "x" })).rejects.toMatchObject({ code: "forbidden" });
   });
+
+  it("re-authorizes with the caller's own identity and cancels, refusing anyone else (ADR-0065)", async () => {
+    const as = (who: Who) => httpWorkflows({ baseUrl: `${base}/api`, ...(token(who) ? { token: token(who)! } : {}) });
+    const run = await as("maintainer").start("airforce.GroundForRepair", { aircraftId: "AF86-0147", assignTo: "SSgt Rivera" });
+    // Re-authorizing a waiting run as the subject it acts as refreshes it; anyone else is refused.
+    expect((await as("maintainer").reauthorize(run.runId)).status).toBe("waiting-approval");
+    await expect(as("lead").reauthorize(run.runId)).rejects.toMatchObject({ status: 403, code: "forbidden" });
+    // The demo workflow has no cancel policy: only its initiator may cancel.
+    await expect(as("lead").cancel(run.runId, "not mine")).rejects.toMatchObject({ code: "forbidden" });
+    expect(await as("maintainer").cancel(run.runId, "wrong aircraft")).toMatchObject({ status: "cancelled", reason: "Cancelled by user-maintainer-1: wrong aircraft" });
+  });
 });
 
 describe("the OpenAPI document (ADR-0058)", () => {
@@ -178,7 +189,7 @@ describe("the OpenAPI document (ADR-0058)", () => {
     expect(dangling).toEqual([]);
 
     for (const t of ["airforce.Aircraft", "airforce.WorkOrder"]) expect(doc.paths).toHaveProperty([`/objects/${t}/{id}`]);
-    for (const p of ["/workflows/{name}/runs", "/workflow-runs/{id}/approvals/{step}"]) expect(doc.paths).toHaveProperty([p]);
+    for (const p of ["/workflows/{name}/runs", "/workflow-runs/{id}/approvals/{step}", "/workflow-runs/{id}/reauthorize", "/workflow-runs/{id}/cancel"]) expect(doc.paths).toHaveProperty([p]);
 
     // Each Action's request schema, resolved within the document, admits a valid input and refuses one the runtime refuses.
     const ajv = createSemanticValidator();

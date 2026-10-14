@@ -1,7 +1,7 @@
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { MockRestAdapter, MockRestClient } from "@typesys/adapter-mock-rest";
 import { DEMO_LINEAR_CLASSIFICATION, buildRuntime, coreManifest, type Identity, type PolicyEngine, type PolicyRule, type SemanticRegistry, type SemanticRuntime } from "@typesys/core";
-import {
+import { demoAudiences,
   AIRCRAFT_DATA_SOURCE_ID,
   MAINTENANCE_DATA_SOURCE_ID,
   airforceManifest,
@@ -40,7 +40,9 @@ export const triageModel: AiModel = scriptedModel(
       };
     }
   },
-  "mission-demo-triage"
+  "mission-demo-triage",
+  // It runs in the squadron's enclave: policy releases to it what a maintainer reads, below SECRET (ADR-0067).
+  demoAudiences.enclaveModel
 );
 
 /**

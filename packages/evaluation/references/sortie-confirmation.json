@@ -1,0 +1,52 @@
+{
+  "format": "typesys.mission/1",
+  "name": "sortie-readiness",
+  "requirement": "A sortie planner confirms a pilot for an aircraft before a sortie. The aircraft comes from the fleet registry, its crew from the crew roster and its parts from the parts depot: three services written by other people, each with its own authorization. A maintainer may ask for the confirmation; only a planner may give it, and never for a pilot not assigned to that aircraft. A viewer sees the fleet but not its mission capability, its parts or its crew. A crew member's name is shown only to a planner of that crew member's unit.",
+  "host": {
+    "module": "@typesys/sortie-readiness",
+    "build": "buildSortieHost",
+    "identities": "resolveSortieIdentity",
+    "options": { "rosterPii": true }
+  },
+  "callers": {
+    "planner": { "token": "demo-planner-token", "description": "Sortie planner, 388FW" },
+    "maintainer": { "token": "demo-maintainer-token", "description": "Maintainer, 388FW" },
+    "viewer": { "token": "demo-viewer-token", "description": "Reads the fleet board" },
+    "anonymous": { "token": "", "description": "Not signed in" }
+  },
+  "uses": { "types": ["ops.Aircraft", "ops.CrewMember", "ops.Requisition"] },
+  "workflow": {
+    "name": "ops.ConfirmSortie",
+    "version": "1.0.0",
+    "description": "Confirm a pilot for an aircraft: the pilot must be assigned to it, and a planner signs off.",
+    "startPolicy": "ops.crew",
+    "input": ["tailNumber", "pilotId"],
+    "steps": [
+      { "kind": "read", "name": "aircraft", "type": "ops.Aircraft", "id": "$input.tailNumber" },
+      { "kind": "read", "name": "pilot", "type": "ops.CrewMember", "id": "$input.pilotId" },
+      { "kind": "check", "name": "pilotAssigned", "equal": ["$pilot.assignedTail", "$aircraft.tailNumber"], "message": "the pilot is not assigned to this aircraft" },
+      { "kind": "approval", "name": "plannerSignoff", "policy": "ops.sortie-signoff", "present": ["aircraft", "pilot"], "deadlineMs": 86400000 }
+    ]
+  },
+  "views": [
+    { "name": "FleetBoard", "title": "Fleet", "type": "ops.Aircraft", "fields": ["tailNumber", "mds", "base", "missionCapability"], "limit": 50 },
+    { "name": "CrewList", "title": "Crew", "type": "ops.CrewMember", "fields": ["callsign", "name", "assignedTail", "available"], "limit": 50 }
+  ],
+  "acceptance": [
+    { "id": "planner-reads-capability", "kind": "reads", "as": "planner", "type": "ops.Aircraft", "objectId": "AF86-0147", "sees": ["tailNumber", "mds", "missionCapability"] },
+    { "id": "viewer-lacks-capability", "kind": "reads", "as": "viewer", "type": "ops.Aircraft", "objectId": "AF86-0147", "sees": ["tailNumber", "mds"], "withheld": ["missionCapability"] },
+    { "id": "anonymous-sees-nothing", "kind": "refused", "as": "anonymous", "type": "ops.Aircraft", "objectId": "AF86-0147" },
+    { "id": "viewer-refused-parts", "kind": "refused", "as": "viewer", "type": "ops.Requisition", "objectId": "KHIF-6281-0001" },
+    { "id": "viewer-refused-crew", "kind": "refused", "as": "viewer", "type": "ops.CrewMember", "objectId": "C-1001" },
+    { "id": "planner-sees-own-unit-name", "kind": "reads", "as": "planner", "type": "ops.CrewMember", "objectId": "C-1001", "sees": ["callsign", "name"] },
+    { "id": "planner-lacks-other-unit-name", "kind": "reads", "as": "planner", "type": "ops.CrewMember", "objectId": "C-2001", "sees": ["callsign"], "withheld": ["name"], "because": "C-2001 is in 419FW" },
+    { "id": "maintainer-lacks-names", "kind": "reads", "as": "maintainer", "type": "ops.CrewMember", "objectId": "C-1001", "sees": ["callsign", "assignedTail"], "withheld": ["name"] },
+    { "id": "fleet-pages-followed", "kind": "query", "as": "planner", "query": { "type": "ops.Aircraft", "filter": { "property": "base", "operator": "eq", "value": "KHIF" } }, "atLeast": 4, "because": "the fleet registry returns two records a page" },
+    { "id": "depot-key-narrows-parts", "kind": "query", "as": "planner", "query": { "type": "ops.Requisition" }, "atLeast": 3, "atMost": 3, "because": "the depot holds four requisitions, and the key TypeSystem holds is issued for KHIF's three only" },
+    { "id": "maintainer-requests-confirmation", "kind": "starts", "as": "maintainer", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "status": "waiting-approval", "waitingOn": "plannerSignoff" },
+    { "id": "unassigned-pilot-fails", "kind": "starts", "as": "maintainer", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1003" }, "status": "failed", "failsAt": "pilotAssigned" },
+    { "id": "viewer-cannot-request", "kind": "starts", "as": "viewer", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "status": "refused" },
+    { "id": "planner-signs-off", "kind": "approves", "as": "planner", "startedBy": "maintainer", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "step": "plannerSignoff", "admitted": true, "then": "completed" },
+    { "id": "maintainer-cannot-sign-off", "kind": "approves", "as": "maintainer", "startedBy": "planner", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "step": "plannerSignoff", "admitted": false }
+  ]
+}

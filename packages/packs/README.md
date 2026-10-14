@@ -1,6 +1,6 @@
 # @typesys/packs
 
-Domain packs for TypeS ([ADR-0059](../../docs/adr/0059-domain-packs.md)):
+Domain packs for TypeSys ([ADR-0059](../../docs/adr/0059-domain-packs.md)):
 a domain's Types, traits, Actions, data sources and mappings as one JSON
 archive, content-addressed by SHA-256 and optionally signed with Ed25519,
 installed offline with every requirement checked before anything is

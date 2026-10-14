@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage image for the TypeS MCP server over Streamable HTTP (ADR-0021, ADR-0029).
+# Multi-stage image for the TypeSys MCP server over Streamable HTTP (ADR-0021, ADR-0029).
 #
 # Reference artifact: correct and runnable, NOT production-hardened. A real image would
 # pin the base by digest, scan for CVEs, prune dev dependencies (or use a distroless

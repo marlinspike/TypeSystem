@@ -11,7 +11,7 @@ import { scaffoldDomain } from "./scaffold.js";
 import { checkUpgrade, signPack, verifyPack, type PackArchive, type PackDiagnostic } from "@typesys/packs";
 
 function usage(): void {
-  console.log(`typesys — TypeS declarative authoring CLI
+  console.log(`typesys — TypeSys declarative authoring CLI
 
 Usage:
   typesys init <dir> [--name <domainName>] [--force] [--json]
@@ -23,9 +23,10 @@ Usage:
   typesys discover <dir> <task words...> [--bindings <module.js>] [--limit <n>] [--json]
   typesys check-query <dir> <query.json> [--bindings <module.js>] [--json]
   typesys pack inspect <pack.json> [--json]
-  typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--json]
+  typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--revoke <keyId|sha256:digest>]... [--json]
   typesys pack sign <pack.json> --key-id <id> --private-key <private.pem> --out <signed.json>
   typesys pack check-upgrade <next.json> --installed <pack.json>... [--json]
+  typesys engineer plan|scaffold|verify ...   (with @typesys/engineer installed)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -59,7 +60,8 @@ traits are always pre-registered, so \`extends: core.Asset\` etc. just works.
                 pack contains and what a deployment must supply (bindings,
                 policy rules, data sources, other packs). verify checks the
                 digest and, with --trust, an Ed25519 signature by one of the
-                given keys. sign adds one. check-upgrade compares a new
+                given keys; --revoke refuses a pack any revoked key signed,
+                or a withdrawn build by digest (ADR-0069). sign adds one. check-upgrade compares a new
                 version with the installed packs: the contract diff, the
                 version bump it needs, and every dependent's range. verify
                 and check-upgrade exit 1 on any finding.
@@ -93,6 +95,7 @@ interface ParsedArgs {
   check: boolean;
   limit?: number;
   trust: string[];
+  revoke: string[];
   installed: string[];
   keyId?: string;
   privateKey?: string;
@@ -102,7 +105,7 @@ interface ParsedArgs {
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, dir, ...rest] = argv;
-  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, trust: [], installed: [], positionals: [] };
+  const result: ParsedArgs = { command, dir, json: false, force: false, check: false, trust: [], revoke: [], installed: [], positionals: [] };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--bindings") result.bindings = rest[++i];
     else if (rest[i] === "--out") result.out = rest[++i];
@@ -112,6 +115,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (rest[i] === "--check") result.check = true;
     else if (rest[i] === "--limit") result.limit = Number(rest[++i]);
     else if (rest[i] === "--trust") result.trust.push(rest[++i]!);
+    else if (rest[i] === "--revoke") result.revoke.push(rest[++i]!);
     else if (rest[i] === "--installed") result.installed.push(rest[++i]!);
     else if (rest[i] === "--key-id") result.keyId = rest[++i];
     else if (rest[i] === "--private-key") result.privateKey = rest[++i];
@@ -139,7 +143,25 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
   process.exitCode = ok ? 0 : 1;
 }
 
+/** `typesys engineer`: the engineering loop (ADR-0071) lives in its own package, so the CLI stays small; it runs when that package is installed. */
+async function engineer(argv: string[]): Promise<void> {
+  const specifier = "@typesys/engineer";
+  let mod: { engineerCommand: (argv: readonly string[]) => Promise<number> };
+  try {
+    mod = (await import(specifier)) as typeof mod;
+  } catch (err) {
+    // Only a missing package means "install it"; anything else is the package failing to load, and its error says why.
+    const e = err as { code?: string; message?: string };
+    const missing = (e.code === "ERR_MODULE_NOT_FOUND" || e.code === "MODULE_NOT_FOUND") && (e.message ?? "").includes(`'${specifier}'`);
+    console.error(missing ? "typesys engineer needs @typesys/engineer: npm install --save-dev @typesys/engineer" : `typesys engineer: @typesys/engineer failed to load: ${e.message ?? String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = await mod.engineerCommand(argv);
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === "engineer") return engineer(process.argv.slice(3));
   const args = parseArgs(process.argv.slice(2));
   const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 
@@ -322,7 +344,16 @@ async function packCommand(sub: string | undefined, args: ParsedArgs): Promise<v
         if (at <= 0) throw new Error(`--trust takes <keyId>=<public.pem>, got "${t}"`);
         trustedKeys[t.slice(0, at)] = await readFile(t.slice(at + 1), "utf8");
       }
-      const found = verifyPack(pack, args.trust.length > 0 ? { trustedKeys } : {});
+      // A digest, however it is spelled, is a digest: a value that looks like one but is malformed is refused, never taken as a key id.
+      const digestOf = (r: string): string | undefined => {
+        const hex = /^sha256:/i.test(r) ? r.slice("sha256:".length) : /^[0-9a-f]{64}$/i.test(r) ? r : undefined;
+        if (hex === undefined) return undefined;
+        if (!/^[0-9a-f]{64}$/i.test(hex)) throw new Error(`--revoke ${r} is not a sha256 digest`);
+        return `sha256:${hex.toLowerCase()}`;
+      };
+      const revokedKeys = Object.fromEntries(args.revoke.filter((r) => digestOf(r) === undefined).map((r) => [r, {}]));
+      const revokedDigests = Object.fromEntries(args.revoke.flatMap((r) => (digestOf(r) ? [[digestOf(r)!, {}]] : [])));
+      const found = verifyPack(pack, { ...(args.trust.length > 0 ? { trustedKeys } : {}), revokedKeys, revokedDigests });
       printResult(args.json, found.length === 0, { name: pack.name, version: pack.version, digest: pack.digest, diagnostics: found }, found.length === 0 ? [`OK — ${pack.name} ${pack.version} is intact${args.trust.length > 0 ? " and signed by a trusted key" : ""}`] : found.map(diagnosticLine));
     } else if (sub === "sign") {
       if (!args.keyId || !args.privateKey || !args.out) throw new Error("sign needs --key-id, --private-key and --out");

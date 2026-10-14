@@ -1,4 +1,4 @@
-# Reference Kubernetes manifests for the TypeS MCP server (ADR-0025, ADR-0029).
+# Reference Kubernetes manifests for the TypeSys MCP server (ADR-0025, ADR-0029).
 #
 # Flat YAML on purpose — tool-agnostic and readable. A real deployment would template these
 # (Helm/Kustomize), pin the image by digest, and add resource requests/limits, a

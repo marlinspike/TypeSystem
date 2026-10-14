@@ -203,7 +203,7 @@ document that gap rather than close it in this pass.
   properties typed by a declared value `schema` (which the registry compiles
   and the runtime enforces on every computation), relationships and
   Actions; `createClient<Model>()` builds immutable queries that compile to
-  the query DSL and nothing else, over the runtime in process or a TypeS
+  the query DSL and nothing else, over the runtime in process or a TypeSys
   MCP server. `typesys generate-sdk --check` and `npm run sdk:models --
   --check` catch a stale model. Proven by `packages/sdk/test/` (twelve
   compile-time refusals checked by `npm run typecheck`; six queries for
@@ -244,10 +244,45 @@ document that gap rather than close it in this pass.
   is checked before every advance; `simulate` previews instead of
   invoking, with scripted model answers and approvals and injected faults
   and crashes. Proven by `packages/workflow/test/` and
-  `packages/devkit/test/synthesize.test.ts`, and mutation-checked. Not
-  addressed: the only journal is in memory (a Postgres journal and a
-  Temporal or DBOS binding are designed, not built); no durable timers or
-  approval deadlines; no classification check on what is sent to a model.
+  `packages/devkit/test/synthesize.test.ts`, and mutation-checked.
+  Since ADR-0065 a run acts on continuing authority: the initiator is
+  re-resolved (or the snapshot ages out), expiry and the start policy are
+  decided again before every step, and a refusal suspends the run until
+  re-authorization or cancellation; approvals may have deadlines and retry
+  backoffs are journaled timers fired by `tick()`
+  (`packages/workflow/test/continuing-authority.test.ts`). Since ADR-0066
+  `@typesys/workflow-postgres` is a durable, append-only journal that
+  passes the same contract as the in-memory one and recovers a crashed run
+  from two processes at once without repeating an Action
+  (`packages/workflow-postgres/test/`). Not addressed: Temporal and DBOS
+  bindings (designed, not built); retention of finished runs; delegation
+  of a run to another person to carry forward.
+- Release to models (ADR-0067): an `Audience` (a model or execution
+  environment) is a principal of its own; with one bound to an identity
+  the runtime decides every policy, classification and planning decision
+  for the person and the audience, and audits the audience.
+  `bindAudience` binds the model behind an MCP or HTTP agent; a workflow
+  AI step's input is computed from what its model may receive (refused, or
+  redacted on request), and an AI step fed by an Action is refused.
+  Proven by `release-boundary.test.ts` in domain-airforce (with
+  property-based tests), domain-hospital and workflow, and
+  `packages/mcp-server/test/audience.test.ts`. Not addressed:
+  provenance-based and transitive release, the run's own input, and a
+  reviewed release scheme for real markings.
+- Discovery security (ADR-0068): the runtime describes the model as the
+  caller (`describeModel(identity)`), and the HTTP API, MCP and the Studio
+  go through it. A deployment's `discovery` is `"open"` (the default),
+  `"authenticated"` (anonymous callers refused) or `"need-to-know"` (each
+  caller told only the Types, members and Actions they could use, decided
+  by the same policies, plans and markings as their reads, for their
+  audience too, and never naming what is withheld); `HIGH_ASSURANCE_V2`
+  requires need-to-know. MCP no longer sends a schema's policy names,
+  markings, data sources or bindings in any mode. Proven by
+  `packages/domain-airforce/test/discovery.test.ts` (property-based),
+  `packages/mcp-server/test/discovery-security.test.ts` (one description
+  over every transport) and `packages/studio/test/studio.test.ts`. Not
+  addressed: existence oracles in error messages, domain description
+  text, and caching descriptions per role set.
 - A governed HTTP API and headless React bindings (ADR-0058):
   `@typesys/http` serves the runtime over REST, one runtime call per
   request as the bearer token's caller, with RFC 9457 problems carrying a
@@ -272,7 +307,13 @@ document that gap rather than close it in this pass.
   pack inspect | verify | sign | check-upgrade`. Proven by
   `packages/packs/test/` and `packages/cli/test/pack.test.ts`, and
   mutation-checked. Not addressed: workflows and sample data in packs,
-  packing YAML domains, a pack registry, key revocation, uninstall.
+  packing YAML domains, a pack registry, uninstall.
+  Since ADR-0069 a deployment can revoke signing keys and withdraw builds
+  by digest: a pack any revoked key signed is refused, an installed one
+  blocks further installs, and every install is audited
+  (`packages/packs/test/revocation.test.ts`, `typesys pack verify
+  --revoke`). Not addressed: distributing revocation lists, key expiry,
+  and a transparency log.
 - A subtype keeps its base's protections (ADR-0060): registration merges
   the base's property policies and markings into a subtype and applies the
   base's object policy when the subtype names none; replacing an inherited
@@ -304,7 +345,7 @@ document that gap rather than close it in this pass.
   (`@typesys/http`), `approvalsFor` (`@typesys/workflow`), `httpWorkflows`
   (`@typesys/sdk`), `dataOf` and `errorOf` (`@typesys/react`). Not
   addressed: time to write either version, other browsers.
-- TypeS Studio (ADR-0061): `@typesys/studio` serves the governed API
+- TypeSys Studio (ADR-0061): `@typesys/studio` serves the governed API
   beside a browser client under a strict Content Security Policy. The
   client uses only the API, as the signed-in person: the model with
   discovery, a query editor with live validation and one-click
@@ -425,8 +466,9 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 1,053 tests (2026-10-14): 992 run with no infrastructure, the other 61
-  need PostgreSQL, Redis or a KMS emulator. Four of the 992 drive the
+- 1,330 tests (2026-10-14, after the 3.0 pressure test): 1,245 run with no
+  infrastructure, the other 85 need PostgreSQL, Redis or a KMS emulator.
+  Four of the 1,245 drive the
   Studio and the mission application in Chromium and skip where no
   Chromium is installed. Plus stdio
   and HTTP MCP smoke tests and the MCP conformance suite, all green.
@@ -470,6 +512,106 @@ a cryptographic review (ADR-0033); the legacy-migration window (ADR-0035);
 replay of an `EncryptedCache` entry within its TTL (ADR-0036); and
 `AwsKmsKey` against AWS KMS itself, with real key policies and IAM
 (ADR-0037).
+
+## The 3.0 mutation harness: evidence that can be regenerated
+
+`npm run mutation` (ADR-0070) applies each of the 100 deliberate defects in
+[`tools/mutation/catalog.json`](../tools/mutation/catalog.json), one at a
+time, forces a full rebuild, runs the tests the catalog names, and writes
+[`docs/evidence/mutation/latest.json`](evidence/mutation/latest.json) with
+the git revision, whether the tree was clean, the environment, the
+catalog's hash, and each result. The catalog covers ADR-0038, ADR-0052,
+ADR-0057, ADR-0059, ADR-0060 and ADR-0064 through ADR-0069 and ADR-0071,
+with one mutation for each fix of the independent M2 review and each fix
+of the independent M4 review but one (a shared server, guarded by a test). Earlier
+"mutation-checked" claims in this file were made by hand and are not
+regenerated by this harness unless the catalog lists them. Property tests
+with fixed seeds back two invariants: need-to-know discovery describes
+exactly what a query does not refuse (airforce), and a query returns what
+direct reads return for every sampled id (hospital).
+
+An independent adversarial review of M2
+([`reviews/m2-adversarial-review.md`](reviews/m2-adversarial-review.md))
+found 27 defects (6 High, 11 Medium, 10 Low). All are fixed, and its
+reproduction tests (`packages/*/test/m2-adv-*.test.ts`) pass. It also
+listed what it saw in code but did not demonstrate. These are open, not
+fixed:
+
+- `invokeAction` over MCP and HTTP returns an Action's result to a bound
+  agent without deciding it for the audience.
+- `asSeenBy` passes compute and AI outputs to an approver unchanged.
+- No shipped host calls `bindAudience`.
+- A pack install's audit failure replaces a `PackError`, and on success it
+  throws after registering. `signedBy` lists the key ids signatures claim,
+  verified or not. `actor` is supplied by the caller.
+- Two services registering the same workflow name and version on one
+  shared journal can advance each other's runs.
+- A model can count the calls it receives, so an AI step skipped on
+  withheld data is one bit to it (ADR-0067, amended).
+
+## The 3.0 engineering loop: requirement to verified application
+
+`@typesys/engineer` (ADR-0071) takes a mission spec through three steps.
+`plan` checks it against the model and against what each caller is told of
+the model. `scaffold` writes a typed application: an SDK model, a
+workflow, React views, a governed HTTP server and acceptance tests.
+`verify` builds the application, starts it in its own process, and runs
+every acceptance check through its API as the caller it names. The loop
+is offered as `typesys engineer`, as MCP tools and as a Claude Code skill.
+
+It is demonstrated on `examples/missions/component-replacement`, a
+requirement no existing code was written for:
+
+- 12 checks pass, and Chromium shows the generated views to a viewer and
+  nothing to someone not signed in.
+- A self-approval defect seeded in the application fails exactly the
+  check that excludes it, and verifies again once repaired.
+- The same defect seeded in the spec is warned by `plan` and fails
+  `verify`, as does a check the model's policy contradicts.
+- A type error in the application is reported at its line.
+
+An independent adversarial review of M4
+([`reviews/m4-adversarial-review.md`](reviews/m4-adversarial-review.md))
+found 17 defects (4 High, 5 Medium, 8 Low), among them negative checks
+that passed on any failed request, a stale build, and a generated check
+step that passed on withheld values. All are fixed, its 19 reproduction
+tests (`packages/engineer/test/m4-adv-*.test.ts`) pass, and 26
+`engineer.*` mutations are each killed by a test. Not demonstrated:
+
+- A loop driven end to end by an agent rather than by the tests. M6
+  measures that.
+- Scaffolding of AI steps, retries and timers. These are written by hand
+  and verified the same way.
+
+## The 3.0 interoperability milestone: services TypeSystem did not write
+
+Three plain-Node services in `examples/services/` share no code with
+TypeSystem or with each other. Each has its own data model, its own
+paging and its own authorization: API-key scopes in the fleet registry, a
+depot key per base in the parts depot, and OAuth client credentials with
+a PII scope in the crew roster. `@typesys/adapter-http` maps each onto one
+governed model (`packages/sortie-readiness`) by configuration alone
+(ADR-0072). `packages/sortie-readiness/test/interop.test.ts` shows:
+
+- one query reading all three, with provenance naming each service's own
+  field;
+- access control enforced by TypeSystem and by each service, and a name
+  released only when both allow it;
+- a failed service leaving the rest of the answer, with `unavailable`
+  naming what is missing and why (`unavailable`, `timeout` or
+  `refused-by-source`), never an empty list;
+- two slow services read concurrently, and a service slower than the
+  deadline reported as timed out;
+- the depot's schema upgrade absorbed by its mapping, with three consumer
+  responses byte for byte identical.
+
+The `examples/missions/sortie-readiness` application is verified by the
+engineering loop: 15 checks, each against a freshly started copy that
+starts its own services (`mission.test.ts`). Eight `interop.*` and
+`http-adapter.*` mutations are each killed by a test. Not addressed: a
+service learning which person a read is for (token exchange), Actions
+through `HttpAdapter`, and partial answers for property values split
+across sources.
 
 ## Real but narrow — the mechanism exists, exercised once
 

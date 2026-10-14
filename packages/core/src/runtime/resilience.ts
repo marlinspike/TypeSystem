@@ -1,4 +1,4 @@
-import { AdapterTimeoutError, CircuitOpenError } from "./errors.js";
+import { AdapterTimeoutError, AdapterUnavailableError, CircuitOpenError, SourceRefusedError } from "./errors.js";
 
 /**
  * How an adapter call should retry, be time-bounded, and be circuit-broken
@@ -72,6 +72,11 @@ export function isRetryableError(err: unknown): boolean {
     if (typeof code === "string" && RETRYABLE_ERROR_CODES.has(code)) return true;
   }
   return false;
+}
+
+/** Whether an error is the source's own answer: its refusal, or one marked not worth asking again. */
+function answered(err: unknown): boolean {
+  return err instanceof SourceRefusedError || (err instanceof AdapterUnavailableError && !err.retryable);
 }
 
 type BreakerState = "closed" | "open" | "half-open";
@@ -206,7 +211,10 @@ export class AdapterResilience {
         breaker?.recordSuccess();
         return result;
       } catch (err) {
-        breaker?.recordFailure();
+        // A source that answered, with a refusal or an answer the caller must change its question for,
+        // is up: only a failure to answer counts toward opening the circuit for everyone.
+        if (answered(err)) breaker?.recordSuccess();
+        else breaker?.recordFailure();
         if (attempt >= maxAttempts || !isRetryableError(err)) throw err;
         if (retry) await sleep(backoffDelayMs(attempt, retry));
       }

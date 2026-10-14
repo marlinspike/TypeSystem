@@ -1,0 +1,32 @@
+{
+  "name": "@typesys/adapter-http",
+  "version": "0.1.0",
+  "description": "A declarative HTTP/JSON Adapter for TypeSystem: map an independent service's endpoints, fields and authorization (header keys or OAuth 2.0 client credentials) onto Types, so a change in the service's schema is a change in the mapping and nowhere else.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/adapter-http"
+  },
+  "keywords": [
+    "typesys",
+    "adapter",
+    "http",
+    "rest"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0"
+  }
+}

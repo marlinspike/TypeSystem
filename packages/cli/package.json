@@ -1,7 +1,7 @@
 {
   "name": "@typesys/cli",
   "version": "0.1.0",
-  "description": "Declarative YAML authoring and TypeScript codegen for TypeS Types.",
+  "description": "Declarative YAML authoring and TypeScript codegen for TypeSys Types.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

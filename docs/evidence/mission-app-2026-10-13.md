@@ -49,7 +49,7 @@ same record from both versions. Both pass.
 
 Corrected 2026-10-14 after the [pressure test](pressure-test-2026-10-14.md): the composed client types one response shape by hand (`a.presented` in `Approvals`), and the 7 `// ACCESS:` markers cover 4 distinct rules. The composed version's 136-line workflow definition is counted in neither total.
 
-| | Composed from TypeS | Written by hand |
+| | Composed from TypeSys | Written by hand |
 |---|---|---|
 | Server, lines of code | 8 | 148 |
 | Client, lines of code | 185 | 207 |

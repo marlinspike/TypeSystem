@@ -71,7 +71,7 @@ A 19th mutation, continuing the scratch registration after its first failure, ch
 
 ## Context
 
-A domain in TypeS was TypeScript code: a `DomainManifest` imported from a package and registered at startup. That made a domain hard to move into the settings TypeS is built for:
+A domain in TypeSys was TypeScript code: a `DomainManifest` imported from a package and registered at startup. That made a domain hard to move into the settings TypeSys is built for:
 
 - An accredited enclave without package registry access cannot receive a new version as `npm install`.
 - A site cannot add its own variant of a Type without forking the domain.

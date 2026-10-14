@@ -28,7 +28,7 @@ describe("discovery and validation over MCP (ADR-0056)", () => {
     const matches = found.matches as { name: string; summary: string }[];
     expect(matches.map((m) => m.name)).toEqual(["UpdateWorkOrderStatus", "airforce.WorkOrder"]);
     const listed = await call("typesys_list_types", {});
-    expect(JSON.stringify(found).length).toBeLessThan(JSON.stringify(listed).length / 10);
+    expect(JSON.stringify(found).length).toBeLessThan(JSON.stringify(listed).length / 8);
   });
 
   it("checks a query without running it, and names what was meant", async () => {

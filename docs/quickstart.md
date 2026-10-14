@@ -15,7 +15,7 @@ application in a separate repository, follow
 ## 0. Install
 
 ```bash
-git clone <this-repo> && cd TypeS
+git clone <this-repo> && cd TypeSys
 npm install
 ```
 

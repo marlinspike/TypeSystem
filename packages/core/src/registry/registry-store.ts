@@ -12,6 +12,12 @@ import type { AuditEvent } from "../audit/audit-log.js";
  * Postgres implementation lives in a separate optional package, gated by
  * an env var, never a dependency of core.
  */
+export interface AuditEventListOptions {
+  limit?: number;
+  before?: string;
+  action?: string;
+}
+
 export interface RegistryStore {
   putType(def: TypeDefinition): Promise<void>;
   getType(name: string, versionRange?: string): Promise<TypeDefinition | undefined>;
@@ -33,8 +39,11 @@ export interface RegistryStore {
   listMappings(typeName: string): Promise<Mapping[]>;
 
   appendAuditEvent(evt: AuditEvent): Promise<void>;
-  /** Bounded and paginated — audit volume grows without limit, unlike every other list* method here (see ADR-0015). */
-  listAuditEvents(opts?: { limit?: number; before?: string }): Promise<QueryResult<AuditEvent>>;
+  /**
+   * Bounded and paginated — audit volume grows without limit, unlike every other list* method here (see ADR-0015).
+   * `action` keeps only rows of that action (`pack.install`, ADR-0069); the cursor pages within them.
+   */
+  listAuditEvents(opts?: AuditEventListOptions): Promise<QueryResult<AuditEvent>>;
 
   /** Graceful shutdown. A no-op for the in-memory store; ends the pool for Postgres. */
   close?(): Promise<void>;

@@ -75,7 +75,7 @@ interface ToolResult {
 }
 
 /**
- * Calls a TypeS MCP server's `typesys_*` tools and its Action tools (ADR-0012,
+ * Calls a TypeSys MCP server's `typesys_*` tools and its Action tools (ADR-0012,
  * ADR-0051). `authToken` travels in each call's arguments, as the server's
  * tools take it.
  */
@@ -103,7 +103,7 @@ export function mcpTransport(client: ToolCaller, opts: { authToken?: string } = 
 }
 
 /**
- * A refusal or failure from a TypeS REST API (ADR-0058): its HTTP status, the
+ * A refusal or failure from a TypeSys REST API (ADR-0058): its HTTP status, the
  * problem's stable `code` (`forbidden`, `not-found`, `invalid-input`,
  * `precondition-failed`, `rate-limited`, ...) to branch on, and for a
  * refusal the policy's `reason`.
@@ -130,7 +130,7 @@ export interface HttpTransportOptions {
 }
 
 /**
- * One call to a TypeS REST API (`@typesys/http`, ADR-0058) with the bearer
+ * One call to a TypeSys REST API (`@typesys/http`, ADR-0058) with the bearer
  * token attached: the JSON answer, or an `ApiError` carrying the problem's
  * `code` and `reason`. For the routes a `Transport` does not cover, such as
  * `/model`, `/query/validate` and `/discover`.
@@ -163,7 +163,7 @@ export function httpCall(opts: HttpTransportOptions): HttpCall {
 }
 
 /**
- * Calls a TypeS REST API (`@typesys/http`, ADR-0058). It needs only `fetch`,
+ * Calls a TypeSys REST API (`@typesys/http`, ADR-0058). It needs only `fetch`,
  * so the same typed client runs in a browser; every call is decided by the
  * runtime behind the API for the token's identity.
  */

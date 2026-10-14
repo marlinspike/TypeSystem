@@ -19,11 +19,12 @@ beforeAll(async () => {
 const clone = (m: ModelDescription): ModelDescription => structuredClone(m);
 
 describe("compact catalog (ADR-0056)", () => {
-  it("describes a model in under a third of what typesys_list_types returns", async () => {
-    // The same Types both ways: every registered one. The numbers are in docs/evidence/devkit-2026-10-13.md.
-    const full = JSON.stringify({ types: await readTypes(airforce.registry) });
+  it("describes a model in under half of what typesys_list_types returns", async () => {
+    // The same Types both ways: every registered one. The numbers are in docs/evidence/devkit-2026-10-13.md; the
+    // listing lost its policy, marking and binding keywords to ADR-0068, so the margin is smaller than it was.
+    const full = JSON.stringify({ types: await readTypes(airforce.registry, airforce.runtime, demoIdentities.maintainer) });
     const compact = compactCatalog(await describeModel(airforce.registry));
-    expect(compact.length).toBeLessThan(full.length / 3);
+    expect(compact.length).toBeLessThan(full.length / 2);
     expect(compact).toContain("computed: readinessStatus: \"FMC\" | \"PMC\" | \"NMC\" | \"UNKNOWN\", needsAttention: boolean");
     expect(compact).toContain("on one airforce.WorkOrder (id in workOrderId); mutates; idempotency natural");
   });

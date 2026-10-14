@@ -1,7 +1,7 @@
 {
   "name": "@typesys/auth-oidc",
   "version": "0.1.0",
-  "description": "Real OIDC/JWT IdentityResolver for TypeS — signature, issuer, audience, and expiry verified via jose against a JWKS endpoint.",
+  "description": "Real OIDC/JWT IdentityResolver for TypeSys — signature, issuer, audience, and expiry verified via jose against a JWKS endpoint.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,7 +1,7 @@
 {
   "name": "@typesys/studio",
   "version": "0.1.0",
-  "description": "TypeS Studio: a browser workbench over the governed API. Explore the model, compose and check queries with live validation, execution plans and the typed SDK code that builds them, and preview Actions before invoking them, always as the signed-in caller.",
+  "description": "TypeSys Studio: a browser workbench over the governed API. Explore the model, compose and check queries with live validation, execution plans and the typed SDK code that builds them, and preview Actions before invoking them, always as the signed-in caller.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

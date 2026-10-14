@@ -43,13 +43,15 @@ typesys pack sign fleet-1.0.0.typesys-pack.json --key-id fleet-release --private
 ```
 
 Signing never changes the digest, so a release team and an accreditor can
-both sign the same pack. Distributing and revoking keys is yours.
+both sign the same pack. Distributing keys is yours; revoking one is a
+line in the deployment's install options (step 4).
 
 ## 3. Review and verify it where it lands
 
 ```bash
 typesys pack inspect fleet-1.0.0.signed.json
 typesys pack verify fleet-1.0.0.signed.json --trust fleet-release=release.pub
+typesys pack verify fleet-1.0.0.signed.json --trust fleet-release=release.pub --revoke fleet-release-2025
 ```
 
 `inspect` lists what the pack will need: binding keys, policy rule names,
@@ -64,6 +66,9 @@ import { installPacks, corePack } from "@typesys/packs";
 const lock = await installPacks(registry, [corePack, fleetPack], {
   bindings: fleetBindings,                       // { computed: {...}, preconditions: {...} }
   trustedKeys: { "fleet-release": releasePub },  // optional: refuse unsigned packs
+  revokedKeys: { "fleet-release-2025": { revokedAt: "2026-10-01", reason: "key exposed" } },
+  revokedDigests: {},                            // optional: withdrawn builds, by digest
+  actor: operator.subjectId,                     // who installs, for the audit row
   policies: Object.keys(fleetPolicyRules),       // optional: refuse rule names your engine lacks
   adapters,                                      // optional: refuse data sources nothing serves
   dataSources: { "fleet-db": { kind: "postgres", name: "Depot database" } }   // your source, same id
@@ -76,6 +81,15 @@ dependency ranges, conflicts between packs, references nothing provides,
 bindings, policy rules, adapters, and a registration into a scratch
 registry. Every problem is reported at once in the `PackError`.
 `planInstall` runs the same checks without installing.
+
+A pack signed by a revoked key is refused even if a trusted key also
+signed it, and a revocation applies to packs already installed: while one
+of them is signed by a revoked key, every further install is refused until
+it is replaced by a re-signed build
+([ADR-0069](../adr/0069-pack-trust-can-be-revoked.md)). Every
+`installPacks` call writes one `pack.install` audit row, allowed or
+refused, with the packs offered, their digests and signers, and every
+reason for a refusal.
 
 ## 5. Specialize it without forking
 

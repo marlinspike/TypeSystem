@@ -1,12 +1,12 @@
 // The Cedar schema for the two demo domains (ADR-0031). It declares the
-// identity model and every TypeS policy name as a Cedar action, and — for
+// identity model and every TypeSys policy name as a Cedar action, and — for
 // each resource entity type — only the attributes a policy decides on. Every
 // other stored value (a Patient's name, MRN, date of birth) never reaches the
 // engine. Resource attributes are optional (`?`): a type-level request
 // carries none (ADR-0030), and Cedar's validator then insists every policy
 // guards them with `has`.
 
-namespace TypeS {
+namespace TypeSys {
   entity Role;
   entity User in [Role] {
     // A clinician's Provider id: what hospital.read-patient matches against.

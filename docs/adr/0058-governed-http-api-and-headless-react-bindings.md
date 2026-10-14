@@ -4,7 +4,7 @@
 
 Accepted — implemented in the new `@typesys/http` (`createApiRouter`,
 `createApiApp`, `openApiDocument`, `toProblem`, `originGuard`), the new
-`@typesys/react` (`createTypeSHooks`, `Resource`, `formFields`,
+`@typesys/react` (`createTypeSysHooks`, `Resource`, `formFields`,
 `coerceForm`, `columnsFor`), `@typesys/sdk` (`httpTransport`, `ApiError`),
 `@typesys/core` (`IdentityResolver` moved here), and `@typesys/mcp-server`,
 whose HTTP transport now uses the Host, Origin and bearer helpers from
@@ -135,7 +135,7 @@ no CORS headers: a browser app is served from the same origin or through a
 proxy that owns CORS.
 
 **The React bindings are headless and typed by the generated model.**
-`createTypeSHooks<AirforceModel>()` returns a provider and hooks
+`createTypeSysHooks<AirforceModel>()` returns a provider and hooks
 (`useQuery`, `useObject`, `useActions`, `useAction`, `useLoad`) that call
 the SDK client the provider holds, in process or over HTTP. They render
 nothing and decide nothing: what a component shows is what the runtime

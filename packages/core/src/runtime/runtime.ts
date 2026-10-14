@@ -5,7 +5,7 @@ import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
 import type { Adapter, AdapterQueryResult, ResolvedProperties, RelatedRef } from "./adapter.js";
-import type { Identity, PolicyDecision, PolicyEngine, PolicyRequest, PolicyResource } from "../model/policy.js";
+import { audienceIdentity, type Identity, type PolicyDecision, type PolicyEngine, type PolicyRequest, type PolicyResource } from "../model/policy.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
@@ -14,11 +14,13 @@ import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey, SearchSpec, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
+import { AdapterTimeoutError, AdapterUnavailableError, AuthorizationError, AuthorizationPlanError, CircuitOpenError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError, SourceRefusedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
-import { HIGH_ASSURANCE_V1, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
+import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
+import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery, type DiscoveryGate } from "./discovery.js";
+import { describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
@@ -68,6 +70,25 @@ export interface ResolvedObject {
   objectId: string;
   values: Record<string, unknown>;
   provenance?: ProvenanceRef[];
+  /** Parts of the answer left out because their source failed (ADR-0072): only optional relationships' includes. */
+  unavailable?: UnavailablePart[];
+}
+
+/** What is missing from an answer, from which source, and why (ADR-0072). */
+export interface UnavailablePart {
+  /** The include left out: a relationship name of this object. */
+  path: string;
+  dataSourceId: string;
+  reason: "unavailable" | "timeout" | "refused-by-source";
+  message: string;
+}
+
+/** A source failing to answer, as opposed to the caller being refused or the request being wrong. */
+function sourceFailure(err: unknown): UnavailablePart["reason"] | undefined {
+  if (err instanceof SourceRefusedError) return "refused-by-source";
+  if (err instanceof AdapterTimeoutError) return "timeout";
+  if (err instanceof AdapterUnavailableError || err instanceof CircuitOpenError) return "unavailable";
+  return undefined;
 }
 
 /** An object's stored values as its policies see them (ADR-0030): frozen, so no rule can alter what the caller is later returned. */
@@ -137,7 +158,7 @@ function telemetryOf(policy: unknown): Telemetry {
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
-export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction";
+export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction" | "describeModel";
 
 /** Why a previewed Action would not run (ADR-0053), in the order the runtime checks. */
 export interface ActionBlocker {
@@ -268,6 +289,18 @@ function planSummary(plan: AuthorizationPlan): { plan: AuthorizationPlan["kind"]
 /** The reason a clearance check gives the caller: never the marking, which can itself be sensitive (ADR-0032). */
 const CLEARANCE_REASON = "Requires a higher clearance";
 
+/**
+ * The principals a decision about `identity` is made for (ADR-0067): the
+ * subject alone, or the subject and the audience it reads for, each as a
+ * principal of its own. The subject is decided without its audience, so no
+ * rule can mistake one for the other.
+ */
+function principalsOf(identity: Identity): { person: Identity; audience?: Identity } {
+  if (!identity.audience) return { person: identity };
+  const { audience, ...person } = identity;
+  return { person, audience: audienceIdentity(audience) };
+}
+
 /** The call currently executing, if any: the runtime running it, its concurrency budget, and the operation it is (see `withRequest`). */
 interface RequestContext {
   owner: SemanticRuntime;
@@ -288,9 +321,13 @@ interface RequestContext {
  */
 const requests = new AsyncLocalStorage<RequestContext>();
 
-function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason?: string): AuthorizationError {
+function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason: string | undefined, identity: Identity): AuthorizationError {
   const target = resource.actionName ?? resource.propertyPath ?? resource.objectId;
-  return new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, reason);
+  // A caller reading for an audience (a model, ADR-0067) is told one thing whatever was refused, and why: whether
+  // the person or the audience was refused would say whether the row exists and the person may read it. The
+  // audit row keeps the reason.
+  const told = identity.audience ? `Refused while reading for ${identity.audience.id}` : reason;
+  return new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, told);
 }
 
 /**
@@ -364,6 +401,14 @@ export interface SemanticRuntimeOptions {
    * Computations receive the same answers either way.
    */
   computedReads?: "direct" | "coalesce";
+  /**
+   * Who may learn what the model is through `describeModel` (ADR-0068), and
+   * so through every transport that describes it (HTTP, MCP, Studio).
+   * Default `"open"`, the behavior before it existed. `"authenticated"`
+   * refuses an anonymous caller; `"need-to-know"` also narrows the model to
+   * what the caller could use. `HIGH_ASSURANCE_V2` requires `"need-to-know"`.
+   */
+  discovery?: Discovery;
 }
 
 /** Every option a runtime understands — under a security profile, anything else is refused as a likely typo. */
@@ -378,18 +423,22 @@ const RUNTIME_OPTIONS: Readonly<Record<keyof SemanticRuntimeOptions, true>> = {
   telemetryIdentity: true,
   rowSecurity: true,
   securityProfile: true,
-  computedReads: true
+  computedReads: true,
+  discovery: true
 };
 
 const isFunction = (value: unknown): boolean => typeof value === "function";
 
 /**
- * `options` under `HIGH_ASSURANCE_V1` (ADR-0046): the settings its guarantees
+ * `options` under a high-assurance profile (ADR-0046, ADR-0068): the settings its guarantees
  * fix, supplied where omitted, and every violation collected — a weaker
  * setting is refused, never overridden.
  */
-function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly Adapter[], policyEngine: PolicyEngine): SemanticRuntimeOptions {
+function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly Adapter[], policyEngine: PolicyEngine, profile: SecurityProfile): SemanticRuntimeOptions {
   const violations: string[] = [];
+  // V2 adds one guarantee to V1's (ADR-0068): a caller learns only the part of the model they could use.
+  const discovery = options.discovery ?? (profile === HIGH_ASSURANCE_V2 ? "need-to-know" : undefined);
+  if (profile === HIGH_ASSURANCE_V2 && discovery !== "need-to-know") violations.push(`discovery must be "need-to-know", not ${JSON.stringify(discovery)}`);
   for (const key of Object.keys(options)) if (!Object.hasOwn(RUNTIME_OPTIONS, key)) violations.push(`unknown option "${key}"`);
 
   const rowSecurity = options.rowSecurity ?? "require-exact";
@@ -428,8 +477,8 @@ function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly 
     violations.push("the cache is malformed");
   }
 
-  if (violations.length > 0) throw new SecurityProfileError(HIGH_ASSURANCE_V1.id, violations);
-  return { ...options, rowSecurity, telemetryIdentity };
+  if (violations.length > 0) throw new SecurityProfileError(profile.id, violations);
+  return { ...options, rowSecurity, telemetryIdentity, ...(discovery ? { discovery } : {}) };
 }
 
 /**
@@ -457,6 +506,8 @@ export class SemanticRuntime {
   /** How identifiers and errors reach spans, per the telemetry identity policy (ADR-0045, ADR-0047). */
   private readonly telemetry: Telemetry;
   private readonly coalesceComputedReads: boolean;
+  /** Who may learn what the model is (ADR-0068). */
+  readonly discovery: Discovery;
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -473,7 +524,7 @@ export class SemanticRuntime {
       const profile = SECURITY_PROFILES.get((options.securityProfile as Partial<SecurityProfile> | null)?.id as string);
       if (!profile) throw new SecurityProfileError(String((options.securityProfile as Partial<SecurityProfile> | null)?.id), ["this runtime implements no such security profile"]);
       this.profile = profile;
-      options = underHighAssurance(options, adapters, policyEngine);
+      options = underHighAssurance(options, adapters, policyEngine, profile);
     }
     this.cache = options.cache ?? new NoopCache();
     this.cacheConfidential = this.cache.confidential === true;
@@ -489,6 +540,9 @@ export class SemanticRuntime {
     const computedReads = options.computedReads ?? "direct";
     if (computedReads !== "direct" && computedReads !== "coalesce") throw new TypeError(`computedReads must be "direct" or "coalesce"`);
     this.coalesceComputedReads = computedReads === "coalesce";
+    const discovery = options.discovery ?? "open";
+    if (!DISCOVERY_MODES.includes(discovery)) throw new TypeError(`discovery must be one of ${DISCOVERY_MODES.map((m) => `"${m}"`).join(", ")}`);
+    this.discovery = discovery;
     // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
     this.telemetry = telemetryOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
@@ -550,13 +604,13 @@ export class SemanticRuntime {
         }
 
         // With a policy the breaker/timeout/retry wrap the budget, so backoff sleeps don't hold a
-        // permit and each attempt takes a fresh one (ADR-0026). The deadline's signal is appended as
-        // the method's optional trailing `AdapterCallOptions`; runtime call sites never pass one, so
-        // appending is unambiguous, and it's added only when a timeout is actually configured.
+        // permit and each attempt takes a fresh one (ADR-0026). The deadline's signal goes in the
+        // method's own `AdapterCallOptions` position, whatever the caller left out before it: a
+        // computation calling `queryByType(type, filter)` must not have the signal taken as its `limit`.
         return (...args: unknown[]) => {
           const retryable = isRetryableAdapterCall(prop, args);
           return resilience.run(dataSourceId, retryable, (signal) => {
-            const callArgs = signal ? [...args, { signal }] : args;
+            const callArgs = signal ? withSignal(prop, args, signal) : args;
             return underBudget(() => method.apply(target, callArgs));
           });
         };
@@ -822,6 +876,17 @@ export class SemanticRuntime {
    * every decision goes through `evaluate`, which does.
    */
   private async decide(request: PolicyRequest): Promise<PolicyDecision> {
+    const { person, audience } = principalsOf(request.subject);
+    if (!audience) return this.decideFor(request);
+    // Both must allow (ADR-0067): the person may read it, and it may be released to where it is going.
+    const [forPerson, forAudience] = await Promise.all([this.decideFor({ ...request, subject: person }), this.decideFor({ ...request, subject: audience })]);
+    const faults = [...(forPerson.faults ?? []), ...(forAudience.faults ?? [])];
+    if (!forPerson.allow) return { ...forPerson, ...(faults.length ? { faults } : {}) };
+    if (!forAudience.allow) return { allow: false, reason: `Not releasable to ${audience.subjectId}: ${forAudience.reason ?? "not allowed"}`, ...(faults.length ? { faults } : {}) };
+    return { ...forPerson, ...(faults.length ? { faults } : {}) };
+  }
+
+  private async decideFor(request: PolicyRequest): Promise<PolicyDecision> {
     let decision: PolicyDecision | undefined;
     try {
       decision = await this.policyEngine.evaluate(request);
@@ -861,7 +926,7 @@ export class SemanticRuntime {
       resource: { typeName: resource.typeName, objectId: resource.objectId, propertyPath: resource.propertyPath },
       decision: decision.allow ? "allow" : "deny",
       reason: decision.reason,
-      ...(details ? { details } : {})
+      ...(details || identity.audience ? { details: { ...details, ...(identity.audience ? { audience: identity.audience.id } : {}) } } : {})
     });
   }
 
@@ -875,7 +940,7 @@ export class SemanticRuntime {
 
   private async requireAllowed(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<void> {
     const decision = await this.evaluate(identity, action, policyName, resource);
-    if (!decision.allow) throw notAuthorized(action, resource, decision.reason);
+    if (!decision.allow) throw notAuthorized(action, resource, decision.reason, identity);
   }
 
   /**
@@ -887,6 +952,20 @@ export class SemanticRuntime {
    * It does not audit: a decision about access goes through `clearedFor`.
    */
   private classify(
+    identity: Identity,
+    markings: readonly string[],
+    resource: PolicyResource,
+    action: "read" | "invoke"
+  ): { allow: boolean; label: readonly string[]; reason?: string } {
+    const { person, audience } = principalsOf(identity);
+    const forPerson = this.classifyFor(person, markings, resource, action);
+    if (!audience || !forPerson.allow) return forPerson;
+    // Releasing marked data to an audience needs the audience cleared for it too (ADR-0067).
+    const forAudience = this.classifyFor(audience, markings, resource, action);
+    return forAudience.allow ? forPerson : { ...forAudience, reason: `not releasable to ${audience.subjectId}: ${forAudience.reason ?? "refused"}` };
+  }
+
+  private classifyFor(
     identity: Identity,
     markings: readonly string[],
     resource: PolicyResource,
@@ -931,7 +1010,15 @@ export class SemanticRuntime {
     const marked = [...new Set(markings)];
     if (marked.length === 0) return true;
     const { allow, label, reason } = this.classify(identity, marked, resource, action);
-    const details = { control: "classification", scheme: this.classification.name, markings: marked, label, clearance: identity.clearance ?? null, ...(reason ? { reason } : {}) };
+    const details = {
+      control: "classification",
+      scheme: this.classification.name,
+      markings: marked,
+      label,
+      clearance: identity.clearance ?? null,
+      ...(identity.audience ? { audienceClearance: identity.audience.clearance ?? null } : {}),
+      ...(reason ? { reason } : {})
+    };
     await this.audit(identity, action, resource, allow ? { allow } : { allow, reason: CLEARANCE_REASON }, details);
     return allow;
   }
@@ -942,7 +1029,7 @@ export class SemanticRuntime {
     resource: PolicyResource,
     action: "read" | "invoke" = "read"
   ): Promise<void> {
-    if (!(await this.clearedFor(identity, markings, resource, action))) throw notAuthorized(action, resource, CLEARANCE_REASON);
+    if (!(await this.clearedFor(identity, markings, resource, action))) throw notAuthorized(action, resource, CLEARANCE_REASON, identity);
   }
 
   /**
@@ -964,6 +1051,11 @@ export class SemanticRuntime {
 
   /** How far the engine vouches for its plan for this subject (ADR-0046); anything but a clear `"structural"` is unverified. */
   private async planAssurance(typeDef: TypeDefinition, identity: Identity): Promise<PlanAssurance> {
+    const { person, audience } = principalsOf(identity);
+    if (audience) {
+      const both = await Promise.all([this.planAssurance(typeDef, person), this.planAssurance(typeDef, audience)]);
+      return both.every((a) => a === "structural") ? "structural" : "unverified";
+    }
     if (typeof this.policyEngine.planAssurance !== "function") return "unverified";
     try {
       const answer = await this.policyEngine.planAssurance({ subject: identity, action: "read", policyName: objectPolicyOf(typeDef), resource: { typeName: typeDef.name } });
@@ -980,6 +1072,11 @@ export class SemanticRuntime {
    * too: sound, and never exact, so `require-exact` refuses it.
    */
   private async askPlanner(request: PolicyRequest): Promise<AuthorizationPlan> {
+    const { person, audience } = principalsOf(request.subject);
+    if (audience) {
+      // What both may read: the conjunction of their plans, sound because each is (ADR-0067).
+      return allPlans(await Promise.all([this.askPlanner({ ...request, subject: person }), this.askPlanner({ ...request, subject: audience })]));
+    }
     if (typeof this.policyEngine.plan !== "function") return unknownPlan([{ code: "engine-cannot-plan" }]);
     let returned: unknown;
     try {
@@ -1086,9 +1183,17 @@ export class SemanticRuntime {
     identity: Identity
   ): Promise<{ stored: ResolvedProperties; attributes: Attributes }> {
     await this.requireCleared(identity, objectMarkings(typeDef), { typeName: typeDef.name, objectId });
-    const stored = await this.resolveObjectProperties(typeDef, objectId);
+    // A source that refuses TypeSystem's own credential for this record (ADR-0072) is decided as a record it does not
+    // have: the caller's policy first, so a denied caller learns nothing about whether the id exists (ADR-0048).
+    let refused: SourceRefusedError | undefined;
+    const stored = await this.resolveObjectProperties(typeDef, objectId).catch((err: unknown) => {
+      if (!(err instanceof SourceRefusedError)) throw err;
+      refused = err;
+      return { values: {}, provenance: [] };
+    });
     const attributes = snapshot(stored.values);
     await this.requireAllowed(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name, objectId, attributes });
+    if (refused) throw refused;
     if (Object.keys(stored.values).length === 0) throw new ObjectNotFoundError(typeDef.name, objectId);
     return { stored, attributes };
   }
@@ -1404,7 +1509,7 @@ export class SemanticRuntime {
         if (plan.kind === "never") {
           const reason = "No object of this Type is readable by this subject";
           await this.audit(identity, "read", typeResource, { allow: false, reason }, { control: "row-plan", ...planSummary(plan) });
-          throw notAuthorized("read", typeResource, reason);
+          throw notAuthorized("read", typeResource, reason, identity);
         }
         // A predicate excludes objects without deciding them one by one, so the query records it once.
         if (plan.kind === "predicate") await this.audit(identity, "read", typeResource, { allow: true }, { control: "row-plan", ...planSummary(plan) });
@@ -1456,7 +1561,7 @@ export class SemanticRuntime {
             ...(q.includeProvenance ? { provenance: q.select ? provenance.filter((p) => p.propertyPath in projected) : provenance } : {})
           };
           if (q.include) {
-            Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, attributes, q.include, identity));
+            await this.attachIncludes(resolved, attributes, q.include, identity);
           }
           return resolved;
         });
@@ -1532,7 +1637,7 @@ export class SemanticRuntime {
         let rows = q.filter;
         if (!typeLevel.allow) {
           const plan = await this.planRead(typeDef, identity);
-          if (!(plan.kind === "predicate" && plan.exact)) throw notAuthorized("read", typeResource, typeLevel.reason);
+          if (!(plan.kind === "predicate" && plan.exact)) throw notAuthorized("read", typeResource, typeLevel.reason, identity);
           // An aggregate has no per-object check after it: under a profile, only a plan derived from the rule's
           // own structure may admit one (ADR-0046).
           if (this.profile && (await this.planAssurance(typeDef, identity)) !== "structural") {
@@ -1579,8 +1684,20 @@ export class SemanticRuntime {
       this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
+        // A plan describes the model (its sources, policies and members): refused or narrowed as describeModel is (ADR-0068).
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          const reason = "Describing the model needs an authenticated caller";
+          await this.audit(identity, "read", { typeName: typeof claimedType === "string" ? claimedType : "unknown" }, { allow: false, reason }, { control: "explain", discovery: this.discovery });
+          throw new AuthorizationError("Not authorized: explain a query", reason);
+        }
         const q = this.inputValidator.validateQuery(input);
         const typeDef = await this.requireType(q.type);
+        const needToKnow = this.discovery === "need-to-know";
+        if (needToKnow && !(await this.discoveryGate(identity).typeReadable(typeDef))) {
+          // Answered exactly as for a Type that does not exist; the audit row says which it was.
+          await this.audit(identity, "read", { typeName: q.type }, { allow: false, reason: "Withheld by need-to-know discovery" }, { control: "explain", discovery: this.discovery });
+          throw new NotFoundError(`Unknown type "${q.type}"`);
+        }
         // The gates `query` decides before it plans, decided the same way: the plan describes the Type's members,
         // policies and sources, which a caller `query` would refuse has no business learning.
         await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
@@ -1594,7 +1711,7 @@ export class SemanticRuntime {
         const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
         const probes = [...new Set([...(q.filter ? filterProperties(q.filter) : []), ...(q.sort ?? []).map((s) => s.property), ...searched])];
         const exact = isExact(plan);
-        const execution = await this.describeExecution(typeDef, q, plan, identity);
+        const execution = await this.describeExecution(typeDef, q, plan, identity, needToKnow ? await this.describedMembers(typeDef, identity) : undefined);
         await this.audit(identity, "read", { typeName: q.type }, { allow: true }, { control: "row-plan", operation: "explainQuery", ...planSummary(plan) });
         return {
           typeName: q.type,
@@ -1690,7 +1807,31 @@ export class SemanticRuntime {
    * steps `query` uses, described rather than executed. Includes are walked
    * from the registry, so an unknown relationship is reported here too.
    */
-  private async describeExecution(typeDef: TypeDefinition, q: SemanticQuery & { limit: number }, plan: AuthorizationPlan, identity: Identity): Promise<ExecutionPlan> {
+  /**
+   * The members of `typeDef` need-to-know describes to this caller (ADR-0068), by `narrowModel`'s rule:
+   * readable members, and computed values whose inputs are all described (or released) and readable.
+   */
+  private async describedMembers(typeDef: TypeDefinition, identity: Identity): Promise<ReadonlySet<string>> {
+    const gate = this.discoveryGate(identity);
+    const members = new Set<string>();
+    for (const name of Object.keys(typeDef.schema.properties ?? {})) if (await gate.memberReadable(typeDef, name)) members.add(name);
+    for (const rel of typeDef.relationships) if (await gate.memberReadable(typeDef, rel.name)) members.add(rel.name);
+    for (const cp of typeDef.computedProperties) {
+      const released = new Set(cp.releases ?? []);
+      if (cp.dependsOn.every((d) => members.has(d) || released.has(d)) && (await gate.memberReadable(typeDef, cp.name))) members.add(cp.name);
+    }
+    return members;
+  }
+
+  private async describeExecution(
+    typeDef: TypeDefinition,
+    q: SemanticQuery & { limit: number },
+    plan: AuthorizationPlan,
+    identity: Identity,
+    described?: ReadonlySet<string>
+  ): Promise<ExecutionPlan> {
+    // Under need-to-know the plan names only the members the caller is told of; the rest are still computed and redacted.
+    const told = (member: string) => !described || described.has(member);
     const split = this.splitQueryFilter(typeDef, q.filter);
     const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
     const notes: string[] = [];
@@ -1705,9 +1846,10 @@ export class SemanticRuntime {
     });
     if (overrides.length > 0) steps.push({ op: "merge-overrides", dataSourceIds: [...new Set(overrides.map((o) => o.dataSourceId))], callsPerObject: overrides.length });
     steps.push({ op: "authorize-rows", policyName: objectPolicyOf(typeDef), decidedPerObject: true });
-    if (typeDef.computedProperties.length > 0) steps.push({ op: "compute", properties: typeDef.computedProperties.map((c) => ({ name: c.name, dependsOn: [...c.dependsOn] })) });
-    const memberPolicies = Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {});
-    const marked = Object.keys(typeDef.schema["x-provenance"]?.properties ?? {}).filter((m) => memberMarkings(typeDef, m).length > 0);
+    const computedTold = typeDef.computedProperties.filter((c) => told(c.name));
+    if (computedTold.length > 0) steps.push({ op: "compute", properties: computedTold.map((c) => ({ name: c.name, dependsOn: c.dependsOn.filter(told) })) });
+    const memberPolicies = Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {}).filter(told);
+    const marked = Object.keys(typeDef.schema["x-provenance"]?.properties ?? {}).filter((m) => memberMarkings(typeDef, m).length > 0 && told(m));
     if (memberPolicies.length > 0 || marked.length > 0 || typeDef.computedProperties.length > 0) steps.push({ op: "redact", memberPolicies, marked });
     if (split.residual) {
       steps.push({ op: "residual-filter", filter: split.residual, maxScanned: this.queryLimits.maxScanned });
@@ -1721,6 +1863,8 @@ export class SemanticRuntime {
         const relName = this.registry.resolveAlias(owner, inc.relationship);
         const rel = owner.relationships.find((r) => r.name === relName);
         if (!rel) throw new NotFoundError(`Unknown relationship "${inc.relationship}" on type "${owner.name}"`);
+        // An include need-to-know withholds is not described, as one the caller isn't cleared for isn't.
+        if (described && owner === typeDef && !described.has(rel.name)) continue;
         // An include the caller isn't cleared for — the relationship's own marking or its target Type's — returns
         // nothing of it, so the plan doesn't describe where it reads from either.
         const target = await this.registry.getType(rel.targetType);
@@ -1807,12 +1951,45 @@ export class SemanticRuntime {
       const nested = inc.include;
       if (nested && nested.length > 0) {
         await mapWithConcurrency(kept, this.maxConcurrency, async ({ object, attributes: relatedAttributes }) => {
-          Object.assign(object.values, await this.resolveIncludes(object.typeName, object.objectId, relatedAttributes, nested, identity));
+          await this.attachIncludes(object, relatedAttributes, nested, identity).catch((err: unknown) => {
+            // A failure the nested level did not absorb is its own (a required relationship there): no outer optional
+            // relationship may report it as its source being unavailable.
+            if (err !== null && typeof err === "object") NESTED_FAILURES.add(err);
+            throw err;
+          });
         });
       }
       return kept.map((r) => r.object);
     });
     return Object.fromEntries(includes.map((inc, i) => [inc.relationship, results[i]!]));
+  }
+
+  /**
+   * Resolves `object`'s includes into its values. An include of an
+   * `optional` relationship whose source fails (ADR-0072) is left out and
+   * recorded in `object.unavailable`, never returned as `[]`; anything else
+   * that fails, fails the read as before.
+   */
+  private async attachIncludes(object: ResolvedObject, attributes: Attributes, includes: QueryInclude[], identity: Identity): Promise<void> {
+    const typeDef = await this.requireType(object.typeName);
+    const relOf = (name: string) => typeDef.relationships.find((r) => r.name === this.registry.resolveAlias(typeDef, name));
+    const settled = await mapWithConcurrency(includes, this.maxConcurrency, async (inc): Promise<{ values: Record<string, ResolvedObject[]> } | { missing: UnavailablePart }> => {
+      try {
+        return { values: await this.resolveIncludes(object.typeName, object.objectId, attributes, [inc], identity) };
+      } catch (err) {
+        const rel = relOf(inc.relationship);
+        const nestedFailure = err !== null && typeof err === "object" && NESTED_FAILURES.has(err);
+        const reason = rel?.optional && !nestedFailure ? sourceFailure(err) : undefined;
+        if (!rel || !reason) throw err;
+        return { missing: { path: inc.relationship, dataSourceId: rel.resolution.dataSourceId, reason, message: err instanceof Error ? err.message : String(err) } };
+      }
+    });
+    const unavailable: UnavailablePart[] = [];
+    for (const part of settled) {
+      if ("values" in part) Object.assign(object.values, part.values);
+      else unavailable.push(part.missing);
+    }
+    if (unavailable.length > 0) object.unavailable = [...(object.unavailable ?? []), ...unavailable];
   }
 
   async getProvenance(
@@ -1867,7 +2044,17 @@ export class SemanticRuntime {
           const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
             this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes, released: computed.releases?.includes(dep) === true })
           );
-          return leftOut ? [] : nested.flat();
+          if (leftOut) return [];
+          // A computation may also ask other systems through ctx.getAdapter (needsAttention asks the maintenance
+          // system for open work orders): each system it consulted this time is named too, as a source of the value.
+          const refs = nested.flat();
+          const named = new Set(refs.map((r) => r.source.dataSourceId));
+          for (const consulted of await this.consultedSources(typeDef, objectId, computed, identity)) {
+            if (named.has(consulted.dataSourceId)) continue;
+            named.add(consulted.dataSourceId);
+            refs.push({ propertyPath, source: consulted, retrievedAt: new Date().toISOString() });
+          }
+          return refs;
         }
 
         const mapping = await this.mappingResolver.resolvePropertyMapping(typeName, propertyPath);
@@ -1879,6 +2066,46 @@ export class SemanticRuntime {
         return leftOut ? [] : refs;
       }
     ));
+  }
+
+  /**
+   * The systems `cp`'s computation reads through `ctx.getAdapter` for this
+   * object, found by running it once more against the stored values with
+   * each adapter it asks for recorded (computed inputs it depends on are
+   * computed first, as a read computes them). Names only: what it read
+   * there is not returned.
+   */
+  private async consultedSources(typeDef: TypeDefinition, objectId: string, cp: ComputedPropertyDefinition, identity: Identity): Promise<{ dataSourceId: string; system: string }[]> {
+    const values: Record<string, unknown> = { ...(await this.resolveObjectProperties(typeDef, objectId)).values };
+    const consulted = new Map<string, string>();
+    const recording = (adapter: Adapter): Adapter =>
+      new Proxy(adapter, {
+        get(target, prop, receiver) {
+          const value: unknown = Reflect.get(target, prop, receiver);
+          if (typeof value !== "function" || !["resolveProperties", "queryByType", "resolveRelationship", "aggregate"].includes(String(prop))) return value;
+          return async (...args: unknown[]) => {
+            const result: unknown = await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+            const refs = provenanceIn(result);
+            if (!consulted.has(target.dataSourceId) || refs.length > 0) consulted.set(target.dataSourceId, refs[0]?.source.system ?? consulted.get(target.dataSourceId) ?? target.dataSourceId);
+            return result;
+          };
+        }
+      });
+    const contextFor = (c: ComputedPropertyDefinition, record: boolean): ComputeContext => ({
+      identity,
+      objectId,
+      typeName: typeDef.name,
+      getAdapter: (dataSourceId: string) => (record ? recording(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId)),
+      getProperty: async (name: string) => (c.dependsOn.includes(name) ? values[name] : undefined)
+    });
+    for (const c of typeDef.computedProperties) {
+      if (c.name === cp.name) {
+        await cp.compute(contextFor(cp, true));
+        break;
+      }
+      if (cp.dependsOn.includes(c.name)) values[c.name] = await c.compute(contextFor(c, false));
+    }
+    return [...consulted].map(([dataSourceId, system]) => ({ dataSourceId, system }));
   }
 
   /**
@@ -1956,6 +2183,107 @@ export class SemanticRuntime {
   }
 
   /**
+   * The model as this caller may learn it (ADR-0068), under the deployment's
+   * `discovery`: the whole model when it is `"open"`, or `"authenticated"`
+   * and the caller is not anonymous; refused to an anonymous caller
+   * otherwise; under `"need-to-know"`, only what the caller could use,
+   * decided for them (and their audience, ADR-0067) by the same policies,
+   * plans and markings their reads and invocations are. Every transport that
+   * describes the model calls this, so none decides it on its own. One audit
+   * row per call records the mode and what was described, by count.
+   */
+  async describeModel(identity: Identity, opts: DescribeModelOptions = {}): Promise<ModelDescription> {
+    return this.withRequest("describeModel", () => this.instrument(
+      "SemanticRuntime.describeModel",
+      "model",
+      this.telemetry.subject(identity),
+      async () => {
+        await this.checkRateLimit(identity);
+        const resource: PolicyResource = { typeName: "*", actionName: "describe-model" };
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          const reason = "Describing the model needs an authenticated caller";
+          await this.audit(identity, "read", resource, { allow: false, reason }, { discovery: this.discovery });
+          throw new AuthorizationError("Not authorized: describe the model", reason);
+        }
+        const full = await describeModel(this.registry, opts);
+        if (this.discovery !== "need-to-know") {
+          await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: full.types.length, actions: full.actions.length });
+          return full;
+        }
+        const definitions = new Map((await this.registry.listTypes()).map((t) => [t.name, t]));
+        const actionDefinitions = new Map((await this.registry.listActions()).map((a) => [a.name, a]));
+        const { model, withheld } = await narrowModel(full, definitions, actionDefinitions, this.discoveryGate(identity));
+        await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, withheld });
+        return model;
+      }
+    ));
+  }
+
+  /** Why a refusal happened, as the caller may be told it: masked for an audience (ADR-0067), withheld unless discovery is open (ADR-0068). */
+  private toldReason(reason: string | undefined, identity: Identity): string {
+    if (identity.audience) return `Refused while reading for ${identity.audience.id}`;
+    if (this.discovery !== "open") return "Not authorized";
+    return reason ?? "Not authorized";
+  }
+
+  /** The questions need-to-know asks for one caller (ADR-0068), each decided without reading an object and not audited on its own. */
+  private discoveryGate(identity: Identity): DiscoveryGate {
+    return {
+      typeReadable: async (typeDef) =>
+        this.clearedToKnow(identity, objectMarkings(typeDef), { typeName: typeDef.name }, "read") &&
+        this.admitsSome(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name }),
+      memberReadable: async (typeDef, member) => {
+        const at: PolicyResource = { typeName: typeDef.name, propertyPath: member };
+        if (!this.clearedToKnow(identity, memberMarkings(typeDef, member), at, "read")) return false;
+        const policyName = memberPolicyOf(typeDef, member);
+        return !policyName || this.admitsSome(identity, "read", policyName, at);
+      },
+      actionInvocable: async (action, typeName) => {
+        const at: PolicyResource = { typeName, actionName: action.name };
+        return (await this.admitsSome(identity, "invoke", action.authorizationPolicy, at)) && this.clearedToKnow(identity, await this.actionMarkings(action), at, "invoke");
+      }
+    };
+  }
+
+  /**
+   * Whether need-to-know would describe `action` to this caller (ADR-0068),
+   * by `narrowModel`'s rule: invocable on some Type the caller may read, and
+   * acting on a Type they may read.
+   */
+  private async actionDescribed(identity: Identity, action: ActionDefinition): Promise<boolean> {
+    const gate = this.discoveryGate(identity);
+    const readable = async (typeName: string) => {
+      const typeDef = await this.registry.getType(typeName);
+      return typeDef !== undefined && (await gate.typeReadable(typeDef));
+    };
+    if (action.target?.type && !(await readable(action.target.type))) return false;
+    for (const typeName of action.applicableTypes) if ((await readable(typeName)) && (await gate.actionInvocable(action, typeName))) return true;
+    return false;
+  }
+
+  /**
+   * Whether the caller may learn of something under `markings` (ADR-0068).
+   * Not audited on its own: discovery decides many of these per call, and
+   * `describeModel` audits the call as one row.
+   */
+  private clearedToKnow(identity: Identity, markings: readonly string[], resource: PolicyResource, action: "read" | "invoke"): boolean {
+    return this.classify(identity, markings, resource, action).allow;
+  }
+
+  /**
+   * Whether `policyName` admits this caller on some resource of its Type
+   * (ADR-0068): its plan is not `never`. A plan the engine cannot make is
+   * decided for the Type with no object, where an attribute rule denies, so
+   * a policy nobody can plan shows less, never more.
+   */
+  private async admitsSome(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<boolean> {
+    const plan = await this.askPlanner({ subject: identity, action, policyName, resource });
+    if (plan.kind === "never") return false;
+    if (plan.kind !== "unknown") return true;
+    return (await this.decide({ subject: identity, action, policyName, resource })).allow;
+  }
+
+  /**
    * The Actions applicable to `typeName`, each with whether this caller may
    * invoke it. Pass `objectId` to decide instance-scoped Actions on that
    * object (ADR-0053); without it they are decided per Type, where an
@@ -1968,6 +2296,15 @@ export class SemanticRuntime {
       this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
+        // Which Actions exist is discovery too (ADR-0068): refused or narrowed as describeModel is.
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          throw new AuthorizationError(`Not authorized: list Actions on ${typeName}`, "Describing the model needs an authenticated caller");
+        }
+        const needToKnow = this.discovery === "need-to-know";
+        if (needToKnow) {
+          const typeDef = await this.registry.getType(typeName);
+          if (!typeDef || !this.clearedToKnow(identity, objectMarkings(typeDef), { typeName }, "read") || !(await this.admitsSome(identity, "read", objectPolicyOf(typeDef), { typeName }))) return [];
+        }
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: ListedAction[] = [];
@@ -1979,7 +2316,12 @@ export class SemanticRuntime {
           const authorized = onThis
             ? (await this.gateAction(identity, action, { [action.target!.idFrom]: opts.objectId })).decision.allow
             : (await this.authorizeInvoke(identity, action, typeName)).allow;
-          results.push({ action, authorized, instanceScoped });
+          // Under need-to-know an Action is listed only to a caller it admits: here, or on some object for an
+          // instance-scoped one listed without an object, as describeModel decides it.
+          // Under need-to-know an Action is listed only when describeModel would describe it: invocable on some
+          // Type the caller may read, and acting on one they may read.
+          const listed = !needToKnow || (await this.actionDescribed(identity, action));
+          if (listed) results.push({ action, authorized, instanceScoped });
         }
         return results;
       }
@@ -2004,13 +2346,27 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
+        // A preview describes an Action: refused or withheld as listActions and describeModel are (ADR-0068). A
+        // withheld Action is answered exactly as one that does not exist; the audit row says which it was.
+        const resource: PolicyResource = { typeName: action.applicableTypes[0] ?? "unknown", actionName: action.name };
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          const reason = "Describing the model needs an authenticated caller";
+          await this.audit(identity, "invoke", resource, { allow: false, reason }, { control: "preview", discovery: this.discovery });
+          throw new AuthorizationError(`Not authorized: preview ${action.name}`, reason);
+        }
+        if (this.discovery === "need-to-know" && !(await this.actionDescribed(identity, action))) {
+          await this.audit(identity, "invoke", resource, { allow: false, reason: "Withheld by need-to-know discovery" }, { control: "preview", discovery: this.discovery });
+          throw new NotFoundError(`Unknown action "${actionName}"`);
+        }
         const blockers: ActionBlocker[] = [];
         const preconditions: ActionPreview["preconditions"] = (action.preconditions ?? []).map((p) => ({ description: p.description, satisfied: null }));
         let inputValid: boolean | null = null;
         let gate: Awaited<ReturnType<SemanticRuntime["gateAction"]>> | undefined;
         try {
           gate = await this.gateAction(identity, action, input);
-          if (!gate.decision.allow) blockers.push({ kind: "authorization", message: gate.decision.reason ?? "Not authorized" });
+          // Told as invokeAction's refusal is (ADR-0067), and without the policy's reason when discovery is not open
+          // (ADR-0068): which roles or attributes a policy wants describes it. The audit row keeps the reason.
+          if (!gate.decision.allow) blockers.push({ kind: "authorization", message: this.toldReason(gate.decision.reason, identity) });
         } catch (err) {
           // Raised only after the caller was allowed to read the target type: the id names no object.
           if (!(err instanceof ObjectNotFoundError)) throw err;
@@ -2085,7 +2441,7 @@ export class SemanticRuntime {
       async () => {
         await this.checkRateLimit(identity);
         const { decision, typeName, target } = await this.gateAction(identity, action, input);
-        if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason);
+        if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason, identity);
         // After the policy check, so every attempt by an unauthorized caller is still audited as a
         // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
         this.inputValidator.validateActionInput(action, input);
@@ -2118,7 +2474,8 @@ export class SemanticRuntime {
             action: action.name,
             resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
-            outcome: "success"
+            outcome: "success",
+            ...(identity.audience ? { details: { audience: identity.audience.id } } : {})
           });
         }
 
@@ -2126,4 +2483,35 @@ export class SemanticRuntime {
       }
     ));
   }
+}
+
+/** The provenance an adapter result carries: a property bundle's, or every item's of a query page. */
+function provenanceIn(result: unknown): ProvenanceRef[] {
+  if (result === null || typeof result !== "object") return [];
+  const own = (result as { provenance?: unknown }).provenance;
+  if (Array.isArray(own)) return own as ProvenanceRef[];
+  const items = (result as { items?: unknown }).items;
+  if (Array.isArray(items)) return items.flatMap((i: unknown) => provenanceIn(i));
+  return [];
+}
+
+/** Errors raised by a nested include's own required relationship, which an outer optional include must not absorb. */
+const NESTED_FAILURES = new WeakSet<object>();
+
+/** Where each adapter method takes its `AdapterCallOptions` (see `Adapter`). */
+const OPTIONS_INDEX: Readonly<Record<string, number>> = { resolveProperties: 3, queryByType: 5, resolveRelationship: 2, executeAction: 3, aggregate: 1 };
+
+/**
+ * `args` with the deadline's signal in the method's options position: missing
+ * arguments before it are left `undefined`, and options the caller passed keep
+ * everything but their signal. A method that takes no options gets `args` as they are.
+ */
+function withSignal(method: PropertyKey, args: readonly unknown[], signal: AbortSignal): unknown[] {
+  const at = typeof method === "string" && Object.hasOwn(OPTIONS_INDEX, method) ? OPTIONS_INDEX[method] : undefined;
+  if (at === undefined) return [...args];
+  const out = [...args];
+  while (out.length < at) out.push(undefined);
+  const given = out[at];
+  out[at] = given !== null && typeof given === "object" ? { ...given, signal } : { signal };
+  return out.slice(0, at + 1);
 }

@@ -6,12 +6,13 @@ import {
   InvalidInputError,
   NotFoundError,
   PreconditionFailedError,
-  RateLimitExceededError
+  RateLimitExceededError,
+  SourceRefusedError
 } from "@typesys/core";
 import type { Response } from "express";
 import { JournalConflictError, ReplayDivergenceError, WorkflowStateError } from "@typesys/workflow";
 
-/** Every code a TypeS API answers with. Stable: a client branches on these, never on a message. */
+/** Every code a TypeSys API answers with. Stable: a client branches on these, never on a message. */
 export type ProblemCode =
   | "forbidden"
   | "not-found"
@@ -21,11 +22,12 @@ export type ProblemCode =
   | "conflict"
   | "workflow-diverged"
   | "unavailable"
+  | "source-refused"
   | "unauthorized"
   | "internal";
 
 /**
- * An RFC 9457 problem, plus TypeS's own `code`, and `reason` for a refusal
+ * An RFC 9457 problem, plus TypeSys's own `code`, and `reason` for a refusal
  * (the policy's, as the runtime audits it). `detail` is the error's own
  * message, which the runtime writes never to quote a value; an internal error
  * gets a fixed text instead, since its message was written for no caller.
@@ -52,14 +54,21 @@ const MAPPING: readonly [ErrorClass, number, ProblemCode, string][] = [
   [ReplayDivergenceError, 409, "workflow-diverged", "Workflow definition diverged"],
   [AdapterTimeoutError, 503, "unavailable", "Source unavailable"],
   [AdapterUnavailableError, 503, "unavailable", "Source unavailable"],
-  [CircuitOpenError, 503, "unavailable", "Source unavailable"]
+  [CircuitOpenError, 503, "unavailable", "Source unavailable"],
+  // The source refused TypeSystem's own credential (ADR-0072): a gateway failure, not the caller's refusal.
+  [SourceRefusedError, 502, "source-refused", "Source refused"]
 ];
 
-/** The problem an error becomes; anything unrecognized is a 500 that says nothing about itself. */
-export function toProblem(err: unknown): Problem {
+/**
+ * The problem an error becomes; anything unrecognized is a 500 that says
+ * nothing about itself. With `withholdReasons` (any discovery mode but
+ * `open`, ADR-0068), a refusal says it was refused and not why: a policy's
+ * reason can name the roles or attributes it wants, which is the model.
+ */
+export function toProblem(err: unknown, opts: { withholdReasons?: boolean } = {}): Problem {
   for (const [ErrorClass, status, code, title] of MAPPING) {
     if (err instanceof ErrorClass) {
-      const reason = err instanceof AuthorizationError ? err.reason : undefined;
+      const reason = err instanceof AuthorizationError && !opts.withholdReasons ? err.reason : undefined;
       const errors = err instanceof InvalidInputError ? err.errors : undefined;
       return {
         type: `https://typesys.dev/problems/${code}`,

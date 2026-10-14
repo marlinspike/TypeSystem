@@ -1,0 +1,1188 @@
+{
+  "format": "typesys.mutation-evidence/1",
+  "startedAt": "2026-10-14T04:46:44.553Z",
+  "finishedAt": "2026-10-14T04:59:52.581Z",
+  "command": "npm run mutation",
+  "git": {
+    "revision": "bb1b5682843ea2f0c20e60eb8a19d74c143cd8dc",
+    "branch": "claude/typesystem-3-hardening-3mkmfl",
+    "clean": true
+  },
+  "environment": {
+    "node": "v22.22.0",
+    "platform": "linux",
+    "arch": "x64",
+    "osRelease": "6.18.44-fc-v114",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpus": 4,
+    "typescript": "Version 7.0.2",
+    "vitest": "vitest/5.0.1 linux-x64 node-v22.22.0",
+    "DATABASE_URL": true,
+    "ci": false
+  },
+  "catalog": {
+    "path": "tools/mutation/catalog.json",
+    "sha256": "sha256:c2931ff8737cb58da2fdbb3b301dd61aedd59a1dcf6820a3ca1de544d26c9395",
+    "mutations": 108
+  },
+  "results": [
+    {
+      "id": "release.decide-ignores-audience",
+      "adr": "0067",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4783,
+      "failing": [
+        "the release boundary on the read path (ADR-0067) a maintainer may read the aircraft; a commercial model may receive none of it, so a maintainer reading for it gets nothing",
+        "release invariant, property-based (ADR-0067) getObject for person+audience equals the intersection of each alone",
+        "release invariant, property-based (ADR-0067) query for person+audience returns no object, and no value of one, that either alone could not read",
+        "an MCP server bound to its agent's model (ADR-0067) the same maintainer's agent on a commercial model reads nothing and invokes nothing"
+      ]
+    },
+    {
+      "id": "release.classify-ignores-audience",
+      "adr": "0067",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 3969,
+      "failing": [
+        "the release boundary on the read path (ADR-0067) the enclave model receives what a maintainer reads below its own clearance: never the SECRET location the maintainer sees",
+        "the release boundary on the read path (ADR-0067) every decision made for an audience is audited with it",
+        "release invariant, property-based (ADR-0067) getObject for person+audience equals the intersection of each alone",
+        "release invariant, property-based (ADR-0067) query for person+audience returns no object, and no value of one, that either alone could not read"
+      ]
+    },
+    {
+      "id": "release.plan-ignores-audience",
+      "adr": "0067",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4433,
+      "failing": [
+        "row-level release for an audience (ADR-0067) the plan pushed to the store is the conjunction of both plans",
+        "the release boundary on the read path (ADR-0067) a maintainer may read the aircraft; a commercial model may receive none of it, so a maintainer reading for it gets nothing"
+      ]
+    },
+    {
+      "id": "release.audience-rebinding",
+      "adr": "0067",
+      "file": "packages/core/src/model/policy.ts",
+      "status": "killed",
+      "durationMs": 6004,
+      "failing": [
+        "the release boundary on the read path (ADR-0067) an identity cannot be re-bound to a different audience"
+      ]
+    },
+    {
+      "id": "release.ai-step-sends-withheld",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5160,
+      "failing": [
+        "an AI step sends its model only what the model may receive (ADR-0067) the maintainer may read the SECRET location; the CUI enclave model may not receive it, so a step sending it is refused",
+        "an AI step sends its model only what the model may receive (ADR-0067) a value derived from withheld data is withheld too: a compute over the location is recomputed from what the model may receive"
+      ]
+    },
+    {
+      "id": "release.ai-input-from-person",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5027,
+      "failing": [
+        "an AI step sends its model only what the model may receive (ADR-0067) the maintainer may read the SECRET location; the CUI enclave model may not receive it, so a step sending it is refused",
+        "an AI step sends its model only what the model may receive (ADR-0067) with release: redact, the model is sent the step's input without what it may not receive, and the run replays",
+        "an AI step sends its model only what the model may receive (ADR-0067) a value derived from withheld data is withheld too: a compute over the location is recomputed from what the model may receive"
+      ]
+    },
+    {
+      "id": "release.action-output-to-model",
+      "adr": "0067",
+      "file": "packages/workflow/src/validate.ts",
+      "status": "killed",
+      "durationMs": 4995,
+      "failing": [
+        "an AI step sends its model only what the model may receive (ADR-0067) registration refuses an AI step fed by an Action's output, which cannot be released"
+      ]
+    },
+    {
+      "id": "discovery.anonymous-described",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 5383,
+      "failing": [
+        "need-to-know discovery (ADR-0068) an anonymous caller is refused, and the refusal is audited",
+        "discovery modes (ADR-0068) authenticated refuses an anonymous caller and describes the whole model to anyone else",
+        "need-to-know over every transport (ADR-0068) an anonymous caller is refused over REST and MCP, is listed no Type resource, and is offered no Action tool"
+      ]
+    },
+    {
+      "id": "discovery.unnarrowed",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 5253,
+      "failing": [
+        "need-to-know discovery (ADR-0068) a maintainer cleared SECRET learns every airforce Type with its SECRET location, maintenanceStatus and both Actions",
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input",
+        "need-to-know discovery (ADR-0068) is decided for the model an agent reads for too (ADR-0067): the enclave model is not told the SECRET location; a commercial model is told nothing",
+        "need-to-know discovery (ADR-0068) each call is one audit row: the mode, and what was described and withheld, by count",
+        "need-to-know discovery (ADR-0068) property: a Type is described exactly when a query of it is not refused, and an object never carries a member its description withholds"
+      ]
+    },
+    {
+      "id": "discovery.never-plan-admits",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 5385,
+      "failing": [
+        "need-to-know discovery over the same Types (ADR-0068) describes a Type exactly where a query of it would not be refused wholesale",
+        "need-to-know discovery over the same Types (ADR-0068) a rule nobody can plan is decided with no object: shown to a caller its role admits, never to one only an object's values could",
+        "need-to-know discovery (ADR-0068) a maintainer cleared SECRET learns every airforce Type with its SECRET location, maintenanceStatus and both Actions",
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input",
+        "need-to-know discovery (ADR-0068) is decided for the model an agent reads for too (ADR-0067): the enclave model is not told the SECRET location; a commercial model is told nothing"
+      ]
+    },
+    {
+      "id": "discovery.unplannable-admits",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4134,
+      "failing": [
+        "need-to-know discovery over the same Types (ADR-0068) describes a Type exactly where a query of it would not be refused wholesale",
+        "need-to-know discovery over the same Types (ADR-0068) a rule nobody can plan is decided with no object: shown to a caller its role admits, never to one only an object's values could"
+      ]
+    },
+    {
+      "id": "discovery.markings-ignored",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 5069,
+      "failing": [
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input",
+        "need-to-know discovery (ADR-0068) is decided for the model an agent reads for too (ADR-0067): the enclave model is not told the SECRET location; a commercial model is told nothing",
+        "need-to-know over every transport (ADR-0068) a viewer asking for a Type's withheld member, or an Action, gets what a name that does not exist gets"
+      ]
+    },
+    {
+      "id": "discovery.member-policy-ignored",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4075,
+      "failing": [
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input"
+      ]
+    },
+    {
+      "id": "discovery.list-actions-unnarrowed",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 5150,
+      "failing": [
+        "need-to-know discovery (ADR-0068) listActions agrees: a viewer is told of no Action, a maintainer of the instance-scoped one before naming an object",
+        "need-to-know over every transport (ADR-0068) a viewer asking for a Type's withheld member, or an Action, gets what a name that does not exist gets"
+      ]
+    },
+    {
+      "id": "discovery.relationship-to-withheld",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 3329,
+      "failing": [
+        "narrowModel (ADR-0068) keeps a relationship only to a described Type, and extends only a described base",
+        "narrowModel (ADR-0068) withholds a computed value over a withheld input unless it releases it, and never names the withheld input"
+      ]
+    },
+    {
+      "id": "discovery.computed-over-withheld",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 4334,
+      "failing": [
+        "narrowModel (ADR-0068) withholds a computed value over a withheld input unless it releases it, and never names the withheld input",
+        "narrowModel (ADR-0068) keeps a computed value over a computed value it keeps",
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input"
+      ]
+    },
+    {
+      "id": "discovery.withheld-input-named",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 4460,
+      "failing": [
+        "narrowModel (ADR-0068) withholds a computed value over a withheld input unless it releases it, and never names the withheld input",
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input",
+        "need-to-know discovery (ADR-0068) property: a Type is described exactly when a query of it is not refused, and an object never carries a member its description withholds"
+      ]
+    },
+    {
+      "id": "discovery.extends-withheld",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 4523,
+      "failing": [
+        "narrowModel (ADR-0068) keeps a relationship only to a described Type, and extends only a described base",
+        "need-to-know discovery (ADR-0068) a maintainer cleared SECRET learns every airforce Type with its SECRET location, maintenanceStatus and both Actions",
+        "need-to-know discovery (ADR-0068) a viewer is not told deploymentLocation, maintenanceStatus, the value computed from it, or any Action; the released flag stays, naming no input",
+        "need-to-know discovery (ADR-0068) property: a Type is described exactly when a query of it is not refused, and an object never carries a member its description withholds"
+      ]
+    },
+    {
+      "id": "discovery.action-target-withheld",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 3339,
+      "failing": [
+        "narrowModel (ADR-0068) keeps an Action the caller may invoke on a described Type, lists only its described Types, and drops one whose target is withheld"
+      ]
+    },
+    {
+      "id": "discovery.mcp-sends-markings",
+      "adr": "0068",
+      "file": "packages/mcp-server/src/reads.ts",
+      "status": "killed",
+      "durationMs": 4660,
+      "failing": [
+        "what a Type description never carries, in any mode (ADR-0032, ADR-0068) no policy names, markings, data sources or bindings, though open discovery tells anyone every Type"
+      ]
+    },
+    {
+      "id": "discovery.mcp-lists-every-action",
+      "adr": "0068",
+      "file": "packages/mcp-server/src/tools.ts",
+      "status": "killed",
+      "durationMs": 4705,
+      "failing": [
+        "need-to-know over every transport (ADR-0068) an anonymous caller is refused over REST and MCP, is listed no Type resource, and is offered no Action tool",
+        "need-to-know over every transport (ADR-0068) over HTTP, tools/list and resources/list follow the bearer: the maintainer is offered both Actions, the viewer neither"
+      ]
+    },
+    {
+      "id": "read.query-post-check-skipped",
+      "adr": "0038",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4696,
+      "failing": [
+        "A query the caller can read none of is refused (ADR-0049) a denial that depends on the data stays a silent page a rule that cannot plan, and denies everything, is an empty page: the runtime cannot tell that from denying these rows"
+      ]
+    },
+    {
+      "id": "authority.expiry-ignored",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5348,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) expired credentials stop a run, and cannot re-authorize it"
+      ]
+    },
+    {
+      "id": "authority.policy-not-redecided",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5744,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) revoked while waiting on an approval: suspended before any Action, resumed only once re-authorized",
+        "a run acts only on authority its initiator still holds (ADR-0065) only the subject the run acts as may re-authorize it, and a refusal is audited",
+        "a run acts only on authority its initiator still holds (ADR-0065) a policy change between two Actions stops the run before the second; a lead cancels it and the first is undone"
+      ]
+    },
+    {
+      "id": "authority.revoked-subject-transient",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5544,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) a subject the directory no longer knows suspends the run; any other resolver error leaves it to be resumed"
+      ]
+    },
+    {
+      "id": "authority.snapshot-ages-forever",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5530,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) without a resolver, a stale identity suspends the run, and the initiator's fresh sign-in resumes it"
+      ]
+    },
+    {
+      "id": "authority.other-subject-carries",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5807,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) a resolver that answers with another subject cannot hand the run to them"
+      ]
+    },
+    {
+      "id": "authority.reauthorize-as-anyone",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5742,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) only the subject the run acts as may re-authorize it, and a refusal is audited"
+      ]
+    },
+    {
+      "id": "authority.cancel-without-policy",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5983,
+      "failing": [
+        "a run acts only on authority its initiator still holds (ADR-0065) with no cancel policy only the initiator may cancel, and the refusal is audited"
+      ]
+    },
+    {
+      "id": "authority.late-approval-counts",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5960,
+      "failing": [
+        "durable timers (ADR-0065) an approval decided after its deadline, before any tick, is refused and the approval expires"
+      ]
+    },
+    {
+      "id": "workflow.self-approval",
+      "adr": "0057",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 7039,
+      "failing": [
+        "approvals are decided by policy, and by someone else refuses the initiator approving their own run, and an approver the policy does not admit"
+      ]
+    },
+    {
+      "id": "workflow.read-step-invokes",
+      "adr": "0057",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5020,
+      "failing": [
+        "AI output reaching a side effect without approval a read step cannot invoke a side-effecting Action from AI output",
+        "simulate has no side effects a read step's client cannot invoke Actions for real inside simulate()"
+      ]
+    },
+    {
+      "id": "journal.unconditional-append",
+      "adr": "0066",
+      "file": "packages/workflow/src/journal.ts",
+      "status": "killed",
+      "durationMs": 6439,
+      "failing": [
+        "WorkflowJournal contract: InMemoryJournal refuses an append at the wrong length, and writes none of it",
+        "WorkflowJournal contract: InMemoryJournal of many writers appending at one length at once, exactly one succeeds",
+        "WorkflowJournal contract: InMemoryJournal of many writers starting one run at once, exactly one succeeds",
+        "approvals are decided by policy, and by someone else two concurrent decisions: exactly one is recorded"
+      ]
+    },
+    {
+      "id": "journal.postgres-unconditional-append",
+      "adr": "0066",
+      "file": "packages/workflow-postgres/src/postgres-journal.ts",
+      "status": "killed",
+      "durationMs": 4878,
+      "failing": [
+        "PostgresWorkflowJournal (ADR-0066) WorkflowJournal contract: PostgresWorkflowJournal refuses an append at the wrong length, and writes none of it"
+      ]
+    },
+    {
+      "id": "journal.foreign-runs-swept",
+      "adr": "0066",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 6131,
+      "failing": [
+        "durable timers (ADR-0065) an engine sharing a journal sweeps only runs of workflows it has: another's due timer is left to the engine that has it",
+        "durable timers (ADR-0065) a journal shared with another service: sweeps advance only this engine's workflows"
+      ]
+    },
+    {
+      "id": "packs.revocation-ignored",
+      "adr": "0069",
+      "file": "packages/packs/src/archive.ts",
+      "status": "killed",
+      "durationMs": 5990,
+      "failing": [
+        "typesys pack inspects what a pack needs, then signs it and verifies the signature against a trusted key",
+        "pack trust revocation (ADR-0069) refuses a pack a revoked key signed, though that key is still listed as trusted",
+        "pack trust revocation (ADR-0069) refuses it when a trusted, unrevoked key also signed it: the revoked key's holder handled the pack",
+        "pack trust revocation (ADR-0069) refuses it with no trust store at all, and when the revoked signature does not even verify",
+        "pack trust revocation (ADR-0069) refuses a withdrawn build by digest, signed or not, and nothing else"
+      ]
+    },
+    {
+      "id": "packs.revoked-key-trusted",
+      "adr": "0069",
+      "file": "packages/packs/src/archive.ts",
+      "status": "killed",
+      "durationMs": 4065,
+      "failing": [
+        "pack trust revocation (ADR-0069) refuses a pack a revoked key signed, though that key is still listed as trusted"
+      ]
+    },
+    {
+      "id": "packs.installed-revocation-ignored",
+      "adr": "0069",
+      "file": "packages/packs/src/install.ts",
+      "status": "killed",
+      "durationMs": 4091,
+      "failing": [
+        "pack trust revocation (ADR-0069) an installed pack whose key is revoked afterwards blocks every later install until it is replaced"
+      ]
+    },
+    {
+      "id": "packs.refused-install-unaudited",
+      "adr": "0069",
+      "file": "packages/packs/src/install.ts",
+      "status": "killed",
+      "durationMs": 4111,
+      "failing": [
+        "pack trust revocation (ADR-0069) an install of a revoked pack registers nothing and is audited as refused, with who tried and every reason"
+      ]
+    },
+    {
+      "id": "packs.digest-unchecked",
+      "adr": "0059",
+      "file": "packages/packs/src/archive.ts",
+      "status": "killed",
+      "durationMs": 7262,
+      "failing": [
+        "typesys pack inspects what a pack needs, then signs it and verifies the signature against a trusted key",
+        "domain packs (ADR-0059) refuses a changed pack, and with trusted keys one no trusted key signed"
+      ]
+    },
+    {
+      "id": "packs.overwrites-registered-types",
+      "adr": "0059",
+      "file": "packages/packs/src/install.ts",
+      "status": "killed",
+      "durationMs": 4615,
+      "failing": [
+        "pressure: install never looks at the target registry refuses a pack that redefines a Type and a data source already in the registry"
+      ]
+    },
+    {
+      "id": "packs.weakened-protection-safe",
+      "adr": "0059",
+      "file": "packages/packs/src/upgrade.ts",
+      "status": "killed",
+      "durationMs": 5313,
+      "failing": [
+        "pressure: checkUpgrade and protections does not pass a patch upgrade that strips Aircraft's property policy and SECRET classification as safe",
+        "pressure: checkUpgrade and protections does not pass a patch upgrade that loosens an Action's authorization policy as safe"
+      ]
+    },
+    {
+      "id": "core.computed-reads-undeclared",
+      "adr": "0052",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4359,
+      "failing": [
+        "ADR-0052 pressure: derivation gate [FINDING] a computed property cannot read an input it did not declare in dependsOn",
+        "ADR-0060 pressure: subtypes [FINDING] a subtype's computed property cannot read a base-protected value without declaring it"
+      ]
+    },
+    {
+      "id": "core.subtype-replaces-policy",
+      "adr": "0060",
+      "file": "packages/core/src/registry/registry.ts",
+      "status": "killed",
+      "durationMs": 3987,
+      "failing": [
+        "a subtype keeps its base's protections (ADR-0060) lets a subtype add protections, and refuses one that would replace the base's",
+        "a subtype keeps its base's protections (ADR-0060) follows a later version of the base: gains its new protections, keeps ones it drops, and refuses one that would replace a subtype's own"
+      ]
+    },
+    {
+      "id": "terminology.retired-name-passes",
+      "adr": "0064",
+      "file": "tools/terminology/terminology.ts",
+      "status": "killed",
+      "durationMs": 2972,
+      "failing": [
+        "the terminology check (ADR-0064) finds the retired name alone, possessive, in identifiers, headers and Cedar namespaces"
+      ]
+    },
+    {
+      "id": "release.outputs-ignore-audience",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5055,
+      "failing": [
+        "m2-adv: HTTP API bound to a model (ADR-0067) a commercial-model agent reads a run's outputs, SECRET location included, though it may read no Aircraft",
+        "m2-adv: AI-step release (ADR-0067) outputs() of a run are not decided for the audience the caller reads for"
+      ]
+    },
+    {
+      "id": "release.reresolve-drops-audience",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 4576,
+      "failing": [
+        "m2-adv: AI-step release (ADR-0067) a run started by an identity bound to a model keeps reading for that model after its identity is re-resolved"
+      ]
+    },
+    {
+      "id": "release.when-not-redecided",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 4776,
+      "failing": [
+        "m2-adv: AI-step release (ADR-0067) a `when` condition over a SECRET value is not re-decided for the model, so a constant compute launders it into the model's input"
+      ]
+    },
+    {
+      "id": "release.ai-when-not-redecided",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5047,
+      "failing": [
+        "m2-adv: AI-step release (ADR-0067) an AI step's own `when` over a SECRET value decides whether the model is called at all"
+      ]
+    },
+    {
+      "id": "release.refusal-names-cause",
+      "adr": "0067",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 4737,
+      "failing": [
+        "the release boundary on the read path (ADR-0067) a maintainer may read the aircraft; a commercial model may receive none of it, so a maintainer reading for it gets nothing",
+        "m2-adv: refusal reasons for an audience (ADR-0067) the model cannot tell, from the refusal, which patients exist and are assigned to its user"
+      ]
+    },
+    {
+      "id": "release.action-outcome-without-audience",
+      "adr": "0067",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 3776,
+      "failing": [
+        "m2-adv: audit of an audience-bound identity (ADR-0067) the invokeAction outcome row (auditRequired) of an identity bound to a model carries the audience"
+      ]
+    },
+    {
+      "id": "release.workflow-audit-without-audience",
+      "adr": "0067",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 4683,
+      "failing": [
+        "m2-adv: AI-step release (ADR-0067) workflow audit rows for an identity bound to an audience carry the audience"
+      ]
+    },
+    {
+      "id": "discovery.preview-anonymous",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 6239,
+      "failing": [
+        "discovery modes (ADR-0068) authenticated refuses an anonymous caller and describes the whole model to anyone else"
+      ]
+    },
+    {
+      "id": "discovery.preview-withheld",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 5365,
+      "failing": [
+        "ADR-0068 adversarial: need-to-know previewAction does not tell a viewer a withheld Action's preconditions, effects or the roles its policy wants",
+        "ADR-0068 adversarial over MCP and REST (airforce, need-to-know) REST/MCP: preview of a withheld Action tells a viewer nothing beyond what an unknown Action gets"
+      ]
+    },
+    {
+      "id": "discovery.mcp-allof-names-base",
+      "adr": "0068",
+      "file": "packages/mcp-server/src/reads.ts",
+      "status": "killed",
+      "durationMs": 4869,
+      "failing": [
+        "ADR-0068 adversarial over MCP and REST (airforce, need-to-know) typesys_describe_type does not name the viewer's withheld base Type core.Asset (schema.allOf $ref)"
+      ]
+    },
+    {
+      "id": "discovery.superseded-by-withheld",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 5344,
+      "failing": [
+        "ADR-0068 adversarial over MCP (custom model, need-to-know) typesys_describe_type does not name a withheld Type through deprecated.supersededBy",
+        "ADR-0068 adversarial over MCP (custom model, need-to-know) typesys_validate_query does not suggest a withheld Type",
+        "ADR-0068 adversarial: need-to-know a Type's deprecated.supersededBy never names a withheld Type",
+        "ADR-0068 adversarial: need-to-know an Action's deprecated.supersededBy never names a withheld Action"
+      ]
+    },
+    {
+      "id": "discovery.mcp-inverse-names-withheld",
+      "adr": "0068",
+      "file": "packages/mcp-server/src/reads.ts",
+      "status": "killed",
+      "durationMs": 4806,
+      "failing": [
+        "ADR-0068 adversarial over MCP (custom model, need-to-know) typesys_describe_type does not name a withheld relationship through another one's inverseName"
+      ]
+    },
+    {
+      "id": "discovery.rest-sends-reasons",
+      "adr": "0068",
+      "file": "packages/http/src/problems.ts",
+      "status": "killed",
+      "durationMs": 4746,
+      "failing": [
+        "ADR-0068 adversarial over MCP and REST (airforce, need-to-know) REST: a viewer refused a withheld Action is not told which roles its policy wants"
+      ]
+    },
+    {
+      "id": "discovery.no-subject-authenticated",
+      "adr": "0068",
+      "file": "packages/core/src/runtime/discovery.ts",
+      "status": "killed",
+      "durationMs": 3875,
+      "failing": [
+        "ADR-0068 adversarial: need-to-know an identity with no subject id is not treated as authenticated"
+      ]
+    },
+    {
+      "id": "authority.cancel-claims-clean-undo",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5197,
+      "failing": [
+        "ADV: cancel vs. an Action whose outcome is not recorded cancel after a crash mid-Action must not report 'cancelled' with the non-idempotent Action's effect left in place",
+        "ADV: cancel vs. an Action whose outcome is not recorded cancel racing a process that is mid-Action: the Action's effect must not be orphaned under a 'cancelled' run"
+      ]
+    },
+    {
+      "id": "authority.retry-skips-recheck",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5179,
+      "failing": [
+        "ADV: authority re-checked before every effectful attempt an in-process retry of an Action after its backoff must not run on credentials that expired during the backoff"
+      ]
+    },
+    {
+      "id": "authority.suspended-undo-uncancellable",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5242,
+      "failing": [
+        "ADV: a suspended run must be endable by cancellation (ADR-0065) credentials expiring during compensation leave a run nobody but the (gone) initiator can finish undoing"
+      ]
+    },
+    {
+      "id": "authority.sweep-stops-on-one-run",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5582,
+      "failing": [
+        "ADV: one run must not stop a sweep for every other run a transient resolver error for one initiator stops tick() from expiring another run's approval",
+        "ADV: approval deadlines are validated a run its definition cannot advance does not stop resumeAll for every other run"
+      ]
+    },
+    {
+      "id": "authority.deadline-unchecked",
+      "adr": "0065",
+      "file": "packages/workflow/src/validate.ts",
+      "status": "killed",
+      "durationMs": 5383,
+      "failing": [
+        "ADV: approval deadlines are validated register refuses deadline.afterMs = NaN",
+        "ADV: approval deadlines are validated register refuses deadline.afterMs = Infinity",
+        "ADV: approval deadlines are validated register refuses deadline.afterMs = -60000"
+      ]
+    },
+    {
+      "id": "authority.expired-canceller-proceeds",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5455,
+      "failing": [
+        "ADV: audit evidence of cancellation an expired canceller's refused cancel is not audited as allowed"
+      ]
+    },
+    {
+      "id": "authority.max-age-unvalidated",
+      "adr": "0065",
+      "file": "packages/workflow/src/engine.ts",
+      "status": "killed",
+      "durationMs": 5739,
+      "failing": [
+        "ADV: identityMaxAgeMs a NaN identityMaxAgeMs must not disable the age limit"
+      ]
+    },
+    {
+      "id": "journal.truncate-allowed",
+      "adr": "0066",
+      "file": "packages/workflow-postgres/migrations/0002_journal_integrity.sql",
+      "status": "killed",
+      "durationMs": 4681,
+      "failing": [
+        "ADV: PostgresWorkflowJournal TRUNCATE of the events table is refused like UPDATE and DELETE (append-only)",
+        "ADV: PostgresWorkflowJournal the runs row cannot be marked finished behind the journal's back (a pending deadline would never fire)"
+      ]
+    },
+    {
+      "id": "journal.finished-behind-its-back",
+      "adr": "0066",
+      "file": "packages/workflow-postgres/migrations/0002_journal_integrity.sql",
+      "status": "killed",
+      "durationMs": 4201,
+      "failing": [
+        "ADV: PostgresWorkflowJournal the runs row cannot be marked finished behind the journal's back (a pending deadline would never fire)"
+      ]
+    },
+    {
+      "id": "journal.nul-unencoded",
+      "adr": "0066",
+      "file": "packages/workflow-postgres/src/postgres-journal.ts",
+      "status": "killed",
+      "durationMs": 5314,
+      "failing": [
+        "ADV: PostgresWorkflowJournal an event holding a NUL character round-trips as it does in the in-memory journal (contract parity)",
+        "PostgresWorkflowJournal (ADR-0066) WorkflowJournal contract: PostgresWorkflowJournal stores any string an Action may return, NUL and the escape characters included"
+      ]
+    },
+    {
+      "id": "packs.cosigners-unbound",
+      "adr": "0069",
+      "file": "packages/packs/src/archive.ts",
+      "status": "killed",
+      "durationMs": 4266,
+      "failing": [
+        "ADR-0069 adversarial a co-signed pack is still refused after the revoked key's holder strips (or renames) its own signature"
+      ]
+    },
+    {
+      "id": "packs.revoked-by-id-only",
+      "adr": "0069",
+      "file": "packages/packs/src/archive.ts",
+      "status": "killed",
+      "durationMs": 4150,
+      "failing": [
+        "ADR-0069 adversarial revoking a key id revokes the key: the same public key trusted under another id does not verify"
+      ]
+    },
+    {
+      "id": "packs.recorded-installs-unchecked",
+      "adr": "0069",
+      "file": "packages/packs/src/install.ts",
+      "status": "killed",
+      "durationMs": 4384,
+      "failing": [
+        "ADR-0069 adversarial an install while a revoked pack is in the registry is refused even when the caller leaves it out of `installed`"
+      ]
+    },
+    {
+      "id": "packs.failed-install-unaudited",
+      "adr": "0069",
+      "file": "packages/packs/src/install.ts",
+      "status": "killed",
+      "durationMs": 4456,
+      "failing": [
+        "ADR-0069 adversarial installPacks audits an install that fails while registering (packs partially registered)"
+      ]
+    },
+    {
+      "id": "packs.revoke-digest-misspelled",
+      "adr": "0069",
+      "file": "packages/cli/src/bin.ts",
+      "status": "killed",
+      "durationMs": 2915,
+      "failing": [
+        "pack verify --revoke adversarial a withdrawn digest written in upper case, or without its sha256: prefix, still refuses the build (or is rejected as malformed)"
+      ]
+    },
+    {
+      "id": "engineer.withheld-unchecked",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 14674,
+      "failing": [
+        "the engineering loop (ADR-0071) a self-approval written into the spec is warned by plan and fails verify; so does a check the model's policy contradicts"
+      ]
+    },
+    {
+      "id": "engineer.approval-admission-unchecked",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 12030,
+      "failing": [
+        "the engineering loop (ADR-0071) a self-approval written into the spec is warned by plan and fails verify; so does a check the model's policy contradicts",
+        "the engineering loop (ADR-0071) scaffolds an application that verifies; a self-approval defect seeded into it fails verify with a diagnostic; repaired, it verifies again"
+      ]
+    },
+    {
+      "id": "engineer.build-errors-ignored",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 14257,
+      "failing": [
+        "the engineering loop (ADR-0071) scaffolds an application that verifies; a self-approval defect seeded into it fails verify with a diagnostic; repaired, it verifies again"
+      ]
+    },
+    {
+      "id": "engineer.check-step-not-enforced",
+      "adr": "0071",
+      "file": "packages/engineer/src/scaffold.ts",
+      "status": "killed",
+      "durationMs": 9778,
+      "failing": [
+        "the engineering loop (ADR-0071) a self-approval written into the spec is warned by plan and fails verify; so does a check the model's policy contradicts",
+        "the engineering loop (ADR-0071) scaffolds an application that verifies; a self-approval defect seeded into it fails verify with a diagnostic; repaired, it verifies again"
+      ]
+    },
+    {
+      "id": "engineer.self-approval-dropped",
+      "adr": "0071",
+      "file": "packages/engineer/src/scaffold.ts",
+      "status": "killed",
+      "durationMs": 15603,
+      "failing": [
+        "the engineering loop (ADR-0071) a self-approval written into the spec is warned by plan and fails verify; so does a check the model's policy contradicts"
+      ]
+    },
+    {
+      "id": "engineer.unknown-field-unreported",
+      "adr": "0071",
+      "file": "packages/engineer/src/plan.ts",
+      "status": "killed",
+      "durationMs": 15274,
+      "failing": [
+        "the engineering loop (ADR-0071) finds a defect seeded in the spec before anything is written: an unknown Type, with the near miss as its fix"
+      ]
+    },
+    {
+      "id": "engineer.workflow-shadowing",
+      "adr": "0071",
+      "file": "packages/engineer/src/plan.ts",
+      "status": "killed",
+      "durationMs": 14873,
+      "failing": [
+        "the engineering loop (ADR-0071) refuses a mission workflow that would shadow one the host already runs"
+      ]
+    },
+    {
+      "id": "engineer.mcp-root-escape",
+      "adr": "0071",
+      "file": "packages/engineer/src/mcp.ts",
+      "status": "killed",
+      "durationMs": 7625,
+      "failing": [
+        "M4 adversarial: the MCP tools' root F9: scaffold into a symlink that leads outside the root is refused (today it writes outside)",
+        "M4 adversarial: the MCP tools' root held: a plain ../ path and an absolute path are refused",
+        "the engineer MCP tools never reads or writes outside its root"
+      ]
+    },
+    {
+      "id": "engineer.negative-on-any-failure",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 7582,
+      "failing": [
+        "M4 adversarial: checks that pass against an application that does nothing F1: an application that 404s every route fails the mission's negative checks (it passes all four today)"
+      ]
+    },
+    {
+      "id": "engineer.hidden-object-uncorroborated",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 7908,
+      "failing": [
+        "M4 adversarial: checks that pass against an application that does nothing F1: an application that 404s every route fails the mission's negative checks (it passes all four today)"
+      ]
+    },
+    {
+      "id": "engineer.app-tsconfig-owns-output",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 12162,
+      "failing": [
+        "M4 adversarial: the MCP tools' root F12: verify whose tsconfig sends output outside the root is refused (today tsc writes there)"
+      ]
+    },
+    {
+      "id": "engineer.approval-step-unconfirmed",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 4778,
+      "failing": [
+        "runCheck signals an approves check fails when the run is not waiting on its step, whatever the approval answers"
+      ]
+    },
+    {
+      "id": "engineer.approval-any-refusal",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 4613,
+      "failing": [
+        "runCheck signals an approval that answers neither yes (200) nor no (403) decides nothing"
+      ]
+    },
+    {
+      "id": "engineer.approves-step-unvalidated",
+      "adr": "0071",
+      "file": "packages/engineer/src/mission.ts",
+      "status": "killed",
+      "durationMs": 17730,
+      "failing": [
+        "M4 adversarial: what plan accepts F3: an approves check whose `step` names no approval of the workflow is an error in plan (accepted today)"
+      ]
+    },
+    {
+      "id": "engineer.withheld-compare-passes",
+      "adr": "0071",
+      "file": "packages/engineer/src/scaffold.ts",
+      "status": "killed",
+      "durationMs": 13140,
+      "failing": [
+        "M4 adversarial: verify ok on an application that violates its requirement V3: a workflow check step comparing two fields its initiator may not read passes (undefined equals undefined), so the run goes on"
+      ]
+    },
+    {
+      "id": "engineer.spec-number-as-code",
+      "adr": "0071",
+      "file": "packages/engineer/src/mission.ts",
+      "status": "killed",
+      "durationMs": 7576,
+      "failing": [
+        "M4 adversarial: spec strings become code in the scaffold F8: an approval deadlineMs, a view limit or a view name that is not what it claims to be is invalid-mission (accepted today)"
+      ]
+    },
+    {
+      "id": "engineer.shape-unchecked",
+      "adr": "0071",
+      "file": "packages/engineer/src/verify.ts",
+      "status": "killed",
+      "durationMs": 7699,
+      "failing": [
+        "M4 adversarial: checks that pass against an application that does nothing F2: a reads check with only `withheld`, and a query with only `atMost`, fail against a 200 that carries no data (they pass today)"
+      ]
+    },
+    {
+      "id": "engineer.ghost-object-accepted",
+      "adr": "0071",
+      "file": "packages/engineer/src/plan.ts",
+      "status": "killed",
+      "durationMs": 4307,
+      "failing": [
+        "plan and the MCP tools a check on an object no caller finds is an error, not a warning"
+      ]
+    },
+    {
+      "id": "engineer.dotted-ref-cut",
+      "adr": "0071",
+      "file": "packages/engineer/src/mission.ts",
+      "status": "killed",
+      "durationMs": 7695,
+      "failing": [
+        "M4 adversarial: what plan accepts F6: a reference with a dotted path ($component.aircraftId.x) is reported, not silently cut to $component.aircraftId"
+      ]
+    },
+    {
+      "id": "engineer.uncovered-caller-silent",
+      "adr": "0071",
+      "file": "packages/engineer/src/plan.ts",
+      "status": "killed",
+      "durationMs": 7098,
+      "failing": [
+        "M4 adversarial: what plan accepts F7: a caller the spec names but no check covers is reported by plan (silent today)"
+      ]
+    },
+    {
+      "id": "engineer.host-failure-throws",
+      "adr": "0071",
+      "file": "packages/engineer/src/host.ts",
+      "status": "killed",
+      "durationMs": 7469,
+      "failing": [
+        "M4 adversarial: diagnostics F14: verify of a mission whose host module does not resolve is a diagnostic at host/module, not a rejected promise"
+      ]
+    },
+    {
+      "id": "engineer.host-path-unconfined",
+      "adr": "0071",
+      "file": "packages/engineer/src/host.ts",
+      "status": "killed",
+      "durationMs": 7592,
+      "failing": [
+        "M4 adversarial: the MCP tools' root F11: a mission inside the root whose host.module is an absolute path outside it is refused before the module runs"
+      ]
+    },
+    {
+      "id": "engineer.symlink-escape",
+      "adr": "0071",
+      "file": "packages/engineer/src/mcp.ts",
+      "status": "killed",
+      "durationMs": 7338,
+      "failing": [
+        "M4 adversarial: the MCP tools' root F9: scaffold into a symlink that leads outside the root is refused (today it writes outside)"
+      ]
+    },
+    {
+      "id": "engineer.mission-read-discloses",
+      "adr": "0071",
+      "file": "packages/engineer/src/mcp.ts",
+      "status": "killed",
+      "durationMs": 4363,
+      "failing": [
+        "plan and the MCP tools a file inside the root that is not a mission is reported without its contents"
+      ]
+    },
+    {
+      "id": "engineer.dotdot-name-refused",
+      "adr": "0071",
+      "file": "packages/engineer/src/mcp.ts",
+      "status": "killed",
+      "durationMs": 7514,
+      "failing": [
+        "M4 adversarial: the MCP tools' root F13: a directory whose name starts with two dots is inside the root"
+      ]
+    },
+    {
+      "id": "engineer.check-runs-as-nobody",
+      "adr": "0071",
+      "file": "packages/engineer/src/mission.ts",
+      "status": "killed",
+      "durationMs": 7696,
+      "failing": [
+        "M4 adversarial: what plan accepts F4: a check that names no caller (`as` missing) is invalid; today it silently runs as the anonymous caller"
+      ]
+    },
+    {
+      "id": "interop.optional-ignored",
+      "adr": "0072",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 3704,
+      "failing": [
+        "optional relationships (ADR-0072) a required relationship still fails the read, and so does an optional one failing for any reason but its source"
+      ]
+    },
+    {
+      "id": "interop.failure-as-empty",
+      "adr": "0072",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 8307,
+      "failing": [
+        "optional relationships (ADR-0072) each kind of source failure is left out and named; the rest of the answer arrives",
+        "a failed service leaves the rest of the answer, and says what is missing and why",
+        "a failed service a service's refusal of TypeSystem's own credential is reported as a refusal, not as an empty list",
+        "latency a service slower than the deadline is reported as timed out, and the rest arrives on time"
+      ]
+    },
+    {
+      "id": "interop.any-error-is-partial",
+      "adr": "0072",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 3797,
+      "failing": [
+        "optional relationships (ADR-0072) a required relationship still fails the read, and so does an optional one failing for any reason but its source"
+      ]
+    },
+    {
+      "id": "interop.refusal-as-outage",
+      "adr": "0072",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "status": "killed",
+      "durationMs": 8214,
+      "failing": [
+        "optional relationships (ADR-0072) each kind of source failure is left out and named; the rest of the answer arrives",
+        "a failed service a service's refusal of TypeSystem's own credential is reported as a refusal, not as an empty list"
+      ]
+    },
+    {
+      "id": "http-adapter.refusal-folded",
+      "adr": "0072",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "status": "killed",
+      "durationMs": 7715,
+      "failing": [
+        "HttpAdapter keeps a refusal a refusal, and a failure a failure",
+        "access control is enforced by TypeSystem and by each service a service refuses what TypeSystem would allow: the depot key is issued for KHIF only, so a planner cannot read a KVPS requisition",
+        "a failed service a service's refusal of TypeSystem's own credential is reported as a refusal, not as an empty list"
+      ]
+    },
+    {
+      "id": "http-adapter.truncated-list",
+      "adr": "0072",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "status": "killed",
+      "durationMs": 3526,
+      "failing": [
+        "HttpAdapter refuses to answer from a truncated list"
+      ]
+    },
+    {
+      "id": "http-adapter.translated-code-pushed",
+      "adr": "0072",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "status": "killed",
+      "durationMs": 3774,
+      "failing": [
+        "HttpAdapter follows every page, pushes only conditions the service holds as-is, and decides every condition itself"
+      ]
+    },
+    {
+      "id": "http-adapter.token-not-renewed",
+      "adr": "0072",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "status": "killed",
+      "durationMs": 3529,
+      "failing": [
+        "HttpAdapter gets a client-credentials token once, reuses it, and renews it once when the service says it expired"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 108,
+    "killed-by-compiler": 0,
+    "survived": 0,
+    "equivalent": 0,
+    "not-run": 0,
+    "stale": 0
+  }
+}

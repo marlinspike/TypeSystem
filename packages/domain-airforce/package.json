@@ -1,7 +1,7 @@
 {
   "name": "@typesys/domain-airforce",
   "version": "0.1.0",
-  "description": "TypeS vertical-slice domain \u2014 Aircraft/Component/MaintenanceEvent/WorkOrder \u2014 proving adapter substitution behind one consumer-facing model.",
+  "description": "TypeSys vertical-slice domain \u2014 Aircraft/Component/MaintenanceEvent/WorkOrder \u2014 proving adapter substitution behind one consumer-facing model.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,8 +1,8 @@
-# Contributing to TypeS
+# Contributing to TypeSys
 
-Thanks for considering a contribution. This is a reference implementation
-with an unusually strong emphasis on *why* things are shaped the way they
-are, so the most useful thing you can do before writing code is read the
+Thanks for considering a contribution. TypeSystem puts unusual weight on
+*why* things are shaped the way they are, so the most useful thing you can
+do before writing code is read the
 relevant [ADR](docs/adr/) — and if you're changing a hard-to-reverse
 decision, add or amend one.
 
@@ -62,6 +62,14 @@ smoke tests:
 ```bash
 npm run smoke:mcp        # real stdio subprocess, discover-to-invoke
 npm run smoke:mcp-http   # the same over the HTTP transport
+```
+
+If you touched a security mechanism the mutation catalog names, rerun its
+mutations (ADR-0070); a catalog entry whose code moved goes stale and fails
+the run until you update it:
+
+```bash
+npm run mutation -- --only <id,...> --allow-dirty
 ```
 
 Postgres/Redis-backed tests **skip cleanly** without `DATABASE_URL` /

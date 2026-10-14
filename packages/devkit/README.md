@@ -1,6 +1,6 @@
 # @typesys/devkit
 
-Machine-readable tooling over a TypeS model
+Machine-readable tooling over a TypeSys model
 ([ADR-0056](../../docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)),
 all reading `describeModel(registry)` from `@typesys/core`:
 

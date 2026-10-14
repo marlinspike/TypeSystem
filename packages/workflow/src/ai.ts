@@ -1,4 +1,4 @@
-import type { JsonSchema2020 } from "@typesys/core";
+import type { Audience, JsonSchema2020 } from "@typesys/core";
 
 /** What an AI step asks of a model. */
 export interface AiRequest {
@@ -17,13 +17,27 @@ export interface AiRequest {
  */
 export interface AiModel {
   readonly id: string;
+  /**
+   * Who receives what this model is sent (ADR-0067): its provider, where it
+   * runs, and what policy grants it. An AI step's input is only what both the
+   * person carrying the run and this audience may read. Omitted, the model
+   * is an audience granted nothing (`model:<id>`), so it receives only what
+   * a policy grants everyone.
+   */
+  readonly audience?: Audience;
   complete(request: AiRequest): Promise<unknown>;
 }
 
+/** The audience a model's input is released to: its own, or one granted nothing. */
+export function audienceOf(model: AiModel): Audience {
+  return model.audience ?? { id: `model:${model.id}`, kind: "model", roles: [], attributes: {} };
+}
+
 /** A model that answers from a script, by step (a value, or a function of the request): for tests, simulation, and demonstrations that must not depend on a live model. */
-export function scriptedModel(answers: Readonly<Record<string, unknown>>, id = "scripted"): AiModel {
+export function scriptedModel(answers: Readonly<Record<string, unknown>>, id = "scripted", audience?: Audience): AiModel {
   return {
     id,
+    ...(audience ? { audience } : {}),
     complete: async (request) => {
       if (!Object.hasOwn(answers, request.step)) throw new Error(`No scripted answer for AI step "${request.step}"`);
       const answer = answers[request.step];

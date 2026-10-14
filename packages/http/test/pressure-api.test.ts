@@ -2,7 +2,7 @@ import type { Server } from "node:http";
 import { request } from "node:http";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Identity } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceTestbed } from "@typesys/domain-airforce";
 import { WorkflowEngine, scriptedModel } from "@typesys/workflow";
 import { createApiApp } from "../src/index.js";
 
@@ -30,7 +30,7 @@ const errors: unknown[] = [];
 
 beforeAll(async () => {
   testbed = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
-  const workflows = await WorkflowEngine.create({ host: testbed, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "Avionics fault." } }) });
+  const workflows = await WorkflowEngine.create({ host: testbed, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "Avionics fault." } }, "scripted", demoAudiences.enclaveModel) });
   workflows.register(groundForRepair);
   const app = createApiApp({ backend: testbed, identityResolver: resolve, workflows, onError: (err) => errors.push(err) });
   await new Promise<void>((r) => (server = app.listen(0, "127.0.0.1", () => r())));

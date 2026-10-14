@@ -72,10 +72,10 @@ Next steps:
 2. Add real implementations to \`bindings.mjs\` for any \`binding\`/
    \`bindingId\` your Types reference.
 3. Wire this domain into a running application — see
-   \`docs/how-to/add-a-type.md\` and \`docs/quickstart.md\` in the TypeS repo
+   \`docs/how-to/add-a-type.md\` and \`docs/quickstart.md\` in the TypeSys repo
    for the full path from here to a queryable object.
 
-Full docs: [docs/README.md](../docs/README.md) in the TypeS repo (or
+Full docs: [docs/README.md](../docs/README.md) in the TypeSys repo (or
 wherever you vendored these docs from) is the index for everything else —
 tutorials, how-tos, the "why use this" pitch, and the architecture
 reference.

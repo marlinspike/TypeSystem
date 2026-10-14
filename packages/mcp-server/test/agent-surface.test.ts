@@ -21,7 +21,7 @@ import { buildObjectUri, buildProvenanceUri, buildRelationshipUri, buildTypeList
 
 /**
  * The MCP surface is shaped for tool-first agents (ADR-0051): every read a
- * resource offers is also a tool, TypeS's own tools return
+ * resource offers is also a tool, TypeSys's own tools return
  * `structuredContent`, and Action tools say what their Action declares.
  */
 
@@ -148,7 +148,7 @@ describe("ADR-0051: the MCP surface is shaped for tool-first agents", () => {
     });
   });
 
-  describe("2. TypeS's own tools return structuredContent matching their outputSchema, and the same JSON as text", () => {
+  describe("2. TypeSys's own tools return structuredContent matching their outputSchema, and the same JSON as text", () => {
     const calls: [string, Record<string, unknown>][] = [
       ["typesys_list_types", {}],
       ["typesys_describe_type", { type: "airforce.Aircraft" }],
@@ -191,21 +191,22 @@ describe("ADR-0051: the MCP surface is shaped for tool-first agents", () => {
       }
     }
 
-    it("tools/list sends them: a registered Action's from its definition, and TypeS's own tools as reads", () => {
+    it("tools/list sends them: a registered Action's from its definition, TypeSys's own tools as reads, and typesys_invoke_action as any Action", () => {
       expect(tools.find((t) => t.name === "CreateMaintenanceWorkOrder")?.annotations).toEqual(
         actionAnnotations({ sideEffects: "creates", idempotency: "none" })
       );
       const builtIns = tools.filter((t) => t.name.startsWith(RESERVED_TOOL_PREFIX));
       expect(builtIns.map((t) => t.name).sort()).toEqual(
-        ["aggregate", "describe_type", "discover", "explain_query", "get_object", "get_provenance", "get_relationship", "list_actions", "list_types", "preview_action", "query", "validate_query"].map((n) => `${RESERVED_TOOL_PREFIX}${n}`)
+        ["aggregate", "describe_type", "discover", "explain_query", "get_object", "get_provenance", "get_relationship", "invoke_action", "list_actions", "list_types", "preview_action", "query", "validate_query"].map((n) => `${RESERVED_TOOL_PREFIX}${n}`)
       );
-      for (const tool of builtIns) {
+      for (const tool of builtIns.filter((t) => t.name !== `${RESERVED_TOOL_PREFIX}invoke_action`)) {
         expect(tool.annotations, tool.name).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
       }
+      expect(tools.find((t) => t.name === `${RESERVED_TOOL_PREFIX}invoke_action`)?.annotations).toEqual({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
     });
   });
 
-  describe("4. the typesys_ prefix is TypeS's alone", () => {
+  describe("4. the typesys_ prefix is TypeSys's alone", () => {
     let executed: string[];
 
     async function squattedBackend() {

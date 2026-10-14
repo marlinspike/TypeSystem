@@ -258,3 +258,24 @@ describe("A query the caller can read none of is refused (ADR-0049)", () => {
     });
   });
 });
+
+describe("need-to-know discovery over the same Types (ADR-0068)", () => {
+  const described = async (who: Identity) => {
+    const { runtime } = await setup({ discovery: "need-to-know" });
+    return (await runtime.describeModel(who)).types.map((t) => t.name).filter((n) => n.startsWith("test.")).sort();
+  };
+  const auditor: Identity = { subjectId: "aud", roles: ["auditor"], attributes: {} };
+
+  it("describes a Type exactly where a query of it would not be refused wholesale", async () => {
+    expect(await described(outsider)).toEqual([]);
+    expect(await described(dispatcher)).toEqual(["test.Vehicle"]);
+    expect(await described(alice)).toEqual(["test.Hollow", "test.Ticket"]);
+    expect(await described(secret)).toEqual(["test.Annex"]);
+    expect(await described(cui)).toEqual([]);
+  });
+
+  it("a rule nobody can plan is decided with no object: shown to a caller its role admits, never to one only an object's values could", async () => {
+    expect(await described(auditor)).toEqual(["test.Hollow", "test.Opaque", "test.Ticket"]);
+    expect(await described(alice)).not.toContain("test.Opaque");
+  });
+});

@@ -1,6 +1,6 @@
 # @typesys/encryption
 
-Field-level encryption at rest for TypeS. `EncryptingAdapter` wraps any
+Field-level encryption at rest for TypeSys. `EncryptingAdapter` wraps any
 `Adapter` so the configured fields are ciphertext in every store behind it
 — database rows, backups, replicas, a remote system — while the runtime,
 and everything it enforces, sees plaintext. Keys come from a `KeyProvider`.

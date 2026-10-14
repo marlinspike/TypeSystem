@@ -6,7 +6,7 @@ Large enterprises run hundreds of disconnected systems — databases, REST APIs,
 SaaS applications, legacy platforms, ERPs. Applications and AI agents that
 want to reason about "an Aircraft" or "a Customer" should not need to know
 that tail numbers live in IMDS, maintenance history lives in REMIS, and
-supply status lives in an ERP. TypeS is a canonical semantic layer that sits
+supply status lives in an ERP. TypeSys is a canonical semantic layer that sits
 between physical enterprise systems and their consumers (human applications
 and AI agents) so that a consumer can ask for an object, its relationships,
 its provenance, and the actions it can perform — without ever learning which
@@ -228,14 +228,14 @@ domain, both adapter styles seeded with sample data) and exposes it two ways:
   (`src/resource-uri.ts`).
 - **Tools** (`src/tools.ts`) — every registered `ActionDefinition` becomes an
   MCP tool 1:1 (its `inputSchema` plus an injected `authToken` field, and
-  annotations taken from its `sideEffects` and `idempotency`), plus TypeS's
+  annotations taken from its `sideEffects` and `idempotency`), plus TypeSys's
   own read-only tools, named with the reserved `typesys_` prefix:
   `typesys_query` (input schema the `SemanticQuery` DSL verbatim),
   `typesys_aggregate`, and a tool twin of each resource read
   (`typesys_list_types`, `typesys_describe_type`, `typesys_get_object`,
   `typesys_get_relationship`, `typesys_get_provenance`), for agents that use
   tools only. A resource and its twin run the same function in
-  `src/reads.ts`. TypeS's tools return `structuredContent` against a
+  `src/reads.ts`. TypeSys's tools return `structuredContent` against a
   declared `outputSchema` (`src/output-schemas.ts`) (ADR-0051).
 
 Both handlers resolve an `Identity` fresh from a bearer token on every

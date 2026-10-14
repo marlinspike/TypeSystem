@@ -1,4 +1,4 @@
-# TypeS Documentation
+# TypeSys Documentation
 
 Everything here is organized by what you're trying to do, not by which
 package happens to hold the code. If you're an AI agent looking for the
@@ -8,14 +8,14 @@ points into.
 
 ## New here?
 
-1. **[Why TypeS?](why-typesys.md)** — when to use this, when not to, how
+1. **[Why TypeSys?](why-typesys.md)** — when to use this, when not to, how
    it compares to a hand-rolled BFF, GraphQL federation, and the
    Palantir/C3 platforms it takes inspiration from without cloning.
 2. **[Quickstart](quickstart.md)** — clone to a working, policy-gated
    query in about ten minutes. Every command is verified against this
    exact repo.
 3. **[Start a project](how-to/start-a-project.md)** — build your own
-   application on TypeS in its own repository, step by step, and see
+   application on TypeSys in its own repository, step by step, and see
    where a console tool, a web API, an MCP agent, or an in-process AI
    workflow plugs in.
 4. **[Completeness](completeness.md)** — an honest, kept-current
@@ -23,9 +23,8 @@ points into.
    not-yet-built extension point. Read this before assuming a capability
    exists just because an ADR discusses it.
 5. **[Production readiness](PRODUCTION-READINESS.md)** — the ranked list
-   of what stands between this reference implementation and real
-   production traffic, kept current as items are actually closed. Read it
-   before betting production traffic on any of this.
+   of what to decide and configure for a production deployment, kept
+   current as items are closed.
 
 ## Building something? (how-to guides)
 
@@ -35,7 +34,7 @@ instead of re-explaining it.
 
 | Guide | When you need it |
 |---|---|
-| [`start-a-project.md`](how-to/start-a-project.md) | Build your own application on TypeS in its own repository, whatever kind of consumer it is. |
+| [`start-a-project.md`](how-to/start-a-project.md) | Build your own application on TypeSys in its own repository, whatever kind of consumer it is. |
 | [`add-a-type.md`](how-to/add-a-type.md) | Define a new object shape — properties, `extends`, traits. |
 | [`add-a-relationship-and-action.md`](how-to/add-a-relationship-and-action.md) | Connect Types, and add a governed capability that acts on them. |
 | [`write-an-adapter.md`](how-to/write-an-adapter.md) | Back a Type with a real system instead of the in-memory adapter. |
@@ -49,7 +48,7 @@ instead of re-explaining it.
 | [`use-postgres.md`](how-to/use-postgres.md) | Make the registry survive a restart. |
 | [`write-a-governed-workflow.md`](how-to/write-a-governed-workflow.md) | Run a multi-step process (reads, AI triage, an approval, Actions) as the person who started it, with retries, compensation, simulation and replay. |
 | [`build-an-app-with-the-api-and-react.md`](how-to/build-an-app-with-the-api-and-react.md) | Serve the runtime as a REST API, call it with the typed SDK, and build React screens whose forms and columns come from the model. |
-| [`explore-with-the-studio.md`](how-to/explore-with-the-studio.md) | Serve TypeS Studio over a runtime, find what serves a task, check, explain and run a query and take its SDK code, and preview an Action before invoking it, as any signed-in person. |
+| [`explore-with-the-studio.md`](how-to/explore-with-the-studio.md) | Serve TypeSys Studio over a runtime, find what serves a task, check, explain and run a query and take its SDK code, and preview an Action before invoking it, as any signed-in person. |
 | [`compose-a-mission-application.md`](how-to/compose-a-mission-application.md) | Build an application from the governed API, the typed SDK, the React hooks, Action previews and a workflow, with no access rule of its own, and check it in a browser as each person. |
 | [`ship-a-domain-pack.md`](how-to/ship-a-domain-pack.md) | Build a domain into a signed, offline pack, install it with every requirement checked, specialize it without forking, and check an upgrade against what is installed. |
 | [`use-the-typed-sdk.md`](how-to/use-the-typed-sdk.md) | Query, read and invoke Actions from TypeScript with names and rows typed by your model, in process or over MCP. |
@@ -139,7 +138,7 @@ other reasonable way.
 | [0048](adr/0048-a-missing-object-is-not-found.md) | A missing object is not found: `getObject`, and the source of `getRelationship`/`getProvenance`, raise `ObjectNotFoundError` (a `NotFoundError`) for an id no source holds — only after the policy decision, so a denied caller learns nothing; a dangling reference is left out of a relationship. |
 | [0049](adr/0049-a-query-the-caller-can-read-none-of-is-refused.md) | A query the caller can read none of is refused: a classified Type above the caller's clearance, or a `never` plan, throws `AuthorizationError` instead of returning an empty page — both are the same for every possible dataset. A denied row is still dropped silently, since refusing there would reveal that hidden rows exist. |
 | [0050](adr/0050-the-mcp-server-serves-any-registry.md) | The MCP server serves any registry: `createServer(backend, resolveIdentity, info?)` and `createHttpApp({ backend, identityResolver })` take any `{ registry, runtime }` and a required resolver (no built-in identities), `resources/list` lists Types only, the package depends on no domain, and the demo's stdio and HTTP entry points live in `@typesys/demo-web`. |
-| [0051](adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md) | The MCP surface is shaped for tool-first agents: each resource read has a `typesys_` tool twin running the same code, `query` and `aggregate` become `typesys_query` and `typesys_aggregate`, every TypeS tool returns `structuredContent` against an `outputSchema`, Action tools carry annotations from `sideEffects` and `idempotency`, no Action may take the `typesys_` prefix, and CI runs the official MCP conformance suite against a baseline that explains each expected failure. |
+| [0051](adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md) | The MCP surface is shaped for tool-first agents: each resource read has a `typesys_` tool twin running the same code, `query` and `aggregate` become `typesys_query` and `typesys_aggregate`, every TypeSys tool returns `structuredContent` against an `outputSchema`, Action tools carry annotations from `sideEffects` and `idempotency`, no Action may take the `typesys_` prefix, and CI runs the official MCP conformance suite against a baseline that explains each expected failure. |
 | [0052](adr/0052-derived-values-inherit-their-inputs-read-policy.md) | Derived values inherit their inputs' read policy: a computed property is withheld from a caller who may not read every input in its `dependsOn` (transitively, and for an input with no value), unless the Type lists the input in `releases`; each withholding and release is audited as `control: "derivation"`; markings are never released. |
 | [0053](adr/0053-instance-scoped-actions-and-previews.md) | Instance-scoped Actions, previews, and Host/Origin checks: an Action may declare `target: { idFrom }`, so the runtime reads that object under the caller's read authorization and decides the Action's policy on its attributes; `previewAction` decides an invocation (authorization, input, preconditions) without executing it; MCP gains `typesys_list_actions` and `typesys_preview_action`; the HTTP transport answers only allowed `Host`s and browser `Origin`s. |
 | [0054](adr/0054-computed-filters-and-execution-plans.md) | Filtering on computed properties and explainable execution plans: a filter's conjuncts naming computed properties run in the runtime on caller-visible values while the rest go to the adapter, with pages refilled up to `maxScanned` rows and an exact resume cursor; `explainQuery` returns the execution plan built from the same split; MCP's `typesys_explain_query` returns it without the authorization plan. |
@@ -149,6 +148,6 @@ other reasonable way.
 | [0058](adr/0058-governed-http-api-and-headless-react-bindings.md) | A governed REST API that adds no decision of its own: one runtime call per request as the bearer token's caller, RFC 9457 problems with a stable `code`, an OpenAPI 3.1 contract generated from the model, and the Host and Origin guard shared with MCP; headless React hooks over the typed SDK client, with form fields and table columns derived from the model and no access decisions in the UI. |
 | [0059](adr/0059-domain-packs.md) | Domain packs: a domain as one JSON archive with no code (bindings by key), SHA-256 digest and Ed25519 signatures, requirements recomputed on every check, installs planned completely (dependencies, conflicts, references, bindings, rules, adapters, scratch registration) before anything registers, specialization by extension, and upgrades checked with the contract diff against every installed dependent. |
 | [0060](adr/0060-subtypes-keep-their-base-protections.md) | A subtype keeps its base's property policies and classification markings, and its object policy unless it names its own; it may add protections, never replace them. Closes a leak where a subtype naming only an object policy exposed every protected value it inherited. |
-| [0061](adr/0061-typesys-studio.md) | TypeS Studio is a client of the public API and nothing else: the signed-in person's token on every call, model, query and Action screens built on existing capabilities (validation with suggestions, execution plans, `querySource`, previews before invocation), a strict Content Security Policy, and one `esbuild` bundle. |
+| [0061](adr/0061-typesys-studio.md) | TypeSys Studio is a client of the public API and nothing else: the signed-in person's token on every call, model, query and Action screens built on existing capabilities (validation with suggestions, execution plans, `querySource`, previews before invocation), a strict Content Security Policy, and one `esbuild` bundle. |
 | [0062](adr/0062-coalesced-computed-reads.md) | Opt-in coalescing of computed properties' adapter reads within one request: identical reads made once, concurrent equality lookups batched into one `in` query and split back exactly where the adapter filters that property as `matchesFilter` does, answers copied once and frozen; measured, and off by default because it is slower where lookups are cheap. |
-| [0063](adr/0063-a-mission-application-composed-and-by-hand.md) | One squadron readiness application written twice over the same system, composed from TypeS and by hand the baseline way, checked by one browser scenario and measured: code per layer, access rules restated, where seeded mistakes are caught, whether a policy change is followed, and latency. Adds `clientRouter`, `GET /workflow-approvals`, `httpWorkflows`, `dataOf` and `errorOf`. |
+| [0063](adr/0063-a-mission-application-composed-and-by-hand.md) | One squadron readiness application written twice over the same system, composed from TypeSys and by hand the baseline way, checked by one browser scenario and measured: code per layer, access rules restated, where seeded mistakes are caught, whether a policy change is followed, and latency. Adds `clientRouter`, `GET /workflow-approvals`, `httpWorkflows`, `dataOf` and `errorOf`. |

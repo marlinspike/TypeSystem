@@ -57,11 +57,11 @@ Refusals arrive as RFC 9457 problems with a stable `code`: `forbidden`,
 ## 3. Bind it to React
 
 ```ts
-import { createTypeSHooks, columnsFor, formFields, coerceForm } from "@typesys/react";
+import { createTypeSysHooks, columnsFor, formFields, coerceForm } from "@typesys/react";
 
-export const { TypeSProvider, useQuery, useObject, useActions, useAction } = createTypeSHooks<AirforceModel>();
+export const { TypeSysProvider, useQuery, useObject, useActions, useAction } = createTypeSysHooks<AirforceModel>();
 
-// <TypeSProvider client={af}><Fleet /></TypeSProvider>
+// <TypeSysProvider client={af}><Fleet /></TypeSysProvider>
 
 function Fleet() {
   const list = useQuery((c) => c.from("airforce.Aircraft").select("tailNumber", "readinessStatus").orderBy("tailNumber").limit(25), []);

@@ -1,7 +1,7 @@
 {
   "name": "@typesys/devkit",
   "version": "0.1.0",
-  "description": "Machine-readable tooling over a TypeS model: a compact capability catalog, ranked discovery for agents, static validation of a composed query with did-you-mean, and a contract diff that classifies breaking changes.",
+  "description": "Machine-readable tooling over a TypeSys model: a compact capability catalog, ranked discovery for agents, static validation of a composed query with did-you-mean, and a contract diff that classifies breaking changes.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

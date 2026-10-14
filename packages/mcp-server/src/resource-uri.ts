@@ -10,12 +10,13 @@ function withToken(base: string, token?: string): string {
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
-export function buildTypeListUri(): string {
-  return `${SCHEME}://types`;
+/** With a token, the Types that caller may learn of when discovery is not open (ADR-0068). */
+export function buildTypeListUri(token?: string): string {
+  return withToken(`${SCHEME}://types`, token);
 }
 
-export function buildTypeUri(typeName: string): string {
-  return `${SCHEME}://types/${encodeURIComponent(typeName)}`;
+export function buildTypeUri(typeName: string, token?: string): string {
+  return withToken(`${SCHEME}://types/${encodeURIComponent(typeName)}`, token);
 }
 
 export function buildObjectUri(typeName: string, objectId: string, token?: string): string {

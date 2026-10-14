@@ -2,7 +2,7 @@
   "name": "@typesys/mission-readiness",
   "version": "0.1.0",
   "private": true,
-  "description": "A squadron readiness application built twice over the same airforce system: once composed from TypeS (typed SDK, React hooks, Action previews, a governed workflow) and once written by hand the way the baseline allowed, so the two can be measured against one browser scenario.",
+  "description": "A squadron readiness application built twice over the same airforce system: once composed from TypeSys (typed SDK, React hooks, Action previews, a governed workflow) and once written by hand the way the baseline allowed, so the two can be measured against one browser scenario.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

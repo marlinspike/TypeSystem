@@ -11,5 +11,5 @@ import { MISSION_CLIENT_DIR, buildMissionBackend, createComposedApp, createHandw
 const port = Number(process.env.PORT ?? 4500);
 const composed = createComposedApp(await buildMissionBackend(), path.join(MISSION_CLIENT_DIR, "composed"));
 const handwritten = createHandwrittenApp(await buildMissionBackend(), path.join(MISSION_CLIENT_DIR, "handwritten"));
-composed.listen(port, "127.0.0.1", () => console.log(`Composed from TypeS on http://localhost:${port}`));
+composed.listen(port, "127.0.0.1", () => console.log(`Composed from TypeSys on http://localhost:${port}`));
 handwritten.listen(port + 1, "127.0.0.1", () => console.log(`Written by hand on    http://localhost:${port + 1}`));

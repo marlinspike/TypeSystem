@@ -70,17 +70,17 @@ to deploy or fail.
 
 **2. A fixed, documented mapping from `PolicyRequest` to a Cedar request.**
 
-| TypeS | Cedar |
+| TypeSys | Cedar |
 |---|---|
-| `subject.subjectId` | principal `TypeS::User::"<subjectId>"` |
-| `subject.roles` | the principal's parents, `TypeS::Role::"<role>"` |
+| `subject.subjectId` | principal `TypeSys::User::"<subjectId>"` |
+| `subject.roles` | the principal's parents, `TypeSys::Role::"<role>"` |
 | `subject.attributes` | the principal's attributes |
-| `policyName` | action `TypeS::Action::"<policyName>"` |
+| `policyName` | action `TypeSys::Action::"<policyName>"` |
 | `resource.typeName` `"hospital.Patient"` | entity type `hospital::Patient` |
 | `resource.objectId` | the resource's id; `"*"` on a type-level request |
 | `resource.attributes` | the resource's attributes; none on a type-level request |
 
-The policy name *is* the Cedar action. TypeS already binds named policies to
+The policy name *is* the Cedar action. TypeSys already binds named policies to
 Types, properties, and Actions (`x-policy`, `authorizationPolicy`), so mapping
 each name to one Cedar action keeps every Type definition unchanged and keeps
 the fail-closed rule for an unknown name: an action the schema doesn't
@@ -109,7 +109,7 @@ non-finite number) is refused the same way.
   has attr` on an undeclared attribute as statically false: a typo'd
   attribute behind a `has` guard validates, with only an "impossible policy"
   warning, and in a `forbid` that is a silently open door. Two structural checks sit beside Cedar's: the schema must declare
-  `TypeS::User` and `TypeS::Role`, and **every attribute of every resource
+  `TypeSys::User` and `TypeSys::Role`, and **every attribute of every resource
   entity type must be optional**. A type-level request carries no attributes
   (ADR-0030), so a required attribute would make every type-level request
   fail; optional attributes make Cedar's validator reject any policy that
@@ -170,7 +170,7 @@ code is machine-verified, not human-reviewed.
 - **The mapping (point 2) is the security-relevant surface.** Review it
   against how your identity provider fills `subjectId`, `roles`, and
   `attributes`: roles become Cedar group membership, so whoever can mint a
-  role string can mint `principal in TypeS::Role::"admin"`.
+  role string can mint `principal in TypeSys::Role::"admin"`.
 - **Review the policy set as a policy set.** The shipped one reproduces the
   demo rules; it is not a policy design for a real domain. Cedar's
   SMT-based analysis tooling can prove properties such as "no clinician can
@@ -197,7 +197,7 @@ code is machine-verified, not human-reviewed.
   point 4 relies on, which Rego has no equivalent for.
 - **Model Cedar actions as `read` / `invoke` on a resource type, ignoring
   policy names** (the "Cedar-native" shape). More idiomatic for a greenfield
-  Cedar deployment, but it would make TypeS's named policies meaningless,
+  Cedar deployment, but it would make TypeSys's named policies meaningless,
   force a property policy to be told apart from an object policy through
   `context`, and change every domain's Type definitions. Mapping the name to
   the action keeps both models intact.

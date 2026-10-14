@@ -1,6 +1,6 @@
 # @typesys/policy-cedar
 
-A [Cedar](https://www.cedarpolicy.com/)-backed `PolicyEngine` for TypeS —
+A [Cedar](https://www.cedarpolicy.com/)-backed `PolicyEngine` for TypeSys —
 a drop-in replacement for `@typesys/core`'s embedded `AbacPolicyEngine`.
 Cedar's authorizer runs in-process as WebAssembly
 ([`@cedar-policy/cedar-wasm`](https://www.npmjs.com/package/@cedar-policy/cedar-wasm)):
@@ -31,22 +31,22 @@ domains' rules, including the row-level own-patient rule
 
 ## How a decision maps to Cedar
 
-| TypeS `PolicyRequest` | Cedar |
+| TypeSys `PolicyRequest` | Cedar |
 |---|---|
-| `subject.subjectId` | principal `TypeS::User::"<subjectId>"` |
-| `subject.roles` | the principal's parents, `TypeS::Role::"<role>"` |
+| `subject.subjectId` | principal `TypeSys::User::"<subjectId>"` |
+| `subject.roles` | the principal's parents, `TypeSys::Role::"<role>"` |
 | `subject.attributes` | the principal's attributes |
-| `policyName` | action `TypeS::Action::"<policyName>"` |
+| `policyName` | action `TypeSys::Action::"<policyName>"` |
 | `resource.typeName` (`hospital.Patient`) | entity type `hospital::Patient` |
 | `resource.objectId` | the resource id — `"*"` on a type-level request |
 | `resource.attributes` | the resource's attributes — none on a type-level request |
 
 So the policy `hospital.read-patient` is written against
-`action == TypeS::Action::"hospital.read-patient"`:
+`action == TypeSys::Action::"hospital.read-patient"`:
 
 ```cedar
 @id("hospital.read-patient.assigned-clinician")
-permit (principal in TypeS::Role::"clinician", action == TypeS::Action::"hospital.read-patient", resource)
+permit (principal in TypeSys::Role::"clinician", action == TypeSys::Action::"hospital.read-patient", resource)
 when {
   resource has assignedClinicianId && principal has providerId &&
   resource.assignedClinicianId != "" && resource.assignedClinicianId == principal.providerId
@@ -55,8 +55,8 @@ when {
 
 ## Writing the schema
 
-- Declare `TypeS::Role`, `TypeS::User in [Role]`, and every policy name as a
-  `TypeS::Action` whose `appliesTo` lists the resource types it guards.
+- Declare `TypeSys::Role`, `TypeSys::User in [Role]`, and every policy name as a
+  `TypeSys::Action` whose `appliesTo` lists the resource types it guards.
 - **Declare only the attributes a policy decides on.** They are the
   allow-list: nothing undeclared (a patient's name, a token's other claims)
   is ever given to Cedar.

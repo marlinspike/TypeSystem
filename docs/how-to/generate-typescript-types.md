@@ -42,7 +42,7 @@ what keeps the output valid TypeScript every time.
 ## This is not a general JSON Schema → TypeScript compiler
 
 The conversion is `@typesys/sdk`'s `schemaToTs`, shared with the typed
-client's model generator. It covers what TypeS models author (primitives,
+client's model generator. It covers what TypeSys models author (primitives,
 enums and `const`, unions of `type`, arrays, nested objects, `anyOf`/
 `oneOf`) and widens anything it cannot express exactly, such as a `$ref`,
 to `unknown`. `extends` and traits are resolved through the registry's own

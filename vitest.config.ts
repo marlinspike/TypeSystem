@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["packages/*/test/**/*.test.ts"],
+    include: ["packages/*/test/**/*.test.ts", "tools/*/test/**/*.test.ts"],
     environment: "node",
     // Postgres-gated test files (adapter-postgres, registry-store-postgres)
     // share one real external database — running test *files* in parallel

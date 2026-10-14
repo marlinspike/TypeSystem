@@ -15,6 +15,7 @@ CREATE TABLE objects (
   PRIMARY KEY (type_name, object_id)
 );
 
--- Supports the "byForeignKey:<field>" relationship convention's pushdown
--- query (values ->> field = ...) without a full-table scan.
+-- Serves query filters and relationship lookups (byForeignKey, byJoinTable,
+-- byCompositeKey), all written as containment (values @> ...), which GIN
+-- jsonb_ops indexes; ->> equality would not use it.
 CREATE INDEX idx_objects_values ON objects USING GIN (values);

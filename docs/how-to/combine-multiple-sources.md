@@ -3,7 +3,7 @@
 Your applications and your AI agents both need to ask "give me this
 object, its related objects, and derived signals about it" without either
 of them needing to know the answer actually lives across several systems.
-There are three real, tested ways to do this in TypeS — reach for them in
+There are three real, tested ways to do this in TypeSys — reach for them in
 this order.
 
 ## 1. Relationships across adapters — reach for this first

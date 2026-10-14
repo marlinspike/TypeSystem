@@ -1,7 +1,7 @@
 {
   "name": "@typesys/workflow",
   "version": "0.1.0",
-  "description": "Governed workflows over TypeS: deterministic, AI and approval steps, a durable journal with retries, idempotency and compensation, and simulation with fault injection and replay. Every read and Action still goes through the runtime as the run's initiator.",
+  "description": "Governed workflows over TypeSys: deterministic, AI and approval steps, a durable journal with retries, idempotency and compensation, and simulation with fault injection and replay. Every read and Action still goes through the runtime as the run's initiator.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

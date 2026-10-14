@@ -131,12 +131,12 @@ function tracked<A extends Adapter>(adapter: A): A {
   });
 }
 
-/** Sends JSON with this request's adapter stats in an `X-TypeS-Stats` header, read by the status bar. */
+/** Sends JSON with this request's adapter stats in an `X-TypeSys-Stats` header, read by the status bar. */
 function sendJson(res: Response, status: number, body: unknown): void {
   const stats = requestStats.getStore();
   if (stats) {
     res.setHeader(
-      "X-TypeS-Stats",
+      "X-TypeSys-Stats",
       JSON.stringify({
         engine: stats.engine,
         calls: stats.calls,
@@ -542,7 +542,7 @@ async function main(): Promise<void> {
 
   const port = Number(process.env.PORT ?? 4000);
   app.listen(port, () => {
-    console.log(`TypeS demo running at http://localhost:${port}`);
+    console.log(`TypeSys demo running at http://localhost:${port}`);
   });
 }
 

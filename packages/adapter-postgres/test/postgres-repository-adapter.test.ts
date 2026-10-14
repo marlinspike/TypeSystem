@@ -123,6 +123,15 @@ describe.skipIf(!hasDb)("PostgresRepositoryAdapter", () => {
     expect(parts.map((p) => p.objectId).sort()).toEqual(["part-1", "part-2"]);
   });
 
+  it("byForeignKey matches a key stored as a number by its text, as ->> would, through the GIN index", async () => {
+    await adapter.put("fleet.Part", "part-n", { id: "part-n", widgetId: 42 });
+    await adapter.put("fleet.Part", "part-s", { id: "part-s", widgetId: "42" });
+    await adapter.put("fleet.Part", "part-x", { id: "part-x", widgetId: 420 });
+    const rel = { name: "parts", sourceType: "fleet.Widget", targetType: "fleet.Part", cardinality: "many", resolution: { dataSourceId: "fleet-pg", operation: "byForeignKey:widgetId" } };
+    const refs = await adapter.resolveRelationship(rel as Parameters<typeof adapter.resolveRelationship>[0], "42");
+    expect(refs.map((r) => r.objectId).sort()).toEqual(["part-n", "part-s"]);
+  });
+
   it("resolves a one-to-one relationship via byOwnField", async () => {
     await adapter.put("fleet.Widget", "widget-1", { id: "widget-1", depotId: "depot-1" });
     await adapter.put("fleet.Depot", "depot-1", { id: "depot-1", city: "Dayton" });

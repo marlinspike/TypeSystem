@@ -172,7 +172,7 @@ const policyEngine = new CedarPolicyEngine({ schema: cedarSchemaText, policies: 
 const runtime = new SemanticRuntime(registry, adapters, policyEngine);
 ```
 
-Each policy name becomes a Cedar action (`TypeS::Action::"fleet.read-widget"`),
+Each policy name becomes a Cedar action (`TypeSys::Action::"fleet.read-widget"`),
 so Types keep naming their policies exactly as above. The Cedar schema
 declares which attributes policies may see, and the engine refuses to
 build if a policy doesn't validate against it. See

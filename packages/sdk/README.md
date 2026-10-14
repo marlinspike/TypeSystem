@@ -1,6 +1,6 @@
 # @typesys/sdk
 
-A typed, governed TypeScript client for TypeS, generated from the model
+A typed, governed TypeScript client for TypeSys, generated from the model
 ([ADR-0055](../../docs/adr/0055-typed-sdk-generated-from-the-registry.md)).
 
 ```ts
@@ -23,6 +23,6 @@ for this caller, in process (`runtimeTransport`), over MCP
 `typesys generate-sdk`.
 
 `querySource(query)` goes the other way: a `SemanticQuery` from anywhere
-(TypeS Studio, an agent, a log) as the fluent code that builds it.
+(TypeSys Studio, an agent, a log) as the fluent code that builds it.
 
 See [`docs/how-to/use-the-typed-sdk.md`](../../docs/how-to/use-the-typed-sdk.md).

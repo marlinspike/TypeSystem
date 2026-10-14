@@ -1,7 +1,7 @@
 # How to compose a mission application
 
 The squadron readiness application in `packages/mission-readiness` is a
-worked example of an application built on TypeS
+worked example of an application built on TypeSys
 ([ADR-0063](../adr/0063-a-mission-application-composed-and-by-hand.md)):
 a board of aircraft that need attention, each aircraft's maintenance
 history, opening and updating work orders, and grounding an aircraft for
@@ -39,7 +39,7 @@ the page's visitors should not have.
 ## 3. The client asks; it never decides
 
 ```tsx
-const { TypeSProvider, useQuery, useActions, useAction } = createTypeSHooks<AirforceModel>();
+const { TypeSysProvider, useQuery, useActions, useAction } = createTypeSysHooks<AirforceModel>();
 
 // A typed query, filtered on a computed property.
 const board = useQuery(

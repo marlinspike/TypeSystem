@@ -89,6 +89,10 @@ describe("pressure: install never looks at the target registry", () => {
     const plan = await planInstall([hijack], { bindings: emptyBindingRegistry() });
     let refused = false;
     await installPacks(registry, [hijack], { bindings: emptyBindingRegistry() }).catch(() => (refused = true));
+    // Each redefinition is named on its own, so no one check stands in for another.
+    const against = codes((await planInstall([hijack], { bindings: emptyBindingRegistry(), registry })).diagnostics);
+    expect(against).toContain(`conflict ${hijack.name} airforce.Aircraft`);
+    expect(against).toContain(`conflict ${hijack.name} in-memory-airforce-repo`);
 
     const now = await registry.getType("airforce.Aircraft");
     const source = await registry.getDataSource("in-memory-airforce-repo");

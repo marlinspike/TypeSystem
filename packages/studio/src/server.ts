@@ -20,7 +20,7 @@ export interface StudioOptions extends ApiAppOptions {
 }
 
 /**
- * TypeS Studio (ADR-0061): the governed API under `/api` (ADR-0058) and a
+ * TypeSys Studio (ADR-0061): the governed API under `/api` (ADR-0058) and a
  * browser client that uses nothing else. The Studio has no authority of
  * its own: every call it makes carries the signed-in person's bearer token,
  * so what it shows is what the runtime decides for them.
@@ -31,7 +31,7 @@ export function createStudioApp(opts: StudioOptions): Express {
     clientRouter({
       dir: opts.clientDir ?? STUDIO_CLIENT_DIR,
       configPath: "/studio/config.json",
-      config: { title: opts.title ?? "TypeS Studio", demo: opts.demoTokens ? Object.entries(opts.demoTokens).map(([label, token]) => ({ label, token })) : null }
+      config: { title: opts.title ?? "TypeSys Studio", demo: opts.demoTokens ? Object.entries(opts.demoTokens).map(([label, token]) => ({ label, token })) : null }
     })
   );
   return app;

@@ -1,4 +1,4 @@
-# Why TypeS?
+# Why TypeSys?
 
 ## The problem, in one sentence
 
@@ -8,11 +8,11 @@ to do to it" — without either of them needing to know that the answer
 actually lives across a Postgres database, a legacy REST API, and a
 message queue.
 
-## Use TypeS when...
+## Use TypeSys when...
 
 - **You have (or will have) more than one physical system** that need to
   present a single, coherent object model to consumers. One database
-  behind one app doesn't need this — see "Don't use TypeS when," below.
+  behind one app doesn't need this — see "Don't use TypeSys when," below.
 - **Authorization has to be consistent everywhere a piece of data is
   read**, not re-implemented per UI, per API endpoint, per agent tool. The
   policy engine sits at one boundary (`SemanticRuntime`) that every
@@ -35,21 +35,21 @@ message queue.
   edited into — see [ADR-0013](adr/0013-domain-packaging.md) and
   [`developer-guide/adding-a-domain.md`](developer-guide/adding-a-domain.md).
 
-## Don't use TypeS when...
+## Don't use TypeSys when...
 
 - **You have one database and one application talking to it directly.**
   An ORM (Prisma, Drizzle, TypeORM) is simpler, faster to write, and has
-  no canonical-layer overhead to justify. TypeS's entire value proposition
+  no canonical-layer overhead to justify. TypeSys's entire value proposition
   is unifying *multiple* physical systems behind one model — with one
   system, there's nothing to unify.
-- **You need a mature, battle-tested 1.0 product today.** This is a
-  reference implementation of a real architecture, not a product with a
-  release history. Read [`docs/completeness.md`](completeness.md) for
-  exactly what's proven-in-tests versus a documented, not-yet-built
-  extension point, and
-  [`docs/PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md) for the
-  specific, ranked list of what closing the gap to real production
-  traffic would actually take, before betting production traffic on it.
+- **You need a vendor-supported package with a published release and an
+  external security audit.** TypeSystem's packages are versioned 0.x and
+  not yet published to npm, and it has not had an external audit. Its
+  controls are tested in CI, by a mutation suite and by independent
+  adversarial reviews; [`docs/completeness.md`](completeness.md) lists what
+  each test proves, and
+  [`docs/PRODUCTION-READINESS.md`](PRODUCTION-READINESS.md) what to decide
+  for a production deployment.
 - **Sub-millisecond, zero-indirection latency is the whole point.** Every
   layer here — policy check, audit write, provenance tracking — is real
   work done on every call. It's fast enough for the workloads it was
@@ -59,7 +59,7 @@ message queue.
 ## How this compares to the obvious alternatives
 
 **A hand-rolled BFF / facade layer.** This is what most teams build
-instead — and TypeS is, honestly, a more principled version of exactly
+instead — and TypeSys is, honestly, a more principled version of exactly
 that instinct. The difference is that policy, provenance, versioning, and
 agent-safety are built into the layer once, as first-class concepts with
 their own contracts (see [`semantic-meta-model.md`](semantic-meta-model.md)),
@@ -69,7 +69,7 @@ the *only* thing you write per backend.
 
 **GraphQL / Apollo Federation.** A legitimate, more mature choice if your
 problem really is "stitch several GraphQL/REST APIs into one schema" and
-nothing more. TypeS's query layer was deliberately *not* built on GraphQL
+nothing more. TypeSys's query layer was deliberately *not* built on GraphQL
 ([ADR-0011](adr/0011-query-dsl-not-graphql.md)) because federation
 solves schema unification, not policy-as-a-first-class-boundary,
 provenance, or governed Actions distinct from queries — those are this
@@ -78,7 +78,7 @@ federation is probably the better-supported answer.
 
 **Palantir Ontology / C3 AI Type System, conceptually.** Similar
 ambition — a canonical semantic layer between systems and consumers — but
-both are proprietary platforms you adopt wholesale. TypeS is small,
+both are proprietary platforms you adopt wholesale. TypeSys is small,
 built on open standards (JSON Schema 2020-12, MCP, OAuth/OIDC), and yours:
 read every line of it, fork it, replace any single piece (the policy
 engine, the registry store, an adapter) without asking anyone.
@@ -87,7 +87,7 @@ engine, the registry store, an adapter) without asking anyone.
 the agent's read to be policy-scoped the same way a human's is, or until
 two agents (or an agent and a human) disagree about what a field means
 because there's no shared, versioned Type definition backing either of
-them. TypeS's MCP surface is the same governed boundary a human
+them. TypeSys's MCP surface is the same governed boundary a human
 application uses — see [`for-agents.md`](for-agents.md) — not a second,
 parallel access path with its own rules.
 

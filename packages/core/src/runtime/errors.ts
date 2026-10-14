@@ -94,12 +94,33 @@ export class AdapterTimeoutError extends Error {
   }
 }
 
-/** A data source could not be reached — connection pool exhausted, backend refused or reset the connection (ADR-0026). Retryable. */
+/**
+ * A data source could not answer — connection pool exhausted, backend refused
+ * or reset the connection (ADR-0026). Retryable, unless the source answered
+ * and the answer cannot be used as asked (a list too long to read whole):
+ * asking again would answer the same.
+ */
 export class AdapterUnavailableError extends Error {
-  readonly retryable = true;
-  constructor(message: string) {
+  readonly retryable: boolean;
+  constructor(message: string, opts: { retryable?: boolean } = {}) {
     super(message);
     this.name = "AdapterUnavailableError";
+    this.retryable = opts.retryable ?? true;
+  }
+}
+
+/**
+ * A data source refused the credential TypeSystem holds for it (ADR-0072):
+ * the source's own authorization, not the caller's. Not retryable, and
+ * never reported as "nothing found".
+ */
+export class SourceRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly dataSourceId?: string
+  ) {
+    super(message);
+    this.name = "SourceRefusedError";
   }
 }
 
