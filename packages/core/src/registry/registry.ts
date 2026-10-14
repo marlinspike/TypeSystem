@@ -12,6 +12,7 @@ import type { JsonSchema2020 } from "../model/json-schema.js";
 import type { DataSource, Mapping } from "../model/data-source.js";
 import type { QueryResult } from "../model/query.js";
 import type { AuditEvent } from "../audit/audit-log.js";
+import { latestFirst } from "./version-resolution.js";
 
 export interface RegisterTypeOptions {
   name: string;
@@ -89,6 +90,42 @@ function inheritProtections(name: string, base: TypeDefinition | undefined, own:
       ? { ...(defaultClassification !== undefined ? { defaultClassification } : {}), ...(Object.keys(properties).length > 0 ? { properties } : {}) }
       : undefined;
   return { ...(policy ? { policy } : {}), ...(provenance ? { provenance } : {}) };
+}
+
+/**
+ * A registered subtype's protections over a new version of its base
+ * (ADR-0060). A subtype's stored schema already holds what it inherited, so
+ * whatever matches the old base is treated as inherited and follows the new
+ * base where the new base still declares it; everything else is the
+ * subtype's own and is kept, so a base that drops a protection does not drop
+ * it from a subtype. A subtype's own rule that the new base would replace is
+ * refused, as at the subtype's registration.
+ */
+function rederiveProtections(sub: TypeDefinition, oldBase: TypeDefinition | undefined, newBase: TypeDefinition): SemanticTypeSchema {
+  const was = { policy: oldBase?.schema["x-policy"], provenance: oldBase?.schema["x-provenance"] };
+  const now = { policy: newBase.schema["x-policy"], provenance: newBase.schema["x-provenance"] };
+  const { "x-policy": subPolicy, "x-provenance": subProvenance, ...rest } = sub.schema;
+  const inherited = (had: string | undefined, mine: string | undefined, next: string | undefined) => mine !== undefined && mine === had && next !== undefined;
+
+  const propertyPolicies = { ...subPolicy?.propertyPolicies };
+  for (const [member, rule] of Object.entries(propertyPolicies)) {
+    if (inherited(was.policy?.propertyPolicies?.[member], rule, now.policy?.propertyPolicies?.[member])) delete propertyPolicies[member];
+  }
+  const objectPolicy = inherited(was.policy?.objectPolicy, subPolicy?.objectPolicy, now.policy?.objectPolicy) ? undefined : subPolicy?.objectPolicy;
+  const properties: NonNullable<XProvenance["properties"]> = structuredClone(subProvenance?.properties ?? {});
+  for (const [member, spec] of Object.entries(properties)) {
+    if (inherited(was.provenance?.properties?.[member]?.classification, spec.classification, now.provenance?.properties?.[member]?.classification)) delete spec.classification;
+  }
+  const defaultClassification = inherited(was.provenance?.defaultClassification, subProvenance?.defaultClassification, now.provenance?.defaultClassification)
+    ? undefined
+    : subProvenance?.defaultClassification;
+  const own: SemanticTypeSchema = {
+    ...rest,
+    "x-policy": { ...(objectPolicy !== undefined ? { objectPolicy } : {}), propertyPolicies },
+    "x-provenance": { ...(defaultClassification !== undefined ? { defaultClassification } : {}), properties }
+  };
+  const { policy, provenance } = inheritProtections(sub.name, newBase, own);
+  return { ...rest, ...(policy ? { "x-policy": policy } : {}), ...(provenance ? { "x-provenance": provenance } : {}) };
 }
 
 /**
@@ -239,10 +276,36 @@ export class SemanticRegistry {
       aliases: opts.aliases
     };
 
+    // Subtypes already registered against this Type keep its protections as they change (ADR-0060). Derived,
+    // and any conflict refused, before anything is stored.
+    const previous = await this.store.getType(opts.name);
+    const becomesCurrent = latestFirst([...(await this.store.listTypeVersions(opts.name)).filter((v) => v.version !== opts.version), typeDef])[0] === typeDef;
+    const subtypes = becomesCurrent ? await this.rederiveSubtypes(previous, typeDef) : [];
+
     await this.store.putType(typeDef);
     for (const rel of relationships) await this.store.putRelationship(rel);
+    for (const sub of subtypes) await this.store.putType(sub);
 
     return typeDef;
+  }
+
+  /** Every registered version of every subtype of `base`, its protections re-derived over `next`, and theirs in turn. */
+  private async rederiveSubtypes(base: TypeDefinition | undefined, next: TypeDefinition): Promise<TypeDefinition[]> {
+    const out: TypeDefinition[] = [];
+    for (const type of await this.store.listTypes()) {
+      if (type.name === next.name) continue;
+      const versions = await this.store.listTypeVersions(type.name);
+      for (const [i, sub] of versions.entries()) {
+        if (sub.extends !== next.name) continue;
+        const schema = rederiveProtections(sub, base, next);
+        if (JSON.stringify(schema) === JSON.stringify(sub.schema)) continue;
+        const updated: TypeDefinition = { ...sub, schema };
+        out.push(updated);
+        // Its own subtypes extend its current version, as registration resolves `extends`.
+        if (i === 0) out.push(...(await this.rederiveSubtypes(sub, updated)));
+      }
+    }
+    return out;
   }
 
   async registerAction(action: ActionDefinition): Promise<void> {

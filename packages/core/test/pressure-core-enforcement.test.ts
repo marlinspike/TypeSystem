@@ -119,6 +119,8 @@ describe("ADR-0052 pressure: derivation gate", () => {
     expect(asReader).not.toHaveProperty("status");
     // Expected: the bijection of `code` stays withheld unless `code` itself is released somewhere along the chain.
     expect(asReader.statusEcho).not.toBe("echo:ready");
+    // Its provenance follows the value: refused, since `code` is not released.
+    await expect(runtime.getProvenance("p.Unit", "u1", "statusEcho", reader)).rejects.toBeInstanceOf(AuthorizationError);
   });
 
   it("[FINDING] a computed value's schema check does not turn a withheld input into a per-object error oracle", async () => {

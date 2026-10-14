@@ -104,3 +104,19 @@ serializable, and the SDK compiles to it.
 - **A separate query IR and optimizer.** More machinery than the problem
   needs today; the explain output gives the visibility an optimizer would,
   and the split is the one optimization that matters for correctness.
+
+## Amendments
+
+**Amended 2026-10-14** (adversarial review, `packages/core/test/pressure-core-enforcement.test.ts`):
+
+- `explainQuery` decided none of the gates `query` decides before planning,
+  yet its plan names the Type's computed properties, their inputs, member
+  policies and sources, and it is now served over HTTP and MCP. It now
+  refuses as `query` does: a caller not cleared for a marked Type, and a
+  filter or sort over a property the caller may not read (or a sort on a
+  computed one). An `include` whose relationship or target Type the caller
+  isn't cleared for is left out of `execution` (decided and audited).
+- The scan cursor's `skip` sizes the first adapter page, and a forged one
+  asked the adapter for any number of rows in one call. A cursor whose
+  `skip` exceeds `maxScanned` is refused with `InvalidInputError`; the
+  runtime issues none over an adapter that honours `limit`.

@@ -120,3 +120,32 @@ registration.
   expressive (release to some callers only), but every case found so far is
   "released to whoever can read the object", and a computed property can
   already narrow itself with its own `propertyPolicies` entry. Left open.
+
+## Amendments
+
+**Amended 2026-10-14** (adversarial review, `packages/core/test/pressure-core-enforcement.test.ts`, `pressure-derived-provenance.test.ts`):
+
+- *Undeclared reads.* `ctx.getProperty` read any stored or computed value,
+  so a computed property declaring `dependsOn: []` read an officers-only
+  field past every gate above, which are all decided over `dependsOn` (a
+  subtype's computed property could read a base-protected value the same
+  way). Each computed property now gets its own context, and `getProperty`
+  returns `undefined` for any name its own `dependsOn` doesn't list. It
+  replaces the old error for an undeclared name; `undefined` is the same
+  for every object and caller, and keeps a read from failing.
+- *A release lifts one policy.* Releasing a computed input lifted
+  everything that withheld it, including that input's own withheld inputs
+  (releasing `status` released the `code` it maps one to one). A release
+  now lifts only the named input's own policy; an input withheld for its own
+  inputs passes those on, and they keep withholding the value unless it
+  releases them too (which needs them in its `dependsOn`). The `deny` audit
+  row lists them apart, as `details.upstream`.
+- *Schema checks.* A computed value's schema (ADR-0055) was checked before
+  redaction, so a value the caller may not read failed the whole read for
+  some objects and not others: an oracle. It is now checked only for values
+  the caller's read keeps; a readable invalid value still fails the read.
+- *Provenance and markings.* `getProvenance` swallowed every refusal of a
+  released input, so it answered for a value withheld because a released
+  input was *marked*. A release now lifts only the input's own policy there
+  too: its markings (declared and on the value) and its own inputs are
+  decided as for any input, and refuse.

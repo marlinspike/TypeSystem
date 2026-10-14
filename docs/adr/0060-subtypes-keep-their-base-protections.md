@@ -71,3 +71,16 @@ So naming a different one for an inherited value is refused with a message that 
 - **Resolve the base's protections at read time.** Equivalent for reads, but every enforcement path (filters, plans, aggregation, classification checks) would need to walk the base chain, and a store reading a Type back would depend on its base being present. Composing once at registration keeps one place to look.
 - **Let a subtype override freely.** Matches how `x-relationships` and `x-computed` compose (own wins), but those carry no access decision. For protections, "own wins" is exactly the leak.
 - **Refuse any subtype of a protected Type that declares its own `x-policy`.** Safe but blunt: it would forbid a subtype from protecting its own new values.
+
+## Amendments
+
+**Amended 2026-10-14** (adversarial review, `packages/core/test/pressure-core-enforcement.test.ts`):
+protections were composed only when the subtype registered, so a later
+version of the base that added a property policy or marking left every
+existing subtype without it. Registering a version that becomes the base's
+current one now re-derives the protections of every registered subtype (each
+version, and their own subtypes in turn): what a subtype inherited from the
+previous base follows the new one, its own additions stay, and a protection
+the new base drops is kept, so nothing is loosened by a base upgrade. A new
+base version that would replace a subtype's own rule or marking is refused
+before anything is stored, as the subtype's registration would be.
