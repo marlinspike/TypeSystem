@@ -11,15 +11,23 @@ const run = promisify(execFile);
 const STARTUP_MS = 60_000;
 const CONCURRENCY = 4;
 
+/**
+ * A free port below Linux's ephemeral range (32768–60999), so a service
+ * started meanwhile with `PORT=0` (the sortie host starts three, and tests
+ * run in parallel) cannot be handed the port between this check and the
+ * application's listen.
+ */
 async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = createServer();
-    s.once("error", reject);
-    s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const port = 20_000 + Math.floor(Math.random() * 12_000);
+    const free = await new Promise<boolean>((resolve) => {
+      const s = createServer();
+      s.once("error", () => resolve(false));
+      s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
     });
-  });
+    if (free) return port;
+  }
+  throw new Error("no free port between 20000 and 32000");
 }
 
 interface Running {
