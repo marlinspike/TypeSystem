@@ -2,7 +2,6 @@ import express, { type Express, type NextFunction, type Request, type Response, 
 import {
   InvalidInputError,
   NotFoundError,
-  describeModel,
   summarizeAction,
   type Identity,
   type IdentityResolver,
@@ -59,7 +58,7 @@ const body = <T>(req: Request): T => (req.body ?? {}) as T;
 export function createApiRouter(opts: ApiOptions): Router {
   if (!opts?.backend?.registry || !opts.backend.runtime) throw new TypeError("createApiRouter needs a backend: { registry, runtime }");
   if (typeof opts.identityResolver !== "function") throw new TypeError("createApiRouter needs an identity resolver; it assumes no identity of its own");
-  const { registry, runtime } = opts.backend;
+  const { runtime } = opts.backend;
   const onError = opts.onError ?? ((err: unknown) => console.error("TypeSys API error:", err));
   const router = express.Router();
   router.use(apiHardening);
@@ -88,18 +87,19 @@ export function createApiRouter(opts: ApiOptions): Router {
   };
 
   router.get("/me", route(200, async (_req, who) => ({ subjectId: who.subjectId, roles: who.roles, ...(who.clearance ? { clearance: who.clearance } : {}) })));
-  router.get("/model", route(200, async () => describeModel(registry)));
-  router.get("/openapi.json", route(200, async () => openApiDocument(await describeModel(registry), { ...opts.info, workflows: opts.workflows !== undefined, queryLimits: runtime.queryLimits })));
+  // The model as this caller may learn it (ADR-0068): the runtime decides, under the deployment's discovery mode.
+  router.get("/model", route(200, (_req, who) => runtime.describeModel(who)));
+  router.get("/openapi.json", route(200, async (_req, who) => openApiDocument(await runtime.describeModel(who), { ...opts.info, workflows: opts.workflows !== undefined, queryLimits: runtime.queryLimits })));
 
   router.post("/query", route(200, (req, who) => runtime.query(body<SemanticQuery>(req), who)));
   router.post("/query/explain", route(200, async (req, who) => (await runtime.explainQuery(body<SemanticQuery>(req), who)).execution));
-  router.post("/query/validate", route(200, async (req) => ({ diagnostics: validateQuery(await describeModel(registry), body<{ query?: unknown }>(req).query, runtime.queryLimits) })));
+  router.post("/query/validate", route(200, async (req, who) => ({ diagnostics: validateQuery(await runtime.describeModel(who), body<{ query?: unknown }>(req).query, runtime.queryLimits) })));
   router.post("/aggregate", route(200, (req, who) => runtime.aggregate(body<SemanticAggregateQuery>(req), who)));
   router.post(
     "/discover",
-    route(200, async (req) => {
+    route(200, async (req, who) => {
       const { task, limit } = body<{ task?: unknown; limit?: unknown }>(req);
-      return discover(await describeModel(registry), typeof task === "string" ? task : "", { limit: typeof limit === "number" ? Math.min(20, Math.max(1, limit)) : 5 });
+      return discover(await runtime.describeModel(who), typeof task === "string" ? task : "", { limit: typeof limit === "number" ? Math.min(20, Math.max(1, limit)) : 5 });
     })
   );
 

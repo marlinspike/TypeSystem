@@ -29,6 +29,7 @@ export * from "./runtime/errors.js";
 export * from "./runtime/resilience.js";
 export * from "./runtime/classification.js";
 export * from "./runtime/security-profile.js";
+export * from "./runtime/discovery.js";
 export * from "./runtime/input-validation.js";
 export * from "./observability/tracing.js";
 export * from "./observability/metrics.js";

@@ -132,3 +132,17 @@ describe("the Studio's screen logic", () => {
     expect(columnKeys([{ values: { b: 1 } }, { values: { a: 1, b: 2 } }], ["c"])).toEqual(["c", "b", "a"]);
   });
 });
+
+describe("the Studio under need-to-know discovery (ADR-0068)", () => {
+  it("shows each person the model the runtime describes to them, and anonymous access none", async () => {
+    const strict = await buildAirforceTestbed({ mockRestLatencyMs: 0, runtimeOptions: { discovery: "need-to-know" } });
+    const base = await serve({ backend: strict, clientDir: path.resolve(import.meta.dirname, "fixtures/client") });
+    const model = (token?: string) => fetch(`${base}/api/model`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+    expect((await model()).status).toBe(403);
+    const forViewer = (await (await model("demo-viewer-token")).json()) as { types: { name: string; properties: Record<string, unknown> }[]; actions: unknown[] };
+    expect(forViewer.actions).toEqual([]);
+    expect(Object.keys(forViewer.types.find((t) => t.name === "airforce.Aircraft")!.properties)).not.toContain("deploymentLocation");
+    const forMaintainer = (await (await model("demo-maintainer-token")).json()) as { actions: unknown[] };
+    expect(forMaintainer.actions).toHaveLength(2);
+  });
+});

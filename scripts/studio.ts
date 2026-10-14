@@ -3,11 +3,16 @@
  * then open http://localhost:4400. The header offers the demo's maintainer and
  * viewer tokens and anonymous access, so the same screens can be compared as
  * each. Demo tokens are for a demonstration only (ADR-0050).
+ *
+ * `TYPESYS_DISCOVERY=need-to-know npm run studio` shows each caller only the
+ * part of the model they could use, and anonymous access nothing (ADR-0068).
  */
+import type { Discovery } from "@typesys/core";
 import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
 import { createStudioApp } from "@typesys/studio";
 
-const testbed = await buildAirforceTestbed();
+const discovery = (process.env.TYPESYS_DISCOVERY ?? "open") as Discovery;
+const testbed = await buildAirforceTestbed({ runtimeOptions: { discovery } });
 const app = createStudioApp({
   backend: testbed,
   identityResolver: resolveDemoIdentity,

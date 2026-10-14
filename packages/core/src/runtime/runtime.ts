@@ -18,7 +18,9 @@ import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFound
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
-import { HIGH_ASSURANCE_V1, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
+import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
+import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery } from "./discovery.js";
+import { describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
@@ -137,7 +139,7 @@ function telemetryOf(policy: unknown): Telemetry {
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
-export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction";
+export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction" | "describeModel";
 
 /** Why a previewed Action would not run (ADR-0053), in the order the runtime checks. */
 export interface ActionBlocker {
@@ -376,6 +378,14 @@ export interface SemanticRuntimeOptions {
    * Computations receive the same answers either way.
    */
   computedReads?: "direct" | "coalesce";
+  /**
+   * Who may learn what the model is through `describeModel` (ADR-0068), and
+   * so through every transport that describes it (HTTP, MCP, Studio).
+   * Default `"open"`, the behavior before it existed. `"authenticated"`
+   * refuses an anonymous caller; `"need-to-know"` also narrows the model to
+   * what the caller could use. `HIGH_ASSURANCE_V2` requires `"need-to-know"`.
+   */
+  discovery?: Discovery;
 }
 
 /** Every option a runtime understands — under a security profile, anything else is refused as a likely typo. */
@@ -390,18 +400,22 @@ const RUNTIME_OPTIONS: Readonly<Record<keyof SemanticRuntimeOptions, true>> = {
   telemetryIdentity: true,
   rowSecurity: true,
   securityProfile: true,
-  computedReads: true
+  computedReads: true,
+  discovery: true
 };
 
 const isFunction = (value: unknown): boolean => typeof value === "function";
 
 /**
- * `options` under `HIGH_ASSURANCE_V1` (ADR-0046): the settings its guarantees
+ * `options` under a high-assurance profile (ADR-0046, ADR-0068): the settings its guarantees
  * fix, supplied where omitted, and every violation collected — a weaker
  * setting is refused, never overridden.
  */
-function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly Adapter[], policyEngine: PolicyEngine): SemanticRuntimeOptions {
+function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly Adapter[], policyEngine: PolicyEngine, profile: SecurityProfile): SemanticRuntimeOptions {
   const violations: string[] = [];
+  // V2 adds one guarantee to V1's (ADR-0068): a caller learns only the part of the model they could use.
+  const discovery = options.discovery ?? (profile === HIGH_ASSURANCE_V2 ? "need-to-know" : undefined);
+  if (profile === HIGH_ASSURANCE_V2 && discovery !== "need-to-know") violations.push(`discovery must be "need-to-know", not ${JSON.stringify(discovery)}`);
   for (const key of Object.keys(options)) if (!Object.hasOwn(RUNTIME_OPTIONS, key)) violations.push(`unknown option "${key}"`);
 
   const rowSecurity = options.rowSecurity ?? "require-exact";
@@ -440,8 +454,8 @@ function underHighAssurance(options: SemanticRuntimeOptions, adapters: readonly 
     violations.push("the cache is malformed");
   }
 
-  if (violations.length > 0) throw new SecurityProfileError(HIGH_ASSURANCE_V1.id, violations);
-  return { ...options, rowSecurity, telemetryIdentity };
+  if (violations.length > 0) throw new SecurityProfileError(profile.id, violations);
+  return { ...options, rowSecurity, telemetryIdentity, ...(discovery ? { discovery } : {}) };
 }
 
 /**
@@ -469,6 +483,8 @@ export class SemanticRuntime {
   /** How identifiers and errors reach spans, per the telemetry identity policy (ADR-0045, ADR-0047). */
   private readonly telemetry: Telemetry;
   private readonly coalesceComputedReads: boolean;
+  /** Who may learn what the model is (ADR-0068). */
+  readonly discovery: Discovery;
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -485,7 +501,7 @@ export class SemanticRuntime {
       const profile = SECURITY_PROFILES.get((options.securityProfile as Partial<SecurityProfile> | null)?.id as string);
       if (!profile) throw new SecurityProfileError(String((options.securityProfile as Partial<SecurityProfile> | null)?.id), ["this runtime implements no such security profile"]);
       this.profile = profile;
-      options = underHighAssurance(options, adapters, policyEngine);
+      options = underHighAssurance(options, adapters, policyEngine, profile);
     }
     this.cache = options.cache ?? new NoopCache();
     this.cacheConfidential = this.cache.confidential === true;
@@ -501,6 +517,9 @@ export class SemanticRuntime {
     const computedReads = options.computedReads ?? "direct";
     if (computedReads !== "direct" && computedReads !== "coalesce") throw new TypeError(`computedReads must be "direct" or "coalesce"`);
     this.coalesceComputedReads = computedReads === "coalesce";
+    const discovery = options.discovery ?? "open";
+    if (!DISCOVERY_MODES.includes(discovery)) throw new TypeError(`discovery must be one of ${DISCOVERY_MODES.map((m) => `"${m}"`).join(", ")}`);
+    this.discovery = discovery;
     // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
     this.telemetry = telemetryOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
@@ -2011,6 +2030,79 @@ export class SemanticRuntime {
   }
 
   /**
+   * The model as this caller may learn it (ADR-0068), under the deployment's
+   * `discovery`: the whole model when it is `"open"`, or `"authenticated"`
+   * and the caller is not anonymous; refused to an anonymous caller
+   * otherwise; under `"need-to-know"`, only what the caller could use,
+   * decided for them (and their audience, ADR-0067) by the same policies,
+   * plans and markings their reads and invocations are. Every transport that
+   * describes the model calls this, so none decides it on its own. One audit
+   * row per call records the mode and what was described, by count.
+   */
+  async describeModel(identity: Identity, opts: DescribeModelOptions = {}): Promise<ModelDescription> {
+    return this.withRequest("describeModel", () => this.instrument(
+      "SemanticRuntime.describeModel",
+      "model",
+      this.telemetry.subject(identity),
+      async () => {
+        await this.checkRateLimit(identity);
+        const resource: PolicyResource = { typeName: "*", actionName: "describe-model" };
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          const reason = "Describing the model needs an authenticated caller";
+          await this.audit(identity, "read", resource, { allow: false, reason }, { discovery: this.discovery });
+          throw new AuthorizationError("Not authorized: describe the model", reason);
+        }
+        const full = await describeModel(this.registry, opts);
+        if (this.discovery !== "need-to-know") {
+          await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: full.types.length, actions: full.actions.length });
+          return full;
+        }
+        const definitions = new Map((await this.registry.listTypes()).map((t) => [t.name, t]));
+        const actionDefinitions = new Map((await this.registry.listActions()).map((a) => [a.name, a]));
+        const { model, withheld } = await narrowModel(full, definitions, actionDefinitions, {
+          typeReadable: async (typeDef) =>
+            this.clearedToKnow(identity, objectMarkings(typeDef), { typeName: typeDef.name }, "read") &&
+            this.admitsSome(identity, "read", objectPolicyOf(typeDef), { typeName: typeDef.name }),
+          memberReadable: async (typeDef, member) => {
+            const at: PolicyResource = { typeName: typeDef.name, propertyPath: member };
+            if (!this.clearedToKnow(identity, memberMarkings(typeDef, member), at, "read")) return false;
+            const policyName = memberPolicyOf(typeDef, member);
+            return !policyName || this.admitsSome(identity, "read", policyName, at);
+          },
+          actionInvocable: async (action, typeName) => {
+            const at: PolicyResource = { typeName, actionName: action.name };
+            return (await this.admitsSome(identity, "invoke", action.authorizationPolicy, at)) && this.clearedToKnow(identity, await this.actionMarkings(action), at, "invoke");
+          }
+        });
+        await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, withheld });
+        return model;
+      }
+    ));
+  }
+
+  /**
+   * Whether the caller may learn of something under `markings` (ADR-0068).
+   * Not audited on its own: discovery decides many of these per call, and
+   * `describeModel` audits the call as one row.
+   */
+  private clearedToKnow(identity: Identity, markings: readonly string[], resource: PolicyResource, action: "read" | "invoke"): boolean {
+    return this.classify(identity, markings, resource, action).allow;
+  }
+
+  /**
+   * Whether `policyName` admits this caller on some resource of its Type
+   * (ADR-0068): its plan is not `never`. A plan the engine cannot make is
+   * decided for the Type with no object, where an attribute rule denies, so
+   * a policy nobody can plan shows less, never more.
+   */
+  private async admitsSome(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<boolean> {
+    const plan = await this.askPlanner({ subject: identity, action, policyName, resource });
+    if (plan.kind === "never") return false;
+    if (plan.kind !== "unknown") return true;
+    return (await this.decide({ subject: identity, action, policyName, resource })).allow;
+  }
+
+  /**
    * The Actions applicable to `typeName`, each with whether this caller may
    * invoke it. Pass `objectId` to decide instance-scoped Actions on that
    * object (ADR-0053); without it they are decided per Type, where an
@@ -2023,6 +2115,15 @@ export class SemanticRuntime {
       this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
+        // Which Actions exist is discovery too (ADR-0068): refused or narrowed as describeModel is.
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          throw new AuthorizationError(`Not authorized: list Actions on ${typeName}`, "Describing the model needs an authenticated caller");
+        }
+        const needToKnow = this.discovery === "need-to-know";
+        if (needToKnow) {
+          const typeDef = await this.registry.getType(typeName);
+          if (!typeDef || !this.clearedToKnow(identity, objectMarkings(typeDef), { typeName }, "read") || !(await this.admitsSome(identity, "read", objectPolicyOf(typeDef), { typeName }))) return [];
+        }
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
         const results: ListedAction[] = [];
@@ -2034,7 +2135,13 @@ export class SemanticRuntime {
           const authorized = onThis
             ? (await this.gateAction(identity, action, { [action.target!.idFrom]: opts.objectId })).decision.allow
             : (await this.authorizeInvoke(identity, action, typeName)).allow;
-          results.push({ action, authorized, instanceScoped });
+          // Under need-to-know an Action is listed only to a caller it admits: here, or on some object for an
+          // instance-scoped one listed without an object, as describeModel decides it.
+          const listed =
+            !needToKnow ||
+            authorized ||
+            (instanceScoped && !onThis && (await this.admitsSome(identity, "invoke", action.authorizationPolicy, { typeName, actionName: action.name })) && this.clearedToKnow(identity, await this.actionMarkings(action), { typeName, actionName: action.name }, "invoke"));
+          if (listed) results.push({ action, authorized, instanceScoped });
         }
         return results;
       }

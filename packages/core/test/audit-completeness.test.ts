@@ -21,8 +21,11 @@ describe("audit completeness: the non-auditing decision primitives stay behind t
     expect(callSites("this.policyEngine.evaluate(")).toEqual(["decision = await this.policyEngine.evaluate(request);"]);
   });
 
-  it("only evaluate() calls decide(), and evaluate() always audits", () => {
-    expect(callSites("this.decide(")).toEqual(["const decision = await this.decide({ subject: identity, action, policyName, resource });"]);
+  it("only evaluate() calls decide(), and evaluate() always audits; discovery's admitsSome() too, audited per call (ADR-0068)", () => {
+    expect(callSites("this.decide(")).toEqual([
+      "const decision = await this.decide({ subject: identity, action, policyName, resource });",
+      "return (await this.decide({ subject: identity, action, policyName, resource })).allow;"
+    ]);
   });
 
   it("only askPlanner() asks the policy engine for a plan (ADR-0038)", () => {
@@ -45,10 +48,11 @@ describe("audit completeness: the non-auditing decision primitives stay behind t
     ]);
   });
 
-  it("classify() is called by clearedFor(), which audits, and by default-search planning, which decides no access", () => {
+  it("classify() is called by clearedFor(), which audits, by default-search planning, which decides no access, and by discovery, audited per call (ADR-0068)", () => {
     expect(callSites("this.classify(")).toEqual([
       "const { allow, label, reason } = this.classify(identity, marked, resource, action);",
-      'return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.classify(identity, memberMarkings(typeDef, p), { typeName: typeDef.name, propertyPath: p }, "read").allow);'
+      'return declared.filter((p) => !computed.has(p) && !gated.has(p) && this.classify(identity, memberMarkings(typeDef, p), { typeName: typeDef.name, propertyPath: p }, "read").allow);',
+      "return this.classify(identity, markings, resource, action).allow;"
     ]);
   });
 });

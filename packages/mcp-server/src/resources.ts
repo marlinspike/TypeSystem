@@ -5,6 +5,21 @@ import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
 import { buildTypeListUri, buildTypeUri, parseResourceUri, telemetryResourceUri } from "./resource-uri.js";
 
+/**
+ * The Types `resources/list` names. A list request carries no token of its
+ * own, so unless discovery is open (ADR-0068) the Types are the ones the
+ * runtime describes to whoever the transport resolves with no in-band token:
+ * the bearer of an HTTP request's header, or an anonymous caller, who under
+ * `authenticated` or `need-to-know` is told none.
+ */
+async function listableTypes(runtime: SemanticRuntime, resolveIdentity: IdentityResolver): Promise<{ name: string; description?: string }[]> {
+  try {
+    return (await runtime.describeModel(await resolveIdentity(undefined))).types;
+  } catch {
+    return [];
+  }
+}
+
 function jsonContents(uri: string, value: unknown) {
   return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(value, null, 2) }] };
 }
@@ -23,7 +38,7 @@ export function registerResourceHandlers(
   resolveIdentity: IdentityResolver
 ): void {
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const types = await registry.listTypes();
+    const types = await listableTypes(runtime, resolveIdentity);
     return {
       resources: [
         { uri: buildTypeListUri(), name: "Semantic Types", description: "Every registered semantic type." },
@@ -49,11 +64,11 @@ export function registerResourceHandlers(
       const identity = await resolveIdentity(token);
 
       if (category === "types" && segments.length === 0) {
-        return jsonContents(uri, await readTypes(registry));
+        return jsonContents(uri, await readTypes(registry, runtime, identity));
       }
 
       if (category === "types" && segments.length === 1) {
-        return jsonContents(uri, await readType(registry, segments[0]!));
+        return jsonContents(uri, await readType(registry, runtime, segments[0]!, identity));
       }
 
       if (category === "objects" && segments.length === 2) {

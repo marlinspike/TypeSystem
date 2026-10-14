@@ -61,7 +61,13 @@ says so.
    not unlisted. *Partially addressed:* `SemanticRuntime` now validates
    query shape and bounds (`QueryLimits`) and Action input against each
    `inputSchema` (`packages/core/src/runtime/input-validation.ts`). That is
-   input hygiene, not a threat model; the review itself is still open.
+   input hygiene, not a threat model; the review itself is still open. The
+   3.0 boundary mechanisms (continuing authority for workflows, ADR-0065;
+   the durable journal, ADR-0066; release to models, ADR-0067; discovery
+   modes, ADR-0068) are implemented and attacked by tests in this
+   repository, which is not the same as reviewed: they belong in this
+   review's scope, and the release boundary's demo markings and grants
+   are not a reviewed release scheme.
 3. **Data classification enforcement.** `ProvenanceRef` carries a
    `classification` field and `x-provenance` a `defaultClassification`,
    but the runtime does not read either back or enforce

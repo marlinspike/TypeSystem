@@ -93,7 +93,7 @@ describe("HIGH_ASSURANCE_V1 (ADR-0046)", () => {
     });
 
     it("an unknown, future, or forged profile is refused", async () => {
-      for (const securityProfile of [{ id: "typesys:high-assurance:2", guarantees: [] }, { id: "strict" }, null, "typesys:high-assurance:1"]) {
+      for (const securityProfile of [{ id: "typesys:high-assurance:3", guarantees: [] }, { id: "strict" }, null, "typesys:high-assurance:1"]) {
         await expect(world({ securityProfile: securityProfile as never })).rejects.toBeInstanceOf(SecurityProfileError);
       }
     });

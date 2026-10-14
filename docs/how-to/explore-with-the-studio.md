@@ -18,6 +18,13 @@ npm run studio     # http://localhost:4400
 The header offers the demo's Maintainer and Viewer tokens and anonymous
 access. Switch between them on any screen to see what each may see and do.
 
+With `TYPESYS_DISCOVERY=need-to-know npm run studio` the Model screen is
+narrowed too: the Viewer is not told the SECRET location, the
+maintainer-only status or any Action, and anonymous access is told nothing
+([ADR-0068](../adr/0068-discovery-is-decided-by-the-runtime.md)). The
+runtime's `discovery` option decides this, for the Studio, the HTTP API and
+MCP alike.
+
 ## 2. Serve it over your own runtime
 
 ```ts

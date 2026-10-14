@@ -3,7 +3,6 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   semanticQuerySchema,
   aggregateQuerySchema,
-  describeModel,
   withSpan,
   summarizeAction,
   type ActionDefinition,
@@ -89,6 +88,8 @@ interface BuiltInTool {
   description: string;
   inputSchema: JsonSchema2020;
   outputSchema: JsonSchema2020;
+  /** Default: read-only. */
+  annotations?: ToolAnnotations;
   /** Returns the tool's `structuredContent`, which is also its text. */
   run(args: Args, identity: Identity): Promise<Record<string, unknown>>;
 }
@@ -100,7 +101,7 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
       description: "List every registered semantic Type, with its schema, relationships, Actions, and computed properties.",
       inputSchema: { type: "object", properties: {} },
       outputSchema: TYPES_OUTPUT,
-      run: async () => ({ types: await readTypes(registry) })
+      run: async (_args, identity) => ({ types: await readTypes(registry, runtime, identity) })
     },
     [`${p}discover`]: {
       description:
@@ -114,20 +115,20 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         }
       },
       outputSchema: DISCOVER_OUTPUT,
-      run: async (args) => {
+      run: async (args, identity) => {
         const { task } = strings(`${p}discover`, args, ["task"]);
         const limit = args.limit === undefined ? 5 : args.limit;
         if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error(`${p}discover: "limit" must be an integer from 1 to 20`);
-        return { matches: discover(await describeModel(registry), task, { limit }) };
+        return { matches: discover(await runtime.describeModel(identity), task, { limit }) };
       }
     },
     [`${p}describe_type`]: {
       description: "Describe a semantic Type: its JSON Schema, relationships, Actions, and computed properties.",
       inputSchema: stringArgs({ type: "The Type's qualified name (domain.Type), as resources/list gives it." }),
       outputSchema: TYPE_OUTPUT,
-      run: async (args) => {
+      run: async (args, identity) => {
         const { type } = strings(`${p}describe_type`, args, ["type"]);
-        return readType(registry, type);
+        return readType(registry, runtime, type, identity);
       }
     },
     [`${p}get_object`]: {
@@ -195,6 +196,22 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         return { ...(await runtime.previewAction(action, args.input, identity)) };
       }
     },
+    [`${p}invoke_action`]: {
+      description:
+        "Invoke an Action by name, as you would its own tool: for an Action typesys_discover or typesys_list_actions told you about that tools/list does not offer, since what tools/list offers can depend on who asks (ADR-0068).",
+      inputSchema: {
+        type: "object",
+        required: ["action", "input"],
+        properties: { action: { type: "string", description: "The Action's name." }, input: { type: "object", description: "The Action's input, as its inputSchema says." } }
+      },
+      outputSchema: { type: "object", properties: { result: {} } },
+      // Any Action at all, so it claims nothing an Action might not honor.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+      run: async (args, identity) => {
+        const { action } = strings(`${p}invoke_action`, args, ["action"]);
+        return { result: (await runtime.invokeAction(action, args.input, identity)) ?? null };
+      }
+    },
     [`${p}explain_query`]: {
       description:
         "How a typesys_query would run, without running it: each step in order, which part of the filter runs in the source system and which after objects are read, the related objects it would fetch, and what to expect (short pages, cost).",
@@ -209,8 +226,8 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         "Check a typesys_query against the model without running it: every Type, value, relationship and operator it names, with the name you probably meant. Valid does not mean you may read the results.",
       inputSchema: { type: "object", required: ["query"], properties: { query: { type: "object", description: "The typesys_query arguments to check." } } },
       outputSchema: VALIDATE_QUERY_OUTPUT,
-      run: async (args) => {
-        const diagnostics = validateQuery(await describeModel(registry), args.query, runtime.queryLimits);
+      run: async (args, identity) => {
+        const diagnostics = validateQuery(await runtime.describeModel(identity), args.query, runtime.queryLimits);
         return { valid: !diagnostics.some((d) => d.severity === "error"), diagnostics };
       }
     },
@@ -221,6 +238,28 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
       run: async (args, identity) => ({ ...(await runtime.aggregate(args as unknown as SemanticAggregateQuery, identity)) })
     }
   };
+}
+
+/**
+ * The Actions `tools/list` offers as tools. Every one when discovery is open
+ * (ADR-0068). Otherwise a list request carries no token of its own, so only
+ * the Actions the runtime describes to whoever the transport resolves with
+ * no in-band token (an HTTP request's bearer, or an anonymous caller, who is
+ * offered none); `typesys_invoke_action` reaches the rest by name, for a
+ * caller whose token travels in the call.
+ */
+async function listableActions(registry: SemanticRegistry, runtime: SemanticRuntime, resolveIdentity: IdentityResolver): Promise<ActionDefinition[]> {
+  const actions = await registry.listActions();
+  if (runtime.discovery === "open") return actions;
+  let described: Set<string>;
+  try {
+    described = new Set((await runtime.describeModel(await resolveIdentity(undefined))).actions.map((a) => a.name));
+  } catch {
+    described = new Set();
+  }
+  // Names are still checked against the reserved prefix below, over every Action, so a misconfiguration is never hidden.
+  const squatting = actions.filter((a) => a.name.startsWith(RESERVED_TOOL_PREFIX));
+  return [...squatting, ...actions.filter((a) => described.has(a.name) && !a.name.startsWith(RESERVED_TOOL_PREFIX))];
 }
 
 /**
@@ -237,7 +276,7 @@ export function registerToolHandlers(
   const builtIns = builtInTools(registry, runtime);
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const actions = await registry.listActions();
+    const actions = await listableActions(registry, runtime, resolveIdentity);
     const squatting = actions.filter((a) => a.name.startsWith(RESERVED_TOOL_PREFIX)).map((a) => a.name);
     // Refuse loudly rather than hide the Action: a registry holding one is misconfigured, and listing the
     // rest would leave an agent unable to tell why an Action it was told about is missing.
@@ -257,7 +296,7 @@ export function registerToolHandlers(
         description: tool.description,
         inputSchema: withAuthToken(tool.inputSchema) as Tool["inputSchema"],
         outputSchema: tool.outputSchema as Tool["outputSchema"],
-        annotations: READ_ONLY
+        annotations: tool.annotations ?? READ_ONLY
       }))
     ];
     return { tools };

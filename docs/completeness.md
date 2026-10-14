@@ -269,6 +269,20 @@ document that gap rather than close it in this pass.
   `packages/mcp-server/test/audience.test.ts`. Not addressed:
   provenance-based and transitive release, the run's own input, and a
   reviewed release scheme for real markings.
+- Discovery security (ADR-0068): the runtime describes the model as the
+  caller (`describeModel(identity)`), and the HTTP API, MCP and the Studio
+  go through it. A deployment's `discovery` is `"open"` (the default),
+  `"authenticated"` (anonymous callers refused) or `"need-to-know"` (each
+  caller told only the Types, members and Actions they could use, decided
+  by the same policies, plans and markings as their reads, for their
+  audience too, and never naming what is withheld); `HIGH_ASSURANCE_V2`
+  requires need-to-know. MCP no longer sends a schema's policy names,
+  markings, data sources or bindings in any mode. Proven by
+  `packages/domain-airforce/test/discovery.test.ts` (property-based),
+  `packages/mcp-server/test/discovery-security.test.ts` (one description
+  over every transport) and `packages/studio/test/studio.test.ts`. Not
+  addressed: existence oracles in error messages, domain description
+  text, and caching descriptions per role set.
 - A governed HTTP API and headless React bindings (ADR-0058):
   `@typesys/http` serves the runtime over REST, one runtime call per
   request as the bearer token's caller, with RFC 9457 problems carrying a

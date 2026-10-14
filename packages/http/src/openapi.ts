@@ -77,7 +77,7 @@ export function openApiDocument(
         required: ["subjectId", "roles"]
       })
     },
-    "/model": { get: op("describeModel", "The model: every Type and Action, composed", ref("ModelDescription")) },
+    "/model": { get: op("describeModel", "The model as this caller may learn it: every Type and Action, composed, or under need-to-know only those the caller could use (ADR-0068)", ref("ModelDescription")) },
     "/query": { post: op("query", "Objects of one Type, as this caller may read them", page(ref("ResolvedObject")), { requestBody: { required: true, ...json(query) } }) },
     "/query/explain": { post: op("explainQuery", "How a query would run, without running it", { type: "object" }, { requestBody: { required: true, ...json(query) } }) },
     "/query/validate": {

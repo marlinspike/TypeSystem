@@ -27,6 +27,13 @@ What it guarantees, and what it therefore requires of you:
 | Well-formed configuration | no misspelled options; complete engines, schemes, and caches |
 | Enumerated engine faults: anything but the combinators' fixed form is audited as `external-policy-fault` | nothing; for a Cedar policy error, its id is in your `onError` log |
 
+`HIGH_ASSURANCE_V2` adds one guarantee to these
+([ADR-0068](../adr/0068-discovery-is-decided-by-the-runtime.md)): discovery
+is need-to-know, so an anonymous caller is told nothing about the model and
+anyone else only the Types, members and Actions they could use. It supplies
+`discovery: "need-to-know"` when you omit it and refuses any other value.
+V1's guarantees are unchanged.
+
 A weaker explicit setting — `rowSecurity: "post-filter"`,
 `telemetryIdentity: "clear"` — isn't overridden; the runtime refuses to start
 and a `SecurityProfileError` lists every violation. `runtime.securityProfile`
