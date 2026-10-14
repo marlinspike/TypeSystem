@@ -151,3 +151,34 @@ and read JSON, can drive it.
     the same way.
   - Whether this loop makes an agent more productive than working without
     it is M6's question, not this ADR's.
+
+## Amended after the independent review (2026-10-14)
+
+An independent adversarial review ([docs/reviews/m4-adversarial-review.md](../reviews/m4-adversarial-review.md))
+found 17 ways `verify` could say ok, or the tools could act, against this
+ADR's intent. All are fixed. Four rules change what the decision above
+means:
+
+- **A check passes only on the runtime's own answer.** A negative check
+  needs a 403, a well-formed answer that lacks what is refused, or a 404
+  for an object some other caller of the mission reads. A missing route,
+  an error page or a body of the wrong shape fails every check, so an
+  application that does nothing passes none. An approval is tested only
+  while the run waits on the named step, and only a 200 or a 403 decides
+  it.
+- **What runs is what is in the directory.** `dist/` is deleted before
+  every build, and verify owns the compiler options that decide whether
+  and where output is written. The application's `tsconfig.json` chooses
+  everything else.
+- **Every check gets a fresh application.** No check sees what another
+  wrote, so a verdict never depends on the order of the list.
+- **The spec is data, never code.** Numbers must be whole numbers, names
+  identifiers, and references exactly `$step.field`. A check names its
+  caller and something to assert. Plan reports a check on an object that
+  does not exist, and a caller no check covers. The generated check step
+  fails the run when its initiator may not read either side.
+
+The MCP tools' root is now checked on real paths, so a symlink cannot
+lead out of it. A host module given as a path must be inside the root
+before it is imported, and a file that is not a mission is reported
+without its contents.

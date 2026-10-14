@@ -894,8 +894,8 @@
       "adr": "0071",
       "description": "A scaffolded check step never fails the run, so a mismatched request proceeds to approval.",
       "file": "packages/engineer/src/scaffold.ts",
-      "find": "if (JSON.stringify(${valueSource(s.equal[0])}) !== JSON.stringify(${valueSource(s.equal[1])})) throw",
-      "replace": "if (JSON.stringify(${valueSource(s.equal[0])}) === \"never\") throw",
+      "find": "if (JSON.stringify(left) !== JSON.stringify(right)) throw",
+      "replace": "if (JSON.stringify(left) === \"never\") throw",
       "tests": [
         "packages/engineer/test/loop.test.ts"
       ]
@@ -938,10 +938,210 @@
       "adr": "0071",
       "description": "The engineer MCP tools accept a path outside their root.",
       "file": "packages/engineer/src/mcp.ts",
-      "find": "if (rel.startsWith(\"..\") || path.isAbsolute(rel)) throw",
-      "replace": "if (rel.startsWith(\"../../../..\") && path.isAbsolute(rel)) throw",
+      "find": "if (escapes(path.relative(path.resolve(root), abs)) ||",
+      "replace": "if (escapes(path.relative(path.resolve(root), abs).slice(3)) ||",
       "tests": [
         "packages/engineer/test/surfaces.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.negative-on-any-failure",
+      "adr": "0071",
+      "description": "verify passes a refused check on any failed request, so an application that serves nothing passes it (M4 review H1).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (a.status === 403) return pass({ status: 403 });",
+      "replace": "if (a.status >= 400) return pass({ status: 403 });",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.hidden-object-uncorroborated",
+      "adr": "0071",
+      "description": "verify takes a 404 as a refusal without another caller confirming the object exists (M4 review H1).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (name !== check.as && (await call(baseUrl, caller.token, \"GET\", url)).status === 200) return pass",
+      "replace": "if (name !== check.as) return pass",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.app-tsconfig-owns-output",
+      "adr": "0071",
+      "description": "The application's tsconfig decides where, and whether, the build writes (M4 review H2, M1).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "await run(process.execPath, [tsc, \"-p\", dir, \"--pretty\", \"false\", ...OWNED_TSC_FLAGS(dir)]",
+      "replace": "await run(process.execPath, [tsc, \"-p\", dir, \"--pretty\", \"false\"]",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts",
+        "packages/engineer/test/m4-adv-verify.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.approval-step-unconfirmed",
+      "adr": "0071",
+      "description": "verify tests an approval without confirming the run waits on that step (M4 review H3).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (runStatus !== \"waiting-approval\" || waiting !== check.step)",
+      "replace": "if (runStatus === \"never\")",
+      "tests": [
+        "packages/engineer/test/verify-signals.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.approval-any-refusal",
+      "adr": "0071",
+      "description": "verify counts any non-200 approval answer as not admitted (M4 review H3).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (a.status !== 200 && a.status !== 403) return unanswered(",
+      "replace": "if (a.status === 0) return unanswered(",
+      "tests": [
+        "packages/engineer/test/verify-signals.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.approves-step-unvalidated",
+      "adr": "0071",
+      "description": "A mission's approves check may name a step that is not an approval (M4 review H3).",
+      "file": "packages/engineer/src/mission.ts",
+      "find": "if (c?.kind === \"approves\" && !approvals.has(c.step)) {",
+      "replace": "if (c?.kind === \"approves\" && approvals.size === 0) {",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts",
+        "packages/engineer/test/m4-adv-verify.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.withheld-compare-passes",
+      "adr": "0071",
+      "description": "A scaffolded check step passes when its initiator may read neither value (M4 review H4).",
+      "file": "packages/engineer/src/scaffold.ts",
+      "find": "if (left === undefined || right === undefined) throw",
+      "replace": "if (left === null && right === null) throw",
+      "tests": [
+        "packages/engineer/test/m4-adv-verify.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.spec-number-as-code",
+      "adr": "0071",
+      "description": "A deadlineMs that is not a number reaches generated code (M4 review M2).",
+      "file": "packages/engineer/src/mission.ts",
+      "find": "if (s.deadlineMs !== undefined && !count(s.deadlineMs, 1)) err(",
+      "replace": "if (typeof s.deadlineMs === \"number\" && !count(s.deadlineMs, 1)) err(",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.shape-unchecked",
+      "adr": "0071",
+      "description": "verify accepts a query answer with no list of items as zero results (M4 review M4).",
+      "file": "packages/engineer/src/verify.ts",
+      "find": "if (!Array.isArray(items)) return unanswered(a, \"with a list of items\");\n      const n = items.length;",
+      "replace": "const n = Array.isArray(items) ? items.length : 0;",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.ghost-object-accepted",
+      "adr": "0071",
+      "description": "plan accepts a check on an object that does not exist (M4 review M5).",
+      "file": "packages/engineer/src/plan.ts",
+      "find": "if (outcomes.includes(\"missing\")) diag(\"unknown-object\"",
+      "replace": "if (outcomes.includes(\"never\" as never)) diag(\"unknown-object\"",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.dotted-ref-cut",
+      "adr": "0071",
+      "description": "A reference with a dotted path is cut to its first field (M4 review L2).",
+      "file": "packages/engineer/src/mission.ts",
+      "find": "const m = /^\\$([A-Za-z_][A-Za-z0-9_]*)\\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(v);",
+      "replace": "const m = /^\\$([A-Za-z_][A-Za-z0-9_]*)\\.([A-Za-z_][A-Za-z0-9_]*)/.exec(v);",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.uncovered-caller-silent",
+      "adr": "0071",
+      "description": "plan does not report a caller no check covers (M4 review L3).",
+      "file": "packages/engineer/src/plan.ts",
+      "find": "for (const name of Object.keys(spec.callers)) if (!covered.has(name)) diag(",
+      "replace": "for (const name of Object.keys(spec.callers)) if (!covered.has(name) && name === \"\") diag(",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.host-failure-throws",
+      "adr": "0071",
+      "description": "A host module that does not load rejects verify instead of a diagnostic at host/module (M4 review L4).",
+      "file": "packages/engineer/src/host.ts",
+      "find": "  } catch (err) {\n    const message = err instanceof Error",
+      "replace": "  } catch (err) {\n    if (err) throw err;\n    const message = err instanceof Error",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.host-path-unconfined",
+      "adr": "0071",
+      "description": "An MCP mission's host module may be a path outside the root, and runs (M4 review L5).",
+      "file": "packages/engineer/src/host.ts",
+      "find": "if (isPath && options.within !== undefined) {",
+      "replace": "if (isPath && options.within === \"\") {",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.symlink-escape",
+      "adr": "0071",
+      "description": "The engineer MCP tools follow a symlink out of their root (M4 review M1).",
+      "file": "packages/engineer/src/mcp.ts",
+      "find": "|| escapes(path.relative(realOf(path.resolve(root)), realOf(abs)))",
+      "replace": "|| escapes(path.relative(path.resolve(root), abs))",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.mission-read-discloses",
+      "adr": "0071",
+      "description": "A mission that is not JSON is reported with the parser's message, which quotes the file (M4 review M1).",
+      "file": "packages/engineer/src/mcp.ts",
+      "find": "const reason = err instanceof SyntaxError ? \"it is not JSON\"",
+      "replace": "const reason = err instanceof SyntaxError ? (err).message",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.dotdot-name-refused",
+      "adr": "0071",
+      "description": "The engineer MCP tools refuse a name inside the root that starts with two dots (M4 review L6).",
+      "file": "packages/engineer/src/mcp.ts",
+      "find": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);",
+      "replace": "const escapes = (rel: string) => rel.startsWith(\"..\") || path.isAbsolute(rel);",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "engineer.check-runs-as-nobody",
+      "adr": "0071",
+      "description": "A check that names no caller runs as the anonymous caller (M4 review L1).",
+      "file": "packages/engineer/src/mission.ts",
+      "find": "if (typeof who !== \"string\" || !Object.hasOwn(callers, who)) err(",
+      "replace": "if (typeof who === \"string\" && !Object.hasOwn(callers, who)) err(",
+      "tests": [
+        "packages/engineer/test/m4-adv-fast.test.ts"
       ]
     }
   ]

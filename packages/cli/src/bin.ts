@@ -149,8 +149,11 @@ async function engineer(argv: string[]): Promise<void> {
   let mod: { engineerCommand: (argv: readonly string[]) => Promise<number> };
   try {
     mod = (await import(specifier)) as typeof mod;
-  } catch {
-    console.error("typesys engineer needs @typesys/engineer: npm install --save-dev @typesys/engineer");
+  } catch (err) {
+    // Only a missing package means "install it"; anything else is the package failing to load, and its error says why.
+    const e = err as { code?: string; message?: string };
+    const missing = (e.code === "ERR_MODULE_NOT_FOUND" || e.code === "MODULE_NOT_FOUND") && (e.message ?? "").includes(`'${specifier}'`);
+    console.error(missing ? "typesys engineer needs @typesys/engineer: npm install --save-dev @typesys/engineer" : `typesys engineer: @typesys/engineer failed to load: ${e.message ?? String(err)}`);
     process.exitCode = 1;
     return;
   }

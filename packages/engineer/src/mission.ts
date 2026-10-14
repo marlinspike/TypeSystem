@@ -138,6 +138,15 @@ export interface EngineerDiagnostic {
 
 const NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const STEP = /^[a-z][A-Za-z0-9]*$/;
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const VIEW = /^[A-Z][A-Za-z0-9]*$/;
+const count = (v: unknown, min: number) => typeof v === "number" && Number.isSafeInteger(v) && v >= min;
+
+/** `$head.field`, exactly one field deep; undefined for anything else that starts with `$`. */
+export function parseRef(v: string): { head: string; field: string } | undefined {
+  const m = /^\$([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(v);
+  return m ? { head: m[1]!, field: m[2]! } : undefined;
+}
 const KINDS: readonly AcceptanceKind[] = ["reads", "refused", "query", "offered", "described", "starts", "approves"];
 
 /**
@@ -163,7 +172,7 @@ export function missionProblems(doc: unknown): EngineerDiagnostic[] {
   if (w) {
     if (typeof w.name !== "string" || !/^[a-z][a-z0-9-]*\.[A-Z][A-Za-z0-9]*$/.test(w.name)) err("workflow/name", "a workflow name is qualified like a Type", 'e.g. "airforce.ReplaceComponent"');
     if (typeof w.startPolicy !== "string") err("workflow/startPolicy", "the workflow names no startPolicy");
-    if (!Array.isArray(w.input) || w.input.some((i) => typeof i !== "string")) err("workflow/input", "input is a list of field names");
+    if (!Array.isArray(w.input) || w.input.some((i) => typeof i !== "string" || !IDENT.test(i))) err("workflow/input", "input is a list of field names, each an identifier");
     const seen = new Set<string>();
     for (const [i, s] of ((Array.isArray(w.steps) ? w.steps : []) as readonly (MissionStep | undefined)[]).entries()) {
       const at = `workflow/steps/${i}`;
@@ -172,13 +181,17 @@ export function missionProblems(doc: unknown): EngineerDiagnostic[] {
       const refs = (values: readonly MissionValue[], output = false) => {
         for (const v of values) {
           if (typeof v !== "string" || !v.startsWith("$")) continue;
-          const [head, field] = v.slice(1).split(".", 2);
-          if (!field) err(at, `"${v}" names no field`, "write $input.<field>, $<step>.<field> or $output.<field>");
-          else if (head === "input") {
+          const ref = parseRef(v);
+          if (!ref) {
+            err(at, `"${v}" is not a reference to one field`, "write $input.<field>, $<step>.<field> or $output.<field>");
+            continue;
+          }
+          const { head, field } = ref;
+          if (head === "input") {
             if (Array.isArray(w.input) && !w.input.includes(field)) err(at, `"${v}" names an input the workflow does not take`, `add "${field}" to workflow.input`);
           } else if (head === "output") {
             if (!output) err(at, `"${v}": $output is the compensated Action's output, only in a compensation`);
-          } else if (!seen.has(head!)) err(at, `"${v}" names step "${head}", which does not come before this one`);
+          } else if (!seen.has(head)) err(at, `"${v}" names step "${head}", which does not come before this one`);
         }
       };
       if (s?.kind === "read") refs([s.id]);
@@ -188,10 +201,23 @@ export function missionProblems(doc: unknown): EngineerDiagnostic[] {
         if (s.compensate) refs(Object.values(s.compensate.input ?? {}), true);
       } else if (s?.kind === "approval") {
         for (const p of s.present ?? []) if (!seen.has(p)) err(at, `the approval presents "${p}", which does not come before it`);
+        if (s.deadlineMs !== undefined && !count(s.deadlineMs, 1)) err(`${at}/deadlineMs`, "deadlineMs is a whole number of milliseconds");
       } else err(`${at}/kind`, "a step is a read, check, approval or action");
       if (typeof s?.name === "string") seen.add(s.name);
     }
   }
+
+  const viewNames = new Set<string>();
+  for (const [i, v] of ((Array.isArray(m.views) ? m.views : []) as readonly (MissionView | undefined)[]).entries()) {
+    const at = `views/${i}`;
+    if (typeof v?.name !== "string" || !VIEW.test(v.name)) err(`${at}/name`, "a view name is a PascalCase word", 'e.g. "ComponentList"');
+    else if (viewNames.has(v.name)) err(`${at}/name`, `view "${v.name}" is named twice`);
+    else viewNames.add(v.name);
+    if (typeof v?.title !== "string" || typeof v.type !== "string") err(at, "a view needs a title and a type");
+    if (!Array.isArray(v?.fields) || v.fields.length === 0 || v.fields.some((f) => typeof f !== "string" || !IDENT.test(f))) err(`${at}/fields`, "a view lists at least one field, each an identifier");
+    if (v?.limit !== undefined && !(count(v.limit, 1) && v.limit <= 1000)) err(`${at}/limit`, "limit is a whole number from 1 to 1000");
+  }
+  const approvals = new Set(((Array.isArray(w?.steps) ? w.steps : []) as readonly (MissionStep | undefined)[]).flatMap((s) => (s?.kind === "approval" ? [s.name] : [])));
 
   const ids = new Set<string>();
   for (const [i, c] of ((Array.isArray(m.acceptance) ? m.acceptance : []) as readonly (AcceptanceCheck | undefined)[]).entries()) {
@@ -200,10 +226,20 @@ export function missionProblems(doc: unknown): EngineerDiagnostic[] {
     else if (ids.has(c.id)) err(`${at}/id`, `check "${c.id}" is named twice`);
     else ids.add(c.id);
     if (!c || !KINDS.includes(c.kind)) err(`${at}/kind`, `a check is one of ${KINDS.join(", ")}`);
-    for (const who of [c?.as, c?.kind === "approves" ? c.startedBy : undefined]) {
-      if (who !== undefined && !Object.hasOwn(callers, who)) err(at, `"${who}" is not one of the mission's callers`, `name one of ${Object.keys(callers).join(", ")}`);
+    const named: [string, unknown][] = [["as", c?.as], ...(c?.kind === "approves" ? ([["startedBy", c.startedBy]] as [string, unknown][]) : [])];
+    for (const [field, who] of named) {
+      // A check runs as someone the spec names: never, by omission, as nobody.
+      if (typeof who !== "string" || !Object.hasOwn(callers, who)) err(at, `${field} ${typeof who === "string" ? `"${who}" is not one of the mission's callers` : "names no caller"}`, `name one of ${Object.keys(callers).join(", ")}`);
     }
     if ((c?.kind === "starts" || c?.kind === "approves") && c.workflow !== w?.name) err(at, `the check runs workflow "${c.workflow}", which the mission does not define`);
+    if (c?.kind === "approves" && !approvals.has(c.step)) {
+      const near = [...approvals][0];
+      err(`${at}/step`, `"${c.step}" is not an approval step of the workflow`, near ? `the workflow's approvals are ${[...approvals].join(", ")}` : "the workflow has no approval step");
+    }
+    // A check with nothing to decide passes on any answer: each kind needs what it asserts.
+    if (c?.kind === "reads" && !(c.sees?.length || c.withheld?.length)) err(at, "a reads check names fields the caller sees, or withheld, or both");
+    if (c?.kind === "query" && c.atLeast === undefined && c.atMost === undefined) err(at, "a query check sets atLeast, atMost, or both");
+    if (c?.kind === "query" && ((c.atLeast !== undefined && !count(c.atLeast, 0)) || (c.atMost !== undefined && !count(c.atMost, 0)))) err(at, "atLeast and atMost are whole numbers");
   }
   if (!Array.isArray(m.acceptance) || m.acceptance.length === 0) err("acceptance", "a mission has at least one acceptance check", "an application nothing can check is not done");
   return out;

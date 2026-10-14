@@ -378,3 +378,37 @@ too (M1, L5).
 loop test seeds. It does not for a missing host module (L4), for
 state-dependent results (M3), or for passes and failures decided by 404s
 and 409s (H1, H3, L7).
+
+## Disposition (2026-10-14)
+
+All 17 findings are fixed on the same branch. The review's 19 tests now
+pass unchanged, except the comment at the top of each file, which still
+records that they failed on `0907181`. Each fix has a mutation in
+[`tools/mutation/catalog.json`](../../tools/mutation/catalog.json) that a
+test kills (`npm run mutation`). M3 is the exception: no one-line change
+reintroduces a shared server, so V4 is its only guard. ADR-0071 records
+what changed in its "Amended after the independent review" section.
+
+| Finding | Fix | Mutation |
+|---|---|---|
+| H1 negative checks | a refusal is a 403, or a 404 for an object another caller of the mission reads; `offered` and `described` need a well-formed answer or a 403 (401 for the model); `starts … refused` needs a 403; anything else is "the API did not answer" | `engineer.negative-on-any-failure`, `engineer.hidden-object-uncorroborated` |
+| H2 stale build | `dist/` is deleted before every build; verify passes its own `--outDir`, `--noEmit false`, `--incremental false`, `--composite false`, `--declaration false`, `--strict` and `--noUncheckedIndexedAccess`; no `dist/server.js` is a build error | `engineer.app-tsconfig-owns-output` |
+| H3 approvals | the spec is invalid when an approves check names a step that is not an approval; verify confirms the run waits on that step before approving; only 200 and 403 decide admission | `engineer.approves-step-unvalidated`, `engineer.approval-step-unconfirmed`, `engineer.approval-any-refusal` |
+| H4 withheld comparison | the generated check step fails the run when either side is undefined, saying the initiator may not read it | `engineer.withheld-compare-passes` |
+| M1 MCP root | `insideRoot` also compares real paths, following symlinks as far as the path exists; verify owns `outDir`; a mission that cannot be read is reported without the parser's text | `engineer.symlink-escape`, `engineer.mission-read-discloses`, `engineer.app-tsconfig-owns-output` |
+| M2 spec strings as code | `deadlineMs` and view `limit` must be whole numbers, view names PascalCase, view fields and workflow inputs identifiers; the scaffold also writes them through `Number()` and `q()` | `engineer.spec-number-as-code` |
+| M3 shared server | each check runs against its own freshly started application, four at a time | none (V4) |
+| M4 empty answers | a reads check needs `sees` or `withheld`, a query `atLeast` or `atMost`; verify requires `values` to be an object and `items` an array | `engineer.shape-unchecked` |
+| M5 object that does not exist | plan reads each checked object as every caller: `unknown-object` (error) when it is missing for all, `object-unconfirmed` (warning) when every caller is refused | `engineer.ghost-object-accepted` |
+| L1 no `as` | a missing or unknown `as` or `startedBy` is invalid | `engineer.check-runs-as-nobody` |
+| L2 dotted refs | `parseRef` accepts exactly `$head.field`; anything else is an error, and the scaffold uses the same parser | `engineer.dotted-ref-cut` |
+| L3 uncovered caller | `caller-unchecked` warning at `callers/<name>` | `engineer.uncovered-caller-silent` |
+| L4 host module | `tryLoadHost` turns any load failure into `host-unavailable` at `host/module`, in verify, the CLI and MCP | `engineer.host-failure-throws` |
+| L5 host path | under MCP, a host module given as a path must be inside the root, checked before it is imported | `engineer.host-path-unconfined` |
+| L6 `..cache/` | `rel === ".."` or `rel.startsWith(".." + sep)` | `engineer.dotdot-name-refused` |
+| L7 diagnostics | a reads 404 says the object was not found; a passing approves check records the status that decided it; the application is ready only on `typesys-engineer-ready <nonce> <url>` with a nonce verify gives it; `typesys engineer` says "install it" only when the package itself is missing | covered by the H1 and H3 mutations |
+| L8 plan vs scaffold | plan lists `index.html` and `tsconfig.json`; the scaffold replaces each file rather than writing through what is there; `dist/` is cleaned (H2) | none |
+
+New tests beyond the review's: `packages/engineer/test/verify-signals.test.ts`
+(a corroborated 404, an approval on a run not waiting on its step, a 409
+approval, a 403 on the Action list).

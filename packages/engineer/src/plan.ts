@@ -1,7 +1,8 @@
 import { describeModel, type ActionDescription, type ModelDescription, type TypeDescription } from "@typesys/core";
 import { didYouMean } from "@typesys/devkit";
 import type { EngineerHost, ProvidedWorkflow, TokenResolver } from "./host.js";
-import { missionProblems, type EngineerDiagnostic, type MissionSpec, type MissionValue } from "./mission.js";
+import { ObjectNotFoundError, type Identity } from "@typesys/core";
+import { missionProblems, parseRef, type AcceptanceCheck, type EngineerDiagnostic, type MissionSpec, type MissionValue } from "./mission.js";
 
 /** Something the model already provides, and which of the mission's callers are told of it (ADR-0068). */
 export interface Provided {
@@ -19,7 +20,7 @@ export interface ProvidedRelationship {
 
 /** A file `scaffold` will write, and what it is for. */
 export interface PlannedFile {
-  readonly kind: "client-model" | "workflow" | "views" | "server" | "acceptance-tests" | "mission";
+  readonly kind: "client-model" | "workflow" | "views" | "server" | "acceptance-tests" | "mission" | "build";
   readonly file: string;
   readonly detail: string;
 }
@@ -109,10 +110,9 @@ export async function planMission(spec: MissionSpec, host: EngineerHost, resolve
   const readTypes = new Map<string, TypeDescription>();
   const refFields = (values: readonly MissionValue[], at: string) => {
     for (const v of values) {
-      if (typeof v !== "string" || !v.startsWith("$")) continue;
-      const [head, f] = v.slice(1).split(".", 2) as [string, string];
-      const t = readTypes.get(head);
-      if (t) field(t, f, at);
+      const ref = typeof v === "string" ? parseRef(v) : undefined;
+      const t = ref && readTypes.get(ref.head);
+      if (t) field(t, ref.field, at);
     }
   };
   for (const [i, s] of (spec.workflow?.steps ?? []).entries()) {
@@ -155,13 +155,33 @@ export async function planMission(spec: MissionSpec, host: EngineerHost, resolve
     } else if (c.kind === "query") type(c.query.type, at);
   }
 
+  // Every object a check names exists: a negative check on an object nobody has holds for everyone (the review's M5).
+  const identities = new Map<string, Identity>();
+  for (const [name, caller] of Object.entries(spec.callers)) identities.set(name, await resolve(caller.token));
+  for (const [i, c] of spec.acceptance.entries()) {
+    const target = objectOf(c);
+    if (!target || !types.has(target.type)) continue;
+    const outcomes = await Promise.all(
+      [...identities.values()].map((who) => host.runtime.getObject(target.type, target.objectId, who).then(() => "found" as const, (err: unknown) => (err instanceof ObjectNotFoundError ? ("missing" as const) : ("refused" as const))))
+    );
+    if (outcomes.includes("found")) continue;
+    if (outcomes.includes("missing")) diag("unknown-object", `acceptance/${i}`, `No ${target.type} "${target.objectId}" exists`, "a check on an object nobody has holds for everyone; check the id");
+    else diag("object-unconfirmed", `acceptance/${i}`, `No caller of the mission may read ${target.type} "${target.objectId}", so plan cannot confirm it exists`, "add a caller who may read it, so the check is about policy and not a missing object", "warning");
+  }
+
+  // A person the requirement names and no check covers is unchecked by construction (the review's L3).
+  const covered = new Set(spec.acceptance.flatMap((c) => [c.as, ...(c.kind === "approves" ? [c.startedBy] : [])]));
+  for (const name of Object.keys(spec.callers)) if (!covered.has(name)) diag("caller-unchecked", `callers/${name}`, `No check runs as ${name}`, "add a check for what this caller may and may not do", "warning");
+
   const create: PlannedFile[] = [
     { kind: "mission", file: "mission.json", detail: "the spec, as verified" },
     { kind: "client-model", file: "model.ts", detail: `the typed client model (@typesys/sdk) for ${spec.uses.types.length} Types` },
     ...(spec.workflow ? [{ kind: "workflow" as const, file: "workflow.ts", detail: `${spec.workflow.name}: ${spec.workflow.steps.map((s) => s.name).join(" → ")}` }] : []),
     ...(spec.views?.length ? [{ kind: "views" as const, file: "views.tsx", detail: spec.views.map((v) => v.name).join(", ") }] : []),
     { kind: "server", file: "server.ts", detail: "the governed HTTP API over the host, with the workflow registered" },
-    { kind: "acceptance-tests", file: "acceptance.test.ts", detail: `${spec.acceptance.length} checks, run through the application's API as each caller` }
+    { kind: "acceptance-tests", file: "acceptance.test.ts", detail: `${spec.acceptance.length} checks, run through the application's API as each caller` },
+    ...(spec.views?.length ? [{ kind: "views" as const, file: "index.html", detail: "the page that loads the views" }] : []),
+    { kind: "build", file: "tsconfig.json", detail: "how a person builds it; verify builds with its own options" }
   ];
   return {
     mission: spec.name,
@@ -175,4 +195,11 @@ export async function planMission(spec: MissionSpec, host: EngineerHost, resolve
     create,
     diagnostics: out
   };
+}
+
+/** The object a check reads, if it names one. */
+function objectOf(c: AcceptanceCheck): { type: string; objectId: string } | undefined {
+  if (c.kind === "reads" || c.kind === "refused") return { type: c.type, objectId: c.objectId };
+  if (c.kind === "offered" && c.objectId !== undefined) return { type: c.type, objectId: c.objectId };
+  return undefined;
 }

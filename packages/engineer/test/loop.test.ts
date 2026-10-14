@@ -28,7 +28,7 @@ describe("the engineering loop (ADR-0071)", () => {
     expect(plan.provided.types.map((t) => t.name)).toEqual(["airforce.Aircraft", "airforce.Component", "airforce.MaintenanceEvent"]);
     expect(plan.provided.relationships).toContainEqual({ from: "airforce.Aircraft", name: "components", target: "airforce.Component", cardinality: expect.any(String) as string });
     expect(plan.provided.workflows.map((w) => w.name)).toEqual(["airforce.GroundForRepair"]);
-    expect(plan.create.map((f) => f.file)).toEqual(["mission.json", "model.ts", "workflow.ts", "views.tsx", "server.ts", "acceptance.test.ts"]);
+    expect(plan.create.map((f) => f.file)).toEqual(["mission.json", "model.ts", "workflow.ts", "views.tsx", "server.ts", "acceptance.test.ts", "index.html", "tsconfig.json"]);
   });
 
   it("finds a defect seeded in the spec before anything is written: an unknown Type, with the near miss as its fix", async () => {

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { loadHost } from "./host.js";
+import { tryLoadHost } from "./host.js";
 import { parseMission, type EngineerDiagnostic, type MissionSpec } from "./mission.js";
 import { planMission } from "./plan.js";
 import { scaffoldMission } from "./scaffold.js";
@@ -66,7 +66,9 @@ export async function engineerCommand(argv: readonly string[], out: (s: string) 
 
   const read = await readSpec(target);
   if (!("spec" in read)) return print(false, { ok: false, diagnostics: read.diagnostics }, ["INVALID mission", ...read.diagnostics.map(line)]);
-  const { host, resolve, workflows } = await loadHost(read.spec, path.dirname(path.resolve(target)));
+  const loaded = await tryLoadHost(read.spec, path.dirname(path.resolve(target)));
+  if ("diagnostic" in loaded) return print(false, { ok: false, diagnostics: [loaded.diagnostic] }, ["INVALID mission", line(loaded.diagnostic)]);
+  const { host, resolve, workflows } = loaded;
   const plan = await planMission(read.spec, host, resolve, workflows);
   const planLines = [
     `${plan.ok ? "OK" : "INVALID"} — ${plan.mission}`,

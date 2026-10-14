@@ -1,9 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describeModel, type ActionDescription, type JsonSchema2020 } from "@typesys/core";
 import { generateModel } from "@typesys/sdk";
 import type { EngineerHost } from "./host.js";
-import type { MissionSpec, MissionStep, MissionValue, MissionView } from "./mission.js";
+import { parseRef, type MissionSpec, type MissionStep, type MissionValue, type MissionView } from "./mission.js";
 
 /**
  * Writes the application a mission describes (ADR-0071) into `dir`: the
@@ -26,7 +26,11 @@ export async function scaffoldMission(spec: MissionSpec, host: EngineerHost, dir
     ...(spec.views?.length ? { "views.tsx": viewsSource(spec.views), "index.html": indexHtml(spec) } : {})
   };
   await mkdir(dir, { recursive: true });
-  for (const [file, text] of Object.entries(files)) await writeFile(path.join(dir, file), text, "utf8");
+  for (const [file, text] of Object.entries(files)) {
+    // Replace, never write through: a symlink planted at a generated file's name is removed, not followed.
+    await rm(path.join(dir, file), { force: true });
+    await writeFile(path.join(dir, file), text, { encoding: "utf8", flag: "wx" });
+  }
   return Object.keys(files);
 }
 
@@ -54,20 +58,32 @@ const TSCONFIG = {
 };
 
 const q = (s: string) => JSON.stringify(s);
+/** Text inside a block comment, which must not end it. */
+const comment = (s: string) => s.replaceAll("*/", "*\\/");
+/** A view's name, which becomes a function: validated by missionProblems, and refused here if it was not. */
+const viewName = (s: string) => {
+  if (!/^[A-Z][A-Za-z0-9]*$/.test(s)) throw new TypeError(`"${s}" is not a view name`);
+  return s;
+};
 const ident = (s: string) => (/^[A-Za-z_$][\w$]*$/.test(s) ? s : q(s));
 
 /** A spec value as a TypeScript expression of the step context (`ctx`), or of a compensated Action's `output`. */
 function valueSource(v: MissionValue): string {
   if (typeof v !== "string" || !v.startsWith("$")) return `${JSON.stringify(v)} as const`;
-  const [head, field] = v.slice(1).split(".", 2) as [string, string];
-  if (head === "input") return `ctx.input.${field}`;
+  const ref = parseRef(v);
+  if (!ref) throw new TypeError(`"${v}" is not a reference to one field`);
+  const { head, field } = ref;
+  if (head === "input") return `ctx.input[${q(field)}]`;
   if (head === "output") return `(output as Record<string, unknown>)[${q(field)}]`;
   return `ctx.output<Record<string, unknown>>(${q(head)})?.[${q(field)}]`;
 }
 
 /** The steps a value or values refer to. */
 const stepsIn = (values: readonly MissionValue[]): string[] =>
-  [...new Set(values.flatMap((v) => (typeof v === "string" && v.startsWith("$") && !v.startsWith("$input.") && !v.startsWith("$output.") ? [v.slice(1).split(".")[0]!] : [])))];
+  [...new Set(values.flatMap((v) => {
+    const ref = typeof v === "string" ? parseRef(v) : undefined;
+    return ref && ref.head !== "input" && ref.head !== "output" ? [ref.head] : [];
+  }))];
 
 /** An Action's input object, each value typed as the Action's input schema says (the runtime validates it again). */
 function actionInputSource(action: string, input: Readonly<Record<string, MissionValue>>, a: ActionDescription | undefined): string {
@@ -97,7 +113,10 @@ function stepSource(s: MissionStep, prior: readonly MissionStep[], actions: Read
       name: ${q(s.name)},
       description: ${q(s.message)},${needs(stepsIn(s.equal))}
       run: (ctx) => {
-        if (JSON.stringify(${valueSource(s.equal[0])}) !== JSON.stringify(${valueSource(s.equal[1])})) throw new Error(${q(s.message)});
+        const [left, right] = [${valueSource(s.equal[0])}, ${valueSource(s.equal[1])}];
+        // A value withheld from the initiator is undefined: two of them are not equal, they are unknown.
+        if (left === undefined || right === undefined) throw new Error(${q(`${s.message} (the initiator may not read what this check compares)`)});
+        if (JSON.stringify(left) !== JSON.stringify(right)) throw new Error(${q(s.message)});
         return true;
       }
     }`;
@@ -105,7 +124,7 @@ function stepSource(s: MissionStep, prior: readonly MissionStep[], actions: Read
       return `    {
       kind: "approval",
       name: ${q(s.name)},${needs(s.present ?? [])}
-      policy: ${q(s.policy)},${s.allowSelfApproval ? "\n      allowSelfApproval: true," : ""}${s.deadlineMs !== undefined ? `\n      deadline: { afterMs: ${s.deadlineMs} },` : ""}
+      policy: ${q(s.policy)},${s.allowSelfApproval ? "\n      allowSelfApproval: true," : ""}${s.deadlineMs !== undefined ? `\n      deadline: { afterMs: ${Number(s.deadlineMs)} },` : ""}
       present: (ctx) => ({ ${(s.present ?? []).map((p) => `${ident(p)}: ctx.output(${q(p)})`).join(", ")} })
     }`;
     case "action": {
@@ -160,9 +179,9 @@ ${w.steps.map((s, i) => stepSource(s, w.steps.slice(0, i), actions)).join(",\n")
 }
 
 function viewsSource(views: readonly MissionView[]): string {
-  const view = (v: MissionView) => `/** ${v.title}: ${v.type}, as the signed-in caller may read it. */
-export function ${v.name}() {
-  const rows = useQuery((client) => client.from(${q(v.type)}).select(${v.fields.map(q).join(", ")}).limit(${v.limit ?? 50}), []);
+  const view = (v: MissionView) => `/** ${comment(v.title)}: ${comment(v.type)}, as the signed-in caller may read it. */
+export function ${viewName(v.name)}() {
+  const rows = useQuery((client) => client.from(${q(v.type)}).select(${v.fields.map(q).join(", ")}).limit(${Number(v.limit ?? 50)}), []);
   const error = errorOf(rows);
   return (
     <section data-view=${q(v.name)}>
@@ -206,7 +225,7 @@ export function App() {
         Token <input value={token} onChange={(e) => setToken(e.target.value)} />
       </label>
       <TypeSysProvider client={client} key={token}>
-${views.map((v) => `        <${v.name} />`).join("\n")}
+${views.map((v) => `        <${viewName(v.name)} />`).join("\n")}
       </TypeSysProvider>
     </main>
   );
@@ -259,7 +278,9 @@ ${spec.workflow ? "  workflows.register(workflow);\n" : ""}  const app = createA
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { app } = await createMissionApp();
   const server = app.listen(Number(process.env.PORT ?? 4600), "127.0.0.1", () => {
-    console.log(\`${spec.name} on http://127.0.0.1:\${(server.address() as AddressInfo).port}\`);
+    const url = \`http://127.0.0.1:\${(server.address() as AddressInfo).port}\`;
+    // verify waits for this exact line, with the nonce it passed, rather than anything else printed first.
+    console.log(process.env.TYPESYS_ENGINEER_READY ? \`typesys-engineer-ready \${process.env.TYPESYS_ENGINEER_READY} \${url}\` : \`${spec.name} on \${url}\`);
   });
 }
 `;
