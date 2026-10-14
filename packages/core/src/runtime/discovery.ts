@@ -55,11 +55,28 @@ export interface Withheld {
 }
 
 /**
+ * `schema` with every subschema that refers to one of these Type ids
+ * replaced by `{}`: a `$ref` to a withheld Type would name it, and `{}`
+ * says no more than that some value is there.
+ */
+export function withoutRefsTo<S>(schema: S, ids: ReadonlySet<string>): S {
+  if (ids.size === 0) return schema;
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (node === null || typeof node !== "object") return node;
+    const ref = (node as { $ref?: unknown }).$ref;
+    if (typeof ref === "string" && [...ids].some((id) => ref === id || ref.startsWith(`${id}#`))) return {};
+    return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, walk(v)]));
+  };
+  return walk(schema) as S;
+}
+
+/**
  * The model narrowed to what one caller may use. Everything named in the
  * result is itself in the result: no relationship targets a withheld Type,
- * no computed value lists a withheld input, no Type extends a withheld one
- * and no alias points at a withheld member, so a description never reveals
- * the name of something it withholds.
+ * no computed value lists a withheld input, no Type extends a withheld one,
+ * no alias points at a withheld member, and no schema refers to a withheld
+ * Type (such a subschema is described as `{}`), so a description never reveals the name of something it withholds.
  */
 export async function narrowModel(
   model: ModelDescription,
@@ -74,6 +91,9 @@ export async function narrowModel(
     if (def && (await gate.typeReadable(def))) readable.add(type.name);
     else withheld.types++;
   }
+  // The ids a schema would name a withheld Type by.
+  const withheldIds = new Set<string>();
+  for (const [name, def] of definitions) if (!readable.has(name) && typeof def.schema?.$id === "string") withheldIds.add(def.schema.$id);
 
   const actions: ActionDescription[] = [];
   for (const action of model.actions) {
@@ -86,7 +106,8 @@ export async function narrowModel(
       }
     }
     const target = action.target;
-    if (invocable && (!target || readable.has(target.type))) actions.push({ ...action, applicableTypes: action.applicableTypes.filter((t) => readable.has(t)) });
+    if (invocable && (!target || readable.has(target.type)))
+      actions.push({ ...action, inputSchema: withoutRefsTo(action.inputSchema, withheldIds), outputSchema: withoutRefsTo(action.outputSchema, withheldIds), applicableTypes: action.applicableTypes.filter((t) => readable.has(t)) });
     else withheld.actions++;
   }
   const invocable = new Set(actions.map((a) => a.name));
@@ -105,7 +126,7 @@ export async function narrowModel(
     const properties: TypeDescription["properties"] = {};
     for (const [name, schema] of Object.entries(type.properties)) {
       if (await gate.memberReadable(def, name)) {
-        properties[name] = schema;
+        properties[name] = withoutRefsTo(schema, withheldIds);
         members.add(name);
       } else withheld.members++;
     }
@@ -125,7 +146,7 @@ export async function narrowModel(
       const released = releases.get(cp.name) ?? new Set<string>();
       const inputsReadable = cp.dependsOn.every((dep) => members.has(dep) || released.has(dep));
       if (inputsReadable && (await gate.memberReadable(def, cp.name))) {
-        computed.push({ ...cp, dependsOn: cp.dependsOn.filter((dep) => members.has(dep)) });
+        computed.push({ ...cp, ...(cp.schema ? { schema: withoutRefsTo(cp.schema, withheldIds) } : {}), dependsOn: cp.dependsOn.filter((dep) => members.has(dep)) });
         members.add(cp.name);
       } else withheld.members++;
     }

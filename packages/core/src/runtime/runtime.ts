@@ -1676,8 +1676,20 @@ export class SemanticRuntime {
       this.telemetry.subject(identity),
       async () => {
         await this.checkRateLimit(identity);
+        // A plan describes the model (its sources, policies and members): refused or narrowed as describeModel is (ADR-0068).
+        if (this.discovery !== "open" && isAnonymous(principalsOf(identity).person)) {
+          const reason = "Describing the model needs an authenticated caller";
+          await this.audit(identity, "read", { typeName: typeof claimedType === "string" ? claimedType : "unknown" }, { allow: false, reason }, { control: "explain", discovery: this.discovery });
+          throw new AuthorizationError("Not authorized: explain a query", reason);
+        }
         const q = this.inputValidator.validateQuery(input);
         const typeDef = await this.requireType(q.type);
+        const needToKnow = this.discovery === "need-to-know";
+        if (needToKnow && !(await this.discoveryGate(identity).typeReadable(typeDef))) {
+          // Answered exactly as for a Type that does not exist; the audit row says which it was.
+          await this.audit(identity, "read", { typeName: q.type }, { allow: false, reason: "Withheld by need-to-know discovery" }, { control: "explain", discovery: this.discovery });
+          throw new NotFoundError(`Unknown type "${q.type}"`);
+        }
         // The gates `query` decides before it plans, decided the same way: the plan describes the Type's members,
         // policies and sources, which a caller `query` would refuse has no business learning.
         await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
@@ -1691,7 +1703,7 @@ export class SemanticRuntime {
         const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
         const probes = [...new Set([...(q.filter ? filterProperties(q.filter) : []), ...(q.sort ?? []).map((s) => s.property), ...searched])];
         const exact = isExact(plan);
-        const execution = await this.describeExecution(typeDef, q, plan, identity);
+        const execution = await this.describeExecution(typeDef, q, plan, identity, needToKnow ? await this.describedMembers(typeDef, identity) : undefined);
         await this.audit(identity, "read", { typeName: q.type }, { allow: true }, { control: "row-plan", operation: "explainQuery", ...planSummary(plan) });
         return {
           typeName: q.type,
@@ -1787,7 +1799,31 @@ export class SemanticRuntime {
    * steps `query` uses, described rather than executed. Includes are walked
    * from the registry, so an unknown relationship is reported here too.
    */
-  private async describeExecution(typeDef: TypeDefinition, q: SemanticQuery & { limit: number }, plan: AuthorizationPlan, identity: Identity): Promise<ExecutionPlan> {
+  /**
+   * The members of `typeDef` need-to-know describes to this caller (ADR-0068), by `narrowModel`'s rule:
+   * readable members, and computed values whose inputs are all described (or released) and readable.
+   */
+  private async describedMembers(typeDef: TypeDefinition, identity: Identity): Promise<ReadonlySet<string>> {
+    const gate = this.discoveryGate(identity);
+    const members = new Set<string>();
+    for (const name of Object.keys(typeDef.schema.properties ?? {})) if (await gate.memberReadable(typeDef, name)) members.add(name);
+    for (const rel of typeDef.relationships) if (await gate.memberReadable(typeDef, rel.name)) members.add(rel.name);
+    for (const cp of typeDef.computedProperties) {
+      const released = new Set(cp.releases ?? []);
+      if (cp.dependsOn.every((d) => members.has(d) || released.has(d)) && (await gate.memberReadable(typeDef, cp.name))) members.add(cp.name);
+    }
+    return members;
+  }
+
+  private async describeExecution(
+    typeDef: TypeDefinition,
+    q: SemanticQuery & { limit: number },
+    plan: AuthorizationPlan,
+    identity: Identity,
+    described?: ReadonlySet<string>
+  ): Promise<ExecutionPlan> {
+    // Under need-to-know the plan names only the members the caller is told of; the rest are still computed and redacted.
+    const told = (member: string) => !described || described.has(member);
     const split = this.splitQueryFilter(typeDef, q.filter);
     const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
     const notes: string[] = [];
@@ -1802,9 +1838,10 @@ export class SemanticRuntime {
     });
     if (overrides.length > 0) steps.push({ op: "merge-overrides", dataSourceIds: [...new Set(overrides.map((o) => o.dataSourceId))], callsPerObject: overrides.length });
     steps.push({ op: "authorize-rows", policyName: objectPolicyOf(typeDef), decidedPerObject: true });
-    if (typeDef.computedProperties.length > 0) steps.push({ op: "compute", properties: typeDef.computedProperties.map((c) => ({ name: c.name, dependsOn: [...c.dependsOn] })) });
-    const memberPolicies = Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {});
-    const marked = Object.keys(typeDef.schema["x-provenance"]?.properties ?? {}).filter((m) => memberMarkings(typeDef, m).length > 0);
+    const computedTold = typeDef.computedProperties.filter((c) => told(c.name));
+    if (computedTold.length > 0) steps.push({ op: "compute", properties: computedTold.map((c) => ({ name: c.name, dependsOn: c.dependsOn.filter(told) })) });
+    const memberPolicies = Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {}).filter(told);
+    const marked = Object.keys(typeDef.schema["x-provenance"]?.properties ?? {}).filter((m) => memberMarkings(typeDef, m).length > 0 && told(m));
     if (memberPolicies.length > 0 || marked.length > 0 || typeDef.computedProperties.length > 0) steps.push({ op: "redact", memberPolicies, marked });
     if (split.residual) {
       steps.push({ op: "residual-filter", filter: split.residual, maxScanned: this.queryLimits.maxScanned });
@@ -1818,6 +1855,8 @@ export class SemanticRuntime {
         const relName = this.registry.resolveAlias(owner, inc.relationship);
         const rel = owner.relationships.find((r) => r.name === relName);
         if (!rel) throw new NotFoundError(`Unknown relationship "${inc.relationship}" on type "${owner.name}"`);
+        // An include need-to-know withholds is not described, as one the caller isn't cleared for isn't.
+        if (described && owner === typeDef && !described.has(rel.name)) continue;
         // An include the caller isn't cleared for — the relationship's own marking or its target Type's — returns
         // nothing of it, so the plan doesn't describe where it reads from either.
         const target = await this.registry.getType(rel.targetType);
@@ -2208,10 +2247,9 @@ export class SemanticRuntime {
             : (await this.authorizeInvoke(identity, action, typeName)).allow;
           // Under need-to-know an Action is listed only to a caller it admits: here, or on some object for an
           // instance-scoped one listed without an object, as describeModel decides it.
-          const listed =
-            !needToKnow ||
-            authorized ||
-            (instanceScoped && !onThis && (await this.admitsSome(identity, "invoke", action.authorizationPolicy, { typeName, actionName: action.name })) && this.clearedToKnow(identity, await this.actionMarkings(action), { typeName, actionName: action.name }, "invoke"));
+          // Under need-to-know an Action is listed only when describeModel would describe it: invocable on some
+          // Type the caller may read, and acting on one they may read.
+          const listed = !needToKnow || (await this.actionDescribed(identity, action));
           if (listed) results.push({ action, authorized, instanceScoped });
         }
         return results;

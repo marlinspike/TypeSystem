@@ -38,10 +38,16 @@ export function describeType(typeDef: TypeDefinition, described: TypeDescription
     if (typeof ref === "string") return allowedRefs.has(ref) && Object.keys(entry).length === 1;
     return !JSON.stringify(entry).includes('"$ref"');
   });
-  const { allOf: _all, ...rest } = own;
+  const { allOf: _all, examples, ...rest } = own;
+  // An example is a value of the Type: it keeps only the members described, and one that is not an object is dropped.
+  const narrowedExamples = Array.isArray(examples)
+    ? examples.flatMap((e: unknown) => (e !== null && typeof e === "object" && !Array.isArray(e) ? [Object.fromEntries(Object.entries(e).filter(([k]) => members.has(k)))] : []))
+    : [];
   const schema: JsonSchema2020 = {
     ...rest,
-    ...(own.properties ? { properties: Object.fromEntries(Object.entries(own.properties).filter(([k]) => members.has(k))) } : {}),
+    ...(narrowedExamples.length > 0 ? { examples: narrowedExamples } : {}),
+    // Each property as described: a reference to a withheld Type is already replaced there.
+    ...(own.properties ? { properties: Object.fromEntries(Object.entries(own.properties).filter(([k]) => members.has(k)).map(([k, v]) => [k, described.properties[k] ?? v])) } : {}),
     ...(own.required ? { required: own.required.filter((r) => members.has(r)) } : {}),
     ...(allOf.length > 0 ? { allOf } : {})
   };
