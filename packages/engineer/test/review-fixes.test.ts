@@ -1,14 +1,16 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { readFileSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { runCheck, type AcceptanceCheck, type MissionSpec } from "../src/index.js";
+import { callEngineerTool, loadHost, planMission, runCheck, type AcceptanceCheck, type MissionSpec } from "../src/index.js";
 
 /**
- * What `runCheck` counts as the runtime's answer (ADR-0071, after the M4
- * review): a negative check needs a positive signal, and an approval is a
- * test of its caller only while the run waits on that step.
+ * The engineering loop after its independent review (ADR-0071, amended).
+ * What `runCheck` counts as the runtime's answer: a negative check needs a
+ * positive signal, and an approval tests its caller only while the run
+ * waits on that step. And what plan and the MCP tools refuse.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const doc = JSON.parse(readFileSync(path.resolve(here, "../../../examples/missions/component-replacement/mission.json"), "utf8")) as MissionSpec;
@@ -60,5 +62,25 @@ describe("runCheck signals", () => {
     expect((await run(await app(() => ({ status: 403 })), check)).ok).toBe(true);
     server!.close();
     expect((await run(await app(() => ({ status: 404 })), check)).ok).toBe(false);
+  });
+});
+
+describe("plan and the MCP tools", () => {
+  it("a check on an object no caller finds is an error, not a warning", async () => {
+    const { host, resolve, workflows } = await loadHost(doc, path.resolve(here, ".."));
+    const ghost: AcceptanceCheck = { id: "ghost", kind: "refused", as: "viewer", type: "airforce.Component", objectId: "comp-does-not-exist" };
+    const plan = await planMission({ ...doc, acceptance: [...doc.acceptance, ghost] }, host, resolve, workflows);
+    expect(plan.ok).toBe(false);
+    expect(plan.diagnostics).toContainEqual(expect.objectContaining({ code: "unknown-object", severity: "error", at: `acceptance/${doc.acceptance.length}` }));
+  });
+
+  it("a file inside the root that is not a mission is reported without its contents", async () => {
+    const root = path.resolve(here, "..", ".work", "review-fixes");
+    await rm(root, { recursive: true, force: true });
+    await mkdir(root, { recursive: true });
+    await writeFile(path.join(root, "notes.json"), "TOPSECRET-1182 not a mission");
+    const result = await callEngineerTool(root, "typesys_engineer_plan", { mission: "notes.json" });
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("TOPSECRET");
   });
 });

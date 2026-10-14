@@ -112,5 +112,7 @@ export const opsPolicyRules: Record<string, PolicyRule> = {
   "ops.read": requireRole("planner", "maintainer", "viewer"),
   "ops.maintenance": requireRole("planner", "maintainer"),
   "ops.crew": requireRole("planner", "maintainer"),
-  "ops.planner": allOf(requireRole("planner"), requireAttributeMatch("unit", "unit"))
+  "ops.planner": allOf(requireRole("planner"), requireAttributeMatch("unit", "unit")),
+  /** Who may sign off a sortie confirmation (the sortie-readiness mission's approval). */
+  "ops.sortie-signoff": requireRole("planner")
 };

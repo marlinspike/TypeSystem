@@ -582,6 +582,36 @@ tests (`packages/engineer/test/m4-adv-*.test.ts`) pass, and 26
 - Scaffolding of AI steps, retries and timers. These are written by hand
   and verified the same way.
 
+## The 3.0 interoperability milestone: services TypeSystem did not write
+
+Three plain-Node services in `examples/services/` share no code with
+TypeSystem or with each other. Each has its own data model, its own
+paging and its own authorization: API-key scopes in the fleet registry, a
+depot key per base in the parts depot, and OAuth client credentials with
+a PII scope in the crew roster. `@typesys/adapter-http` maps each onto one
+governed model (`packages/sortie-readiness`) by configuration alone
+(ADR-0072). `packages/sortie-readiness/test/interop.test.ts` shows:
+
+- one query reading all three, with provenance naming each service's own
+  field;
+- access control enforced by TypeSystem and by each service, and a name
+  released only when both allow it;
+- a failed service leaving the rest of the answer, with `unavailable`
+  naming what is missing and why (`unavailable`, `timeout` or
+  `refused-by-source`), never an empty list;
+- two slow services read concurrently, and a service slower than the
+  deadline reported as timed out;
+- the depot's schema upgrade absorbed by its mapping, with three consumer
+  responses byte for byte identical.
+
+The `examples/missions/sortie-readiness` application is verified by the
+engineering loop: 15 checks, each against a freshly started copy that
+starts its own services (`mission.test.ts`). Eight `interop.*` and
+`http-adapter.*` mutations are each killed by a test. Not addressed: a
+service learning which person a read is for (token exchange), Actions
+through `HttpAdapter`, and partial answers for property values split
+across sources.
+
 ## Real but narrow — the mechanism exists, exercised once
 
 - Property-level policy is exercised on several fields, not just the two

@@ -240,7 +240,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 | M2e integrity | ✅ | [0069](adr/0069-pack-trust-can-be-revoked.md) | Key and digest revocation with audited installs: `packages/packs/test/revocation.test.ts`, `typesys pack verify --revoke`. The independent review's 27 findings across M2 are fixed, with its tests (`packages/*/test/m2-adv-*.test.ts`) and a disposition in [`reviews/m2-adversarial-review.md`](reviews/m2-adversarial-review.md) |
 | M3 reproducible verification | ✅ | [0070](adr/0070-mutation-evidence-is-regenerated-not-asserted.md) | `npm run mutation` over `tools/mutation/catalog.json` (74 mutations, one per review fix among them); record in [`evidence/mutation/latest.json`](evidence/mutation/latest.json); `.github/workflows/mutation.yml`; property tests in `packages/domain-airforce/test/discovery.test.ts` and `packages/domain-hospital/test/read-path-invariants.test.ts` |
 | M4 engineering loop | ✅ | [0071](adr/0071-the-engineering-loop-verifies-against-the-runtime.md) | `packages/engineer/test/loop.test.ts` (plan, scaffold, verify on `examples/missions/component-replacement`; defects seeded in the spec and in the application, diagnosed and repaired), `surfaces.test.ts` (CLI and MCP tools), `browser.test.ts` (generated views in Chromium); `.claude/skills/typesys-engineer`; 26 `engineer.*` mutations in the catalog; independent review fixed ([reviews/m4-adversarial-review.md](reviews/m4-adversarial-review.md)); transcript in [`evidence/engineering-loop-2026-10-14.md`](evidence/engineering-loop-2026-10-14.md) |
-| M5 interoperability | ⏳ | | |
+| M5 interoperability | ✅ | [0072](adr/0072-independent-services-behind-one-governed-contract.md) | Three plain-Node services in `examples/services/` (fleet registry, parts depot, crew roster: separate processes, data models, paging and authorization); `@typesys/adapter-http`; `optional` relationships and `unavailable` in `@typesys/core`; `packages/sortie-readiness/test/interop.test.ts` (one read across all three, both layers of access control, a failed service, a refused credential, latency and a deadline, the depot's v1→v2 upgrade byte for byte); `mission.test.ts` (the `examples/missions/sortie-readiness` application verified by the engineering loop, 15 checks, and a seeded defect found); 8 `interop.*` and `http-adapter.*` mutations |
 | M6 evaluation | ⏳ | | |
 | M7 reuse and Studio | ⏳ | | |
 
@@ -256,10 +256,10 @@ pull request at the end of M2 and of M4.
 Kept current at each commit so the work can be picked up exactly where it
 stopped.
 
-- Done: M1, M2a–M2e, M3, M4, with the independent reviews of M2 and M4
-  fixed and their fixes mutation-checked. Open from the M2 review, recorded
-  not fixed: the items under "Seen in code, not demonstrated" (ADR-0067
-  and `docs/completeness.md`). In progress: M5, interoperability across
-  three independent services. The services, `@typesys/adapter-http`,
-  optional relationships and `packages/sortie-readiness` are in; next is
-  the sortie-readiness mission verified by the engineering loop, then M6.
+- Done: M1, M2a–M2e, M3, M4, M5, with the independent reviews of M2 and
+  M4 fixed and their fixes mutation-checked. Open from the M2 review,
+  recorded not fixed: the items under "Seen in code, not demonstrated"
+  (ADR-0067 and `docs/completeness.md`). Next: M6, the three-arm
+  productivity evaluation. Its paid model runs wait for the owner's
+  approval of their expected cost; everything that does not spend runs
+  first.

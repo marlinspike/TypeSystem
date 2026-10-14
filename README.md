@@ -595,6 +595,16 @@ flowchart TB
   diagnostics an agent repairs from. Offered as `typesys engineer`, MCP
   tools and a Claude Code skill
   ([ADR-0071](docs/adr/0071-the-engineering-loop-verifies-against-the-runtime.md)).
+- **`packages/adapter-http`** (`@typesys/adapter-http`) — a declarative
+  Adapter for a JSON service TypeSystem did not write: paths, JSON Pointer
+  field mappings with code tables, paging, API-key or OAuth client
+  credentials, and a service's refusal kept a refusal
+  ([ADR-0072](docs/adr/0072-independent-services-behind-one-governed-contract.md)).
+- **`packages/sortie-readiness`** (private) — one governed model over three
+  independently written services in `examples/services/` (a fleet
+  registry, a parts depot and a crew roster), with the interoperability
+  scenarios and the `examples/missions/sortie-readiness` application the
+  engineering loop verifies (ADR-0072).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

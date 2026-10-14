@@ -938,10 +938,11 @@
       "adr": "0071",
       "description": "The engineer MCP tools accept a path outside their root.",
       "file": "packages/engineer/src/mcp.ts",
-      "find": "if (escapes(path.relative(path.resolve(root), abs)) ||",
-      "replace": "if (escapes(path.relative(path.resolve(root), abs).slice(3)) ||",
+      "find": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);",
+      "replace": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(\"../../../../\") || path.isAbsolute(rel);",
       "tests": [
-        "packages/engineer/test/surfaces.test.ts"
+        "packages/engineer/test/surfaces.test.ts",
+        "packages/engineer/test/m4-adv-fast.test.ts"
       ]
     },
     {
@@ -986,7 +987,7 @@
       "find": "if (runStatus !== \"waiting-approval\" || waiting !== check.step)",
       "replace": "if (runStatus === \"never\")",
       "tests": [
-        "packages/engineer/test/verify-signals.test.ts"
+        "packages/engineer/test/review-fixes.test.ts"
       ]
     },
     {
@@ -997,7 +998,7 @@
       "find": "if (a.status !== 200 && a.status !== 403) return unanswered(",
       "replace": "if (a.status === 0) return unanswered(",
       "tests": [
-        "packages/engineer/test/verify-signals.test.ts"
+        "packages/engineer/test/review-fixes.test.ts"
       ]
     },
     {
@@ -1053,7 +1054,7 @@
       "find": "if (outcomes.includes(\"missing\")) diag(\"unknown-object\"",
       "replace": "if (outcomes.includes(\"never\" as never)) diag(\"unknown-object\"",
       "tests": [
-        "packages/engineer/test/m4-adv-fast.test.ts"
+        "packages/engineer/test/review-fixes.test.ts"
       ]
     },
     {
@@ -1119,7 +1120,7 @@
       "find": "const reason = err instanceof SyntaxError ? \"it is not JSON\"",
       "replace": "const reason = err instanceof SyntaxError ? (err).message",
       "tests": [
-        "packages/engineer/test/m4-adv-fast.test.ts"
+        "packages/engineer/test/review-fixes.test.ts"
       ]
     },
     {
@@ -1142,6 +1143,97 @@
       "replace": "if (typeof who === \"string\" && !Object.hasOwn(callers, who)) err(",
       "tests": [
         "packages/engineer/test/m4-adv-fast.test.ts"
+      ]
+    },
+    {
+      "id": "interop.optional-ignored",
+      "adr": "0072",
+      "description": "A required relationship whose source fails is left out of the answer instead of failing the read.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "const reason = rel?.optional ? sourceFailure(err) : undefined;",
+      "replace": "const reason = sourceFailure(err);",
+      "tests": [
+        "packages/core/test/optional-relationships.test.ts"
+      ]
+    },
+    {
+      "id": "interop.failure-as-empty",
+      "adr": "0072",
+      "description": "An optional include whose source failed is returned as an empty list, claiming there is nothing related.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!rel || !reason) throw err;\n        return { missing:",
+      "replace": "if (!rel || !reason) throw err;\n        if (reason) return { values: { [inc.relationship]: [] } };\n        return { missing:",
+      "tests": [
+        "packages/core/test/optional-relationships.test.ts",
+        "packages/sortie-readiness/test/interop.test.ts"
+      ]
+    },
+    {
+      "id": "interop.any-error-is-partial",
+      "adr": "0072",
+      "description": "Any error in an optional include, a bug included, is reported as the source being unavailable.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "  if (err instanceof AdapterUnavailableError || err instanceof CircuitOpenError) return \"unavailable\";\n  return undefined;",
+      "replace": "  if (err instanceof AdapterUnavailableError || err instanceof CircuitOpenError) return \"unavailable\";\n  return \"unavailable\";",
+      "tests": [
+        "packages/core/test/optional-relationships.test.ts"
+      ]
+    },
+    {
+      "id": "interop.refusal-as-outage",
+      "adr": "0072",
+      "description": "A service refusing TypeSystem's credential is reported as the service being down.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (err instanceof SourceRefusedError) return \"refused-by-source\";",
+      "replace": "if (err instanceof SourceRefusedError) return \"unavailable\";",
+      "tests": [
+        "packages/core/test/optional-relationships.test.ts",
+        "packages/sortie-readiness/test/interop.test.ts"
+      ]
+    },
+    {
+      "id": "http-adapter.refusal-folded",
+      "adr": "0072",
+      "description": "A 401 or 403 from a service is read as \"not found\".",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "if (res.status === 401 || res.status === 403) throw new SourceRefusedError(",
+      "replace": "if (res.status === 401 || res.status === 403) return undefined;\n    if (res.status === 0) throw new SourceRefusedError(",
+      "tests": [
+        "packages/adapter-http/test/http-adapter.test.ts",
+        "packages/sortie-readiness/test/interop.test.ts"
+      ]
+    },
+    {
+      "id": "http-adapter.truncated-list",
+      "adr": "0072",
+      "description": "A list longer than maxPages is answered from its first pages.",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "if (page >= (this.config.maxPages ?? 20)) throw new AdapterUnavailableError(",
+      "replace": "if (page >= (this.config.maxPages ?? 20)) break;\n      if (page < 0) throw new AdapterUnavailableError(",
+      "tests": [
+        "packages/adapter-http/test/http-adapter.test.ts"
+      ]
+    },
+    {
+      "id": "http-adapter.translated-code-pushed",
+      "adr": "0072",
+      "description": "A condition on a translated code is sent to the service, which compares it with its own code.",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "const param = typeof m.fields[c.property] === \"string\" ? m.list.params?.[c.property] : undefined;",
+      "replace": "const param = m.list.params?.[c.property];",
+      "tests": [
+        "packages/adapter-http/test/http-adapter.test.ts"
+      ]
+    },
+    {
+      "id": "http-adapter.token-not-renewed",
+      "adr": "0072",
+      "description": "An expired client-credentials token is not renewed, so every read is refused until restart.",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "if (res.status === 401 && this.config.auth?.kind === \"client-credentials\") res =",
+      "replace": "if (res.status === 0 && this.config.auth?.kind === \"client-credentials\") res =",
+      "tests": [
+        "packages/adapter-http/test/http-adapter.test.ts"
       ]
     }
   ]
