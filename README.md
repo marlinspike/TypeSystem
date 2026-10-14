@@ -20,7 +20,10 @@ data.
 
 It's the idea behind Palantir's Ontology, built on open standards (JSON
 Schema 2020-12, Cedar, the Model Context Protocol), as a codebase you can
-read, fork, and own.
+read, fork, and own. It is also a platform to build on. A typed SDK, a
+REST API with React bindings, governed workflows, signed domain packs and a
+browser workbench all go through that same boundary. So an application or
+an agent composed from TypeS inherits the rules instead of restating them.
 
 ## One call, three callers
 
@@ -141,14 +144,86 @@ the model: **objects, relationships, meaning, permissions, provenance, and
 Actions, behind one enforcement boundary.** A web app, a workflow engine,
 and an agent all work against that same contract.
 
+## Build on it, not just behind it
+
+The runtime decides; the composition layer makes that the fastest way to
+build. Every piece below calls `SemanticRuntime` and decides nothing on
+its own.
+
+- **A typed SDK generated from the model.** `createClient<Model>()` types
+  filters, includes, projections and Actions from the registry, so a
+  misspelt property or Action input is a compile error. It runs in
+  process, over MCP or over HTTP
+  ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md)).
+- **Ask before you act.** `listActions` says what this caller may do to
+  *this* object, and `previewAction` reports authorization, input
+  validity and each precondition without executing anything. Screens and
+  agents offer only what would succeed
+  ([ADR-0053](docs/adr/0053-instance-scoped-actions-and-previews.md)).
+- **Governed workflows.** Read, compute, AI, approval and Action steps run
+  as the person who started them, with a journal, retries, compensation,
+  simulation and replay. An AI step's answer reaches a side effect only
+  after a person the policy admits, never the requester, approves it
+  ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md)).
+- **An API and a UI layer that hold no rules.** `@typesys/http` serves the
+  runtime as REST with an OpenAPI contract generated from the model.
+  `@typesys/react` adds headless hooks, forms and columns derived from it
+  ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md)).
+- **Tools for people and agents.** Agents find the few Types a task needs
+  (`typesys_discover`) and check a query before running it
+  (`typesys_validate_query`). `typesys diff` fails CI on a breaking model
+  change. TypeS Studio lets anyone explore the model, run and explain
+  queries, and preview Actions as themselves, then copy the SDK code
+  ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md)).
+- **Domains as signed files.** A domain pack is one content-addressed,
+  optionally signed JSON archive with no code in it. It is checked
+  completely before anything registers, may only define Types in its own
+  namespace, and is refused as an upgrade if it weakens a protection
+  ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md)).
+
+**Measured, not claimed.** The same squadron readiness application was
+built twice over the same system: once composed from TypeS, once by hand
+the way the runtime had to be used before. Both pass one browser
+walkthrough as a viewer, a maintainer and a lead
+([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md),
+[evidence](docs/evidence/mission-app-2026-10-13.md)).
+
+| | Composed | By hand |
+|---|---|---|
+| Lines of app code (server + client) | 193 (8 + 185) | 355 (148 + 207) |
+| Access rules restated in the app | none | 4 distinct rules, at 7 places |
+| Response shapes typed by hand | 1 | 4 |
+| Of 6 seeded mistakes both can make, caught by the compiler | 5 | 0 (the browser test caught all 6) |
+| Follows a policy change with no edit | yes | no |
+| Board latency, p50 | about 7 to 10 ms | about 7 to 10 ms |
+
+Three more seeded mistakes can only happen in the hand-written version,
+because only it holds those rules, and every check missed them. Two were
+real holes: self-approval, and acting on an AI answer without checking it.
+The composed version's process rules live in the domain's workflow
+definition (136 lines, counted in neither total), written once and shared
+by every application and agent. How long each version took to write was
+not measured.
+
 ## Built like infrastructure, not a demo
 
-- **51 architecture decision records**, each with the alternatives that
+- **63 architecture decision records**, each with the alternatives that
   were rejected and why. The recent ones name the tests that prove them,
-  and 22 are mutation-checked: each claimed behaviour was broken on
-  purpose to show a test catches it.
-- **Nearly 800 tests**, run in CI against real PostgreSQL 17, Redis 8, and
-  a KMS emulator, not mocks of them.
+  and record a mutation check: each claimed behaviour was broken on
+  purpose to see a test catch it. The scripts behind those counts are not
+  committed, so treat the counts as the authors' record.
+- **Over 1,000 tests** (1,053: 992 need no infrastructure, 61 run in CI
+  against real PostgreSQL 17, Redis 8 and a KMS emulator, not mocks of
+  them). Four drive the Studio and the mission application in Chromium.
+- **Pressure-tested by an independent review.** An adversarial pass over
+  the composition work found about 35 defects. Six were high severity: an
+  AI step could skip its own review, a read step could invoke Actions
+  (inside a simulation too), a computed property could read fields it
+  never declared, a pack could overwrite existing Types, and an upgrade
+  that stripped protections passed as safe. All are fixed, each with a
+  test that failed before the fix
+  ([findings](docs/evidence/pressure-test-2026-10-14.md),
+  `packages/*/test/pressure-*.test.ts`).
 - **The official MCP conformance suite** runs in CI, with every expected
   failure written down and explained.
 - **Two unrelated domains on one core.** Air Force maintenance and a
@@ -193,6 +268,11 @@ re-decide: redacted fields, refused rows, encrypted-at-rest PHI, and a live
 audit log. To point a real agent at it, run `npm run mcp:http` and connect
 any MCP client to `http://localhost:3939/mcp` with
 `Authorization: Bearer demo-maintainer-token`.
+
+Two more, after the same build: `npm run studio` serves TypeS Studio over
+the airforce demo on `http://localhost:4400`, and `npm run mission` serves
+the squadron readiness application, composed on `:4500` and written by
+hand on `:4501`.
 
 **Where it fits best:** your data and operations are spread across several
 systems of record, authorization varies by who is asking, and more than
@@ -252,6 +332,9 @@ registry stores) refines one of these six.
 | **Field-level encryption at rest** | An `EncryptingAdapter` wraps any adapter so named fields are ciphertext in every store behind it, each bound to its record so it can't be moved between records, equality lookups survive through blind indexes, anything that would need plaintext in the store is refused, decrypted or marked data never reaches a cache that isn't confidential — `EncryptedCache` makes Redis one — and keys can be data keys wrapped by a KMS key, leased so revocation takes effect ([ADR-0033](docs/adr/0033-field-level-encryption.md), [ADR-0035](docs/adr/0035-record-bound-encryption-envelope.md), [ADR-0036](docs/adr/0036-sensitive-data-caching.md), [ADR-0037](docs/adr/0037-kms-backed-key-provider.md), [`encrypt-fields.md`](docs/how-to/encrypt-fields.md)). | A database dump, backup, or replica doesn't hold the PHI; the runtime still does all its work on plaintext. |
 | **Data classification** | Types, properties, and individual values carry markings; the scheme you configure decides whole labels for whole subjects — levels, compartments, releasability, and CUI as its own regime in the reference scheme — and until you configure one, marked data is denied; enforced beside the policy engine, with derived values carrying the join of their inputs' labels ([ADR-0032](docs/adr/0032-data-classification-enforcement.md), [ADR-0034](docs/adr/0034-classification-scheme-defaults.md), [ADR-0041](docs/adr/0041-security-labels-v2.md), [`classify-data.md`](docs/how-to/classify-data.md)). | Classified and controlled data is redacted per reader by a mandatory control that no policy, and no engine swap, can relax. |
 | **Append-only audit log** | Every policy and classification decision — allow and deny, including the authorization preview `listActions` reports — and every audited Action is recorded, with which control decided and which runtime operation it was decided under; the Postgres store enforces append-only with a trigger ([ADR-0042](docs/adr/0042-audit-rows-name-the-operation.md)). | A tamper-resistant record of who read or changed what, and of every refusal. |
+| **Derived values keep their inputs' protection** | A computed value is withheld from a caller who may not read every input it uses, and it can read only the inputs it declares; a Type opts an input out with `releases`, and each release is audited ([ADR-0052](docs/adr/0052-derived-values-inherit-their-inputs-read-policy.md)). Subtypes inherit their base's protections and may only add to them ([ADR-0060](docs/adr/0060-subtypes-keep-their-base-protections.md)). | A viewer can't learn a hidden value through something computed from it, or through a subtype. |
+| **Previews and instance-scoped Actions** | An Action can be decided on the object it targets ("its assignee, or a lead"); `listActions` and `previewAction` report authorization, input validity and each precondition without executing anything, and preconditions see only what the caller may see ([ADR-0053](docs/adr/0053-instance-scoped-actions-and-previews.md)). | Interfaces and agents offer only what would succeed, and a preview can't be used to probe hidden values. |
+| **Filtering on computed values, and execution plans** | Queries may filter on computed properties, evaluated on caller-visible values with exact paging; `explainQuery` returns the execution plan, under the same clearance checks as the query ([ADR-0054](docs/adr/0054-computed-filters-and-execution-plans.md)). Within one request, computed values' adapter reads can be shared and batched (`computedReads: "coalesce"`; 225 calls per page become 13 to 14) ([ADR-0062](docs/adr/0062-coalesced-computed-reads.md)). | "Aircraft that need attention" is one query, not a client-side scan, and you can see how it will run. |
 | **Governed Actions** | Writes run a policy check and the clearance their Types require, input validation against the Action's schema, and preconditions before the side effect ([ADR-0005](docs/adr/0005-actions-as-first-class-governed-capabilities.md)). | Business rules are enforced once, centrally, not per caller. |
 | **AI agents over MCP** | Types, objects, relationships, and provenance are MCP resources, each with a tool twin for agents that use tools only; Actions are tools annotated with their side effects, beside `typesys_query` and `typesys_aggregate`; every TypeS tool returns structured content; identity is resolved on every call over stdio or HTTP. The server takes any registry and runtime and a resolver you supply, and names no domain ([ADR-0050](docs/adr/0050-the-mcp-server-serves-any-registry.md), [ADR-0051](docs/adr/0051-the-mcp-surface-is-shaped-for-tool-first-agents.md), [`for-agents.md`](docs/for-agents.md)). | Agents discover and act on the same semantic contract applications use, under the same enforcement, with no hand-written tool per backend. |
 | **Structured, bounded queries** | A JSON query DSL — filters, `sort`, projection (`select`), relationship `include`s, grouped aggregation, and full-text `search` — schema-validated with size limits, every extension fail-closed under property policy ([ADR-0027](docs/adr/0027-query-dsl-extensions.md)). | Callers get expressive reads (order, shape, roll-ups, text search), and one caller still can't request unbounded work. |
@@ -261,11 +344,11 @@ registry stores) refines one of these six.
 | **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
 | **Discovery, validation and contract diff** | `@typesys/devkit`: agents find the few Types and Actions a task needs (`typesys_discover`) and check a composed query before running it (`typesys_validate_query`); teams gate model changes in CI by consumer impact (`typesys diff`) ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)). | Agents read a fraction of the model, and a breaking change can't ship unversioned. |
-| **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
+| **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed, read steps cannot write, and an approver sees only what they may read ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
 | **HTTP API and React** | `@typesys/http` serves the runtime over REST with problems a client can branch on and an OpenAPI contract generated from the model; the SDK's `httpTransport` and `@typesys/react`'s typed, headless hooks put the same governed client in a browser, with forms and columns derived from the model ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md), [ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)). | Screens show what the runtime returns for their user; access is never re-decided in the UI. |
 | **Domain packs** | `@typesys/packs` ships a domain as one signed, content-addressed JSON file with no code in it, installed offline only after every requirement is checked (code by binding key, policy rules, adapters, dependency ranges), specialized by packs that extend it without weakening what it protects, and upgraded only when the contract diff and every dependent allow it ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md), [ADR-0059](docs/adr/0059-domain-packs.md)). | Domains move into accredited, disconnected enclaves as reviewable files, and sites specialize them without forking. |
 | **TypeS Studio** | `@typesys/studio`: a browser workbench over the governed API, with no access of its own. Explore the model, compose a query with live validation and suggestions, see its execution plan and the typed SDK code that builds it, and preview Actions before invoking them, as whoever is signed in ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md), [ADR-0061](docs/adr/0061-typesys-studio.md)). | Analysts, owners and accreditors see exactly what each role gets, and developers leave with working code. |
-| **A mission application, measured** | `packages/mission-readiness`: a squadron readiness application composed from TypeS (8 lines of server, no access rule of its own) beside the same application written by hand, both passing one browser scenario as a viewer, a maintainer and a lead ([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md), [ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)). | About half the code, typos caught by the compiler, and a policy change followed with no edit, measured rather than claimed. |
+| **A mission application, measured** | `packages/mission-readiness`: a squadron readiness application composed from TypeS (8 lines of server, no access rule of its own) beside the same application written by hand, both passing one browser scenario as a viewer, a maintainer and a lead ([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md), [ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)). | About half the app code, five of six shared mistakes caught by the compiler, and a policy change followed with no edit, measured rather than claimed. |
 | **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
@@ -699,8 +782,16 @@ even when the decision was an allow.
   SQL pushdown, security labels, audited operations, policy faults,
   provable numeric pushdown, telemetry identity, security profiles, no
   raw identifiers in telemetry, missing objects, unreadable queries, a
-  domain-neutral MCP server, and an MCP surface for tool-first agents).
+  domain-neutral MCP server, an MCP surface for tool-first agents, and the
+  composition platform: derived-value release, Action previews, computed
+  filters and execution plans, the typed SDK, discovery and contract diff,
+  governed workflows, the HTTP API and React bindings, domain packs,
+  subtype protections, TypeS Studio, coalesced computed reads, and the
+  mission application comparison).
   [`docs/README.md`](docs/README.md) indexes all of them.
+- [`docs/roadmap.md`](docs/roadmap.md) — how the runtime became a
+  composition platform, slice by slice, with the evidence for each and the
+  gaps that remain.
 - [`docs/developer-guide/adding-a-domain.md`](docs/developer-guide/adding-a-domain.md) —
   a walkthrough adding a brand-new domain (Hospital) without modifying
   `packages/core`.

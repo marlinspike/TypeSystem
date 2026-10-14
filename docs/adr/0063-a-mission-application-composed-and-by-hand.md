@@ -74,7 +74,7 @@ The roadmap's last slice asks whether everything before it makes an application 
 ## Consequences
 
 - The composed version is about half the code (193 lines against 355). The difference is almost all server: 8 lines against 148. The clients are close (185 against 207), because the screens are the same.
-- The composed version restates no access rule. The hand-written one restates 7, and keeps 4 wire types in step with its server by hand.
+- The composed version restates no access rule. The hand-written one restates 4 distinct rules, marked at 7 places, and keeps 4 response shapes in step with its server by hand; the composed client still types 1 by hand (the approval's presented values). The composed version's 136-line workflow definition is counted in neither total. (Corrected 2026-10-14 after the [pressure test](../evidence/pressure-test-2026-10-14.md).)
 - When a policy changes, the composed version follows it with no edit, and the hand-written one does not. In the experiment, any maintainer was allowed to update any work order. The composed version offered the control; the hand-written one went on hiding it.
 - Of the nine seeded mistakes:
   - The compiler caught five in the composed version that the hand-written one caught only in the browser: a misspelt property, type, field read, Action input and work-order status.
