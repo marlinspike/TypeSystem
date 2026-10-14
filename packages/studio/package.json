@@ -1,0 +1,44 @@
+{
+  "name": "@typesys/studio",
+  "version": "0.1.0",
+  "description": "TypeS Studio: a browser workbench over the governed API. Explore the model, compose and check queries with live validation, execution plans and the typed SDK code that builds them, and preview Actions before invoking them, always as the signed-in caller.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/studio"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/studio#readme",
+  "keywords": [
+    "typesys",
+    "studio",
+    "query",
+    "workbench"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/http": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/react": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "playwright-core": "1.56.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

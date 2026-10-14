@@ -1,0 +1,236 @@
+{
+  "format": "typesys.pack/1",
+  "name": "hospital",
+  "version": "1.0.0",
+  "description": "Patients, providers and appointments, with field-level protection of patient identifiers.",
+  "requires": {
+    "core": "^1.0.0"
+  },
+  "contents": {
+    "types": [
+      {
+        "name": "hospital.Patient",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/hospital/Patient/1.0.0",
+          "title": "Patient",
+          "description": "A person receiving care at this hospital.",
+          "type": "object",
+          "properties": {
+            "medicalRecordNumber": {
+              "type": "string"
+            },
+            "dateOfBirth": {
+              "type": "string",
+              "format": "date"
+            },
+            "assignedClinicianId": {
+              "type": "string",
+              "description": "The Provider responsible for this patient — what the per-instance read rule decides on (ADR-0030)."
+            }
+          },
+          "required": [
+            "medicalRecordNumber"
+          ],
+          "x-relationships": {
+            "appointments": {
+              "target": "hospital.Appointment",
+              "cardinality": "one-to-many",
+              "description": "Appointments scheduled for this patient.",
+              "resolution": {
+                "dataSourceId": "in-memory-hospital-repo",
+                "operation": "byForeignKey:patientId"
+              }
+            },
+            "providers": {
+              "target": "hospital.Provider",
+              "cardinality": "many-to-many",
+              "description": "Providers this patient has appointments with, resolved many-to-many through the Appointment join collection (ADR-0028).",
+              "resolution": {
+                "dataSourceId": "in-memory-hospital-repo",
+                "operation": "byJoinTable:hospital.Appointment/patientId/providerId"
+              }
+            }
+          },
+          "x-policy": {
+            "objectPolicy": "hospital.read-patient",
+            "propertyPolicies": {
+              "medicalRecordNumber": "hospital.staff-only"
+            }
+          }
+        },
+        "extends": "core.Person",
+        "traits": []
+      },
+      {
+        "name": "hospital.Provider",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/hospital/Provider/1.0.0",
+          "title": "Provider",
+          "description": "A clinician who can be scheduled against an Appointment.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "specialty": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "displayName"
+          ],
+          "x-relationships": {
+            "appointments": {
+              "target": "hospital.Appointment",
+              "cardinality": "one-to-many",
+              "description": "Appointments this provider is scheduled for.",
+              "resolution": {
+                "dataSourceId": "in-memory-hospital-repo",
+                "operation": "byForeignKey:providerId"
+              }
+            },
+            "patients": {
+              "target": "hospital.Patient",
+              "cardinality": "many-to-many",
+              "description": "Patients this provider has appointments with, resolved many-to-many through the Appointment join collection (ADR-0028).",
+              "resolution": {
+                "dataSourceId": "in-memory-hospital-repo",
+                "operation": "byJoinTable:hospital.Appointment/providerId/patientId"
+              }
+            }
+          },
+          "x-policy": {
+            "objectPolicy": "hospital.read-provider"
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "hospital.Appointment",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/hospital/Appointment/1.0.0",
+          "title": "Appointment",
+          "description": "A scheduled encounter between a Patient and a Provider.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "patientId": {
+              "type": "string"
+            },
+            "providerId": {
+              "type": "string"
+            },
+            "scheduledAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "scheduled",
+                "completed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "patientId",
+            "providerId",
+            "scheduledAt",
+            "status"
+          ],
+          "x-relationships": {
+            "patient": {
+              "target": "hospital.Patient",
+              "cardinality": "one-to-one",
+              "description": "The patient this appointment is for.",
+              "resolution": {
+                "dataSourceId": "in-memory-hospital-repo",
+                "operation": "byOwnField:patientId"
+              }
+            },
+            "provider": {
+              "target": "hospital.Provider",
+              "cardinality": "one-to-one",
+              "description": "The clinician this appointment is with.",
+              "resolution": {
+                "dataSourceId": "in-memory-hospital-repo",
+                "operation": "byOwnField:providerId"
+              }
+            }
+          },
+          "x-policy": {
+            "objectPolicy": "hospital.read-appointment"
+          }
+        },
+        "traits": []
+      }
+    ],
+    "traits": [],
+    "actions": [],
+    "dataSources": [
+      {
+        "id": "in-memory-hospital-repo",
+        "name": "In-Memory Hospital Repository",
+        "kind": "in-memory"
+      }
+    ],
+    "mappings": [
+      {
+        "id": "map-patient-properties",
+        "typeName": "hospital.Patient",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "in-memory-hospital-repo",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-provider-properties",
+        "typeName": "hospital.Provider",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "in-memory-hospital-repo",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-appointment-properties",
+        "typeName": "hospital.Appointment",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "in-memory-hospital-repo",
+        "operation": "get",
+        "resolutionMode": "live"
+      }
+    ]
+  },
+  "requirements": {
+    "computed": [],
+    "preconditions": [],
+    "policies": [
+      "hospital.read-appointment",
+      "hospital.read-patient",
+      "hospital.read-provider",
+      "hospital.staff-only"
+    ],
+    "dataSources": [
+      "in-memory-hospital-repo"
+    ],
+    "types": [
+      "core.Person"
+    ],
+    "actions": []
+  },
+  "digest": "sha256:ce2111d3427a7fffe7d19df841b10df8c21008f9c0061afb0b926096d17c790a"
+}

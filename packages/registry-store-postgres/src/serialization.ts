@@ -4,6 +4,7 @@ import type { ActionDefinition, PreconditionSpec } from "@typesys/core";
 import type { RelationshipDefinition } from "@typesys/core";
 import type { DataSource, Mapping } from "@typesys/core";
 import type { AuditEvent } from "@typesys/core";
+import type { JsonSchema2020 } from "@typesys/core";
 
 /** Postgres round-trips `null`, not `undefined`; normalize before binding query params. */
 export function toJsonParam(value: unknown): string | null {
@@ -20,6 +21,10 @@ export interface PersistedComputedProperty {
   dependsOn: string[];
   resolutionMode: "live" | "materialized" | "cached";
   binding: string;
+  /** Dependencies whose read policy this value is released from (ADR-0052). Absent on rows written before it. */
+  releases?: string[];
+  /** The computed value's schema (ADR-0055). Absent on rows written before it. */
+  schema?: JsonSchema2020;
 }
 
 export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[]): PersistedComputedProperty[] {
@@ -31,7 +36,7 @@ export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[])
           `"binding" key it was registered under (see ADR-0015).`
       );
     }
-    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding };
+    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding, ...(cp.releases?.length ? { releases: cp.releases } : {}), ...(cp.schema ? { schema: cp.schema } : {}) };
   });
 }
 
@@ -43,7 +48,7 @@ export function persistedToComputedProperties(
   return persisted.map((p) => {
     const compute = bindings.computed[p.binding];
     if (!compute) throw new MissingBindingError("computed", p.binding, context);
-    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, compute };
+    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, ...(p.releases?.length ? { releases: p.releases } : {}), ...(p.schema ? { schema: p.schema } : {}), compute };
   });
 }
 
@@ -134,6 +139,8 @@ export interface ActionRow {
   idempotency: ActionDefinition["idempotency"];
   audit_required: boolean;
   deprecated: ActionDefinition["deprecated"] | null;
+  /** Absent before migration 0003, null for a type-scoped Action (ADR-0053). */
+  target?: ActionDefinition["target"] | null;
 }
 
 export function actionRowToDefinition(row: ActionRow, bindings: BindingRegistry): ActionDefinition {
@@ -151,7 +158,8 @@ export function actionRowToDefinition(row: ActionRow, bindings: BindingRegistry)
     sideEffects: row.side_effects,
     idempotency: row.idempotency,
     auditRequired: row.audit_required,
-    deprecated: row.deprecated ?? undefined
+    deprecated: row.deprecated ?? undefined,
+    ...(row.target ? { target: row.target } : {})
   };
 }
 

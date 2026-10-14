@@ -23,6 +23,18 @@ export interface PreconditionSpec {
   bindingId?: string;
 }
 
+/**
+ * The one object an instance-scoped Action acts on (ADR-0053). Its id travels
+ * in the Action's input, so every transport that can invoke the Action can
+ * name the target the same way.
+ */
+export interface ActionTargetSpec {
+  /** The top-level input property carrying the target's id: a required string in `inputSchema`. */
+  idFrom: string;
+  /** The target's Type. Defaults to `applicableTypes[0]`; must be one of `applicableTypes`. */
+  type?: string;
+}
+
 export interface ActionDefinition {
   id: string;
   name: string;
@@ -36,6 +48,13 @@ export interface ActionDefinition {
   sideEffects: SideEffect;
   idempotency: Idempotency;
   auditRequired: boolean;
+  /**
+   * Makes the Action instance-scoped (ADR-0053): the runtime reads the target
+   * object first, under the caller's read authorization, and decides
+   * `authorizationPolicy` on that object's attributes. Omitted, the Action is
+   * decided per Type, as before.
+   */
+  target?: ActionTargetSpec;
   version: string;
   deprecated?: { since: string; supersededBy?: string };
 }

@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
-import type { Identity } from "@typesys/core";
+import type { Identity, IdentityResolver } from "@typesys/core";
 
-export type IdentityResolver = (token: string | undefined | null) => Promise<Identity>;
+export type { IdentityResolver } from "@typesys/core";
 
 export interface OidcIdentityResolverConfig {
   /** Expected `iss` claim. Also used to derive the default JWKS URL (`${issuer}/.well-known/jwks.json`). */

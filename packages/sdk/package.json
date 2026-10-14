@@ -1,0 +1,41 @@
+{
+  "name": "@typesys/sdk",
+  "version": "0.1.0",
+  "description": "A typed, governed TypeScript client for TypeS, generated from the model: fluent queries with typed filters (computed properties included), typed includes and Actions, the same policy whether it runs in-process or over MCP.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/sdk#readme",
+  "keywords": [
+    "typesys",
+    "sdk",
+    "typed-client",
+    "codegen",
+    "query-builder"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@typesys/adapter-in-memory": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/domain-hospital": "0.1.0",
+    "@typesys/mcp-server": "0.1.0"
+  }
+}

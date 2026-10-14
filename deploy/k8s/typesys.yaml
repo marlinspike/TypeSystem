@@ -14,6 +14,9 @@ metadata:
   name: typesys-config
 data:
   PORT: "3939"
+  # Host names the MCP endpoint answers to (ADR-0053): the server refuses any other Host, against DNS rebinding.
+  # List the name clients reach it by (your Ingress host), and the Service name for in-cluster clients.
+  MCP_ALLOWED_HOSTS: "localhost,typesys-mcp-server"
 ---
 # Runs the advisory-lock-safe migrations (ADR-0025) once before/independently of the rollout.
 apiVersion: batch/v1

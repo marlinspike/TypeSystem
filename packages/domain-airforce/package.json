@@ -1,7 +1,7 @@
 {
   "name": "@typesys/domain-airforce",
   "version": "0.1.0",
-  "description": "TypeS vertical-slice domain — Aircraft/Component/MaintenanceEvent/WorkOrder — proving adapter substitution behind one consumer-facing model.",
+  "description": "TypeS vertical-slice domain \u2014 Aircraft/Component/MaintenanceEvent/WorkOrder \u2014 proving adapter substitution behind one consumer-facing model.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -30,6 +30,8 @@
   "dependencies": {
     "@typesys/core": "0.1.0",
     "@typesys/adapter-in-memory": "0.1.0",
-    "@typesys/adapter-mock-rest": "0.1.0"
+    "@typesys/adapter-mock-rest": "0.1.0",
+    "@typesys/workflow": "0.1.0",
+    "@typesys/packs": "0.1.0"
   }
 }

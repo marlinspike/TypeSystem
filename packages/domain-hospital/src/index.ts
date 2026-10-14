@@ -4,3 +4,5 @@ export * from "./types/appointment.js";
 export * from "./mappings/index.js";
 export * from "./manifest.js";
 export * from "./setup.js";
+export * from "./pack.js";
+export type * from "./model.generated.js";

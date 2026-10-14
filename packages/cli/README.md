@@ -81,7 +81,7 @@ files too (hence `10-vehicle.yaml`, so a `00-something.yaml` it depends on
 sorts first).
 
 **Computed properties and preconditions still can't live in YAML** — only
-`dependsOn`/`binding` do. `computedImplementations` supplies the real
+`dependsOn`/`binding` (and a computed value's `schema`) do. `computedImplementations` supplies the real
 function, exactly like registering in code, and exactly like a
 `BindingRegistry` does for `@typesys/registry-store-postgres` (ADR-0015) —
 same seam, same reason: YAML and databases hold data, processes supply
@@ -103,13 +103,25 @@ relationships vs. actions" distinction the rest of this system exists to
 enforce (see `docs/adr/0003-relationships-as-first-class-records.md` and
 `0005-actions-as-first-class-governed-capabilities.md`).
 
-This is not a general JSON Schema → TypeScript compiler — it covers the
-subset of JSON Schema this project's own schemas actually use (flat
-primitives, enums, arrays of those, plus this project's own
-`extends`/trait composition model). A generic converter would have no way
-to know what `x-relationships`/`x-computed`/a registered-`$ref` `allOf`
-even mean; this one is built around the meta-model directly, via the
-registry's own `getType`/`getTraitSchema`, not by parsing raw schema JSON.
+The JSON Schema to TypeScript conversion is `@typesys/sdk`'s `schemaToTs`,
+shared with `generate-sdk` below: it covers what TypeS models author and
+widens anything it cannot express exactly (a `$ref`) to `unknown`. `extends`
+and traits are resolved through the registry's own
+`getType`/`getTraitSchema`, not by parsing raw schema JSON.
+
+## Generating the typed client's model
+
+```bash
+npx typesys generate-sdk ./fleet --bindings ./fleet/bindings.mjs --name FleetModel --out ./src/fleet-model.ts
+npx typesys generate-sdk ./fleet --bindings ./fleet/bindings.mjs --name FleetModel --out ./src/fleet-model.ts --check
+```
+
+Emits the model `@typesys/sdk`'s `createClient<FleetModel>()` is typed by:
+each Type's flattened properties, its computed properties typed by their
+`schema`, its relationships and Actions, and each Action's input and
+output ([ADR-0055](../../docs/adr/0055-typed-sdk-generated-from-the-registry.md)).
+`--check` writes nothing and exits 1 when the file differs from what the
+YAML generates now, a CI gate against a stale client model.
 
 ## Validating without generating
 

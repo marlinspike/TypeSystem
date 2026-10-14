@@ -2,6 +2,7 @@ import type { SemanticTypeSchema } from "./vocabulary.js";
 import type { RelationshipDefinition } from "./relationship.js";
 import type { ComputeContext } from "./context.js";
 import type { ResolutionMode } from "./data-source.js";
+import type { JsonSchema2020 } from "./json-schema.js";
 
 /**
  * A Type's stable, namespaced logical name (e.g. "airforce.Aircraft") is
@@ -32,6 +33,10 @@ export interface ComputedPropertyDefinition {
    * whichever process reads the Type back.
    */
   binding: string;
+  /** Inputs whose read policy this value is released from (ADR-0052). Every entry is one of `dependsOn`. */
+  releases?: string[];
+  /** The computed value's schema (ADR-0055), checked on every computation. */
+  schema?: JsonSchema2020;
   compute: (ctx: ComputeContext) => Promise<unknown>;
 }
 

@@ -12,17 +12,31 @@ namespace TypeS {
     // A clinician's Provider id: what hospital.read-patient matches against.
     providerId?: String,
     // A patient's own Patient id.
-    patientId?: String
+    patientId?: String,
+    // A maintainer's name as work orders record it: what airforce.work-order-assignee matches against.
+    displayName?: String
   };
 
   action "airforce.read-aircraft" appliesTo {
     principal: [User],
     resource: [airforce::Aircraft, airforce::Component, airforce::MaintenanceEvent, airforce::WorkOrder]
   };
-  // Aircraft.maintenanceStatus, and the CreateMaintenanceWorkOrder Action on MaintenanceEvent.
+  // Aircraft.maintenanceStatus, the CreateMaintenanceWorkOrder Action on MaintenanceEvent, and who may start GroundForRepair.
   action "airforce.maintainer-only" appliesTo {
     principal: [User],
-    resource: [airforce::Aircraft, airforce::MaintenanceEvent]
+    resource: [airforce::Aircraft, airforce::MaintenanceEvent, airforce::GroundForRepair]
+  };
+
+  // The GroundForRepair workflow's approval (ADR-0057).
+  action "airforce.maintenance-lead" appliesTo {
+    principal: [User],
+    resource: [airforce::GroundForRepair]
+  };
+
+  // The UpdateWorkOrderStatus Action, decided per WorkOrder (ADR-0053).
+  action "airforce.work-order-assignee" appliesTo {
+    principal: [User],
+    resource: [airforce::WorkOrder]
   };
 
   action "hospital.read-provider" appliesTo { principal: [User], resource: [hospital::Provider] };
@@ -33,7 +47,12 @@ namespace TypeS {
 }
 
 namespace airforce {
-  entity Aircraft, Component, MaintenanceEvent, WorkOrder;
+  entity Aircraft, Component, MaintenanceEvent;
+  // A workflow (ADR-0057): the resource its start and approval policies decide on.
+  entity GroundForRepair;
+  entity WorkOrder {
+    assignedTo?: String
+  };
 }
 
 namespace hospital {

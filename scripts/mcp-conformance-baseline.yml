@@ -43,10 +43,3 @@ server:
   # stream, so the scenario runs no checks, which the suite reports as a
   # failure.
   - server-sse-multiple-streams
-
-  # A REAL GAP, not a fixture. The server does not validate the Host or
-  # Origin header, so a web page can reach a server bound to localhost
-  # through DNS rebinding (GHSA-w48q-cv73-mx4w). That matters most for the
-  # demo, whose tokens are public constants. It is ADR-0051's follow-up F;
-  # remove this entry when it is fixed.
-  - dns-rebinding-protection

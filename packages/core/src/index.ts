@@ -9,6 +9,7 @@ export * from "./model/data-source.js";
 export * from "./model/query.js";
 export * from "./model/trait.js";
 export * from "./model/context.js";
+export * from "./model/canonical.js";
 
 export * from "./registry/registry-store.js";
 export * from "./registry/in-memory-registry-store.js";
@@ -18,6 +19,7 @@ export * from "./registry/validation.js";
 export * from "./registry/registry.js";
 export * from "./registry/manifest.js";
 export * from "./registry/build-runtime.js";
+export * from "./registry/model-description.js";
 
 export * from "./runtime/adapter.js";
 export * from "./runtime/cache.js";
@@ -32,6 +34,7 @@ export * from "./observability/tracing.js";
 export * from "./observability/metrics.js";
 export * from "./runtime/filter.js";
 export * from "./runtime/query-ops.js";
+export * from "./runtime/execution-plan.js";
 export * from "./runtime/resolution.js";
 export * from "./runtime/mapping-resolver.js";
 export * from "./runtime/runtime.js";

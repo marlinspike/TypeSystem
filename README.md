@@ -37,8 +37,9 @@ maintainer → tailNumber "AF86-0147", model "F-16C",
              readinessStatus "PMC", needsAttention true
 
 viewer     → tailNumber "AF86-0147", model "F-16C",
-             readinessStatus "PMC", needsAttention true
-             # maintenanceStatus hidden by a policy rule,
+             needsAttention true
+             # maintenanceStatus hidden by a policy rule, and
+             # readinessStatus with it, since it is derived from it;
              # deploymentLocation by its SECRET classification
 
 anonymous  → Not authorized: read airforce.Aircraft/AF86-0147
@@ -259,6 +260,13 @@ registry stores) refines one of these six.
 | **Real identity and persistence** | OIDC/JWT identity resolution ([ADR-0018](docs/adr/0018-oidc-identity-resolution.md)) and a durable PostgreSQL registry ([`use-postgres.md`](docs/how-to/use-postgres.md)). | Drop-in pieces for moving beyond the demo tokens and in-memory store. |
 | **Domains as packages** | A domain is a package you add, never code edited into core; the hospital domain ships with zero core changes ([`adding-a-domain.md`](docs/developer-guide/adding-a-domain.md)). | New domains for years without a growing shared core. |
 | **YAML authoring and codegen** | Define Types in YAML and generate TypeScript interfaces from the registry ([`generate-typescript-types.md`](docs/how-to/generate-typescript-types.md)). | Non-TypeScript authors can contribute, and consumers get type safety. |
+| **Discovery, validation and contract diff** | `@typesys/devkit`: agents find the few Types and Actions a task needs (`typesys_discover`) and check a composed query before running it (`typesys_validate_query`); teams gate model changes in CI by consumer impact (`typesys diff`) ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)). | Agents read a fraction of the model, and a breaking change can't ship unversioned. |
+| **Governed workflows** | `@typesys/workflow`: read, compute, AI, approval and Action steps run as the person who started them, with a journal, retries, compensation, policy-decided approvals, simulation and replay checks; an AI answer cannot reach a side effect no person reviewed ([`write-a-governed-workflow.md`](docs/how-to/write-a-governed-workflow.md), [ADR-0057](docs/adr/0057-governed-workflows.md)). | Multi-step processes get the runtime's guarantees, and agents propose while people approve. |
+| **HTTP API and React** | `@typesys/http` serves the runtime over REST with problems a client can branch on and an OpenAPI contract generated from the model; the SDK's `httpTransport` and `@typesys/react`'s typed, headless hooks put the same governed client in a browser, with forms and columns derived from the model ([`build-an-app-with-the-api-and-react.md`](docs/how-to/build-an-app-with-the-api-and-react.md), [ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)). | Screens show what the runtime returns for their user; access is never re-decided in the UI. |
+| **Domain packs** | `@typesys/packs` ships a domain as one signed, content-addressed JSON file with no code in it, installed offline only after every requirement is checked (code by binding key, policy rules, adapters, dependency ranges), specialized by packs that extend it without weakening what it protects, and upgraded only when the contract diff and every dependent allow it ([`ship-a-domain-pack.md`](docs/how-to/ship-a-domain-pack.md), [ADR-0059](docs/adr/0059-domain-packs.md)). | Domains move into accredited, disconnected enclaves as reviewable files, and sites specialize them without forking. |
+| **TypeS Studio** | `@typesys/studio`: a browser workbench over the governed API, with no access of its own. Explore the model, compose a query with live validation and suggestions, see its execution plan and the typed SDK code that builds it, and preview Actions before invoking them, as whoever is signed in ([`explore-with-the-studio.md`](docs/how-to/explore-with-the-studio.md), [ADR-0061](docs/adr/0061-typesys-studio.md)). | Analysts, owners and accreditors see exactly what each role gets, and developers leave with working code. |
+| **A mission application, measured** | `packages/mission-readiness`: a squadron readiness application composed from TypeS (8 lines of server, no access rule of its own) beside the same application written by hand, both passing one browser scenario as a viewer, a maintainer and a lead ([`compose-a-mission-application.md`](docs/how-to/compose-a-mission-application.md), [ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)). | About half the code, typos caught by the compiler, and a policy change followed with no edit, measured rather than claimed. |
+| **Typed SDK** | `@typesys/sdk`: a client typed by a model generated from the registry, with typed filters (computed properties included), includes, projections and Actions, in process or over MCP ([`use-the-typed-sdk.md`](docs/how-to/use-the-typed-sdk.md), [ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). | Mistakes in names and values are compile errors, and the runtime still decides every value per caller. |
 
 **Use it when:**
 
@@ -448,8 +456,55 @@ flowchart TB
 - **`packages/cli`** (`@typesys/cli`) — declarative YAML authoring for
   Types (compiles to the same `SemanticTypeSchema`/`RegisterTypeOptions`
   code-authored Types use) plus a `generate-types` codegen command that
-  turns registered Types into real TypeScript interfaces. See
+  turns registered Types into real TypeScript interfaces, and
+  `generate-sdk` for the typed client's model. See
   [`packages/cli/README.md`](packages/cli/README.md).
+- **`packages/sdk`** (`@typesys/sdk`) — a TypeScript client typed by a
+  model generated from the registry: typed queries (computed-property
+  filters included), includes, projections, provenance and Actions, over
+  the runtime in process or a TypeS MCP server, every query still decided
+  by the runtime per caller
+  ([ADR-0055](docs/adr/0055-typed-sdk-generated-from-the-registry.md)). See
+  [`packages/sdk/README.md`](packages/sdk/README.md).
+- **`packages/devkit`** (`@typesys/devkit`) — machine-readable tooling over
+  the model: a compact catalog, ranked discovery for agents, static query
+  validation with did-you-mean, and a contract diff that classifies changes
+  by consumer impact ([ADR-0056](docs/adr/0056-model-description-discovery-validation-and-contract-diff.md)).
+  See [`packages/devkit/README.md`](packages/devkit/README.md).
+- **`packages/workflow`** (`@typesys/workflow`) — governed workflows over the
+  runtime: typed steps whose `needs` are their data flow, AI steps whose
+  answers reach a side effect only through an approval, a conditional
+  journal with retries, compensation and idempotency-aware recovery,
+  simulation with previews and fault injection, and replay checks
+  ([ADR-0057](docs/adr/0057-governed-workflows.md)). See
+  [`packages/workflow/README.md`](packages/workflow/README.md).
+- **`packages/http`** (`@typesys/http`) — the governed REST API: one
+  runtime call per request as the bearer token's caller, RFC 9457 problems
+  with a stable `code`, and an OpenAPI 3.1 contract generated from the
+  model ([ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)).
+  See [`packages/http/README.md`](packages/http/README.md).
+- **`packages/react`** (`@typesys/react`) — headless React hooks typed by a
+  generated model over the SDK client, plus form fields and table columns
+  derived from the model; no components, and no access decisions
+  ([ADR-0058](docs/adr/0058-governed-http-api-and-headless-react-bindings.md)).
+  See [`packages/react/README.md`](packages/react/README.md).
+- **`packages/packs`** (`@typesys/packs`) — domain packs: a domain as one
+  content-addressed, optionally signed JSON archive, installs checked
+  completely before anything registers, and upgrades checked against the
+  contract diff and every installed dependent
+  ([ADR-0059](docs/adr/0059-domain-packs.md)). See
+  [`packages/packs/README.md`](packages/packs/README.md).
+- **`packages/studio`** (`@typesys/studio`) — TypeS Studio: the governed
+  API plus a browser client that uses nothing else, for exploring the
+  model, checking, explaining and running queries with their SDK code,
+  and previewing Actions as the signed-in person
+  ([ADR-0061](docs/adr/0061-typesys-studio.md)). See
+  [`packages/studio/README.md`](packages/studio/README.md).
+- **`packages/mission-readiness`** (private) — the squadron readiness
+  application twice, composed from TypeS and written by hand, with the
+  browser scenario both pass and the comparison script that measures them
+  ([ADR-0063](docs/adr/0063-a-mission-application-composed-and-by-hand.md)).
+  `npm run mission` serves both.
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

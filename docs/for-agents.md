@@ -86,12 +86,17 @@ use that prefix):
 
 | Tool | Arguments | Returns (`structuredContent`) |
 |---|---|---|
+| `typesys_discover` | `task`, `limit`? | `{ "matches": [{ "kind", "name", "score", "matched", "summary" }] }`: the Types and Actions most relevant to a task in words, each summarized in a few lines (ADR-0056). Start here. |
 | `typesys_list_types` | none | `{ "types": [...] }`: every Type's definition, as `typesys://types` gives them. |
 | `typesys_describe_type` | `type` | The Type's definition, as `typesys://types/<type>` gives it. |
 | `typesys_get_object` | `type`, `id` | The object with each value's provenance, as `typesys://objects/<type>/<id>`. |
 | `typesys_get_relationship` | `type`, `id`, `relationship` | `{ "objects": [...] }`: the related objects you may read. |
 | `typesys_get_provenance` | `type`, `id`, `property` | `{ "provenance": [...] }`: where the value came from. |
+| `typesys_validate_query` | `query` | `{ "valid", "diagnostics": [{ "severity", "code", "path", "message", "suggestion"? }] }`: what is wrong with a query against the model, without running it (ADR-0056). |
+| `typesys_explain_query` | the query DSL below | The execution plan: each step, what runs in the source system and what after, the calls per object (ADR-0054). |
 | `typesys_query` | the query DSL below | `{ "items": [...], "nextCursor"? }` |
+| `typesys_list_actions` | `type`, `id`? | `{ "actions": [...] }`: the Actions on a Type, and whether you may invoke each (ADR-0053). |
+| `typesys_preview_action` | `action`, `input` | What invoking would do, with nothing executed (ADR-0053). |
 | `typesys_aggregate` | `type`, `filter`?, `groupBy`?, `aggregations` | `{ "groups": [{ "key", "values" }] }` |
 
 Every one returns `structuredContent`, validated by your MCP client against
@@ -189,7 +194,7 @@ The text tells you which kind of failure it was:
 | `content[0].text` starts with | Meaning | What to do |
 |---|---|---|
 | `Not authorized:` | Policy denied this identity: a query of a Type it can read none of, an Action, or filtering on a property it can't read (the message names the property). | Don't retry with the same token; drop the hidden property from the filter, or accept the denial. |
-| `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit, or a top-level filter used a computed property; the message names the problem. | Fix the arguments and retry. For a computed property, filter on it inside an include, or filter the results yourself. |
+| `Invalid query:` / `Invalid input for action` | Your arguments failed the schema or a limit, or a top-level sort used a computed property; the message names the problem. | Fix the arguments and retry. A filter on a computed property works (ADR-0054); `typesys_explain_query` shows which part runs where. |
 | `Precondition failed` | The input was well-formed but a business rule rejected it (e.g. the referenced object doesn't exist). | Check the referenced data. |
 | `Cannot … encrypted field` | The field is stored encrypted, so the store can't range-filter, sort, search, aggregate, or join on it; the message says what does work. | Drop that part of the query, or name `search.properties` without the field. |
 | `Refused under` | The deployment requires exact authorization plans (`rowSecurity: "require-exact"` or the `HIGH_ASSURANCE_V1` profile, ADR-0038/0046), and this query's — or this aggregate's — couldn't be guaranteed. The message names the policy and why, never a value. | Not a transient error: don't retry the same query. Read objects one at a time with `typesys_get_object`, or ask an operator. |
@@ -203,6 +208,10 @@ Don't guess at type names, relationship names, or action names — discover
 them. Each read below has a tool twin, given in brackets, if you'd rather
 use tools only:
 
+0. `typesys_discover` `{ task }` → the few Types and Actions that matter to
+   what you were asked, each in a few lines, at a fraction of the size of
+   the full listing. It is lexical: if it finds nothing, use your task's
+   other words or fall back to step 1.
 1. `resources/read` on `typesys://types` (`typesys_list_types`) → see everything that exists.
 2. `resources/read` on `typesys://types/<typeName>` (`typesys_describe_type`) → that Type's
    properties, relationships (names + target types + cardinality),
@@ -220,13 +229,25 @@ use tools only:
    relationship names from step 2, never invented ones. A related object
    you may not read, or one the source system no longer holds, is left out
    of the list.
+   Before a `typesys_query` you composed yourself, `typesys_validate_query`
+   `{ query }` names every Type, value, relationship or operator the model
+   does not have, with the name you probably meant, and
+   `typesys_explain_query` says how it would run. Neither reads data or
+   says what you may read.
 5. `resources/read` on `.../provenance/<propertyPath>` (`typesys_get_provenance`) → which source
    system produced a value, when, and at what confidence — use this
    before repeating a value back to a user as fact, especially in a
    regulated or safety-relevant domain.
 6. `tools/list` → which Actions exist for the Type you care about, their
-   exact input schemas, and their annotations.
-7. `tools/call` → invoke one. Check `isError` first, and confirm with a
+   exact input schemas, and their annotations. `typesys_list_actions`
+   `{ type, id? }` says which of them *you* may invoke; pass the object's
+   `id` for an instance-scoped Action (`instanceScoped: true`), which is
+   decided on that object's own attributes (ADR-0053).
+7. `typesys_preview_action` `{ action, input }` → what invoking it would do,
+   decided exactly as the real call would be and with nothing executed:
+   `authorized`, `inputValid`, each precondition, and `blockers` naming why
+   it would not run. Fix what the blockers say before invoking.
+8. `tools/call` → invoke one. Check `isError` first, and confirm with a
    human before an Action whose `destructiveHint` is true.
 
 ## A complete worked example (the shipped demo domain)

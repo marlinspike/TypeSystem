@@ -96,4 +96,13 @@ export class MockRestClient {
     this.workOrders.set(record.wo_id, record);
     return record;
   }
+
+  async updateWorkOrderStatus(id: string, status: string, signal?: AbortSignal): Promise<ExternalWorkOrderRecord | undefined> {
+    await this.delay(signal);
+    const record = this.workOrders.get(id);
+    if (!record) return undefined;
+    const updated = { ...record, status };
+    this.workOrders.set(id, updated);
+    return updated;
+  }
 }

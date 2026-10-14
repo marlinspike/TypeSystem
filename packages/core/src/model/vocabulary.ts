@@ -36,6 +36,21 @@ export interface XActions {
 export interface XComputedSpec {
   dependsOn: string[];
   binding: string;
+  /**
+   * Dependencies whose read policy this value is deliberately released from
+   * (ADR-0052). By default a computed value is readable only by a caller who
+   * may read every input it derives from; naming an input here is the domain
+   * author's reviewable assertion that the derived value does not disclose it.
+   * Each release is audited. Markings are never released (ADR-0032).
+   */
+  releases?: string[];
+  /**
+   * The schema of the value this property computes (ADR-0055): what a typed
+   * client is generated from. The runtime checks every computed value against
+   * it, so the type a client is told is the type it receives. Omitted, the
+   * value is untyped (`unknown`).
+   */
+  schema?: JsonSchema2020;
   resolutionMode?: ResolutionMode;
   cacheTtlMs?: number;
 }

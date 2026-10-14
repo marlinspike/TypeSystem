@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, it, expect } from "vitest";
 import { SemanticRegistry } from "../src/registry/registry.js";
 import { InMemoryRegistryStore } from "../src/registry/in-memory-registry-store.js";
@@ -56,7 +57,7 @@ class InFlightTrackingAdapter implements Adapter {
 
 const identity: Identity = { subjectId: "u1", roles: [], attributes: {} };
 
-async function setup(opts: { computedCallsAdapter?: boolean } = {}) {
+async function setup(opts: { computedCallsAdapter?: boolean; onPolicy?: () => Promise<unknown> } = {}) {
   const registry = new SemanticRegistry(new InMemoryRegistryStore());
   const childSchema: SemanticTypeSchema = {
     $id: "https://typesys.dev/types/test/Child/1.0.0",
@@ -100,8 +101,10 @@ async function setup(opts: { computedCallsAdapter?: boolean } = {}) {
   const policyEngine = new AbacPolicyEngine();
   policyEngine.registerRule("public", allowAllRule);
   const adapter = new InFlightTrackingAdapter();
-  const runtime = new SemanticRuntime(registry, [adapter], policyEngine, { maxConcurrency: MAX_CONCURRENCY });
-  return { runtime, adapter };
+  // `onPolicy` runs inside the request (a policy decision is not an adapter call), as a policy engine that consults another runtime would.
+  const engine = opts.onPolicy ? { evaluate: async (r: Parameters<typeof policyEngine.evaluate>[0]) => (await opts.onPolicy!(), policyEngine.evaluate(r)) } : policyEngine;
+  const runtime = new SemanticRuntime(registry, [adapter], engine, { maxConcurrency: MAX_CONCURRENCY });
+  return { runtime, adapter, registry };
 }
 
 describe("One concurrency budget per top-level runtime call", () => {
@@ -143,6 +146,43 @@ describe("One concurrency budget per top-level runtime call", () => {
     // Two independent requests may each use their full budget at the same time.
     expect(adapter.peak).toBeGreaterThan(MAX_CONCURRENCY);
     expect(adapter.peak).toBeLessThanOrEqual(2 * MAX_CONCURRENCY);
+  });
+});
+
+describe("Request context across runtime instances", () => {
+  it("every runtime shares one AsyncLocalStorage, so constructing runtimes never slows the process's promises", async () => {
+    // On Node 22 each live AsyncLocalStorage is propagated on every promise in the process and is never
+    // released: one per runtime made a query loop seventeen times slower after a test suite's worth of runtimes.
+    const used = new Set<AsyncLocalStorage<unknown>>();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- saved to be restored, and only ever called with apply
+    const run = AsyncLocalStorage.prototype.run;
+    AsyncLocalStorage.prototype.run = function (this: AsyncLocalStorage<unknown>, ...args: Parameters<typeof run>) {
+      used.add(this);
+      return run.apply(this, args);
+    } as typeof run;
+    try {
+      for (let i = 0; i < 4; i++) await (await setup()).runtime.getObject("test.Child", `c-${i}`, identity);
+    } finally {
+      AsyncLocalStorage.prototype.run = run;
+    }
+    expect(used.size).toBe(1);
+  });
+
+  it("a call into another runtime from inside a request is that runtime's own request, with its own budget and operation", async () => {
+    const inner = await setup();
+    let calls = 0;
+    const outer = await setup({
+      onPolicy: async () => {
+        if (calls++ > 0) return;
+        await Promise.all(Array.from({ length: 2 * MAX_CONCURRENCY }, () => inner.runtime.query({ type: "test.Child", limit: 1 }, identity)));
+      }
+    });
+    await outer.runtime.getObject("test.Child", "c-0", identity);
+    // Not limited by the outer request's budget: six top-level calls into `inner`, each with its own.
+    expect(inner.adapter.peak).toBe(2 * MAX_CONCURRENCY);
+    const rows = (await inner.registry.listAuditEvents()).items;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(new Set(rows.map((e) => e.operation))).toEqual(new Set(["query"]));
   });
 });
 

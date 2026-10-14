@@ -118,3 +118,109 @@ export const PROVENANCE_OUTPUT: JsonSchema2020 = {
   required: ["provenance"],
   properties: { provenance: { type: "array", items: PROVENANCE_REF } }
 };
+
+/** `typesys_list_actions` (ADR-0053): what the caller may invoke, on a Type or on one object of it. */
+export const ACTIONS_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["actions"],
+  properties: {
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["name", "description", "authorized", "instanceScoped", "sideEffects", "idempotency"],
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          authorized: { type: "boolean", description: "Decided as invoking it would be; for an instance-scoped Action without an id, per Type." },
+          instanceScoped: { type: "boolean", description: "Decided per object: pass the object's id to know." },
+          sideEffects: { type: "string" },
+          idempotency: { type: "string" }
+        }
+      }
+    }
+  }
+};
+
+/** `typesys_preview_action` (ADR-0053): `SemanticRuntime.previewAction`'s `ActionPreview`. */
+export const ACTION_PREVIEW_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["action", "version", "authorized", "inputValid", "preconditions", "blockers", "wouldExecute", "effects"],
+  properties: {
+    action: { type: "string" },
+    version: { type: "string" },
+    target: { type: "object", required: ["typeName", "objectId"], properties: { typeName: { type: "string" }, objectId: { type: "string" } } },
+    authorized: { type: "boolean" },
+    inputValid: { type: ["boolean", "null"] },
+    preconditions: {
+      type: "array",
+      items: { type: "object", required: ["description", "satisfied"], properties: { description: { type: "string" }, satisfied: { type: ["boolean", "null"] } } }
+    },
+    blockers: {
+      type: "array",
+      items: { type: "object", required: ["kind", "message"], properties: { kind: { type: "string" }, message: { type: "string" } } }
+    },
+    wouldExecute: { type: "boolean" },
+    effects: {
+      type: "object",
+      required: ["sideEffects", "idempotency", "auditRequired"],
+      properties: { sideEffects: { type: "string" }, idempotency: { type: "string" }, auditRequired: { type: "boolean" } }
+    }
+  }
+};
+
+/** `typesys_explain_query` (ADR-0054): how a query would run, without the authorization plan ADR-0038 keeps runtime-only. */
+export const EXPLAIN_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["steps", "adapterCallsPerObject", "notes"],
+  properties: {
+    steps: { type: "array", items: { type: "object", required: ["op"], properties: { op: { type: "string" } } } },
+    adapterCallsPerObject: { type: "object", properties: { overrides: { type: "number" }, computed: { type: "number" } } },
+    notes: { type: "array", items: { type: "string" } }
+  }
+};
+
+/** `typesys_discover` (ADR-0056): the Types and Actions most relevant to a task, each described compactly. */
+export const DISCOVER_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["matches"],
+  properties: {
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["kind", "name", "score", "matched", "summary"],
+        properties: {
+          kind: { type: "string", enum: ["type", "action"] },
+          name: { type: "string" },
+          score: { type: "number" },
+          matched: { type: "array", items: { type: "string" } },
+          summary: { type: "string", description: "The Type's values, computed values, relationships and Actions, or the Action's scope, effects and input, in a few lines." }
+        }
+      }
+    }
+  }
+};
+
+/** `typesys_validate_query` (ADR-0056): what is wrong with a query against the model, without running it. */
+export const VALIDATE_QUERY_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["valid", "diagnostics"],
+  properties: {
+    valid: { type: "boolean", description: "No error-severity diagnostic. Says nothing about what you may read." },
+    diagnostics: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["severity", "code", "path", "message"],
+        properties: {
+          severity: { type: "string", enum: ["error", "warning"] },
+          code: { type: "string" },
+          path: { type: "string", description: "A JSON Pointer into the query." },
+          message: { type: "string" },
+          suggestion: { type: "string", description: "The name probably meant." }
+        }
+      }
+    }
+  }
+};

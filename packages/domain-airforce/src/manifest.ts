@@ -4,6 +4,7 @@ import { ComponentType } from "./types/component.js";
 import { MaintenanceEventType } from "./types/maintenance-event.js";
 import { WorkOrderType } from "./types/work-order.js";
 import { CreateMaintenanceWorkOrderAction } from "./actions/create-maintenance-work-order.js";
+import { UpdateWorkOrderStatusAction } from "./actions/update-work-order-status.js";
 import { airforceDataSources, airforceMappings } from "./mappings/index.js";
 
 /**
@@ -17,7 +18,7 @@ export const airforceManifest: DomainManifest = {
   // Component/Aircraft/MaintenanceEvent/WorkOrder don't extend each other,
   // only core.* types (already registered), so order among them doesn't matter.
   types: [ComponentType, AircraftType, MaintenanceEventType, WorkOrderType],
-  actions: [CreateMaintenanceWorkOrderAction],
+  actions: [CreateMaintenanceWorkOrderAction, UpdateWorkOrderStatusAction],
   dataSources: airforceDataSources,
   mappings: airforceMappings
 };

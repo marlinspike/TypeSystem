@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { requireBackend, requireIdentityResolver, type McpBackend, type McpServerInfo } from "./backend.js";
 import { createServer as createMcpServer } from "./server.js";
 import type { IdentityResolver } from "./auth.js";
+import { LOCAL_HOSTS, bearerToken, originGuard } from "@typesys/http";
 
 export interface HttpTransportOptions {
   /** What every request is served from — built once by the caller, so every transport and every request enforces identical governance against identical state (see server.ts). */
@@ -11,13 +12,20 @@ export interface HttpTransportOptions {
   identityResolver: IdentityResolver;
   /** What each per-request server announces in `initialize`. */
   serverInfo?: McpServerInfo;
-}
-
-function bearerTokenFromHeader(req: Request): string | undefined {
-  const header = req.header("authorization");
-  if (!header) return undefined;
-  const [scheme, token] = header.split(" ");
-  return scheme?.toLowerCase() === "bearer" ? token : undefined;
+  /**
+   * Host names (no port) the server answers to on `/mcp` (ADR-0053). Default:
+   * `localhost`, `127.0.0.1` and `[::1]`, so a web page cannot reach a local
+   * server through DNS rebinding. A server behind a real name lists it; `"*"`
+   * disables the check, for a server whose proxy already enforces it. With
+   * `"*"`, a browser `Origin` passes only if `allowedOrigins` lists it.
+   */
+  allowedHosts?: readonly string[] | "*";
+  /**
+   * Browser origins allowed to call `/mcp`. A request with no `Origin` header
+   * (any non-browser client) is unaffected. Default: `http(s)://` on any
+   * allowed host, any port; none at all when `allowedHosts` is `"*"`.
+   */
+  allowedOrigins?: readonly string[];
 }
 
 function jsonRpcError(res: Response, status: number, code: number, message: string): void {
@@ -47,6 +55,8 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   const backend = requireBackend("createHttpApp", given?.backend);
   const baseResolver = requireIdentityResolver("createHttpApp", given?.identityResolver);
   const app = express();
+  const guard = originGuard(given?.allowedHosts ?? LOCAL_HOSTS, given?.allowedOrigins, (res, message) => jsonRpcError(res, 403, -32000, message));
+  app.use("/mcp", guard);
   app.use(express.json());
 
   // Liveness (ADR-0029): the process is up and serving HTTP. Deliberately no
@@ -70,7 +80,7 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   });
 
   app.post("/mcp", async (req: Request, res: Response) => {
-    const headerToken = bearerTokenFromHeader(req);
+    const headerToken = bearerToken(req);
     // A fresh resolver per request, closing over *this* request's header —
     // the header is the authoritative source when present; the in-band
     // token (from a resource URI/tool argument) is only a fallback.

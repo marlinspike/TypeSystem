@@ -270,6 +270,8 @@ describe("the ABAC planner (ADR-0038)", () => {
       const fails = await checkPlanConformance(lying(() => Promise.reject(new Error("down"))), cases);
       expect(fails).toHaveLength(subjects.length * cases.policyNames.length);
       expect(fails.every((v) => v.violation === "planner-failed")).toBe(true);
-    });
+      // Three full conformance sweeps: ~60ms alone, but the suite runs every file in one worker (vitest.config.ts),
+      // where this CPU-bound test was seen to cross the 5s default after the Cedar WASM parity files.
+    }, 30_000);
   });
 });

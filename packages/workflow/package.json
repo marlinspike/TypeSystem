@@ -1,0 +1,41 @@
+{
+  "name": "@typesys/workflow",
+  "version": "0.1.0",
+  "description": "Governed workflows over TypeS: deterministic, AI and approval steps, a durable journal with retries, idempotency and compensation, and simulation with fault injection and replay. Every read and Action still goes through the runtime as the run's initiator.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/workflow"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/workflow#readme",
+  "keywords": [
+    "typesys",
+    "workflow",
+    "saga",
+    "approvals",
+    "ai-agents",
+    "simulation"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "@typesys/devkit": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/policy-cedar": "0.1.0"
+  }
+}

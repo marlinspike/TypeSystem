@@ -1,0 +1,41 @@
+{
+  "name": "@typesys/packs",
+  "version": "0.1.0",
+  "description": "Versioned, signed, offline domain packs for TypeS: a domain's Types, traits, Actions, data sources and mappings as one content-addressed archive, installed with every requirement checked first (bindings, policies, adapters, dependencies), specialized by packs that extend it, and upgrades checked against the contract diff and every dependent.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/packs"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/packs#readme",
+  "keywords": [
+    "typesys",
+    "domain",
+    "packs",
+    "offline",
+    "supply-chain"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@types/semver": "7.8.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/domain-hospital": "0.1.0"
+  }
+}

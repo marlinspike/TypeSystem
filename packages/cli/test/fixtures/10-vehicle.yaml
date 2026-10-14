@@ -26,6 +26,7 @@ computed:
   utilizationRate:
     dependsOn: [maintenanceStatus]
     binding: computeUtilizationRate
+    schema: { type: number, minimum: 0, maximum: 1 }
     resolutionMode: live
 
 policy:

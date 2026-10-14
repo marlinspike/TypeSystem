@@ -2,6 +2,7 @@ import type { BindingRegistry } from "@typesys/core";
 import { computeReadinessStatus } from "./computed/readiness-status.js";
 import { computeNeedsAttention } from "./computed/needs-attention.js";
 import { maintenanceEventExists } from "./actions/create-maintenance-work-order.js";
+import { workOrderNotClosed } from "./actions/update-work-order-status.js";
 
 /**
  * Every compute/precondition implementation this domain registers,
@@ -13,5 +14,5 @@ import { maintenanceEventExists } from "./actions/create-maintenance-work-order.
  */
 export const airforceBindingRegistry: BindingRegistry = {
   computed: { computeReadinessStatus, computeNeedsAttention },
-  preconditions: { maintenanceEventExists }
+  preconditions: { maintenanceEventExists, workOrderNotClosed }
 };

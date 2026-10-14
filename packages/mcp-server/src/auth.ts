@@ -1,4 +1,3 @@
-import type { Identity } from "@typesys/core";
 
 /**
  * Resolves a bearer token into an `Identity`, fresh on every single
@@ -16,4 +15,4 @@ import type { Identity } from "@typesys/core";
  * — real signature/issuer/audience verification (see ADR-0018). The demo's
  * static token map is `resolveDemoIdentity` in `@typesys/domain-airforce`.
  */
-export type IdentityResolver = (token: string | undefined | null) => Promise<Identity>;
+export type { IdentityResolver } from "@typesys/core";

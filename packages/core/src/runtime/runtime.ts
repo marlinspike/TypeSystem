@@ -1,9 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { ReadCoalescer } from "./read-coalescer.js";
 import { createHmac } from "node:crypto";
 import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
-import type { Adapter, ResolvedProperties, RelatedRef } from "./adapter.js";
+import type { Adapter, AdapterQueryResult, ResolvedProperties, RelatedRef } from "./adapter.js";
 import type { Identity, PolicyDecision, PolicyEngine, PolicyRequest, PolicyResource } from "../model/policy.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { ActionDefinition } from "../model/action.js";
@@ -22,6 +23,7 @@ import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
 import { applyProjection, applySort } from "./query-ops.js";
+import { decodeScanCursor, encodeScanCursor, isScanCursor, splitFilter, type ExecutionPlan, type ExecutionStep } from "./execution-plan.js";
 import { instrumentOperation, annotateActiveSpan } from "../observability/tracing.js";
 import { recordPolicyDecision, recordPolicyFaults, recordCacheResult, recordPlanDefect } from "../observability/metrics.js";
 import {
@@ -91,6 +93,16 @@ function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undef
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
+/**
+ * A withheld derivation's audit details (ADR-0052): the declared inputs that
+ * withhold it, and, apart, the inputs further up that withhold one of those
+ * and that a release of it does not lift.
+ */
+function derivationInputs(cp: ComputedPropertyDefinition, withheld: readonly string[]): { inputs: string[]; upstream?: string[] } {
+  const upstream = withheld.filter((name) => !cp.dependsOn.includes(name));
+  return { inputs: withheld.filter((name) => cp.dependsOn.includes(name)), ...(upstream.length > 0 ? { upstream } : {}) };
+}
+
 /** How identifiers — the caller's, and the objects it touches — reach telemetry (ADR-0045, ADR-0047). */
 export type TelemetryIdentity = "none" | "clear" | { mode: "pseudonymous"; key: Uint8Array };
 
@@ -125,7 +137,67 @@ function telemetryOf(policy: unknown): Telemetry {
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
-export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction";
+export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction";
+
+/** Why a previewed Action would not run (ADR-0053), in the order the runtime checks. */
+export interface ActionBlocker {
+  kind: "authorization" | "target" | "input" | "precondition";
+  message: string;
+}
+
+/**
+ * What `invokeAction` would do with this input, as this caller, decided
+ * exactly as it would be and with no side effect (ADR-0053). Only a caller
+ * the Action's policy allows learns about input and preconditions.
+ */
+export interface ActionPreview {
+  action: string;
+  version: string;
+  /** The object an instance-scoped Action would act on, when the input names one. */
+  target?: { typeName: string; objectId: string };
+  authorized: boolean;
+  /** Whether the input matches the Action's `inputSchema`; `null` when not checked. */
+  inputValid: boolean | null;
+  /** Each precondition in order: `null` when not evaluated, since an earlier gate already blocks. */
+  preconditions: { description: string; satisfied: boolean | null }[];
+  blockers: ActionBlocker[];
+  wouldExecute: boolean;
+  /** What the Action declares it does, from its definition (ADR-0005). */
+  effects: { sideEffects: ActionDefinition["sideEffects"]; idempotency: ActionDefinition["idempotency"]; auditRequired: boolean };
+}
+
+/** One Action as `listActions` reports it. `instanceScoped` Actions are decided per object (ADR-0053). */
+export interface ListedAction {
+  action: ActionDefinition;
+  authorized: boolean;
+  instanceScoped: boolean;
+}
+
+/** A `ListedAction` as it crosses a wire (MCP, the SDK): what a caller needs to choose an Action, without its definition's internals. */
+export interface ActionSummary {
+  name: string;
+  description: string;
+  authorized: boolean;
+  instanceScoped: boolean;
+  sideEffects: ActionDefinition["sideEffects"];
+  idempotency: ActionDefinition["idempotency"];
+}
+
+export function summarizeAction({ action, authorized, instanceScoped }: ListedAction): ActionSummary {
+  return { name: action.name, description: action.description, authorized, instanceScoped, sideEffects: action.sideEffects, idempotency: action.idempotency };
+}
+
+/** The object an instance-scoped invocation was authorized against. */
+interface ActionTarget {
+  typeName: string;
+  objectId: string;
+  attributes: Attributes;
+  typeDef: TypeDefinition;
+  stored: ResolvedProperties;
+  /** Per property, whether the caller's read of the target shows it; decided once, on first use. */
+  readable?: Map<string, Promise<boolean>>;
+  classified?: Promise<ReadonlySet<string>>;
+}
 
 /**
  * How `query` treats a read policy it can't plan exactly (ADR-0038):
@@ -143,6 +215,8 @@ export interface QueryPlanReport {
   rowSecurity: RowSecurity;
   /** The plan as `query` would apply it, fitted to where the Type's data is. */
   plan: AuthorizationPlan;
+  /** How `query` would run: each step in order, where each part of the filter runs, and what to expect (ADR-0054). */
+  execution: ExecutionPlan;
   /** Properties the query selects or orders by: a value's own provenance marking on one can still drop a row (ADR-0032). */
   probes: string[];
   guarantees: {
@@ -193,6 +267,26 @@ function planSummary(plan: AuthorizationPlan): { plan: AuthorizationPlan["kind"]
 
 /** The reason a clearance check gives the caller: never the marking, which can itself be sensitive (ADR-0032). */
 const CLEARANCE_REASON = "Requires a higher clearance";
+
+/** The call currently executing, if any: the runtime running it, its concurrency budget, and the operation it is (see `withRequest`). */
+interface RequestContext {
+  owner: SemanticRuntime;
+  budget: Semaphore;
+  operation: RuntimeOperation;
+  /** Computed properties' adapter reads, coalesced for this request when the runtime is so configured (ADR-0062). */
+  reads?: ReadCoalescer;
+}
+
+/**
+ * One for the process, never one per runtime. On Node 22 every live
+ * `AsyncLocalStorage` is propagated on every promise the process creates and
+ * is never released, so a store per instance made every await in the
+ * process slower with each runtime ever constructed (a test suite that
+ * builds hundreds slowed a query loop seventeenfold). Each context names the
+ * runtime it belongs to, so instances still never share a budget or an
+ * operation.
+ */
+const requests = new AsyncLocalStorage<RequestContext>();
 
 function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason?: string): AuthorizationError {
   const target = resource.actionName ?? resource.propertyPath ?? resource.objectId;
@@ -262,6 +356,14 @@ export interface SemanticRuntimeOptions {
    * supplies the settings its guarantees fix and refuses weaker ones.
    */
   securityProfile?: SecurityProfile;
+  /**
+   * How computed properties reach adapters within one request (ADR-0062).
+   * Default `"direct"`: every read they make goes to the adapter. `"coalesce"`:
+   * an identical read is made once per request, and concurrent equality
+   * lookups on one property become one `in` query, split back per value.
+   * Computations receive the same answers either way.
+   */
+  computedReads?: "direct" | "coalesce";
 }
 
 /** Every option a runtime understands — under a security profile, anything else is refused as a likely typo. */
@@ -275,7 +377,8 @@ const RUNTIME_OPTIONS: Readonly<Record<keyof SemanticRuntimeOptions, true>> = {
   classification: true,
   telemetryIdentity: true,
   rowSecurity: true,
-  securityProfile: true
+  securityProfile: true,
+  computedReads: true
 };
 
 const isFunction = (value: unknown): boolean => typeof value === "function";
@@ -353,8 +456,7 @@ export class SemanticRuntime {
   private readonly profile: SecurityProfile | undefined;
   /** How identifiers and errors reach spans, per the telemetry identity policy (ADR-0045, ADR-0047). */
   private readonly telemetry: Telemetry;
-  /** The call currently executing, if any: its concurrency budget and the operation it is (see `withRequest`). */
-  private readonly request = new AsyncLocalStorage<{ budget: Semaphore; operation: RuntimeOperation }>();
+  private readonly coalesceComputedReads: boolean;
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -384,6 +486,9 @@ export class SemanticRuntime {
     const rowSecurity = options.rowSecurity ?? "post-filter";
     if (rowSecurity !== "post-filter" && rowSecurity !== "require-exact") throw new TypeError(`rowSecurity must be "post-filter" or "require-exact"`);
     this.rowSecurity = rowSecurity;
+    const computedReads = options.computedReads ?? "direct";
+    if (computedReads !== "direct" && computedReads !== "coalesce") throw new TypeError(`computedReads must be "direct" or "coalesce"`);
+    this.coalesceComputedReads = computedReads === "coalesce";
     // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
     this.telemetry = telemetryOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
@@ -423,15 +528,14 @@ export class SemanticRuntime {
   private getAdapter(dataSourceId: string): Adapter {
     const adapter = this.adapters.get(dataSourceId);
     if (!adapter) throw new NotFoundError(`No adapter registered for data source "${dataSourceId}"`);
-    const store = this.request;
     const resilience = this.resilience;
 
     // `exit` runs the adapter call outside this request's budget, so an adapter that itself calls
     // back into a runtime starts a fresh budget instead of deadlocking on permits it can't get.
     // Resolved per call (not once), so it holds across resilience retries and after backoff sleeps.
     const underBudget = (invoke: () => Promise<unknown>): Promise<unknown> => {
-      const budget = store.getStore()?.budget;
-      return budget ? budget.run(() => store.exit(invoke)) : invoke();
+      const budget = this.currentRequest()?.budget;
+      return budget ? budget.run(() => requests.exit(invoke)) : invoke();
     };
 
     return new Proxy(adapter, {
@@ -469,8 +573,14 @@ export class SemanticRuntime {
    * levels would multiply it, and every row names what the caller asked for.
    */
   private withRequest<T>(operation: RuntimeOperation, fn: () => Promise<T>): Promise<T> {
-    if (this.request.getStore()) return fn();
-    return this.request.run({ budget: new Semaphore(this.maxConcurrency), operation }, fn);
+    if (this.currentRequest()) return fn();
+    return requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation }, fn);
+  }
+
+  /** This runtime's request in progress, if any; a request of another runtime instance is not this one's. */
+  private currentRequest(): RequestContext | undefined {
+    const store = requests.getStore();
+    return store?.owner === this ? store : undefined;
   }
 
   private async checkRateLimit(identity: Identity): Promise<void> {
@@ -741,7 +851,7 @@ export class SemanticRuntime {
     details?: Record<string, unknown>
   ): Promise<void> {
     recordPolicyDecision(decision.allow ? "allow" : "deny");
-    const operation = this.request.getStore()?.operation;
+    const operation = this.currentRequest()?.operation;
     await this.registry.appendAuditEvent({
       id: ulid(),
       timestamp: new Date().toISOString(),
@@ -953,8 +1063,8 @@ export class SemanticRuntime {
    * through this one audited path, so how an Action is listed and what
    * invoking it does can't drift apart.
    */
-  private async authorizeInvoke(identity: Identity, action: ActionDefinition, typeName: string): Promise<PolicyDecision> {
-    const resource = { typeName, actionName: action.name };
+  private async authorizeInvoke(identity: Identity, action: ActionDefinition, typeName: string, instance?: { objectId: string; attributes: Attributes }): Promise<PolicyDecision> {
+    const resource: PolicyResource = { typeName, actionName: action.name, ...(instance ?? {}) };
     const decision = await this.evaluate(identity, "invoke", action.authorizationPolicy, resource);
     if (!decision.allow) return decision;
     const cleared = await this.clearedFor(identity, await this.actionMarkings(action), resource, "invoke");
@@ -1049,21 +1159,27 @@ export class SemanticRuntime {
     const values: Record<string, unknown> = { ...resolved.values };
     const computedResults: Record<string, unknown> = {};
 
-    const ctx: ComputeContext = {
+    const request = this.currentRequest();
+    const reads = this.coalesceComputedReads && request ? (request.reads ??= new ReadCoalescer()) : undefined;
+    // Each computed property reads only the inputs its own `dependsOn` names (ADR-0052): every gate below —
+    // markings, policies, releases — is decided over `dependsOn`, so an undeclared read would bypass them all.
+    // It reads as undefined, as a declared input this object has no value for does: the same for every object
+    // and every caller.
+    const contextFor = (cp: ComputedPropertyDefinition): ComputeContext => ({
       identity,
       objectId,
       typeName: typeDef.name,
-      getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
+      getAdapter: (dataSourceId: string) => (reads ? reads.view(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId)),
       getProperty: async (name: string) => {
+        if (!cp.dependsOn.includes(name)) return undefined;
         if (name in values) return values[name];
-        if (name in computedResults) return computedResults[name];
-        throw new Error(`Property "${name}" not available for computed-property dependency resolution`);
+        return computedResults[name];
       }
-    };
+    });
 
     const uncacheable = await this.uncacheableComputed(typeDef, resolved);
     for (const cp of typeDef.computedProperties) {
-      computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, ctx, !uncacheable.has(cp.name));
+      computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, contextFor(cp), !uncacheable.has(cp.name));
     }
     Object.assign(values, computedResults);
 
@@ -1071,16 +1187,61 @@ export class SemanticRuntime {
     const classified = await this.classifiedOut(typeDef, objectId, identity, values, resolved.provenance);
     for (const name of classified) delete values[name];
 
-    const propertyPolicies = typeDef.schema["x-policy"]?.propertyPolicies ?? {};
-    for (const [propName, policyName] of Object.entries(propertyPolicies)) {
+    // Each member policy is decided at most once per object read, whether for its own value or for a derivation.
+    const memberDecisions = new Map<string, Promise<boolean>>();
+    const memberReadable = (member: string): Promise<boolean> => {
+      const policyName = memberPolicyOf(typeDef, member);
+      if (!policyName) return Promise.resolve(true);
+      let decided = memberDecisions.get(member);
+      if (!decided) {
+        decided = this.evaluate(identity, "read", policyName, { typeName: typeDef.name, objectId, propertyPath: member, attributes }).then((d) => d.allow);
+        memberDecisions.set(member, decided);
+      }
+      return decided;
+    };
+
+    const unreadable = new Set<string>();
+    for (const propName of Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {})) {
       if (!(propName in values)) continue;
-      const decision = await this.evaluate(identity, "read", policyName, {
-        typeName: typeDef.name,
-        objectId,
-        propertyPath: propName,
-        attributes
-      });
-      if (!decision.allow) delete values[propName];
+      if (!(await memberReadable(propName))) {
+        delete values[propName];
+        unreadable.add(propName);
+      }
+    }
+
+    // A derived value is readable only where every input it derives from is (ADR-0052), as markings already
+    // propagate (ADR-0032): otherwise readinessStatus would disclose the maintenanceStatus it maps one to one.
+    // Declaration order, so a computed input has already been decided. An input with a policy is decided even
+    // when it has no value, since a derivation can disclose that absence too. A release lifts only the named
+    // input's own policy: an input withheld because of its own withheld inputs passes those on, and they keep
+    // blocking here unless this property releases them too.
+    const withheldBy = new Map<string, readonly string[]>();
+    for (const cp of typeDef.computedProperties) {
+      const blocked = new Set<string>();
+      for (const dep of cp.dependsOn) {
+        if (unreadable.has(dep) || !(await memberReadable(dep))) blocked.add(dep);
+        for (const upstream of withheldBy.get(dep) ?? []) blocked.add(upstream);
+      }
+      if (blocked.size === 0) continue;
+      const released = [...blocked].filter((dep) => cp.releases?.includes(dep));
+      const withheld = [...blocked].filter((dep) => !released.includes(dep));
+      const resource = { typeName: typeDef.name, objectId, propertyPath: cp.name };
+      if (withheld.length > 0) {
+        unreadable.add(cp.name);
+        withheldBy.set(cp.name, withheld);
+        if (!(cp.name in values)) continue;
+        delete values[cp.name];
+        await this.audit(identity, "read", resource, { allow: false, reason: "Derived from a property the caller may not read" }, { control: "derivation", ...derivationInputs(cp, withheld) });
+      } else if (cp.name in values) {
+        // A release is a declared exception to the rule above, so every use of one is on the record.
+        await this.audit(identity, "read", resource, { allow: true }, { control: "derivation", released });
+      }
+    }
+
+    // A computed value's schema (ADR-0055) is checked only where the caller reads the value: refusing the whole
+    // read over a value the caller can't see would disclose something about it, object by object.
+    for (const cp of typeDef.computedProperties) {
+      if (cp.name in values) this.inputValidator.validateComputedValue(typeDef, cp, values[cp.name]);
     }
 
     const provenance = resolved.provenance.filter((p) => p.propertyPath in values);
@@ -1213,17 +1374,18 @@ export class SemanticRuntime {
         // says nothing about the data (ADR-0049). The object policy, by contrast, has no type-level gate: it is
         // decided per returned item, below (ADR-0030).
         await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
-        if (q.filter) {
-          this.rejectComputedFilterProperties(typeDef, q.filter);
-          await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
-        }
+        // A condition on a computed property can't run in the adapter, which has only stored values; it runs here
+        // instead, on each object's finalized, caller-visible values (ADR-0054).
+        const split = this.splitQueryFilter(typeDef, q.filter);
+        if (q.filter) await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
         if (q.sort) {
           this.rejectComputedSortProperties(typeDef, q.sort);
           await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
         }
         // `search` desugars to an `icontains` OR-filter over resolved, readable, non-computed
         // properties, AND-combined with any explicit filter (ADR-0027).
-        const effectiveFilter = await this.resolveSearchFilter(typeDef, q.filter, q.search, identity);
+        const effectiveFilter = await this.resolveSearchFilter(typeDef, split.pushdown, q.search, identity);
+        if (!split.residual && isScanCursor(q.cursor)) throw new InvalidInputError("Invalid query: this cursor belongs to a query filtered on computed properties");
 
         // The read policy as a filter the adapter applies before it reads (ADR-0038). A sound
         // over-approximation: whatever it excludes, the policy would have denied. Every object it admits
@@ -1254,7 +1416,6 @@ export class SemanticRuntime {
         // are merged per item below, not folded into this call.
         const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(q.type);
         const adapter = this.getAdapter(base.dataSourceId);
-        const result = await adapter.queryByType(q.type, plannedFilter, q.limit, q.cursor, q.sort);
 
         // Every item, and every `include` within an item, is independent — resolve the
         // whole O(items x includes) fan-out concurrently rather than one sequential
@@ -1262,8 +1423,12 @@ export class SemanticRuntime {
         // multiplied across a whole result page), bounded by maxConcurrency (ADR-0019)
         // so a large `limit` can't open unbounded concurrent adapter calls.
         const objectPolicy = objectPolicyOf(typeDef);
-        const probed = new Set([...(effectiveFilter ? filterProperties(effectiveFilter) : []), ...(q.sort ?? []).map((s) => s.property)]);
-        const items = await mapWithConcurrency(result.items, this.maxConcurrency, async (item) => {
+        const probed = new Set([
+          ...(effectiveFilter ? filterProperties(effectiveFilter) : []),
+          ...(split.residual ? filterProperties(split.residual) : []),
+          ...(q.sort ?? []).map((s) => s.property)
+        ]);
+        const readPage = (page: AdapterQueryResult["items"]) => mapWithConcurrency(page, this.maxConcurrency, async (item) => {
           const stored = await this.mergeOverrides(typeDef, item.objectId, { values: item.values, provenance: item.provenance }, overrides);
           const attributes = snapshot(stored.values);
           // Decided on this item's own attributes (ADR-0030). A denied item is dropped silently (audited),
@@ -1278,6 +1443,9 @@ export class SemanticRuntime {
           // An item selected or ordered by a value its provenance classified out would reveal that value through
           // the selection itself, so it is dropped too (ADR-0032).
           if ([...probed].some((p) => classified.has(p))) return undefined;
+          // The runtime part of the filter sees only what the caller may read: a withheld or redacted value is
+          // absent, whatever it is, so the filter can't be used to probe it (ADR-0052, ADR-0054).
+          if (split.residual && !matchesFilter(values, split.residual)) return undefined;
           // Projection trims the object's own properties, after redaction (ADR-0027); requested
           // includes are assigned afterward so they survive it.
           const projected = applyProjection(values, q.select);
@@ -1292,7 +1460,44 @@ export class SemanticRuntime {
           }
           return resolved;
         });
-        return { items: items.filter((item) => item !== undefined), nextCursor: result.nextCursor };
+
+        if (!split.residual) {
+          const result = await adapter.queryByType(q.type, plannedFilter, q.limit, q.cursor, q.sort);
+          const items = await readPage(result.items);
+          return { items: items.filter((item) => item !== undefined), nextCursor: result.nextCursor };
+        }
+
+        // Part of the filter runs here, so a page of the adapter's can yield fewer matches than asked for: read
+        // pages until the page is full, the source is exhausted, or maxScanned rows were read (ADR-0054). The
+        // cursor names the adapter page and how far into it this call got, so the next call resumes exactly there.
+        const out: ResolvedObject[] = [];
+        let position = decodeScanCursor(q.cursor);
+        // The skip sizes the first adapter page, so a forged one would ask the source for any number of rows. A
+        // cursor issued over an adapter that honours `limit` skips no further than one call may scan.
+        if (position.skip > this.queryLimits.maxScanned) {
+          throw new InvalidInputError("Invalid query: cursor was not issued for this query; pass the nextCursor this query returned");
+        }
+        let scanned = 0;
+        for (;;) {
+          // Only as many rows as could still be returned: rows past the limit would be read, decided and audited
+          // for nothing, then read again by the next call.
+          const pageSize = position.skip + Math.min(q.limit - out.length, this.queryLimits.maxScanned - scanned);
+          const page = await adapter.queryByType(q.type, plannedFilter, pageSize, position.cursor, q.sort);
+          const rows = page.items.slice(position.skip);
+          const resolved = await readPage(rows);
+          for (let i = 0; i < rows.length; i++) {
+            scanned++;
+            const item = resolved[i];
+            if (item) out.push(item);
+            const consumed = position.skip + i + 1;
+            if (out.length === q.limit || scanned >= this.queryLimits.maxScanned) {
+              const rest = consumed < page.items.length ? encodeScanCursor({ ...(position.cursor !== undefined ? { cursor: position.cursor } : {}), skip: consumed }) : page.nextCursor !== undefined ? encodeScanCursor({ cursor: page.nextCursor, skip: 0 }) : undefined;
+              return { items: out, ...(rest ? { nextCursor: rest } : {}) };
+            }
+          }
+          if (page.nextCursor === undefined) return { items: out };
+          position = { cursor: page.nextCursor, skip: 0 };
+        }
       }
     ));
   }
@@ -1376,11 +1581,20 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
         const typeDef = await this.requireType(q.type);
+        // The gates `query` decides before it plans, decided the same way: the plan describes the Type's members,
+        // policies and sources, which a caller `query` would refuse has no business learning.
+        await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
+        if (q.filter) await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
+        if (q.sort) {
+          this.rejectComputedSortProperties(typeDef, q.sort);
+          await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
+        }
         const plan = await this.planRead(typeDef, identity);
         const computed = new Set(typeDef.computedProperties.map((c) => c.name));
         const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
         const probes = [...new Set([...(q.filter ? filterProperties(q.filter) : []), ...(q.sort ?? []).map((s) => s.property), ...searched])];
         const exact = isExact(plan);
+        const execution = await this.describeExecution(typeDef, q, plan, identity);
         await this.audit(identity, "read", { typeName: q.type }, { allow: true }, { control: "row-plan", operation: "explainQuery", ...planSummary(plan) });
         return {
           typeName: q.type,
@@ -1388,6 +1602,7 @@ export class SemanticRuntime {
           securityProfile: this.profile?.id ?? null,
           rowSecurity: this.rowSecurity,
           plan,
+          execution,
           probes,
           guarantees: {
             exact,
@@ -1464,22 +1679,63 @@ export class SemanticRuntime {
     }
   }
 
-  /**
-   * The top-level filter runs in the adapter, which only has stored values;
-   * computed properties don't exist until after it returns, so a condition
-   * on one would silently match nothing. Reject it and point at the filter
-   * that does work: an include-level filter runs on fully resolved objects.
-   */
-  private rejectComputedFilterProperties(typeDef: TypeDefinition, filter: QueryFilter): void {
+  /** The query's filter split into what the adapter runs and what runs here, on finalized values (ADR-0054). */
+  private splitQueryFilter(typeDef: TypeDefinition, filter: QueryFilter | undefined) {
     const computed = new Set(typeDef.computedProperties.map((c) => c.name));
-    const used = [...filterProperties(filter)].filter((p) => computed.has(p));
-    if (used.length > 0) {
-      throw new InvalidInputError(
-        `Invalid query: cannot filter "${typeDef.name}" on computed ${used.length === 1 ? "property" : "properties"} ` +
-          `${used.map((p) => `"${p}"`).join(", ")} at the top level; computed values don't exist until after the ` +
-          `adapter has filtered. Filter on it in an include instead, or filter the results client-side.`
+    return splitFilter(filter, (p) => computed.has(p));
+  }
+
+  /**
+   * How `query` will run `q` (ADR-0054): the same filter split, sources and
+   * steps `query` uses, described rather than executed. Includes are walked
+   * from the registry, so an unknown relationship is reported here too.
+   */
+  private async describeExecution(typeDef: TypeDefinition, q: SemanticQuery & { limit: number }, plan: AuthorizationPlan, identity: Identity): Promise<ExecutionPlan> {
+    const split = this.splitQueryFilter(typeDef, q.filter);
+    const { base, overrides } = await this.mappingResolver.resolvePropertyMappings(typeDef.name);
+    const notes: string[] = [];
+    const steps: ExecutionStep[] = [{ op: "classification-gate", marked: objectMarkings(typeDef).length > 0 }];
+    steps.push({
+      op: "scan",
+      dataSourceId: base.dataSourceId,
+      ...(split.pushdown || q.search ? { pushdownFilter: await this.resolveSearchFilter(typeDef, split.pushdown, q.search, identity) } : {}),
+      authorizationPredicate: plan.kind === "predicate",
+      ...(q.sort ? { sort: q.sort } : {}),
+      pageSize: q.limit
+    });
+    if (overrides.length > 0) steps.push({ op: "merge-overrides", dataSourceIds: [...new Set(overrides.map((o) => o.dataSourceId))], callsPerObject: overrides.length });
+    steps.push({ op: "authorize-rows", policyName: objectPolicyOf(typeDef), decidedPerObject: true });
+    if (typeDef.computedProperties.length > 0) steps.push({ op: "compute", properties: typeDef.computedProperties.map((c) => ({ name: c.name, dependsOn: [...c.dependsOn] })) });
+    const memberPolicies = Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {});
+    const marked = Object.keys(typeDef.schema["x-provenance"]?.properties ?? {}).filter((m) => memberMarkings(typeDef, m).length > 0);
+    if (memberPolicies.length > 0 || marked.length > 0 || typeDef.computedProperties.length > 0) steps.push({ op: "redact", memberPolicies, marked });
+    if (split.residual) {
+      steps.push({ op: "residual-filter", filter: split.residual, maxScanned: this.queryLimits.maxScanned });
+      notes.push(
+        `Part of the filter names computed properties, so it runs after each object is read: a page can come back short with a nextCursor, and one call reads at most ${this.queryLimits.maxScanned} rows.`
       );
     }
+    if (q.select) steps.push({ op: "project", select: q.select });
+    const walk = async (owner: TypeDefinition, includes: SemanticQuery["include"], depth: number): Promise<void> => {
+      for (const inc of includes ?? []) {
+        const relName = this.registry.resolveAlias(owner, inc.relationship);
+        const rel = owner.relationships.find((r) => r.name === relName);
+        if (!rel) throw new NotFoundError(`Unknown relationship "${inc.relationship}" on type "${owner.name}"`);
+        // An include the caller isn't cleared for — the relationship's own marking or its target Type's — returns
+        // nothing of it, so the plan doesn't describe where it reads from either.
+        const target = await this.registry.getType(rel.targetType);
+        const markings = [...memberMarkings(owner, rel.name), ...(target ? objectMarkings(target) : [])];
+        if (!(await this.clearedFor(identity, markings, { typeName: owner.name, propertyPath: rel.name }))) continue;
+        steps.push({ op: "include", relationship: rel.name, targetType: rel.targetType, dataSourceId: rel.resolution.dataSourceId, depth, filtered: inc.filter !== undefined });
+        if (target && inc.include) await walk(target, inc.include, depth + 1);
+      }
+    };
+    await walk(typeDef, q.include, 1);
+    if (!isExact(plan)) notes.push("The read policy has no exact plan for this caller, so rows are decided after they are read: pages can come back short.");
+    if (typeDef.computedProperties.length > 0) {
+      notes.push(`Each returned object runs ${typeDef.computedProperties.length} computed ${typeDef.computedProperties.length === 1 ? "property" : "properties"}, which may call other systems.`);
+    }
+    return { steps, adapterCallsPerObject: { overrides: overrides.length, computed: typeDef.computedProperties.length }, notes };
   }
 
   /**
@@ -1574,13 +1830,17 @@ export class SemanticRuntime {
    * property's own policy. A computed property recurses into its
    * dependencies with the object already authorized (`source`), so each is
    * checked against its own policy without re-deciding the object.
+   * `released` marks an input its dependant releases (ADR-0052): only that
+   * input's own policy is lifted, and a denial of it leaves its provenance
+   * out rather than refusing. Its markings and its own inputs are decided
+   * as for any other input, so whatever withholds the value refuses here.
    */
   private async readProvenance(
     typeName: string,
     objectId: string,
     propertyPath: string,
     identity: Identity,
-    source?: { typeDef: TypeDefinition; attributes: Attributes }
+    source?: { typeDef: TypeDefinition; attributes: Attributes; released?: boolean }
   ): Promise<ProvenanceRef[]> {
     return this.withRequest("getProvenance", () => this.instrument(
       "SemanticRuntime.getProvenance",
@@ -1590,14 +1850,24 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const typeDef = source?.typeDef ?? (await this.requireType(typeName));
         const attributes = source?.attributes ?? (await this.authorizeRead(typeDef, objectId, identity)).attributes;
-        await this.requireMemberReadable(typeDef, propertyPath, objectId, attributes, identity);
+        let leftOut = false;
+        if (source?.released) {
+          await this.requireCleared(identity, memberMarkings(typeDef, propertyPath), { typeName, objectId, propertyPath });
+          const policyName = memberPolicyOf(typeDef, propertyPath);
+          if (policyName) leftOut = !(await this.evaluate(identity, "read", policyName, { typeName, objectId, propertyPath, attributes })).allow;
+        } else {
+          await this.requireMemberReadable(typeDef, propertyPath, objectId, attributes, identity);
+        }
 
         const computed = typeDef.computedProperties.find((c) => c.name === propertyPath);
         if (computed) {
+          // A released input (ADR-0052) lets the value through but never the input: where its own policy denies
+          // the caller, its provenance is left out rather than refusing the whole answer. Any other unreadable
+          // input refuses — a marking, or a released input's own unreleased input — as the value is withheld.
           const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
-            this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes })
+            this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes, released: computed.releases?.includes(dep) === true })
           );
-          return nested.flat();
+          return leftOut ? [] : nested.flat();
         }
 
         const mapping = await this.mappingResolver.resolvePropertyMapping(typeName, propertyPath);
@@ -1606,12 +1876,92 @@ export class SemanticRuntime {
         const refs = resolved.provenance.filter((p) => p.propertyPath === propertyPath);
         // The value's own marking, known only once it has been read (ADR-0032).
         await this.requireCleared(identity, valueMarkings(refs), { typeName, objectId, propertyPath });
-        return refs;
+        return leftOut ? [] : refs;
       }
     ));
   }
 
-  async listActions(typeName: string, identity: Identity): Promise<{ action: ActionDefinition; authorized: boolean }[]> {
+  /**
+   * The gate every invocation, preview and listing shares (ADR-0053). A
+   * type-scoped Action is decided per Type, as before. An instance-scoped one
+   * reads its target first, under the caller's read authorization — a target
+   * the caller may not read refuses the Action, audited as that read's deny —
+   * then decides the Action's policy on the target's stored attributes. An
+   * input that names no target is decided per Type, so an attribute rule
+   * denies it and the attempt is still audited.
+   */
+  private async gateAction(identity: Identity, action: ActionDefinition, input: unknown): Promise<{ decision: PolicyDecision; typeName: string; target?: ActionTarget }> {
+    const typeName = action.target?.type ?? action.applicableTypes[0] ?? "unknown";
+    const objectId = action.target && typeof input === "object" && input !== null ? (input as Record<string, unknown>)[action.target.idFrom] : undefined;
+    if (typeof objectId !== "string" || objectId === "") return { decision: await this.authorizeInvoke(identity, action, typeName), typeName };
+
+    const typeDef = await this.requireType(typeName);
+    let read: { stored: ResolvedProperties; attributes: Attributes };
+    try {
+      read = await this.authorizeRead(typeDef, objectId, identity);
+    } catch (err) {
+      if (err instanceof AuthorizationError) return { decision: { allow: false, reason: err.reason ?? err.message }, typeName };
+      throw err;
+    }
+    const { stored, attributes } = read;
+    const decision = await this.authorizeInvoke(identity, action, typeName, { objectId, attributes });
+    return { decision, typeName, target: { typeName, objectId, attributes, typeDef, stored } };
+  }
+
+  /**
+   * What preconditions and the adapter see: for an instance-scoped Action,
+   * `getProperty` reads the authorized target's stored values as the
+   * caller's own read shows them (ADR-0053). A value classified out or
+   * denied by its property policy reads as undefined, and `onWithheld` is
+   * told, so a precondition over it is not decided for this caller.
+   */
+  private actionContext(identity: Identity, input: unknown, target: ActionTarget | undefined, onWithheld?: () => void): ActionContext {
+    return {
+      identity,
+      input,
+      ...(target ? { target: { typeName: target.typeName, objectId: target.objectId } } : {}),
+      getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
+      getProperty: async (name: string) => {
+        if (!target) throw new Error("getProperty is available only to an instance-scoped Action (ADR-0053); resolve the object via getObject first");
+        if (!(await this.targetReadable(identity, target, name))) {
+          onWithheld?.();
+          return undefined;
+        }
+        return target.attributes[name];
+      }
+    };
+  }
+
+  /**
+   * Whether the caller's read of an Action's target shows `name`, decided as
+   * `finalizeValues` decides it: classification, then the member's own
+   * marking and policy. Decided whether or not the target has a value for
+   * it, so withholding says nothing about whether one exists.
+   */
+  private targetReadable(identity: Identity, target: ActionTarget, name: string): Promise<boolean> {
+    const decided = (target.readable ??= new Map<string, Promise<boolean>>());
+    let readable = decided.get(name);
+    if (!readable) {
+      readable = (async () => {
+        target.classified ??= this.classifiedOut(target.typeDef, target.objectId, identity, { ...target.stored.values }, target.stored.provenance);
+        if ((await target.classified).has(name)) return false;
+        const resource = { typeName: target.typeName, objectId: target.objectId, propertyPath: name };
+        if (!(await this.clearedFor(identity, memberMarkings(target.typeDef, name), resource))) return false;
+        const policyName = memberPolicyOf(target.typeDef, name);
+        return !policyName || (await this.evaluate(identity, "read", policyName, { ...resource, attributes: target.attributes })).allow;
+      })();
+      decided.set(name, readable);
+    }
+    return readable;
+  }
+
+  /**
+   * The Actions applicable to `typeName`, each with whether this caller may
+   * invoke it. Pass `objectId` to decide instance-scoped Actions on that
+   * object (ADR-0053); without it they are decided per Type, where an
+   * attribute rule denies.
+   */
+  async listActions(typeName: string, identity: Identity, opts: { objectId?: string } = {}): Promise<ListedAction[]> {
     return this.withRequest("listActions", () => this.instrument(
       "SemanticRuntime.listActions",
       typeName,
@@ -1620,13 +1970,105 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const all = await this.registry.listActions();
         const applicable = all.filter((a) => a.applicableTypes.includes(typeName));
-        const results: { action: ActionDefinition; authorized: boolean }[] = [];
+        const results: ListedAction[] = [];
         for (const action of applicable) {
           // A preview is still an authorization decision disclosed to the caller, so it is decided and audited
           // exactly as invokeAction decides it.
-          results.push({ action, authorized: (await this.authorizeInvoke(identity, action, typeName)).allow });
+          const instanceScoped = action.target !== undefined;
+          const onThis = instanceScoped && opts.objectId !== undefined && (action.target!.type ?? action.applicableTypes[0]) === typeName;
+          const authorized = onThis
+            ? (await this.gateAction(identity, action, { [action.target!.idFrom]: opts.objectId })).decision.allow
+            : (await this.authorizeInvoke(identity, action, typeName)).allow;
+          results.push({ action, authorized, instanceScoped });
         }
         return results;
+      }
+    ));
+  }
+
+  /**
+   * Decides `invokeAction(actionName, input)` for this caller without
+   * executing it (ADR-0053): authorization (on the target, for an
+   * instance-scoped Action), then input validation, then each precondition,
+   * which may read through adapters as it would on a real call. Nothing is
+   * dispatched to `executeAction`. Every decision is audited as on a real
+   * call, under operation `previewAction`, plus one row recording the
+   * preview's outcome.
+   */
+  async previewAction(actionName: string, input: unknown, identity: Identity): Promise<ActionPreview> {
+    const action = await this.registry.getAction(actionName);
+    if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
+    return this.withRequest("previewAction", () => this.instrument(
+      "SemanticRuntime.previewAction",
+      action.applicableTypes[0] ?? "unknown",
+      { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
+      async () => {
+        await this.checkRateLimit(identity);
+        const blockers: ActionBlocker[] = [];
+        const preconditions: ActionPreview["preconditions"] = (action.preconditions ?? []).map((p) => ({ description: p.description, satisfied: null }));
+        let inputValid: boolean | null = null;
+        let gate: Awaited<ReturnType<SemanticRuntime["gateAction"]>> | undefined;
+        try {
+          gate = await this.gateAction(identity, action, input);
+          if (!gate.decision.allow) blockers.push({ kind: "authorization", message: gate.decision.reason ?? "Not authorized" });
+        } catch (err) {
+          // Raised only after the caller was allowed to read the target type: the id names no object.
+          if (!(err instanceof ObjectNotFoundError)) throw err;
+          blockers.push({ kind: "target", message: err.message });
+        }
+
+        if (blockers.length === 0 && gate) {
+          try {
+            this.inputValidator.validateActionInput(action, input);
+            inputValid = true;
+          } catch (err) {
+            if (!(err instanceof InvalidInputError)) throw err;
+            inputValid = false;
+            blockers.push({ kind: "input", message: err.message });
+          }
+        }
+
+        if (blockers.length === 0 && gate) {
+          for (const [i, precondition] of (action.preconditions ?? []).entries()) {
+            let withheld = false;
+            const ctx = this.actionContext(identity, input, gate.target, () => (withheld = true));
+            let satisfied: boolean;
+            try {
+              satisfied = (await precondition.check(ctx)) === true;
+            } catch {
+              satisfied = false;
+            }
+            // Over a value the caller may not read, the outcome would disclose it: reported as not decided.
+            if (withheld) {
+              blockers.push({ kind: "precondition", message: `Precondition not decided: ${precondition.description} (it reads a value this caller may not read)` });
+              continue;
+            }
+            preconditions[i]!.satisfied = satisfied;
+            if (!satisfied) blockers.push({ kind: "precondition", message: `Precondition failed: ${precondition.description}` });
+          }
+        }
+
+        const typeName = gate?.typeName ?? action.applicableTypes[0] ?? "unknown";
+        const target = gate?.target ? { typeName: gate.target.typeName, objectId: gate.target.objectId } : undefined;
+        const wouldExecute = blockers.length === 0;
+        await this.audit(
+          identity,
+          "invoke",
+          { typeName, actionName: action.name, ...(target ? { objectId: target.objectId } : {}) },
+          wouldExecute ? { allow: true } : { allow: false, reason: `Preview: blocked by ${blockers.map((b) => b.kind).join(", ")}` },
+          { control: "preview", blockers: blockers.map((b) => b.kind) }
+        );
+        return {
+          action: action.name,
+          version: action.version,
+          ...(target ? { target } : {}),
+          authorized: gate?.decision.allow === true,
+          inputValid,
+          preconditions,
+          blockers,
+          wouldExecute,
+          effects: { sideEffects: action.sideEffects, idempotency: action.idempotency, auditRequired: action.auditRequired }
+        };
       }
     ));
   }
@@ -1642,23 +2084,21 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
-        const gate = await this.authorizeInvoke(identity, action, primaryType);
-        if (!gate.allow) throw notAuthorized("invoke", { typeName: primaryType, actionName: action.name }, gate.reason);
+        const { decision, typeName, target } = await this.gateAction(identity, action, input);
+        if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason);
         // After the policy check, so every attempt by an unauthorized caller is still audited as a
         // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
         this.inputValidator.validateActionInput(action, input);
 
-        const ctx: ActionContext = {
-          identity,
-          input,
-          getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
-          getProperty: async () => {
-            throw new Error("getProperty is not available in an action context; resolve the object via getObject first");
-          }
-        };
-
+        const ctx = this.actionContext(identity, input, target);
         for (const precondition of action.preconditions ?? []) {
-          const ok = await precondition.check(ctx);
+          let withheld = false;
+          const ok = await precondition.check(this.actionContext(identity, input, target, () => (withheld = true)));
+          // A precondition over a value the caller may not read refuses whatever it returned, so neither the
+          // outcome nor the error tells the caller anything about that value (ADR-0053).
+          if (withheld) {
+            throw new PreconditionFailedError(`Precondition failed for action "${actionName}": ${precondition.description} (it reads a value the caller may not read)`);
+          }
           if (!ok) {
             throw new PreconditionFailedError(`Precondition failed for action "${actionName}": ${precondition.description}`);
           }
@@ -1666,6 +2106,8 @@ export class SemanticRuntime {
 
         const adapter = this.getAdapter(action.implementation.dataSourceId);
         const result = await adapter.executeAction(action, input, ctx);
+        // The target was read before the write; a cached copy of it is now stale.
+        if (target && action.sideEffects !== "none") await this.invalidateObject(target.typeName, target.objectId);
 
         if (action.auditRequired) {
           await this.registry.appendAuditEvent({
@@ -1674,7 +2116,7 @@ export class SemanticRuntime {
             subjectId: identity.subjectId,
             operation: "invokeAction",
             action: action.name,
-            resource: { typeName: primaryType },
+            resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
             outcome: "success"
           });

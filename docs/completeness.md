@@ -162,7 +162,161 @@ document that gap rather than close it in this pass.
   own-patient rule uses them. Proven by
   `packages/core/test/row-level-authorization.test.ts` and
   `packages/domain-hospital/test/row-level-authorization.test.ts`, including
-  attack suites. Not addressed: instance-scoped Actions (see the ADR).
+  attack suites. Instance-scoped Actions followed in ADR-0053.
+- Derived values inherit their inputs' read policy (ADR-0052): a computed
+  property is withheld from a caller who may not read every input it
+  depends on, transitively and even where the input has no value, unless the
+  Type lists the input in `releases`; each withholding and each release is
+  audited, and markings are never released. Proven by
+  `packages/core/test/derived-value-release.test.ts`, mutation-checked. Not
+  addressed: what a derivation reads through `ctx.getAdapter` about other
+  objects is the domain author's responsibility, not checked by the runtime.
+- Instance-scoped Actions and Action previews (ADR-0053): an Action may
+  name the object it acts on (`target: { idFrom }`), which the runtime reads
+  under the caller's read authorization before deciding the Action's policy
+  on that object's attributes, with Cedar parity; `previewAction` decides an
+  invocation (authorization, input, each precondition) and executes nothing;
+  `listActions` decides per object when given one. MCP exposes both as
+  `typesys_list_actions` and `typesys_preview_action`, and the HTTP transport
+  validates `Host` and `Origin` against DNS rebinding (the conformance
+  suite's scenario now passes). Proven by
+  `packages/core/test/instance-scoped-actions.test.ts`,
+  `packages/domain-airforce/test/update-work-order-status-action.test.ts`,
+  `packages/mcp-server/test/action-preview-tools.test.ts` and
+  `packages/mcp-server/test/http-origin.test.ts`, mutation-checked. Not
+  addressed: a preview relies on preconditions having no side effects; an
+  adapter-level dry run of the write itself.
+- Filtering on computed properties and explainable execution plans
+  (ADR-0054): a filter's conjuncts that name computed properties run in the
+  runtime on each object's finalized, caller-visible values (so a withheld
+  value can't be probed), the rest in the adapter; pages are refilled until
+  full, the source runs out, or `maxScanned` rows were read, with a cursor
+  that resumes exactly where the call stopped. `explainQuery` reports the
+  execution plan derived from the same split, and MCP's
+  `typesys_explain_query` returns it without the authorization plan. Proven
+  by `packages/core/test/computed-filter-pagination.test.ts`, which checks
+  60 generated queries against a brute-force reference, and mutation-checked.
+  Not addressed: sorting by a computed property; batching computed
+  properties across a page.
+- A typed SDK generated from the registry (ADR-0055): `@typesys/sdk`'s
+  `generateModel` emits each Type's flattened properties, computed
+  properties typed by a declared value `schema` (which the registry compiles
+  and the runtime enforces on every computation), relationships and
+  Actions; `createClient<Model>()` builds immutable queries that compile to
+  the query DSL and nothing else, over the runtime in process or a TypeS
+  MCP server. `typesys generate-sdk --check` and `npm run sdk:models --
+  --check` catch a stale model. Proven by `packages/sdk/test/` (twelve
+  compile-time refusals checked by `npm run typecheck`; six queries for
+  three callers returning exactly what `runtime.query` returns, on both
+  transports) and `packages/cli/test/generate-sdk.test.ts`, and
+  mutation-checked. Not addressed: aggregates through the builder;
+  structured error codes over MCP.
+- One model description, discovery, validation and contract diff
+  (ADR-0056): `describeModel` in core composes every Type as the registry
+  does and is the one input to the SDK generator and `@typesys/devkit`.
+  Agents get `typesys_discover` (a few ranked, compact entries for a task,
+  about a tenth the size of `typesys_list_types` on the demo) and
+  `typesys_validate_query` (every unknown name with the one probably meant,
+  every condition that can never match); the CLI gets `describe`, `diff`,
+  `discover` and `check-query`, with `diff` failing on a breaking or
+  under-versioned change. Proven by `packages/devkit/test/devkit.test.ts`,
+  whose soundness check runs 1,620 generated filters through the runtime,
+  plus MCP and CLI tests, and mutation-checked. Not addressed: discovery is
+  lexical; the diff cannot see behavior changes behind an unchanged schema.
+- One request context per process, not per runtime: every
+  `SemanticRuntime` used to create its own `AsyncLocalStorage`, which on
+  Node 22 taxes every promise in the process for as long as it runs, so
+  each runtime constructed slowed every later `await` (a query loop ran
+  seventeen times slower after a test suite's worth of runtimes). Request
+  contexts now name their runtime, so a call into another runtime from
+  inside a request still gets its own budget and audited operation. Proven
+  by `packages/core/test/request-concurrency-budget.test.ts`, and
+  mutation-checked.
+- Governed workflows (ADR-0057): `@typesys/workflow` runs declared read,
+  compute, AI, approval and Action steps through the runtime as the run's
+  initiator. Registration refuses a workflow in which an AI step's answer
+  can reach an Action with side effects without an approval that depends
+  on it. Approvals are decided by policy (ABAC and Cedar agree) and refuse
+  the initiator; the journal's append is conditional, so concurrent
+  decisions cannot both land; retries apply to retryable errors only;
+  compensation runs newest first; a non-idempotent Action whose outcome a
+  crash lost is never repeated (the run waits for reconciliation); replay
+  is checked before every advance; `simulate` previews instead of
+  invoking, with scripted model answers and approvals and injected faults
+  and crashes. Proven by `packages/workflow/test/` and
+  `packages/devkit/test/synthesize.test.ts`, and mutation-checked. Not
+  addressed: the only journal is in memory (a Postgres journal and a
+  Temporal or DBOS binding are designed, not built); no durable timers or
+  approval deadlines; no classification check on what is sent to a model.
+- A governed HTTP API and headless React bindings (ADR-0058):
+  `@typesys/http` serves the runtime over REST, one runtime call per
+  request as the bearer token's caller, with RFC 9457 problems carrying a
+  stable `code`, 500s that say nothing about the error, the Host and
+  Origin guard shared with MCP, and an OpenAPI 3.1 contract generated from
+  the model. The SDK's `httpTransport` gives the same answers as in
+  process for every demo caller. `@typesys/react` adds typed hooks over
+  the SDK client and form fields and table columns derived from the model;
+  it decides nothing. Proven by `packages/http/test/` and
+  `packages/react/test/`, and mutation-checked. Not addressed: CORS,
+  ETags, streaming workflow state, nested form inputs, React 19 testing.
+- Domain packs (ADR-0059): `@typesys/packs` builds a domain into one JSON
+  archive with no code in it, content-addressed by SHA-256 and optionally
+  signed with Ed25519. Installs are planned completely before anything is
+  registered: integrity and signatures, dependency ranges, conflicts,
+  unresolved references, bindings, policy rules, adapters and a scratch
+  registration, with every finding reported at once. Upgrades are checked
+  with the contract diff across everything installed, the version bump
+  and every dependent's range. The demo domains ship as archives under
+  `packs/` (drift-checked); installed from those files they are the same
+  model and give the same answers as the code path. The CLI adds `typesys
+  pack inspect | verify | sign | check-upgrade`. Proven by
+  `packages/packs/test/` and `packages/cli/test/pack.test.ts`, and
+  mutation-checked. Not addressed: workflows and sample data in packs,
+  packing YAML domains, a pack registry, key revocation, uninstall.
+- A subtype keeps its base's protections (ADR-0060): registration merges
+  the base's property policies and markings into a subtype and applies the
+  base's object policy when the subtype names none; replacing an inherited
+  rule or marking is refused. Before it, a subtype naming only an object
+  policy exposed every protected value it inherited. Proven by
+  `packages/core/test/subtype-protections.test.ts`, and mutation-checked.
+- Coalesced computed reads (ADR-0062), opt-in with `computedReads:
+  "coalesce"`: within one request, computed properties' identical adapter
+  reads are made once, and concurrent equality lookups become one `in`
+  query split back per value, only where the adapter filters that
+  property exactly. Answers are copied once and frozen. Proven identical
+  to direct reads for three callers over generated fleets by
+  `packages/domain-airforce/test/computed-read-coalescing.test.ts`, with
+  `packages/core/test/read-coalescer.test.ts`, and mutation-checked.
+  Measured: 225 maintenance calls per 200-aircraft page become 12 to 14,
+  p50 20% to 30% lower; slower where lookups find nothing. Not addressed:
+  batching by id or of relationships, wider fan-out than `maxConcurrency`.
+- A mission application, composed and by hand (ADR-0063): the private
+  `@typesys/mission-readiness` package holds a squadron readiness
+  application built from the governed API, the typed SDK, the React
+  hooks, Action previews and the ground-for-repair workflow, beside the
+  same application written the baseline way. Both pass one Chromium
+  scenario as a viewer, a maintainer and a lead, with identical results
+  (`packages/mission-readiness/test/`), and mutation-checked. Measured by
+  `scripts/compare-mission-apps.ts`: 193 lines against 355, no access rule
+  restated against 7, five of six shared seeded mistakes caught by the
+  compiler rather than the browser, and a policy change followed with no
+  edit. Added for it: `clientRouter` and `GET /workflow-approvals`
+  (`@typesys/http`), `approvalsFor` (`@typesys/workflow`), `httpWorkflows`
+  (`@typesys/sdk`), `dataOf` and `errorOf` (`@typesys/react`). Not
+  addressed: time to write either version, other browsers.
+- TypeS Studio (ADR-0061): `@typesys/studio` serves the governed API
+  beside a browser client under a strict Content Security Policy. The
+  client uses only the API, as the signed-in person: the model with
+  discovery, a query editor with live validation and one-click
+  suggestions, the execution plan for that caller, paged results, the
+  typed SDK code for the query (`querySource`, round-tripped over 2,000
+  generated queries), and Action forms that preview before they invoke
+  and invoke only the previewed input after confirmation. Proven by
+  `packages/studio/test/` (server, screen logic, and a Chromium run of the
+  built client as two people) and `packages/sdk/test/source.test.ts`, and
+  mutation-checked. Not addressed: a sign-in flow beyond pasting a token,
+  workflow and aggregation screens, provenance views, model editing,
+  query completion, browsers other than Chromium.
 - A query the caller can read none of is refused (ADR-0049): a `never` plan
   or a classified Type above the caller's clearance throws
   `AuthorizationError`, where `query` used to return an empty page — both
@@ -242,9 +396,9 @@ document that gap rather than close it in this pass.
   (each twin matches its resource in value, refusal, and audit rows, as
   three identities) and a hospital row-level case. The official MCP
   conformance suite runs in CI against a baseline that explains every
-  expected failure (`npm run conformance:mcp`). Not addressed: Host/Origin
-  validation against DNS rebinding, which the suite flags; instance-scoped
-  Actions; human-approval semantics; tool discovery at scale; a full
+  expected failure (`npm run conformance:mcp`). Host/Origin validation and
+  instance-scoped Actions have since landed (ADR-0053). Not addressed:
+  human-approval semantics; tool discovery at scale; a full
   remote-MCP authorization mode (ADR-0051's follow-ups).
 - Real OIDC/JWT identity resolution (`@typesys/auth-oidc`) — signature,
   issuer (RFC 9207), audience, and expiry verified via `jose`, scope
@@ -271,9 +425,11 @@ document that gap rather than close it in this pass.
   actually been published to npm; the release workflow's publish step is
   gated behind an `NPM_TOKEN` secret that is not configured in this
   repository, deliberately (ADR-0020).
-- 447 tests — 403 run with no infrastructure, 437 with a PostgreSQL
-  database (the rest need Redis) — plus stdio and HTTP MCP smoke tests, all
-  green.
+- 980 tests (2026-10-13): 919 run with no infrastructure, the other 61
+  need PostgreSQL, Redis or a KMS emulator. Four of the 919 drive the
+  Studio and the mission application in Chromium and skip where no
+  Chromium is installed. Plus stdio
+  and HTTP MCP smoke tests and the MCP conformance suite, all green.
 
 ## The 2026-09-29 hardening pass: what is now proven
 
@@ -327,9 +483,10 @@ replay of an `EncryptedCache` entry within its TTL (ADR-0036); and
   relationship includes, grouped aggregation (`runtime.aggregate()` + the MCP
   `aggregate` tool), and case-insensitive `search` / `icontains` — all
   fail-closed under property-level policy (ADR-0027, `query-sort-and-projection.test.ts`,
-  `query-aggregate-and-search.test.ts`). A top-level filter or sort can't use a
-  computed property (rejected with a clear error; they don't exist until after
-  the adapter runs), but include filters can; includes nest, filter, and project
+  `query-aggregate-and-search.test.ts`). A top-level filter may name a computed
+  property (ADR-0054: that part runs in the runtime on caller-visible values,
+  refilling pages up to `maxScanned` rows per call); a top-level sort still
+  can't (rejected with a clear error), but include sorts can; includes nest, filter, and project
   per level (bounded by `maxIncludes`/`maxIncludeDepth`). Aggregation runs in the
   adapter's optional `aggregate` (in-memory and Postgres); a data source without
   it returns a clear `AggregationNotSupportedError`. Full-text `search` desugars

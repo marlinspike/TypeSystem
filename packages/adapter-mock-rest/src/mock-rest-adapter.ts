@@ -169,6 +169,12 @@ export class MockRestAdapter implements Adapter {
       );
       return this.toCanonicalWorkOrder(record);
     }
+    if (action.implementation.operation === "updateWorkOrderStatus") {
+      const typedInput = input as { workOrderId: string; status: string };
+      const record = await this.client.updateWorkOrderStatus(typedInput.workOrderId, typedInput.status, opts?.signal);
+      if (!record) throw new Error(`No work order "${typedInput.workOrderId}"`);
+      return this.toCanonicalWorkOrder(record);
+    }
     throw new Error(`MockRestAdapter has no implementation for action "${action.name}" (operation "${action.implementation.operation}")`);
   }
 }

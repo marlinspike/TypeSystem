@@ -8,4 +8,11 @@ import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airfo
 import { startHttpServer } from "@typesys/mcp-server";
 
 const port = Number(process.env.PORT ?? 3939);
-await startHttpServer(port, { backend: await buildAirforceTestbed(), identityResolver: resolveDemoIdentity });
+// Host names this server answers to, comma-separated (ADR-0053). Unset: localhost only. A container behind a
+// real name sets it, e.g. MCP_ALLOWED_HOSTS=typesys.example.org.
+const allowedHosts = process.env.MCP_ALLOWED_HOSTS?.split(",").map((h) => h.trim()).filter(Boolean);
+await startHttpServer(port, {
+  backend: await buildAirforceTestbed(),
+  identityResolver: resolveDemoIdentity,
+  ...(allowedHosts?.length ? { allowedHosts } : {})
+});

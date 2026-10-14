@@ -129,6 +129,16 @@ async function benchmarkInMemory(): Promise<Sample[]> {
     }
   });
   void registry;
+  // The same model and data with computed properties' reads coalesced per request (ADR-0062).
+  const { runtime: coalesced } = await buildRuntime({
+    manifests: [coreManifest, airforceManifest],
+    adapters: [inMemoryAdapter, mockRestAdapter],
+    policyRules: {
+      "airforce.read-aircraft": requireRole("maintainer", "viewer"),
+      "airforce.maintainer-only": requireRole("maintainer")
+    },
+    runtimeOptions: { computedReads: "coalesce" }
+  });
 
   return [
     await timeIt("getObject", "in-memory adapter", N, () => runtime.getObject("airforce.Aircraft", "AC-0", identity)),
@@ -137,6 +147,9 @@ async function benchmarkInMemory(): Promise<Sample[]> {
     ),
     await timeIt("query + filter (200 rows)", "in-memory adapter", N, () =>
       runtime.query({ type: "airforce.Aircraft", filter: { property: "maintenanceStatus", operator: "eq", value: "operational" } }, identity)
+    ),
+    await timeIt("query + filter (200 rows), coalesced", "in-memory adapter", N, () =>
+      coalesced.query({ type: "airforce.Aircraft", filter: { property: "maintenanceStatus", operator: "eq", value: "operational" } }, identity)
     )
   ];
 }

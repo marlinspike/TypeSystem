@@ -265,11 +265,11 @@ describe("Data classification (ADR-0032)", () => {
       const base = ["headline", "id", "region", "title"];
       expect(keys(await runtime.getObject("test.Report", "r1", uncleared))).toEqual(base);
       expect(keys(await runtime.getObject("test.Report", "r1", cui))).toEqual(base);
-      // notesDigest derives from the SECRET, analysts-only analystNotes: classification follows the derivation, the
-      // policy deliberately doesn't (a policy author gates a computed property explicitly), so a SECRET reader sees it.
-      expect(keys(await runtime.getObject("test.Report", "r1", secret))).toEqual([...base, "briefing", "briefingLength", "notesDigest", "pages", "summary"].sort());
+      // notesDigest derives from the SECRET, analysts-only analystNotes: classification follows the derivation, and so
+      // does the input's policy (ADR-0052), so a SECRET reader who is no analyst doesn't see it.
+      expect(keys(await runtime.getObject("test.Report", "r1", secret))).toEqual([...base, "briefing", "briefingLength", "pages", "summary"].sort());
       expect(keys(await runtime.getObject("test.Report", "r1", topSecret))).toEqual(
-        [...base, "briefing", "briefingLength", "notesDigest", "pages", "sourceName", "summary"].sort()
+        [...base, "briefing", "briefingLength", "pages", "sourceName", "summary"].sort()
       );
     });
 

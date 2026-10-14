@@ -4,6 +4,24 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../adapter-in-memory" }, { "path": "../adapter-mock-rest" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../adapter-in-memory"
+    },
+    {
+      "path": "../adapter-mock-rest"
+    },
+    {
+      "path": "../workflow"
+    },
+    {
+      "path": "../packs"
+    }
+  ]
 }

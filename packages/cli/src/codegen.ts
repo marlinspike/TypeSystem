@@ -1,15 +1,12 @@
 import type { SemanticRegistry, TypeDefinition, JsonSchema2020 } from "@typesys/core";
+import { propertiesToTs, schemaToTs } from "@typesys/sdk";
 
 /**
- * Generates TypeScript interfaces from registered Types — the "generated
- * client types" the mission brief called for and this project never
- * built until now. Deliberately not a general JSON Schema → TypeScript
- * compiler: it covers exactly the subset this project's schemas actually
- * use (flat primitives, enums, arrays, and the `extends`/trait composition
- * model from ADR-0004), which is both simpler and more correct for THIS
- * codebase than depending on a generic converter that would have to guess
- * at `x-relationships`/`x-computed`/`allOf`-of-registered-$ref semantics
- * it was never designed to understand.
+ * Generates TypeScript interfaces from registered Types, one per Type,
+ * following the `extends`/trait composition model (ADR-0004). The JSON
+ * Schema to TypeScript conversion is `@typesys/sdk`'s, shared with the typed
+ * client's model generator (ADR-0055), which is what a client should use:
+ * `typesys generate-sdk`.
  *
  * Relationships and Actions are documented in a header comment, not
  * emitted as fields — embedding them would blur the exact "properties vs.
@@ -22,51 +19,18 @@ function pascalCase(name: string): string {
   return short.charAt(0).toUpperCase() + short.slice(1);
 }
 
-function primitiveTs(type: unknown): string {
-  switch (type) {
-    case "string":
-      return "string";
-    case "number":
-    case "integer":
-      return "number";
-    case "boolean":
-      return "boolean";
-    case "null":
-      return "null";
-    default:
-      return "unknown";
-  }
-}
-
-function propertyType(schema: JsonSchema2020): string {
-  if (schema.enum) return schema.enum.map((v) => JSON.stringify(v)).join(" | ");
-  if (Array.isArray(schema.type)) return [...new Set(schema.type.map(primitiveTs))].join(" | ");
-  if (schema.type === "array") return `${schema.items ? propertyType(schema.items) : "unknown"}[]`;
-  if (schema.type === "object") return "Record<string, unknown>"; // nested objects: not used by this project's schemas today
-  return primitiveTs(schema.type);
-}
-
-function propertyLines(properties: Record<string, JsonSchema2020> | undefined, required: string[] | undefined): string[] {
-  const requiredSet = new Set(required ?? []);
-  return Object.entries(properties ?? {}).map(([name, propSchema]) => {
-    const optional = requiredSet.has(name) ? "" : "?";
-    const comment = propSchema.description ? `  /** ${propSchema.description} */\n` : "";
-    return `${comment}  ${name}${optional}: ${propertyType(propSchema)};`;
-  });
-}
-
 /** A trait's own property fragment as a standalone interface, reused via `extends` by every composing Type. */
 export function generateTraitInterface(traitName: string, schema: JsonSchema2020): string | undefined {
-  const lines = propertyLines(schema.properties, schema.required);
+  const lines = propertiesToTs(schema.properties, schema.required, "");
   if (lines.length === 0) return undefined; // e.g. Geolocatable/Ownable contribute relationships, not properties
   return `export interface ${traitName} {\n${lines.join("\n")}\n}\n`;
 }
 
 export function generateTypeInterface(typeDef: TypeDefinition, registry: SemanticRegistry): string {
   const interfaceName = pascalCase(typeDef.name);
-  const ownLines = propertyLines(typeDef.schema.properties, typeDef.schema.required);
+  const ownLines = propertiesToTs(typeDef.schema.properties, typeDef.schema.required, "");
   const computedLines = typeDef.computedProperties.map(
-    (cp) => `  /** computed — depends on: ${cp.dependsOn.join(", ")} */\n  ${cp.name}?: unknown;`
+    (cp) => `  /** computed — depends on: ${cp.dependsOn.join(", ")} */\n  ${cp.name}?: ${schemaToTs(cp.schema, "  ")};`
   );
 
   const extendsClause: string[] = [];

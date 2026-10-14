@@ -1,0 +1,32 @@
+{
+  "name": "@typesys/mission-readiness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A squadron readiness application built twice over the same airforce system: once composed from TypeS (typed SDK, React hooks, Action previews, a governed workflow) and once written by hand the way the baseline allowed, so the two can be measured against one browser scenario.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@typesys/adapter-in-memory": "0.1.0",
+    "@typesys/adapter-mock-rest": "0.1.0",
+    "@typesys/core": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/http": "0.1.0",
+    "@typesys/workflow": "0.1.0",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@typesys/react": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "playwright-core": "1.56.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
