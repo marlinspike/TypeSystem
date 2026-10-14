@@ -9,7 +9,8 @@ export interface WorkflowDiagnostic {
     | "retry-not-idempotent"
     | "invalid-retry"
     | "invalid-schema"
-    | "missing-policy";
+    | "missing-policy"
+    | "unreleasable-ai-input";
   readonly step?: string;
   readonly message: string;
 }
@@ -57,6 +58,22 @@ export class ReplayDivergenceError extends Error {
   ) {
     super(`Replay diverged at step "${step}": ${message}`);
     this.name = "ReplayDivergenceError";
+  }
+}
+
+/**
+ * An AI step's input would include something its model may not receive
+ * (ADR-0067). Not retryable: the same data and the same model give the same
+ * answer. `withheld` names the steps whose outputs differ.
+ */
+export class ReleaseRefusedError extends Error {
+  constructor(
+    message: string,
+    public readonly audience: string,
+    public readonly withheld: readonly string[]
+  ) {
+    super(message);
+    this.name = "ReleaseRefusedError";
   }
 }
 

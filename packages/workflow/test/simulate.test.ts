@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { SemanticRuntime, DEMO_LINEAR_CLASSIFICATION, type Identity, type PolicyEngine } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { CedarPolicyEngine } from "@typesys/policy-cedar";
 import { createClient, runtimeTransport } from "@typesys/sdk";
 import { WorkflowEngine, scriptedModel, simulate } from "../src/index.js";
@@ -21,6 +21,7 @@ describe("simulate (ADR-0057)", () => {
     const result = await simulate(tb, groundForRepair, {
       initiator: maintainer,
       input: START,
+      audience: demoAudiences.enclaveModel,
       ai: { triage: TRIAGE },
       approvals: { leadApproval: { approver: lead, approved: true } }
     });
@@ -46,13 +47,14 @@ describe("simulate (ADR-0057)", () => {
     const refused = await simulate(tb, groundForRepair, {
       initiator: maintainer,
       input: START,
+      audience: demoAudiences.enclaveModel,
       ai: { triage: TRIAGE },
       approvals: { leadApproval: { approver: viewer, approved: true } }
     });
     expect(refused.run.status).toBe("waiting-approval");
     expect(refused.refusals).toEqual([{ step: "leadApproval", message: expect.stringMatching(/Requires one of roles/) as string }]);
 
-    const noModel = await simulate(tb, groundForRepair, { initiator: maintainer, input: START });
+    const noModel = await simulate(tb, groundForRepair, { initiator: maintainer, input: START, audience: demoAudiences.enclaveModel });
     expect(noModel.run.status).toBe("failed");
     expect(noModel.run.reason).toMatch(/No scripted answer for AI step "triage"/);
   });
@@ -62,6 +64,7 @@ describe("simulate (ADR-0057)", () => {
     const result = await simulate(tb, groundForRepair, {
       initiator: maintainer,
       input: START,
+      audience: demoAudiences.enclaveModel,
       ai: { triage: TRIAGE },
       approvals: { leadApproval: { approver: lead, approved: true } },
       faults: { history: [{ attempt: 1, crash: "before-effect" }], openWorkOrder: [{ crash: "after-effect" }] }
@@ -91,7 +94,7 @@ describe("workflow decisions under Cedar match the ABAC rules (ADR-0031, ADR-005
         const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
         const policyEngine = engineFor(tb);
         const runtime = new SemanticRuntime(tb.registry, [tb.inMemoryAdapter, tb.mockRestAdapter], policyEngine, { classification: DEMO_LINEAR_CLASSIFICATION });
-        const engine = await WorkflowEngine.create({ host: { registry: tb.registry, runtime, policyEngine }, model: scriptedModel({ triage: TRIAGE }) });
+        const engine = await WorkflowEngine.create({ host: { registry: tb.registry, runtime, policyEngine }, model: scriptedModel({ triage: TRIAGE }, "scripted", demoAudiences.enclaveModel) });
         engine.register(groundForRepair);
         const start = await engine.start("airforce.GroundForRepair", START, who).then((r) => r.status, (e: Error) => e.name);
         const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);

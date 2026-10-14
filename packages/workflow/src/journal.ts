@@ -33,6 +33,12 @@ export type JournalEvent =
       /** For an Action step, the Action and the input it is about to be invoked with; for an AI step, what the model is given. */
       readonly action?: string;
       readonly input?: unknown;
+      /**
+       * For an AI step, the outputs of its needs as its model's audience may
+       * receive them, and that audience (ADR-0067): what `input` was computed
+       * from, so a replay checks the step against what the model was given.
+       */
+      readonly released?: { readonly audience: string; readonly needs: Readonly<Record<string, unknown>> };
     }
   | {
       readonly type: "step-completed";

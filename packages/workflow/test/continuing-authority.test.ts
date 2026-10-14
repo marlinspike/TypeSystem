@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AdapterUnavailableError, AuthorizationError, NotFoundError, type Identity, type SemanticRuntime } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed, type TriageProposal } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed, type TriageProposal } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
 import { InMemoryJournal, WorkflowEngine, scriptedModel, type AnyWorkflow, type WorkflowEngineOptions, type WorkflowJournal } from "../src/index.js";
 
@@ -33,7 +33,7 @@ async function fixture(opts: Partial<WorkflowEngineOptions> & { clock?: Clock; j
     now: () => new Date(clock.t),
     ...opts,
     host: opts.host ?? tb,
-    model: scriptedModel({ triage: TRIAGE }, "test-model")
+    model: scriptedModel({ triage: TRIAGE }, "test-model", demoAudiences.enclaveModel)
   });
   engine.register(withDeadline);
   return { tb, engine, clock };
@@ -103,7 +103,7 @@ describe("a run acts only on authority its initiator still holds (ADR-0065)", ()
   it("without a resolver, a stale identity suspends the run, and the initiator's fresh sign-in resumes it", async () => {
     const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
     const clock = { t: T0 };
-    const engine = await WorkflowEngine.create({ host: tb, model: scriptedModel({ triage: TRIAGE }, "m"), now: () => new Date(clock.t), sleep: async () => {}, identityMaxAgeMs: 10 * 60_000 });
+    const engine = await WorkflowEngine.create({ host: tb, model: scriptedModel({ triage: TRIAGE }, "m", demoAudiences.enclaveModel), now: () => new Date(clock.t), sleep: async () => {}, identityMaxAgeMs: 10 * 60_000 });
     engine.register(groundForRepair); // no deadline
     const { runId } = await engine.start("airforce.GroundForRepair", START, maintainer);
     clock.t += 30 * 60_000;

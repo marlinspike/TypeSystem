@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { describeModel, type Identity } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
 import { WorkflowEngine, scriptedModel, simulate, validateWorkflow, type AnyStep, type AnyWorkflow } from "../src/index.js";
 
@@ -19,7 +19,7 @@ async function workOrders(tb: AirforceTestbed) {
 }
 
 async function engineFor(tb: AirforceTestbed, w: AnyWorkflow, triage: unknown) {
-  const engine = await WorkflowEngine.create({ host: tb, model: scriptedModel({ triage }), sleep: async () => {} });
+  const engine = await WorkflowEngine.create({ host: tb, model: scriptedModel({ triage }, "scripted", demoAudiences.enclaveModel), sleep: async () => {} });
   engine.register(w);
   return engine;
 }
@@ -130,7 +130,7 @@ describe("simulate has no side effects", () => {
         }
       ]
     };
-    const result = await simulate(tb, w, { initiator: maintainer, input: START });
+    const result = await simulate(tb, w, { initiator: maintainer, input: START, audience: demoAudiences.enclaveModel });
     expect(result.run.status).toBe("failed"); // the read step's attempt to invoke is refused
     const rows = (await tb.registry.listAuditEvents({ limit: 1000 })).items;
     expect({ workOrders: (await workOrders(tb)).length, invoked: rows.some((e) => e.operation === "invokeAction") }).toEqual({ workOrders: 0, invoked: false });
@@ -172,7 +172,7 @@ describe("no replay / honest status for a non-idempotent Action", () => {
         return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
       }
     });
-    const engine = await WorkflowEngine.create({ host: { ...tb, runtime }, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "x" } }), sleep: async () => {} });
+    const engine = await WorkflowEngine.create({ host: { ...tb, runtime }, model: scriptedModel({ triage: { eventId: "EVT-9002", priority: "urgent", rationale: "x" } }, "scripted", demoAudiences.enclaveModel), sleep: async () => {} });
     engine.register(groundForRepair);
     const run = await engine.start(groundForRepair.name, START, maintainer);
     const done = await engine.approve(run.runId, "leadApproval", lead, { approved: true });

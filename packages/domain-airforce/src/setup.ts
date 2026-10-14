@@ -12,6 +12,7 @@ import {
   buildRuntime,
   coreManifest,
   DEMO_LINEAR_CLASSIFICATION,
+  type Audience,
   type Identity,
   type PolicyEngine
 } from "@typesys/core";
@@ -46,8 +47,9 @@ export interface AirforceTestbed {
  */
 /** This domain's named policy rules — exported so a runtime hosting several domains (the demo web app) can register them alongside others'. */
 export const airforcePolicyRules: Record<string, PolicyRule> = {
-  "airforce.read-aircraft": requireRole("maintainer", "viewer"),
-  "airforce.maintainer-only": requireRole("maintainer"),
+  // `ai-enclave` is held only by a model audience (ADR-0067): the squadron's own enclave model may receive what a maintainer reads.
+  "airforce.read-aircraft": requireRole("maintainer", "viewer", "ai-enclave"),
+  "airforce.maintainer-only": requireRole("maintainer", "ai-enclave"),
   // Instance-scoped (ADR-0053): decided on the WorkOrder's own assignedTo.
   "airforce.work-order-assignee": allOf(requireRole("maintainer"), anyOf(requireRole("lead"), requireAttributeMatch("assignedTo", "displayName"))),
   // Who approves the GroundForRepair workflow's proposal (ADR-0057).
@@ -100,6 +102,18 @@ export const demoIdentities: Record<"maintainer" | "lead" | "viewer" | "anonymou
   lead: { subjectId: "user-lead-1", roles: ["maintainer", "lead"], attributes: { displayName: "MSgt Okafor" }, clearance: "SECRET" },
   viewer: { subjectId: "user-viewer-1", roles: ["viewer"], attributes: {}, clearance: "CUI" },
   anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
+};
+
+/**
+ * Two model audiences for the demo (ADR-0067). The enclave model runs inside
+ * the squadron's accredited enclave, and policy grants it what a maintainer
+ * reads, up to CUI: never the SECRET `deploymentLocation`. The commercial
+ * model is an external API that policy grants nothing, so no Aircraft data
+ * may be sent to it, whoever is asking.
+ */
+export const demoAudiences: Record<"enclaveModel" | "commercialModel", Audience> = {
+  enclaveModel: { id: "model:squadron-enclave/triage", kind: "model", roles: ["ai-enclave"], attributes: { environment: "enclave", provider: "self-hosted" }, clearance: "CUI" },
+  commercialModel: { id: "model:commercial-api/general", kind: "model", roles: [], attributes: { environment: "external", provider: "commercial" }, clearance: "UNCLASSIFIED" }
 };
 
 const DEMO_TOKENS: Record<string, Identity> = {

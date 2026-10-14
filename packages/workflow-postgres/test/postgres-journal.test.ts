@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
 import { WorkflowEngine, scriptedModel, workflowJournalContract, type AnyWorkflow } from "@typesys/workflow";
 import { PostgresWorkflowJournal, migrateWorkflowJournal } from "../src/index.js";
@@ -32,7 +32,7 @@ describe.skipIf(!hasDb)("PostgresWorkflowJournal (ADR-0066)", () => {
     const engine = await WorkflowEngine.create({
       host: tb,
       journal: new PostgresWorkflowJournal(pool),
-      model: scriptedModel({ triage: TRIAGE }, "m"),
+      model: scriptedModel({ triage: TRIAGE }, "m", demoAudiences.enclaveModel),
       now: () => new Date(clock.t),
       sleep: async () => {},
       faults

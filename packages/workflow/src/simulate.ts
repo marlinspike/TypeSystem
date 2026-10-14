@@ -1,4 +1,4 @@
-import { AuthorizationError, describeModel, type ActionDescription, type Identity, type ModelDescription } from "@typesys/core";
+import { AuthorizationError, describeModel, type ActionDescription, type Audience, type Identity, type ModelDescription } from "@typesys/core";
 import { synthesize } from "@typesys/devkit";
 import type { ModelShape } from "@typesys/sdk";
 import { scriptedModel } from "./ai.js";
@@ -16,6 +16,8 @@ export interface SimulationScript<I = unknown> {
   /** Each approval's decision and who makes it; the approver's policy is decided for real. Unscripted, the run stops there. */
   readonly approvals?: Readonly<Record<string, { readonly approver: Identity; readonly approved: boolean; readonly comment?: string }>>;
   readonly faults?: FaultPlan;
+  /** The audience of the model the workflow will run with (ADR-0067), so a simulation releases to its AI steps exactly what a live run would. Omitted, one granted nothing. */
+  readonly audience?: Audience;
   /** Seeds the synthetic Action outputs. Default 1. */
   readonly seed?: number;
 }
@@ -91,7 +93,7 @@ class SimulationEngine extends WorkflowEngine {
  */
 export async function simulate<M extends ModelShape, I>(host: WorkflowHost, workflow: WorkflowDefinition<M, I>, script: SimulationScript<I>): Promise<SimulationResult> {
   const engine = new SimulationEngine(
-    { host, journal: new InMemoryJournal(), model: scriptedModel(script.ai ?? {}, "simulation-script"), ...(script.faults ? { faults: script.faults } : {}), sleep: async () => {} },
+    { host, journal: new InMemoryJournal(), model: scriptedModel(script.ai ?? {}, "simulation-script", script.audience), ...(script.faults ? { faults: script.faults } : {}), sleep: async () => {} },
     await describeModel(host.registry),
     script.seed ?? 1
   );

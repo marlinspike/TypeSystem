@@ -234,7 +234,7 @@ Legend: ✅ done (with evidence) · 🚧 in progress · ⏳ not started
 |---|---|---|---|
 | M1 product name | ✅ | [0064](adr/0064-the-product-is-typesystem.md) | `tools/terminology/test/terminology.test.ts`; `npm run check:terminology` in CI |
 | M2a workflow identity | ✅ | [0065](adr/0065-workflows-act-on-continuing-authority.md) | `packages/workflow/test/continuing-authority.test.ts` (revocation, unknown subject, other subject, stale snapshot, expiry, policy change between Actions, cancel by policy); HTTP routes in `packages/http/test/api.test.ts` |
-| M2b release boundary | ⏳ | | |
+| M2b release boundary | ✅ | [0067](adr/0067-release-to-models-is-decided-for-the-model.md) | `release-boundary.test.ts` in domain-airforce (property-based intersection over generated principals), domain-hospital (row-level plan conjunction) and workflow; `packages/mcp-server/test/audience.test.ts`; Cedar parity with bound audiences |
 | M2c durable execution | ✅ | [0066](adr/0066-durable-execution-on-the-journal-seam.md) | `packages/workflow/test/journal-contract.test.ts`, `packages/workflow-postgres/test/postgres-journal.test.ts` (contract on real Postgres, append-only trigger, crash recovered by two processes at once, deadline expired by another process); durable timers in `continuing-authority.test.ts` |
 | M2d discovery security | ⏳ | | |
 | M2e integrity | ⏳ | | |
@@ -256,4 +256,4 @@ pull request at the end of M2 and of M4.
 Kept current at each commit so the work can be picked up exactly where it
 stopped.
 
-- Done: M1, M2a, M2c. Next: M2b (release boundary), then M2d, M2e.
+- Done: M1, M2a, M2b, M2c. Next: M2d (discovery security), then M2e.

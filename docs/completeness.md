@@ -257,6 +257,18 @@ document that gap rather than close it in this pass.
   (`packages/workflow-postgres/test/`). Not addressed: Temporal and DBOS
   bindings (designed, not built); retention of finished runs; delegation
   of a run to another person to carry forward.
+- Release to models (ADR-0067): an `Audience` (a model or execution
+  environment) is a principal of its own; with one bound to an identity
+  the runtime decides every policy, classification and planning decision
+  for the person and the audience, and audits the audience.
+  `bindAudience` binds the model behind an MCP or HTTP agent; a workflow
+  AI step's input is computed from what its model may receive (refused, or
+  redacted on request), and an AI step fed by an Action is refused.
+  Proven by `release-boundary.test.ts` in domain-airforce (with
+  property-based tests), domain-hospital and workflow, and
+  `packages/mcp-server/test/audience.test.ts`. Not addressed:
+  provenance-based and transitive release, the run's own input, and a
+  reviewed release scheme for real markings.
 - A governed HTTP API and headless React bindings (ADR-0058):
   `@typesys/http` serves the runtime over REST, one runtime call per
   request as the bearer token's caller, with RFC 9457 problems carrying a

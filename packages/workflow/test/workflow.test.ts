@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AdapterUnavailableError, AuthorizationError, InvalidInputError, describeModel, type Identity } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed, type TriageProposal } from "@typesys/domain-airforce";
+import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair, type AirforceModel, type AirforceTestbed, type TriageProposal } from "@typesys/domain-airforce";
 import { createClient, runtimeTransport } from "@typesys/sdk";
 import {
   InMemoryJournal,
@@ -26,7 +26,7 @@ async function fixture(opts: Partial<WorkflowEngineOptions> & { triage?: unknown
   const calls: AiRequest[] = [];
   const sleeps: number[] = [];
   const answer = "triage" in opts ? opts.triage : TRIAGE;
-  const model = opts.model ?? scriptedModel({ triage: (r: AiRequest) => (calls.push(r), typeof answer === "function" ? (answer as () => unknown)() : answer) }, "test-model");
+  const model = opts.model ?? scriptedModel({ triage: (r: AiRequest) => (calls.push(r), typeof answer === "function" ? (answer as () => unknown)() : answer) }, "test-model", demoAudiences.enclaveModel);
   const engine = await WorkflowEngine.create({ sleep: async (ms) => void sleeps.push(ms), ...opts, host: tb, model });
   engine.register(groundForRepair);
   return { tb, engine, calls, sleeps };
@@ -83,6 +83,8 @@ describe("a governed run, end to end (ADR-0057)", () => {
     expect(rows.find((e) => e.action === "CreateMaintenanceWorkOrder" && e.outcome === "success")?.subjectId).toBe(maintainer.subjectId);
     expect(rows.filter((e) => e.operation === "workflow").reverse().map((e) => [e.action, e.subjectId, e.decision])).toEqual([
       ["workflow.start", maintainer.subjectId, "allow"],
+      // What the triage model was sent, released to its audience (ADR-0067).
+      ["workflow.release", maintainer.subjectId, "allow"],
       ["workflow.view-approval", lead.subjectId, "allow"],
       ["workflow.approve", lead.subjectId, "allow"],
       ["workflow.finish", maintainer.subjectId, "allow"]
@@ -343,7 +345,7 @@ describe("replay (ADR-0057)", () => {
     const first = await fixture({ journal });
     const { runId } = await first.engine.start("airforce.GroundForRepair", START, maintainer);
     const tb = first.tb;
-    const engine = await WorkflowEngine.create({ host: tb, journal, model: scriptedModel({}) });
+    const engine = await WorkflowEngine.create({ host: tb, journal, model: scriptedModel({}, "scripted", demoAudiences.enclaveModel) });
     engine.register(variant("1.0.0", (steps) => steps.map((s) => (s.name === "flagged" ? ({ ...s, run: () => false } as typeof s) : s))));
     await expect(engine.resume(runId)).rejects.toBeInstanceOf(ReplayDivergenceError);
     await expect(engine.approve(runId, "leadApproval", lead, { approved: true })).rejects.toBeInstanceOf(ReplayDivergenceError);

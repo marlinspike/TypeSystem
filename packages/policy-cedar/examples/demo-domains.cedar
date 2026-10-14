@@ -6,12 +6,14 @@
 
 // ---- Air Force -------------------------------------------------------------
 
+// `ai-enclave` is held only by a model audience (ADR-0067): the squadron's enclave model may receive what a maintainer reads.
 @id("airforce.read-aircraft")
 permit (principal, action == TypeSys::Action::"airforce.read-aircraft", resource)
-when { principal in [TypeSys::Role::"maintainer", TypeSys::Role::"viewer"] };
+when { principal in [TypeSys::Role::"maintainer", TypeSys::Role::"viewer", TypeSys::Role::"ai-enclave"] };
 
 @id("airforce.maintainer-only")
-permit (principal in TypeSys::Role::"maintainer", action == TypeSys::Action::"airforce.maintainer-only", resource);
+permit (principal, action == TypeSys::Action::"airforce.maintainer-only", resource)
+when { principal in [TypeSys::Role::"maintainer", TypeSys::Role::"ai-enclave"] };
 
 // Instance-scoped (ADR-0053): a maintainer may update the work orders assigned to them, a lead any.
 @id("airforce.work-order-assignee")

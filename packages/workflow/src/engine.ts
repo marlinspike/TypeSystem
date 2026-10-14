@@ -3,8 +3,11 @@ import {
   AuthorizationError,
   InvalidInputError,
   NotFoundError,
+  canonical,
   createSemanticValidator,
+  decideForIdentity,
   describeModel,
+  withAudience,
   type ActionDescription,
   type Identity,
   type ModelDescription,
@@ -14,14 +17,14 @@ import {
 } from "@typesys/core";
 import { createClient, runtimeTransport, type ModelShape, type Transport } from "@typesys/sdk";
 import type { ValidateFunction } from "ajv";
-import type { AiModel } from "./ai.js";
+import { audienceOf, type AiModel } from "./ai.js";
 import type { AnyStep, AnyWorkflow, StepContext, WorkflowDefinition } from "./definition.js";
-import { AiOutputError, JournalConflictError, SimulatedCrash, WorkflowDefinitionError, WorkflowStateError, isRetryable } from "./errors.js";
+import { AiOutputError, JournalConflictError, ReleaseRefusedError, SimulatedCrash, WorkflowDefinitionError, WorkflowStateError, isRetryable } from "./errors.js";
 import type { CompensationCause, FinalStatus, JournalEvent, JournalRecord, OutputSource, WorkflowJournal } from "./journal.js";
 import { InMemoryJournal } from "./journal.js";
 import { contextFor, outputsOf, reviewsAiOutput, verifyReplay } from "./replay.js";
 import { fold, viewOf, type RunState, type RunView } from "./state.js";
-import { validateWorkflow } from "./validate.js";
+import { upstream, validateWorkflow } from "./validate.js";
 
 /** What the engine runs on: a built runtime (`buildRuntime`, or a domain's testbed). */
 export interface WorkflowHost {
@@ -166,7 +169,7 @@ export class WorkflowEngine {
     if (!versions) throw new WorkflowStateError(`Unknown workflow "${name}"`);
     const workflow = [...versions.values()].reduce((a, b) => (newer(b.version, a.version) ? b : a));
     const runId = randomUUID();
-    const decision = await this.options.host.policyEngine.evaluate({
+    const decision = await decideForIdentity(this.options.host.policyEngine, {
       subject: initiator,
       action: "invoke",
       policyName: workflow.startPolicy,
@@ -369,7 +372,7 @@ export class WorkflowEngine {
     const own = by.subjectId === state.initiator.subjectId;
     if (!own) {
       const decision = workflow.cancelPolicy
-        ? await this.options.host.policyEngine.evaluate({
+        ? await decideForIdentity(this.options.host.policyEngine, {
             subject: by,
             action: "invoke",
             policyName: workflow.cancelPolicy,
@@ -476,7 +479,7 @@ export class WorkflowEngine {
     if (state.compensating) return undefined;
     const policyName = state.authority.role === "canceller" ? workflow.cancelPolicy : workflow.startPolicy;
     if (!policyName) return "No policy admits a canceller to carry this run";
-    const decision = await this.options.host.policyEngine.evaluate({
+    const decision = await decideForIdentity(this.options.host.policyEngine, {
       subject: identity,
       action: "invoke",
       policyName,
@@ -551,7 +554,7 @@ export class WorkflowEngine {
       if (auditDenial) await this.audit(approver.subjectId, operation, workflow, state.runId, "deny", { step: step.name, reason });
       throw new AuthorizationError(`Not authorized: ${operation} ${workflow.name}/${step.name}`, reason);
     }
-    const decision = await this.options.host.policyEngine.evaluate({
+    const decision = await decideForIdentity(this.options.host.policyEngine, {
       subject: approver,
       action: "invoke",
       policyName: step.policy,
@@ -568,7 +571,7 @@ export class WorkflowEngine {
     workflow: AnyWorkflow,
     runId: string,
     decision: "allow" | "deny",
-    extra: { step?: string; reason?: string | undefined; outcome?: "success" | "failure"; status?: string }
+    extra: { step?: string; reason?: string | undefined; outcome?: "success" | "failure"; status?: string; audience?: string; withheld?: readonly string[] }
   ): Promise<void> {
     await this.options.host.registry.appendAuditEvent({
       id: randomUUID(),
@@ -584,6 +587,7 @@ export class WorkflowEngine {
         version: workflow.version,
         ...(extra.step ? { step: extra.step } : {}),
         ...(extra.status ? { status: extra.status } : {}),
+        ...(extra.audience ? { audience: extra.audience, withheld: extra.withheld ?? [] } : {}),
         ...(this.simulation ? { simulation: true } : {})
       }
     });
@@ -687,17 +691,21 @@ export class WorkflowEngine {
     const maxAttempts = step.retry?.maxAttempts ?? 1;
     for (let attempt = (w.state.steps.get(step.name)?.attempts ?? 0) + 1; ; attempt++) {
       let input: unknown;
+      let released: { audience: string; needs: Record<string, unknown> } | undefined;
       try {
-        if (step.kind === "action" || step.kind === "ai") input = step.input(ctx);
+        if (step.kind === "action") input = step.input(ctx);
+        if (step.kind === "ai") ({ input, released } = await this.releaseInput(workflow, step, w.state, ctx, identity));
       } catch (err) {
-        await w.append({ type: "step-failed", step: step.name, attempt, error: recorded(err), retryable: false, final: true });
-        return false;
+        const retryable = isRetryable(err);
+        await w.append({ type: "step-failed", step: step.name, attempt, error: recorded(err), retryable, final: !retryable || attempt >= maxAttempts });
+        if (!retryable || attempt >= maxAttempts) return false;
+        continue;
       }
       await w.append({
         type: "step-started",
         step: step.name,
         attempt,
-        ...(step.kind === "action" ? { action: step.action, input } : step.kind === "ai" ? { input } : {})
+        ...(step.kind === "action" ? { action: step.action, input } : step.kind === "ai" ? { input, ...(released ? { released } : {}) } : {})
       });
       const fault = this.faults(step.name, attempt);
       try {
@@ -757,6 +765,86 @@ export class WorkflowEngine {
       }
       case "approval":
         throw new WorkflowStateError("An approval has no effect to run");
+    }
+  }
+
+  /**
+   * What an AI step may send its model (ADR-0067). The step's upstream reads
+   * are run again, and its computes recomputed, as the person carrying the
+   * run bound to the model's audience, so the runtime decides every value for
+   * both; model answers and approvals pass as journaled, and nothing an
+   * Action returned may reach a model (registration refuses it). The input is
+   * then built from those outputs. If it differs from what the person alone
+   * would have sent, the step is refused unless it opts into redaction.
+   * Every release is audited, with the audience and what was withheld.
+   */
+  private async releaseInput(
+    workflow: AnyWorkflow,
+    step: Extract<AnyStep, { kind: "ai" }>,
+    state: RunState,
+    ctx: StepContext,
+    identity: Identity
+  ): Promise<{ input: unknown; released: { audience: string; needs: Record<string, unknown> } }> {
+    const model = this.options.model;
+    if (!model) throw new WorkflowDefinitionError(`Workflow ${workflow.name} has AI step "${step.name}", and the engine has no model`);
+    const audience = audienceOf(model);
+    const refuse = async (message: string, withheld: string[]): Promise<never> => {
+      await this.audit(identity.subjectId, "workflow.release", workflow, state.runId, "deny", { step: step.name, reason: message, audience: audience.id, withheld });
+      throw new ReleaseRefusedError(message, audience.id, withheld);
+    };
+    if (identity.audience && identity.audience.id !== audience.id) {
+      return refuse(`The run reads for ${identity.audience.id}; its AI step "${step.name}" cannot also release to ${audience.id}`, []);
+    }
+    const releaseAs = withAudience(identity, audience);
+    const original = outputsOf(state);
+    const released = new Map<string, unknown>();
+    const closure = upstream(workflow.steps, step.name);
+    for (const s of workflow.steps) {
+      if (!closure.has(s.name) || !original.has(s.name)) continue;
+      if (state.steps.get(s.name)?.outcome?.kind === "skipped") {
+        released.set(s.name, undefined);
+        continue;
+      }
+      const sctx = contextFor(state.runId, state.input, s, released);
+      released.set(s.name, await this.releasedOutput(s, sctx, original.get(s.name), releaseAs));
+    }
+    const input = step.input(contextFor(state.runId, state.input, step, released));
+    const needs = Object.fromEntries((step.needs ?? []).map((n) => [n, released.get(n)]));
+    const withheld = (step.needs ?? []).filter((n) => canonical(released.get(n)) !== canonical(original.get(n)));
+    if (canonical(input) !== canonical(step.input(ctx))) {
+      if ((step.release ?? "refuse") === "refuse") {
+        await refuse(`AI step "${step.name}" would send ${audience.id} data it may not receive (from ${withheld.join(", ") || "its needs"}); declare release: "redact" to send only what it may`, withheld);
+      }
+    }
+    await this.audit(identity.subjectId, "workflow.release", workflow, state.runId, "allow", { step: step.name, audience: audience.id, withheld });
+    return { input, released: { audience: audience.id, needs } };
+  }
+
+  /** One upstream step's output as `releaseAs` may receive it: `undefined` where the runtime refuses it. */
+  private async releasedOutput(s: AnyStep, ctx: StepContext, journaled: unknown, releaseAs: Identity): Promise<unknown> {
+    const refused = (err: unknown) => err instanceof AuthorizationError || err instanceof NotFoundError;
+    switch (s.kind) {
+      case "read": {
+        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
+        try {
+          return structuredClone(await s.run(client, ctx));
+        } catch (err) {
+          if (refused(err)) return undefined;
+          throw err;
+        }
+      }
+      case "compute":
+        try {
+          return structuredClone(s.run(ctx));
+        } catch {
+          // A compute over a withheld value may fail; what it would have made of the full value is withheld too.
+          return undefined;
+        }
+      case "ai":
+      case "approval":
+        return journaled;
+      case "action":
+        return undefined;
     }
   }
 

@@ -54,7 +54,15 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
     if (step.retry && (!Number.isInteger(step.retry.maxAttempts) || step.retry.maxAttempts < 1 || (step.retry.backoffMs ?? 0) < 0)) {
       add({ code: "invalid-retry", step: step.name, message: `step "${step.name}" has an invalid retry policy` });
     }
-    if (step.kind === "ai") compiles(step.outputSchema, step.name, `step "${step.name}" outputSchema`);
+    if (step.kind === "ai") {
+      compiles(step.outputSchema, step.name, `step "${step.name}" outputSchema`);
+      // An Action's output cannot be re-read as the model's audience, so nothing an Action returned may reach a model (ADR-0067).
+      for (const up of upstream(workflow.steps, step.name)) {
+        if (workflow.steps.find((s) => s.name === up)?.kind === "action") {
+          add({ code: "unreleasable-ai-input", step: step.name, message: `AI step "${step.name}" depends on the output of Action step "${up}", which cannot be released to a model: read what the model needs in a read step` });
+        }
+      }
+    }
     if (step.kind === "approval" && !step.policy) add({ code: "missing-policy", step: step.name, message: `approval "${step.name}" names no policy` });
     if (step.kind === "action") {
       const action = actions.get(step.action);

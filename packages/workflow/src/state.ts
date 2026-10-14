@@ -9,6 +9,8 @@ export interface StepState {
   /** The Action and input of the latest attempt (Action and AI steps). */
   action?: string;
   input?: unknown;
+  /** An AI step's needs as released to its model (ADR-0067). */
+  released?: { audience: string; needs: Readonly<Record<string, unknown>> };
   outcome?: { kind: "completed"; output: unknown; source: OutputSource } | { kind: "skipped" } | { kind: "failed"; error: RecordedError; retryable: boolean };
   approval?: { requested: boolean; decision?: { approver: string; approved: boolean; comment?: string }; expired?: boolean };
   compensation?: "started" | "completed" | "failed";
@@ -76,6 +78,7 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
         s.inFlight = true;
         if (e.action !== undefined) s.action = e.action;
         if ("input" in e) s.input = e.input;
+        if (e.released) s.released = e.released;
         break;
       }
       case "step-completed":

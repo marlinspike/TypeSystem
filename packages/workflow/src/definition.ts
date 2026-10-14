@@ -62,9 +62,20 @@ export interface AiStep<I> extends StepBase<I> {
   readonly kind: "ai";
   /** The instruction, fixed in the definition so it is versioned and reviewable with it. */
   readonly prompt: string;
-  /** What the model is given. Everything in it leaves the runtime for the model. */
+  /**
+   * What the model is given. Everything in it leaves the runtime for the
+   * model, so the engine computes it from what the model's audience may
+   * receive (ADR-0067): it re-runs the step's upstream reads and computes as
+   * the person carrying the run *and* the model, and calls this with those.
+   */
   readonly input: (ctx: StepContext<I>) => unknown;
   readonly outputSchema: JsonSchema2020;
+  /**
+   * When the model may not receive everything the person could have sent
+   * it: `"refuse"` (the default) fails the step, `"redact"` sends the model
+   * what it may receive. Either way the release is audited.
+   */
+  readonly release?: "refuse" | "redact";
 }
 
 /**

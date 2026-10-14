@@ -5,7 +5,7 @@ import { ulid } from "ulid";
 import type { SemanticRegistry } from "../registry/registry.js";
 import { MappingResolver } from "./mapping-resolver.js";
 import type { Adapter, AdapterQueryResult, ResolvedProperties, RelatedRef } from "./adapter.js";
-import type { Identity, PolicyDecision, PolicyEngine, PolicyRequest, PolicyResource } from "../model/policy.js";
+import { audienceIdentity, type Identity, type PolicyDecision, type PolicyEngine, type PolicyRequest, type PolicyResource } from "../model/policy.js";
 import type { TypeDefinition, ComputedPropertyDefinition } from "../model/type.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { RelationshipDefinition } from "../model/relationship.js";
@@ -267,6 +267,18 @@ function planSummary(plan: AuthorizationPlan): { plan: AuthorizationPlan["kind"]
 
 /** The reason a clearance check gives the caller: never the marking, which can itself be sensitive (ADR-0032). */
 const CLEARANCE_REASON = "Requires a higher clearance";
+
+/**
+ * The principals a decision about `identity` is made for (ADR-0067): the
+ * subject alone, or the subject and the audience it reads for, each as a
+ * principal of its own. The subject is decided without its audience, so no
+ * rule can mistake one for the other.
+ */
+function principalsOf(identity: Identity): { person: Identity; audience?: Identity } {
+  if (!identity.audience) return { person: identity };
+  const { audience, ...person } = identity;
+  return { person, audience: audienceIdentity(audience) };
+}
 
 /** The call currently executing, if any: the runtime running it, its concurrency budget, and the operation it is (see `withRequest`). */
 interface RequestContext {
@@ -822,6 +834,17 @@ export class SemanticRuntime {
    * every decision goes through `evaluate`, which does.
    */
   private async decide(request: PolicyRequest): Promise<PolicyDecision> {
+    const { person, audience } = principalsOf(request.subject);
+    if (!audience) return this.decideFor(request);
+    // Both must allow (ADR-0067): the person may read it, and it may be released to where it is going.
+    const [forPerson, forAudience] = await Promise.all([this.decideFor({ ...request, subject: person }), this.decideFor({ ...request, subject: audience })]);
+    const faults = [...(forPerson.faults ?? []), ...(forAudience.faults ?? [])];
+    if (!forPerson.allow) return { ...forPerson, ...(faults.length ? { faults } : {}) };
+    if (!forAudience.allow) return { allow: false, reason: `Not releasable to ${audience.subjectId}: ${forAudience.reason ?? "not allowed"}`, ...(faults.length ? { faults } : {}) };
+    return { ...forPerson, ...(faults.length ? { faults } : {}) };
+  }
+
+  private async decideFor(request: PolicyRequest): Promise<PolicyDecision> {
     let decision: PolicyDecision | undefined;
     try {
       decision = await this.policyEngine.evaluate(request);
@@ -861,7 +884,7 @@ export class SemanticRuntime {
       resource: { typeName: resource.typeName, objectId: resource.objectId, propertyPath: resource.propertyPath },
       decision: decision.allow ? "allow" : "deny",
       reason: decision.reason,
-      ...(details ? { details } : {})
+      ...(details || identity.audience ? { details: { ...details, ...(identity.audience ? { audience: identity.audience.id } : {}) } } : {})
     });
   }
 
@@ -887,6 +910,20 @@ export class SemanticRuntime {
    * It does not audit: a decision about access goes through `clearedFor`.
    */
   private classify(
+    identity: Identity,
+    markings: readonly string[],
+    resource: PolicyResource,
+    action: "read" | "invoke"
+  ): { allow: boolean; label: readonly string[]; reason?: string } {
+    const { person, audience } = principalsOf(identity);
+    const forPerson = this.classifyFor(person, markings, resource, action);
+    if (!audience || !forPerson.allow) return forPerson;
+    // Releasing marked data to an audience needs the audience cleared for it too (ADR-0067).
+    const forAudience = this.classifyFor(audience, markings, resource, action);
+    return forAudience.allow ? forPerson : { ...forAudience, reason: `not releasable to ${audience.subjectId}: ${forAudience.reason ?? "refused"}` };
+  }
+
+  private classifyFor(
     identity: Identity,
     markings: readonly string[],
     resource: PolicyResource,
@@ -931,7 +968,15 @@ export class SemanticRuntime {
     const marked = [...new Set(markings)];
     if (marked.length === 0) return true;
     const { allow, label, reason } = this.classify(identity, marked, resource, action);
-    const details = { control: "classification", scheme: this.classification.name, markings: marked, label, clearance: identity.clearance ?? null, ...(reason ? { reason } : {}) };
+    const details = {
+      control: "classification",
+      scheme: this.classification.name,
+      markings: marked,
+      label,
+      clearance: identity.clearance ?? null,
+      ...(identity.audience ? { audienceClearance: identity.audience.clearance ?? null } : {}),
+      ...(reason ? { reason } : {})
+    };
     await this.audit(identity, action, resource, allow ? { allow } : { allow, reason: CLEARANCE_REASON }, details);
     return allow;
   }
@@ -964,6 +1009,11 @@ export class SemanticRuntime {
 
   /** How far the engine vouches for its plan for this subject (ADR-0046); anything but a clear `"structural"` is unverified. */
   private async planAssurance(typeDef: TypeDefinition, identity: Identity): Promise<PlanAssurance> {
+    const { person, audience } = principalsOf(identity);
+    if (audience) {
+      const both = await Promise.all([this.planAssurance(typeDef, person), this.planAssurance(typeDef, audience)]);
+      return both.every((a) => a === "structural") ? "structural" : "unverified";
+    }
     if (typeof this.policyEngine.planAssurance !== "function") return "unverified";
     try {
       const answer = await this.policyEngine.planAssurance({ subject: identity, action: "read", policyName: objectPolicyOf(typeDef), resource: { typeName: typeDef.name } });
@@ -980,6 +1030,11 @@ export class SemanticRuntime {
    * too: sound, and never exact, so `require-exact` refuses it.
    */
   private async askPlanner(request: PolicyRequest): Promise<AuthorizationPlan> {
+    const { person, audience } = principalsOf(request.subject);
+    if (audience) {
+      // What both may read: the conjunction of their plans, sound because each is (ADR-0067).
+      return allPlans(await Promise.all([this.askPlanner({ ...request, subject: person }), this.askPlanner({ ...request, subject: audience })]));
+    }
     if (typeof this.policyEngine.plan !== "function") return unknownPlan([{ code: "engine-cannot-plan" }]);
     let returned: unknown;
     try {

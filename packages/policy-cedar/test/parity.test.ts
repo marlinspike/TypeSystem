@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { AuthorizationError, DEMO_LINEAR_CLASSIFICATION, SemanticRuntime, type Adapter, type AuditEvent, type Identity, type PolicyEngine, type SemanticRegistry } from "@typesys/core";
-import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
+import { AuthorizationError, DEMO_LINEAR_CLASSIFICATION, SemanticRuntime, withAudience, type Adapter, type AuditEvent, type Identity, type PolicyEngine, type SemanticRegistry } from "@typesys/core";
+import { buildAirforceTestbed, demoAudiences, demoIdentities } from "@typesys/domain-airforce";
 import { buildHospitalTestbed, hospitalDemoIdentities } from "@typesys/domain-hospital";
 import { CedarPolicyEngine } from "../src/index.js";
 
@@ -35,7 +35,12 @@ const IDENTITIES: Record<string, Identity> = {
   tokenClinician: identity("c-token", ["clinician"], { providerId: "PR-2002", iss: "https://idp.example", aud: ["typesys"], exp: 1790000000, nested: { a: 1 }, ratio: 0.5, gone: null }),
   nullProviderClinician: identity("c-null", ["clinician"], { providerId: null }),
   everyRole: identity("u-every", ["maintainer", "viewer", "clinician", "patient"], { providerId: "PR-2002", patientId: "PT-1001" }),
-  spoofedRole: identity("u-spoof", ['admin"', "Admin", " clinician"], { providerId: "PR-2001" })
+  spoofedRole: identity("u-spoof", ['admin"', "Admin", " clinician"], { providerId: "PR-2001" }),
+  // Reading for a model audience (ADR-0067): both engines must decide the person and the model alike.
+  maintainerForEnclave: withAudience(demoIdentities.maintainer, demoAudiences.enclaveModel),
+  maintainerForCommercial: withAudience(demoIdentities.maintainer, demoAudiences.commercialModel),
+  viewerForEnclave: withAudience(demoIdentities.viewer, demoAudiences.enclaveModel),
+  enclaveModelAlone: identity("model-as-person", ["ai-enclave"])
 };
 
 /** Patients that probe the own-patient rule's edges: no assigned clinician, an empty one, an empty own id. */
