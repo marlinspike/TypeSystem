@@ -54,7 +54,55 @@ function compareSchema(subject: string, before: JsonSchema2020 | undefined, afte
     return;
   }
   const [bt, at] = [schemaToTs(before), schemaToTs(after)];
-  if (bt !== at) out.push({ impact: "breaking", subject, change: `type changed from ${bt.replace(/\s+/g, " ")} to ${at.replace(/\s+/g, " ")}` });
+  if (bt !== at) {
+    out.push({ impact: "breaking", subject, change: `type changed from ${bt.replace(/\s+/g, " ")} to ${at.replace(/\s+/g, " ")}` });
+    return;
+  }
+  compareConstraints(subject, before, after, direction, out);
+}
+
+/** Keywords that bound a value without changing its TypeScript type: a larger `max*` or smaller `min*` admits more. */
+const UPPER_BOUNDS = ["maximum", "exclusiveMaximum", "maxLength", "maxItems", "maxProperties"] as const;
+const LOWER_BOUNDS = ["minimum", "exclusiveMinimum", "minLength", "minItems", "minProperties"] as const;
+/** Keywords where any change is neither plainly wider nor narrower. */
+const OTHER_CONSTRAINTS = ["format", "pattern", "multipleOf", "uniqueItems", "contentEncoding", "contentMediaType"] as const;
+
+/**
+ * The constraints `schemaToTs` cannot see (integer vs number, bounds,
+ * format, pattern). What admits fewer values breaks a caller supplying an
+ * `in` value; what admits more can surprise a consumer reading an `out`
+ * value; a change that is neither is treated as both.
+ */
+function compareConstraints(subject: string, before: JsonSchema2020 | undefined, after: JsonSchema2020 | undefined, direction: "out" | "in", out: ContractChange[]): void {
+  const changes: { narrower: boolean; wider: boolean; change: string }[] = [];
+  const show = (v: unknown) => (v === undefined ? "none" : JSON.stringify(v));
+  const [bType, aType] = [before?.type, after?.type];
+  if (JSON.stringify(bType) !== JSON.stringify(aType)) {
+    const narrower = bType === "number" && aType === "integer";
+    const wider = bType === "integer" && aType === "number";
+    changes.push({ narrower: narrower || !wider, wider: wider || !narrower, change: `type ${show(bType)} is now ${show(aType)}` });
+  }
+  for (const k of UPPER_BOUNDS) {
+    const [b, a] = [before?.[k] as number | undefined, after?.[k] as number | undefined];
+    if (b === a) continue;
+    const narrower = a !== undefined && (b === undefined || a < b);
+    changes.push({ narrower, wider: !narrower, change: `${k} ${show(b)} is now ${show(a)}` });
+  }
+  for (const k of LOWER_BOUNDS) {
+    const [b, a] = [before?.[k] as number | undefined, after?.[k] as number | undefined];
+    if (b === a) continue;
+    const narrower = a !== undefined && (b === undefined || a > b);
+    changes.push({ narrower, wider: !narrower, change: `${k} ${show(b)} is now ${show(a)}` });
+  }
+  for (const k of OTHER_CONSTRAINTS) {
+    const [b, a] = [before?.[k], after?.[k]];
+    if (JSON.stringify(b) === JSON.stringify(a)) continue;
+    changes.push({ narrower: a !== undefined && a !== false, wider: b !== undefined && b !== false, change: `${k} ${show(b)} is now ${show(a)}` });
+  }
+  for (const c of changes) {
+    const impact: Impact = direction === "in" ? (c.narrower ? "breaking" : "compatible") : c.wider ? "risky" : "compatible";
+    out.push({ impact, subject, change: c.change });
+  }
 }
 
 function diffType(before: TypeDescription, after: TypeDescription, out: ContractChange[]): void {
@@ -64,7 +112,10 @@ function diffType(before: TypeDescription, after: TypeDescription, out: Contract
   const [bv, av] = [valuesOf(before), valuesOf(after)];
   for (const [name, schema] of bv) {
     if (!av.has(name)) out.push({ impact: "breaking", subject: `${t}.${name}`, change: "value removed" });
-    else compareSchema(`${t}.${name}`, schema, av.get(name), "out", out);
+    else {
+      compareSchema(`${t}.${name}`, schema, av.get(name), "out", out);
+      if (before.required.includes(name) && !after.required.includes(name)) out.push({ impact: "breaking", subject: `${t}.${name}`, change: "no longer required; readers may now see it missing" });
+    }
   }
   for (const name of av.keys()) if (!bv.has(name)) out.push({ impact: "compatible", subject: `${t}.${name}`, change: "value added" });
 
@@ -90,6 +141,11 @@ function diffType(before: TypeDescription, after: TypeDescription, out: Contract
       });
     }
   }
+  // The runtime resolves a relationship's old name through its alias (ADR-0010); dropping the alias fails a query that still uses it.
+  for (const [alias, current] of Object.entries(before.aliases ?? {})) {
+    if (!before.relationships.some((r) => r.name === current) || relsAfter.has(alias) || after.aliases?.[alias] === current) continue;
+    out.push({ impact: "breaking", subject: `${t}.${alias}`, change: after.aliases?.[alias] ? `alias now resolves to ${after.aliases[alias]}, was ${current}` : `alias for ${current} removed` });
+  }
   for (const rel of after.relationships) {
     if (!before.relationships.some((r) => r.name === rel.name) && !Object.values(after.aliases ?? {}).includes(rel.name)) {
       out.push({ impact: "compatible", subject: `${t}.${rel.name}`, change: "relationship added" });
@@ -113,6 +169,8 @@ function diffAction(before: ActionDescription, after: ActionDescription, out: Co
       if (aReq.has(name) && !bReq.has(name)) out.push({ impact: "breaking", subject: `${n}.input.${name}`, change: "input now required" });
     }
   }
+  if (after.inputSchema.additionalProperties === false && before.inputSchema.additionalProperties !== false)
+    out.push({ impact: "breaking", subject: `${n}.input`, change: "inputs it does not name are now refused" });
   for (const name of Object.keys(aIn)) {
     if (!(name in bIn)) out.push({ impact: aReq.has(name) ? "breaking" : "compatible", subject: `${n}.input.${name}`, change: aReq.has(name) ? "required input added" : "optional input added" });
   }
@@ -120,7 +178,11 @@ function diffAction(before: ActionDescription, after: ActionDescription, out: Co
   const aOut = after.outputSchema.properties ?? {};
   for (const [name, schema] of Object.entries(bOut)) {
     if (!(name in aOut)) out.push({ impact: "breaking", subject: `${n}.output.${name}`, change: "output removed" });
-    else compareSchema(`${n}.output.${name}`, schema, aOut[name], "out", out);
+    else {
+      compareSchema(`${n}.output.${name}`, schema, aOut[name], "out", out);
+      if ((before.outputSchema.required ?? []).includes(name) && !(after.outputSchema.required ?? []).includes(name))
+        out.push({ impact: "breaking", subject: `${n}.output.${name}`, change: "no longer required; callers may now see it missing" });
+    }
   }
   for (const name of Object.keys(aOut)) if (!(name in bOut)) out.push({ impact: "compatible", subject: `${n}.output.${name}`, change: "output added" });
 

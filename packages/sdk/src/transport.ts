@@ -148,12 +148,17 @@ export function httpCall(opts: HttpTransportOptions): HttpCall {
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     });
     const text = await res.text();
-    const parsed: unknown = text === "" ? undefined : JSON.parse(text);
     if (!res.ok) {
-      const p = (parsed ?? {}) as { code?: string; detail?: string; reason?: string };
+      // An error body need not be JSON: a proxy's 502 page, or anything else in front of the API.
+      let p: { code?: string; detail?: string; reason?: string } = {};
+      try {
+        p = ((text === "" ? undefined : JSON.parse(text)) ?? {}) as typeof p;
+      } catch {
+        // Not a problem document; the status alone says what happened.
+      }
       throw new ApiError(res.status, p.code ?? "internal", p.detail ?? `HTTP ${res.status}`, p.reason);
     }
-    return parsed;
+    return text === "" ? undefined : (JSON.parse(text) as unknown);
   };
 }
 

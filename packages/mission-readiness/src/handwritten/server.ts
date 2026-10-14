@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import express, { type Express, type Request, type Response } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { AuthorizationError, InvalidInputError, NotFoundError, PreconditionFailedError, type Identity, type ResolvedObject } from "@typesys/core";
 import { bearerToken, clientRouter, originGuard } from "@typesys/http";
 import { MISSION_SIGN_INS, resolveMissionIdentity, type MissionBackend } from "../shared/backend.js";
@@ -168,5 +168,10 @@ export function createHandwrittenApp(backend: MissionBackend, clientDir: string)
   );
 
   app.use(clientRouter({ dir: clientDir, config: { signIns: MISSION_SIGN_INS } }));
+  // A body express.json could not read: the client's fault, and never Express's HTML page with its stack and paths.
+  app.use((err: { status?: unknown }, _req: Request, res: Response, _next: NextFunction) => {
+    const status = typeof err?.status === "number" && err.status >= 400 && err.status < 500 ? err.status : 500;
+    res.status(status).json({ error: status === 500 ? "Internal error" : "The request body could not be read" });
+  });
   return app;
 }

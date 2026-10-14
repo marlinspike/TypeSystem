@@ -106,4 +106,27 @@ describe("a subtype keeps its base's protections (ADR-0060)", () => {
     await expect(setup(jet({ "x-policy": { propertyPolicies: { status: "anyone" } } }))).rejects.toThrow(/would replace the policy "officers" on "status"/);
     await expect(setup(jet({ "x-provenance": { properties: { location: { classification: "UNCLASSIFIED" } } } }))).rejects.toThrow(/would replace the classification "SECRET" on "location"/);
   });
+
+  it("follows a later version of the base: gains its new protections, keeps ones it drops, and refuses one that would replace a subtype's own", async () => {
+    const schema = (v: string, extra: Partial<SemanticTypeSchema>): SemanticTypeSchema => ({ $id: `https://typesys.dev/types/test/B/${v}`, title: "B", type: "object", ...extra });
+    const store = new InMemoryRegistryStore();
+    const registry = new SemanticRegistry(store);
+    await registry.registerType(schema("1.0.0", { "x-policy": { objectPolicy: "readers", propertyPolicies: { a: "officers" } } }), { name: "test.B", version: "1.0.0" });
+    await registry.registerType({ $id: "https://typesys.dev/types/test/S/1.0.0", title: "S", type: "object", "x-policy": { propertyPolicies: { own: "officers" } } }, { name: "test.S", version: "1.0.0", extends: "test.B" });
+    await registry.registerType({ $id: "https://typesys.dev/types/test/G/1.0.0", title: "G", type: "object" }, { name: "test.G", version: "1.0.0", extends: "test.S" });
+
+    // 2.0.0 drops `a`'s policy and adds `b`'s: every subtype, the grand-child too, has both.
+    await registry.registerType(schema("2.0.0", { "x-policy": { objectPolicy: "readers", propertyPolicies: { b: "officers" } }, "x-provenance": { properties: { c: { classification: "SECRET" } } } }), { name: "test.B", version: "2.0.0" });
+    for (const name of ["test.S", "test.G"]) {
+      const sub = await registry.getType(name);
+      expect(sub?.schema["x-policy"]).toEqual({ objectPolicy: "readers", propertyPolicies: { a: "officers", b: "officers", own: "officers" } });
+      expect(sub?.schema["x-provenance"]?.properties?.c?.classification).toBe("SECRET");
+    }
+
+    // A base version that would replace a subtype's own rule is refused, and nothing is stored.
+    await expect(
+      registry.registerType(schema("3.0.0", { "x-policy": { objectPolicy: "readers", propertyPolicies: { own: "anyone" } } }), { name: "test.B", version: "3.0.0" })
+    ).rejects.toThrow(/would replace the policy "anyone" on "own"/);
+    expect((await registry.getType("test.B"))?.version).toBe("2.0.0");
+  });
 });

@@ -1,4 +1,4 @@
-import type { QueryFilter, QueryInclude, SemanticQuery, SortKey } from "@typesys/core";
+import type { QueryFilter, QueryInclude, QueryOperator, SemanticQuery, SortKey } from "@typesys/core";
 
 export interface SourceOptions {
   /** The client variable the code starts from. Default `client`. */
@@ -11,6 +11,18 @@ const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const lit = (value: unknown): string => JSON.stringify(value);
 const member = (obj: string, name: string): string => (IDENT.test(name) ? `${obj}.${name}` : `${obj}[${lit(name)}]`);
 
+// The query comes from anywhere (a log, an agent, a pasted URL), and what is emitted is code a developer runs:
+// only the DSL's own operators and integer limits are written into it, never a value as given.
+const OPERATORS: ReadonlySet<string> = new Set<QueryOperator>(["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains", "icontains"]);
+function operator(op: unknown): QueryOperator {
+  if (typeof op !== "string" || !OPERATORS.has(op)) throw new Error(`${lit(op)} is not a query operator`);
+  return op as QueryOperator;
+}
+function limit(n: unknown): string {
+  if (typeof n !== "number" || !Number.isSafeInteger(n)) throw new Error(`A limit must be an integer, not ${lit(n)}`);
+  return `.limit(${n})`;
+}
+
 /** A filter as field-reference calls on `f`: `f.needsAttention.eq(true).and(f.model.in(["F-16C"]))`. */
 function expr(filter: QueryFilter, f: string): string {
   if ("and" in filter || "or" in filter) {
@@ -21,7 +33,7 @@ function expr(filter: QueryFilter, f: string): string {
     const [first, ...rest] = parts.map((p) => expr(p, f));
     return rest.length === 0 ? first! : `${first}.${op}(${rest.join(", ")})`;
   }
-  return `${member(f, filter.property)}.${filter.operator}(${lit(filter.value)})`;
+  return `${member(f, filter.property)}.${operator(filter.operator)}(${lit(filter.value)})`;
 }
 
 function sorts(sort: readonly SortKey[] | undefined): string[] {
@@ -36,7 +48,7 @@ function includeCalls(includes: readonly QueryInclude[] | undefined, depth: numb
       ...sorts(inc.sort),
       ...(inc.select ? [`.select(${inc.select.map(lit).join(", ")})`] : []),
       ...includeCalls(inc.include, depth + 1),
-      ...(inc.limit !== undefined ? [`.limit(${inc.limit})`] : [])
+      ...(inc.limit !== undefined ? [limit(inc.limit)] : [])
     ];
     return inner.length === 0 ? `.include(${lit(inc.relationship)})` : `.include(${lit(inc.relationship)}, (${q}) => ${q}${inner.join("")})`;
   });
@@ -57,7 +69,7 @@ export function querySource(query: SemanticQuery, opts: SourceOptions = {}): str
     ...sorts(query.sort),
     ...(query.select ? [`.select(${query.select.map(lit).join(", ")})`] : []),
     ...includeCalls(query.include, 0),
-    ...(query.limit !== undefined ? [`.limit(${query.limit})`] : []),
+    ...(query.limit !== undefined ? [limit(query.limit)] : []),
     ...(query.includeProvenance ? [".withProvenance()"] : [])
   ];
   return `${opts.client ?? "client"}.from(${lit(query.type)})${calls.map((c) => pad + c).join("")}`;

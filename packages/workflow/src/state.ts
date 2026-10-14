@@ -1,4 +1,4 @@
-import type { Identity } from "@typesys/core";
+import { NotFoundError, type Identity } from "@typesys/core";
 import type { FinalStatus, JournalRecord, OutputSource, RecordedError } from "./journal.js";
 import { WorkflowStateError } from "./errors.js";
 
@@ -9,7 +9,7 @@ export interface StepState {
   /** The Action and input of the latest attempt (Action and AI steps). */
   action?: string;
   input?: unknown;
-  outcome?: { kind: "completed"; output: unknown; source: OutputSource } | { kind: "skipped" } | { kind: "failed"; error: RecordedError };
+  outcome?: { kind: "completed"; output: unknown; source: OutputSource } | { kind: "skipped" } | { kind: "failed"; error: RecordedError; retryable: boolean };
   approval?: { requested: boolean; decision?: { approver: string; approved: boolean; comment?: string } };
   compensation?: "started" | "completed" | "failed";
 }
@@ -34,7 +34,7 @@ export interface RunState {
 
 export function fold(runId: string, records: readonly JournalRecord[]): RunState {
   const first = records[0];
-  if (first?.type !== "run-started") throw new WorkflowStateError(`No run ${runId}`);
+  if (first?.type !== "run-started") throw new NotFoundError(`No run ${runId}`);
   const state: RunState = {
     runId,
     workflow: first.workflow,
@@ -71,7 +71,7 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
       case "step-failed": {
         const s = step(e.step);
         s.inFlight = false;
-        if (e.final) s.outcome = { kind: "failed", error: e.error };
+        if (e.final) s.outcome = { kind: "failed", error: e.error, retryable: e.retryable };
         break;
       }
       case "approval-requested":

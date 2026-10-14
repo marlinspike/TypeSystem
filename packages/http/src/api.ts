@@ -1,4 +1,4 @@
-import express, { type Express, type Request, type Response, type Router } from "express";
+import express, { type Express, type NextFunction, type Request, type Response, type Router } from "express";
 import {
   InvalidInputError,
   NotFoundError,
@@ -15,7 +15,7 @@ import { discover, validateQuery } from "@typesys/devkit";
 import type { WorkflowEngine } from "@typesys/workflow";
 import { LOCAL_HOSTS, bearerToken, originGuard } from "./guard.js";
 import { openApiDocument } from "./openapi.js";
-import { toProblem } from "./problems.js";
+import { bodyProblem, notFound, sendProblem, toProblem, unauthorized } from "./problems.js";
 
 export interface ApiOptions {
   /** What every request is served from: a registry and the runtime over it (what `buildRuntime` returns). */
@@ -33,11 +33,18 @@ export interface ApiOptions {
 export interface ApiAppOptions extends ApiOptions {
   /** Host names the app answers to. Default: this machine only. `"*"` turns the check off, for a proxy that enforces it. */
   readonly allowedHosts?: readonly string[] | "*";
-  /** Browser origins allowed. Default: `http(s)://` on any allowed host. */
+  /** Browser origins allowed. Default: `http(s)://` on any allowed host; none when `allowedHosts` is `"*"`. */
   readonly allowedOrigins?: readonly string[];
 }
 
 type Handler = (req: Request, identity: Identity) => Promise<unknown>;
+
+/** The API answers only JSON: never sniffed as something else, never framed. */
+function apiHardening(_req: Request, res: Response, next: NextFunction): void {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  next();
+}
 
 const param = (req: Request, name: string): string => String(req.params[name]);
 const body = <T>(req: Request): T => (req.body ?? {}) as T;
@@ -55,16 +62,24 @@ export function createApiRouter(opts: ApiOptions): Router {
   const { registry, runtime } = opts.backend;
   const onError = opts.onError ?? ((err: unknown) => console.error("TypeS API error:", err));
   const router = express.Router();
+  router.use(apiHardening);
   router.use(express.json({ limit: "256kb" }));
 
   const route = (status: number, handler: Handler) => async (req: Request, res: Response) => {
+    let identity: Identity;
     try {
-      const identity = await opts.identityResolver(bearerToken(req) ?? null);
+      identity = await opts.identityResolver(bearerToken(req) ?? null);
+    } catch {
+      // A token the resolver refuses (expired, bad signature) is the caller's fault, not the server's.
+      sendProblem(res.setHeader("WWW-Authenticate", "Bearer"), unauthorized());
+      return;
+    }
+    try {
       res.status(status).json(await handler(req, identity));
     } catch (err) {
       const problem = toProblem(err);
       if (problem.status === 500) onError(err, req);
-      res.status(problem.status).type("application/problem+json").send(JSON.stringify(problem));
+      sendProblem(res, problem);
     }
   };
   const workflows = (): WorkflowEngine => {
@@ -74,11 +89,11 @@ export function createApiRouter(opts: ApiOptions): Router {
 
   router.get("/me", route(200, async (_req, who) => ({ subjectId: who.subjectId, roles: who.roles, ...(who.clearance ? { clearance: who.clearance } : {}) })));
   router.get("/model", route(200, async () => describeModel(registry)));
-  router.get("/openapi.json", route(200, async () => openApiDocument(await describeModel(registry), { ...opts.info, workflows: opts.workflows !== undefined })));
+  router.get("/openapi.json", route(200, async () => openApiDocument(await describeModel(registry), { ...opts.info, workflows: opts.workflows !== undefined, queryLimits: runtime.queryLimits })));
 
   router.post("/query", route(200, (req, who) => runtime.query(body<SemanticQuery>(req), who)));
   router.post("/query/explain", route(200, async (req, who) => (await runtime.explainQuery(body<SemanticQuery>(req), who)).execution));
-  router.post("/query/validate", route(200, async (req) => ({ diagnostics: validateQuery(await describeModel(registry), body<{ query?: unknown }>(req).query) })));
+  router.post("/query/validate", route(200, async (req) => ({ diagnostics: validateQuery(await describeModel(registry), body<{ query?: unknown }>(req).query, runtime.queryLimits) })));
   router.post("/aggregate", route(200, (req, who) => runtime.aggregate(body<SemanticAggregateQuery>(req), who)));
   router.post(
     "/discover",
@@ -106,7 +121,7 @@ export function createApiRouter(opts: ApiOptions): Router {
   router.post("/actions/:name/invoke", route(200, async (req, who) => ({ result: (await runtime.invokeAction(param(req, "name"), req.body, who)) ?? null })));
 
   router.post("/workflows/:name/runs", route(201, (req, who) => workflows().start(param(req, "name"), body<{ input?: unknown }>(req).input, who)));
-  router.get("/workflow-runs/:id", route(200, (req) => workflows().status(param(req, "id"))));
+  router.get("/workflow-runs/:id", route(200, (req, who) => workflows().status(param(req, "id"), who)));
   router.get("/workflow-runs/:id/outputs", route(200, (req, who) => workflows().outputs(param(req, "id"), who)));
   router.get("/workflow-runs/:id/approval", route(200, (req, who) => workflows().pendingApproval(param(req, "id"), who)));
   router.get("/workflow-approvals", route(200, (_req, who) => workflows().approvalsFor(who)));
@@ -118,6 +133,14 @@ export function createApiRouter(opts: ApiOptions): Router {
       return workflows().approve(param(req, "id"), param(req, "step"), who, { approved, ...(typeof comment === "string" ? { comment } : {}) });
     })
   );
+
+  // Anything else under the API, and a body that never parsed, is a problem too: never Express's HTML page, its stack or the server's paths.
+  router.use((_req: Request, res: Response) => sendProblem(res, notFound()));
+  router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    const problem = bodyProblem(err) ?? toProblem(err);
+    if (problem.status === 500) onError(err, req);
+    sendProblem(res, problem);
+  });
 
   return router;
 }

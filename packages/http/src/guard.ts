@@ -3,9 +3,16 @@ import type { Request, Response } from "express";
 /** Where a server answers by default: this machine only. */
 export const LOCAL_HOSTS: readonly string[] = ["localhost", "127.0.0.1", "[::1]"];
 
-/** The host name of a `Host` header value, lower-cased, without its port; `undefined` if it doesn't parse. */
+/** `host[:port]` as RFC 9110 has it, with an IPv6 address in brackets: no userinfo, path, query or fragment. */
+const HOST_HEADER = /^(?:[A-Za-z0-9._~-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?$/;
+
+/**
+ * The host name of a `Host` header value, lower-cased, without its port;
+ * `undefined` if it is not `host[:port]`. Checked before it is parsed as a
+ * URL, which would read `evil.example@localhost` as the host `localhost`.
+ */
 export function hostnameOf(hostHeader: string | undefined): string | undefined {
-  if (!hostHeader) return undefined;
+  if (!hostHeader || !HOST_HEADER.test(hostHeader)) return undefined;
   try {
     return new URL(`http://${hostHeader}`).hostname.toLowerCase();
   } catch {
@@ -24,9 +31,11 @@ export function bearerToken(req: Request): string | undefined {
 /**
  * DNS-rebinding protection (ADR-0053): answer only to an allowed `Host`, and
  * to a browser only from an allowed `Origin`. A request with no `Origin` (any
- * non-browser client) passes the origin check. Run before identity is
- * resolved, so a refused request reaches nothing. `refuse` writes the
- * transport's own error shape.
+ * non-browser client) passes the origin check. `allowedHosts: "*"` turns off
+ * only the Host check: with no `allowedOrigins` beside it, there is no host
+ * an origin could be checked against, so every browser origin is refused.
+ * Run before identity is resolved, so a refused request reaches nothing.
+ * `refuse` writes the transport's own error shape.
  */
 export function originGuard(
   allowedHosts: readonly string[] | "*",
@@ -48,7 +57,7 @@ export function originGuard(
       else {
         try {
           const url = new URL(origin);
-          allowed = (url.protocol === "http:" || url.protocol === "https:") && (hosts === undefined || hosts.has(url.hostname.toLowerCase()));
+          allowed = (url.protocol === "http:" || url.protocol === "https:") && hosts !== undefined && hosts.has(url.hostname.toLowerCase());
         } catch {
           allowed = false;
         }

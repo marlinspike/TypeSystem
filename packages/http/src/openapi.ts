@@ -1,4 +1,4 @@
-import { aggregateQuerySchema, semanticQuerySchema, type JsonSchema2020, type ModelDescription } from "@typesys/core";
+import { aggregateQuerySchema, semanticQuerySchema, type JsonSchema2020, type ModelDescription, type QueryLimits } from "@typesys/core";
 
 type Json = Record<string, unknown>;
 
@@ -37,7 +37,10 @@ const safe = (name: string) => name.replace(/[^A-Za-z0-9_]/g, "_");
  * contract the runtime enforces. Every value of an object is optional, since
  * policy may withhold any of them (ADR-0055).
  */
-export function openApiDocument(model: ModelDescription, opts: { title?: string; version?: string; workflows?: boolean } = {}): Json {
+export function openApiDocument(
+  model: ModelDescription,
+  opts: { title?: string; version?: string; workflows?: boolean; queryLimits?: QueryLimits } = {}
+): Json {
   const schemas: Record<string, unknown> = {
     Problem: {
       type: "object",
@@ -45,7 +48,7 @@ export function openApiDocument(model: ModelDescription, opts: { title?: string;
         type: { type: "string" },
         title: { type: "string" },
         status: { type: "integer" },
-        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "internal"] },
+        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "unauthorized", "internal"] },
         detail: { type: "string" },
         reason: { type: "string" },
         errors: {}
@@ -62,8 +65,8 @@ export function openApiDocument(model: ModelDescription, opts: { title?: string;
     ActionSummary: { type: "object", additionalProperties: true },
     ActionPreview: { type: "object", additionalProperties: true }
   };
-  const query = component("SemanticQuery", semanticQuerySchema(), schemas);
-  const aggregate = component("AggregateQuery", aggregateQuerySchema(), schemas);
+  const query = component("SemanticQuery", semanticQuerySchema(opts.queryLimits), schemas);
+  const aggregate = component("AggregateQuery", aggregateQuerySchema(opts.queryLimits), schemas);
   const page = (items: unknown) => ({ type: "object", properties: { items: { type: "array", items }, nextCursor: { type: "string" } }, required: ["items"] });
 
   const paths: Record<string, Json> = {

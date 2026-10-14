@@ -10,7 +10,15 @@ const PEOPLE = { maintainer: demoIdentities.maintainer, lead: demoIdentities.lea
 type Who = keyof typeof PEOPLE;
 const token = (who: Who) => (who === "anonymous" ? undefined : `token-${who}`);
 const resolve = async (t: string | null | undefined): Promise<Identity> => {
-  if (t === "explode") throw new Error("connection string postgres://admin:hunter2@db");
+  // An identity that fails once a route uses it: a resolver that throws is a 401 instead (a refused token).
+  if (t === "explode")
+    return {
+      subjectId: "x",
+      attributes: {},
+      get roles(): string[] {
+        throw new Error("connection string postgres://admin:hunter2@db");
+      }
+    };
   const who = (Object.keys(PEOPLE) as Who[]).find((w) => token(w) === t);
   return who ? PEOPLE[who] : demoIdentities.anonymous;
 };
@@ -89,7 +97,7 @@ describe("the governed REST API (ADR-0058)", () => {
   });
 
   it("an internal error says nothing about itself to the caller", async () => {
-    const res = await fetch(`${base}/api/model`, { headers: { authorization: "Bearer explode" } });
+    const res = await fetch(`${base}/api/me`, { headers: { authorization: "Bearer explode" } });
     const text = await res.text();
     expect(res.status).toBe(500);
     expect(JSON.parse(text)).toMatchObject({ code: "internal", detail: "Internal error" });
@@ -140,7 +148,8 @@ describe("the SDK's workflow client", () => {
     const as = (who: Who) => httpWorkflows({ baseUrl: `${base}/api`, ...(token(who) ? { token: token(who)! } : {}) });
     const run = await as("maintainer").start("airforce.GroundForRepair", { aircraftId: "AF86-0147", assignTo: "SSgt Rivera" });
     expect(run).toMatchObject({ status: "waiting-approval", waitingOn: { step: "leadApproval" }, initiator: "user-maintainer-1" });
-    expect((await as("viewer").status(run.runId)).status).toBe("waiting-approval");
+    expect((await as("lead").status(run.runId)).status).toBe("waiting-approval");
+    await expect(as("viewer").status(run.runId)).rejects.toMatchObject({ status: 404 });
     await expect(as("viewer").approval(run.runId)).rejects.toMatchObject({ status: 403, code: "forbidden" });
     expect(await as("lead").approval(run.runId)).toMatchObject({ step: "leadApproval", presented: { tailNumber: "AF86-0147" } });
     // Listed for the lead, never for its initiator or a viewer.

@@ -93,9 +93,14 @@ function memberPolicyOf(typeDef: TypeDefinition, member: string): string | undef
   return typeDef.schema["x-policy"]?.propertyPolicies?.[member];
 }
 
-/** Whether some computed property of the Type declares `name` as an input in its `dependsOn`. */
-function isDeclaredInput(typeDef: TypeDefinition, name: string): boolean {
-  return typeDef.computedProperties.some((cp) => cp.dependsOn.includes(name));
+/**
+ * A withheld derivation's audit details (ADR-0052): the declared inputs that
+ * withhold it, and, apart, the inputs further up that withhold one of those
+ * and that a release of it does not lift.
+ */
+function derivationInputs(cp: ComputedPropertyDefinition, withheld: readonly string[]): { inputs: string[]; upstream?: string[] } {
+  const upstream = withheld.filter((name) => !cp.dependsOn.includes(name));
+  return { inputs: withheld.filter((name) => cp.dependsOn.includes(name)), ...(upstream.length > 0 ? { upstream } : {}) };
 }
 
 /** How identifiers — the caller's, and the objects it touches — reach telemetry (ADR-0045, ADR-0047). */
@@ -187,6 +192,11 @@ interface ActionTarget {
   typeName: string;
   objectId: string;
   attributes: Attributes;
+  typeDef: TypeDefinition;
+  stored: ResolvedProperties;
+  /** Per property, whether the caller's read of the target shows it; decided once, on first use. */
+  readable?: Map<string, Promise<boolean>>;
+  classified?: Promise<ReadonlySet<string>>;
 }
 
 /**
@@ -1151,25 +1161,25 @@ export class SemanticRuntime {
 
     const request = this.currentRequest();
     const reads = this.coalesceComputedReads && request ? (request.reads ??= new ReadCoalescer()) : undefined;
-    const ctx: ComputeContext = {
+    // Each computed property reads only the inputs its own `dependsOn` names (ADR-0052): every gate below —
+    // markings, policies, releases — is decided over `dependsOn`, so an undeclared read would bypass them all.
+    // It reads as undefined, as a declared input this object has no value for does: the same for every object
+    // and every caller.
+    const contextFor = (cp: ComputedPropertyDefinition): ComputeContext => ({
       identity,
       objectId,
       typeName: typeDef.name,
       getAdapter: (dataSourceId: string) => (reads ? reads.view(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId)),
       getProperty: async (name: string) => {
+        if (!cp.dependsOn.includes(name)) return undefined;
         if (name in values) return values[name];
-        if (name in computedResults) return computedResults[name];
-        // A declared input this object simply has no value for is undefined; only an undeclared name is a defect.
-        if (isDeclaredInput(typeDef, name)) return undefined;
-        throw new Error(`Property "${name}" not available for computed-property dependency resolution`);
+        return computedResults[name];
       }
-    };
+    });
 
     const uncacheable = await this.uncacheableComputed(typeDef, resolved);
     for (const cp of typeDef.computedProperties) {
-      const value = await this.resolveComputed(cp, typeDef.name, objectId, ctx, !uncacheable.has(cp.name));
-      this.inputValidator.validateComputedValue(typeDef, cp, value);
-      computedResults[cp.name] = value;
+      computedResults[cp.name] = await this.resolveComputed(cp, typeDef.name, objectId, contextFor(cp), !uncacheable.has(cp.name));
     }
     Object.assign(values, computedResults);
 
@@ -1202,25 +1212,36 @@ export class SemanticRuntime {
     // A derived value is readable only where every input it derives from is (ADR-0052), as markings already
     // propagate (ADR-0032): otherwise readinessStatus would disclose the maintenanceStatus it maps one to one.
     // Declaration order, so a computed input has already been decided. An input with a policy is decided even
-    // when it has no value, since a derivation can disclose that absence too.
+    // when it has no value, since a derivation can disclose that absence too. A release lifts only the named
+    // input's own policy: an input withheld because of its own withheld inputs passes those on, and they keep
+    // blocking here unless this property releases them too.
+    const withheldBy = new Map<string, readonly string[]>();
     for (const cp of typeDef.computedProperties) {
-      const blocked: string[] = [];
+      const blocked = new Set<string>();
       for (const dep of cp.dependsOn) {
-        if (unreadable.has(dep) || !(await memberReadable(dep))) blocked.push(dep);
+        if (unreadable.has(dep) || !(await memberReadable(dep))) blocked.add(dep);
+        for (const upstream of withheldBy.get(dep) ?? []) blocked.add(upstream);
       }
-      if (blocked.length === 0) continue;
-      const released = blocked.filter((dep) => cp.releases?.includes(dep));
-      const withheld = blocked.filter((dep) => !released.includes(dep));
+      if (blocked.size === 0) continue;
+      const released = [...blocked].filter((dep) => cp.releases?.includes(dep));
+      const withheld = [...blocked].filter((dep) => !released.includes(dep));
       const resource = { typeName: typeDef.name, objectId, propertyPath: cp.name };
       if (withheld.length > 0) {
         unreadable.add(cp.name);
+        withheldBy.set(cp.name, withheld);
         if (!(cp.name in values)) continue;
         delete values[cp.name];
-        await this.audit(identity, "read", resource, { allow: false, reason: "Derived from a property the caller may not read" }, { control: "derivation", inputs: withheld });
+        await this.audit(identity, "read", resource, { allow: false, reason: "Derived from a property the caller may not read" }, { control: "derivation", ...derivationInputs(cp, withheld) });
       } else if (cp.name in values) {
         // A release is a declared exception to the rule above, so every use of one is on the record.
         await this.audit(identity, "read", resource, { allow: true }, { control: "derivation", released });
       }
+    }
+
+    // A computed value's schema (ADR-0055) is checked only where the caller reads the value: refusing the whole
+    // read over a value the caller can't see would disclose something about it, object by object.
+    for (const cp of typeDef.computedProperties) {
+      if (cp.name in values) this.inputValidator.validateComputedValue(typeDef, cp, values[cp.name]);
     }
 
     const provenance = resolved.provenance.filter((p) => p.propertyPath in values);
@@ -1451,6 +1472,11 @@ export class SemanticRuntime {
         // cursor names the adapter page and how far into it this call got, so the next call resumes exactly there.
         const out: ResolvedObject[] = [];
         let position = decodeScanCursor(q.cursor);
+        // The skip sizes the first adapter page, so a forged one would ask the source for any number of rows. A
+        // cursor issued over an adapter that honours `limit` skips no further than one call may scan.
+        if (position.skip > this.queryLimits.maxScanned) {
+          throw new InvalidInputError("Invalid query: cursor was not issued for this query; pass the nextCursor this query returned");
+        }
         let scanned = 0;
         for (;;) {
           // Only as many rows as could still be returned: rows past the limit would be read, decided and audited
@@ -1555,6 +1581,14 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const q = this.inputValidator.validateQuery(input);
         const typeDef = await this.requireType(q.type);
+        // The gates `query` decides before it plans, decided the same way: the plan describes the Type's members,
+        // policies and sources, which a caller `query` would refuse has no business learning.
+        await this.requireCleared(identity, objectMarkings(typeDef), { typeName: q.type });
+        if (q.filter) await this.requireReadableProperties(typeDef, filterProperties(q.filter), identity);
+        if (q.sort) {
+          this.rejectComputedSortProperties(typeDef, q.sort);
+          await this.requireReadableProperties(typeDef, q.sort.map((s) => s.property), identity);
+        }
         const plan = await this.planRead(typeDef, identity);
         const computed = new Set(typeDef.computedProperties.map((c) => c.name));
         const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
@@ -1687,8 +1721,12 @@ export class SemanticRuntime {
         const relName = this.registry.resolveAlias(owner, inc.relationship);
         const rel = owner.relationships.find((r) => r.name === relName);
         if (!rel) throw new NotFoundError(`Unknown relationship "${inc.relationship}" on type "${owner.name}"`);
-        steps.push({ op: "include", relationship: rel.name, targetType: rel.targetType, dataSourceId: rel.resolution.dataSourceId, depth, filtered: inc.filter !== undefined });
+        // An include the caller isn't cleared for — the relationship's own marking or its target Type's — returns
+        // nothing of it, so the plan doesn't describe where it reads from either.
         const target = await this.registry.getType(rel.targetType);
+        const markings = [...memberMarkings(owner, rel.name), ...(target ? objectMarkings(target) : [])];
+        if (!(await this.clearedFor(identity, markings, { typeName: owner.name, propertyPath: rel.name }))) continue;
+        steps.push({ op: "include", relationship: rel.name, targetType: rel.targetType, dataSourceId: rel.resolution.dataSourceId, depth, filtered: inc.filter !== undefined });
         if (target && inc.include) await walk(target, inc.include, depth + 1);
       }
     };
@@ -1792,13 +1830,17 @@ export class SemanticRuntime {
    * property's own policy. A computed property recurses into its
    * dependencies with the object already authorized (`source`), so each is
    * checked against its own policy without re-deciding the object.
+   * `released` marks an input its dependant releases (ADR-0052): only that
+   * input's own policy is lifted, and a denial of it leaves its provenance
+   * out rather than refusing. Its markings and its own inputs are decided
+   * as for any other input, so whatever withholds the value refuses here.
    */
   private async readProvenance(
     typeName: string,
     objectId: string,
     propertyPath: string,
     identity: Identity,
-    source?: { typeDef: TypeDefinition; attributes: Attributes }
+    source?: { typeDef: TypeDefinition; attributes: Attributes; released?: boolean }
   ): Promise<ProvenanceRef[]> {
     return this.withRequest("getProvenance", () => this.instrument(
       "SemanticRuntime.getProvenance",
@@ -1808,22 +1850,24 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const typeDef = source?.typeDef ?? (await this.requireType(typeName));
         const attributes = source?.attributes ?? (await this.authorizeRead(typeDef, objectId, identity)).attributes;
-        await this.requireMemberReadable(typeDef, propertyPath, objectId, attributes, identity);
+        let leftOut = false;
+        if (source?.released) {
+          await this.requireCleared(identity, memberMarkings(typeDef, propertyPath), { typeName, objectId, propertyPath });
+          const policyName = memberPolicyOf(typeDef, propertyPath);
+          if (policyName) leftOut = !(await this.evaluate(identity, "read", policyName, { typeName, objectId, propertyPath, attributes })).allow;
+        } else {
+          await this.requireMemberReadable(typeDef, propertyPath, objectId, attributes, identity);
+        }
 
         const computed = typeDef.computedProperties.find((c) => c.name === propertyPath);
         if (computed) {
-          // A released input (ADR-0052) lets the value through but never the input: where the caller may not
-          // read it, its provenance is left out rather than refusing the whole answer. Any other unreadable
-          // input refuses, as the value itself is withheld.
-          const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, async (dep) => {
-            try {
-              return await this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes });
-            } catch (err) {
-              if (err instanceof AuthorizationError && computed.releases?.includes(dep)) return [];
-              throw err;
-            }
-          });
-          return nested.flat();
+          // A released input (ADR-0052) lets the value through but never the input: where its own policy denies
+          // the caller, its provenance is left out rather than refusing the whole answer. Any other unreadable
+          // input refuses — a marking, or a released input's own unreleased input — as the value is withheld.
+          const nested = await mapWithConcurrency(computed.dependsOn, this.maxConcurrency, (dep) =>
+            this.readProvenance(typeName, objectId, dep, identity, { typeDef, attributes, released: computed.releases?.includes(dep) === true })
+          );
+          return leftOut ? [] : nested.flat();
         }
 
         const mapping = await this.mappingResolver.resolvePropertyMapping(typeName, propertyPath);
@@ -1832,7 +1876,7 @@ export class SemanticRuntime {
         const refs = resolved.provenance.filter((p) => p.propertyPath === propertyPath);
         // The value's own marking, known only once it has been read (ADR-0032).
         await this.requireCleared(identity, valueMarkings(refs), { typeName, objectId, propertyPath });
-        return refs;
+        return leftOut ? [] : refs;
       }
     ));
   }
@@ -1852,19 +1896,26 @@ export class SemanticRuntime {
     if (typeof objectId !== "string" || objectId === "") return { decision: await this.authorizeInvoke(identity, action, typeName), typeName };
 
     const typeDef = await this.requireType(typeName);
-    let attributes: Attributes;
+    let read: { stored: ResolvedProperties; attributes: Attributes };
     try {
-      ({ attributes } = await this.authorizeRead(typeDef, objectId, identity));
+      read = await this.authorizeRead(typeDef, objectId, identity);
     } catch (err) {
       if (err instanceof AuthorizationError) return { decision: { allow: false, reason: err.reason ?? err.message }, typeName };
       throw err;
     }
+    const { stored, attributes } = read;
     const decision = await this.authorizeInvoke(identity, action, typeName, { objectId, attributes });
-    return { decision, typeName, target: { typeName, objectId, attributes } };
+    return { decision, typeName, target: { typeName, objectId, attributes, typeDef, stored } };
   }
 
-  /** What preconditions and the adapter see: for an instance-scoped Action, `getProperty` reads the authorized target's stored values. */
-  private actionContext(identity: Identity, input: unknown, target: ActionTarget | undefined): ActionContext {
+  /**
+   * What preconditions and the adapter see: for an instance-scoped Action,
+   * `getProperty` reads the authorized target's stored values as the
+   * caller's own read shows them (ADR-0053). A value classified out or
+   * denied by its property policy reads as undefined, and `onWithheld` is
+   * told, so a precondition over it is not decided for this caller.
+   */
+  private actionContext(identity: Identity, input: unknown, target: ActionTarget | undefined, onWithheld?: () => void): ActionContext {
     return {
       identity,
       input,
@@ -1872,9 +1923,36 @@ export class SemanticRuntime {
       getAdapter: (dataSourceId: string) => this.getAdapter(dataSourceId),
       getProperty: async (name: string) => {
         if (!target) throw new Error("getProperty is available only to an instance-scoped Action (ADR-0053); resolve the object via getObject first");
+        if (!(await this.targetReadable(identity, target, name))) {
+          onWithheld?.();
+          return undefined;
+        }
         return target.attributes[name];
       }
     };
+  }
+
+  /**
+   * Whether the caller's read of an Action's target shows `name`, decided as
+   * `finalizeValues` decides it: classification, then the member's own
+   * marking and policy. Decided whether or not the target has a value for
+   * it, so withholding says nothing about whether one exists.
+   */
+  private targetReadable(identity: Identity, target: ActionTarget, name: string): Promise<boolean> {
+    const decided = (target.readable ??= new Map<string, Promise<boolean>>());
+    let readable = decided.get(name);
+    if (!readable) {
+      readable = (async () => {
+        target.classified ??= this.classifiedOut(target.typeDef, target.objectId, identity, { ...target.stored.values }, target.stored.provenance);
+        if ((await target.classified).has(name)) return false;
+        const resource = { typeName: target.typeName, objectId: target.objectId, propertyPath: name };
+        if (!(await this.clearedFor(identity, memberMarkings(target.typeDef, name), resource))) return false;
+        const policyName = memberPolicyOf(target.typeDef, name);
+        return !policyName || (await this.evaluate(identity, "read", policyName, { ...resource, attributes: target.attributes })).allow;
+      })();
+      decided.set(name, readable);
+    }
+    return readable;
   }
 
   /**
@@ -1951,13 +2029,19 @@ export class SemanticRuntime {
         }
 
         if (blockers.length === 0 && gate) {
-          const ctx = this.actionContext(identity, input, gate.target);
           for (const [i, precondition] of (action.preconditions ?? []).entries()) {
+            let withheld = false;
+            const ctx = this.actionContext(identity, input, gate.target, () => (withheld = true));
             let satisfied: boolean;
             try {
               satisfied = (await precondition.check(ctx)) === true;
             } catch {
               satisfied = false;
+            }
+            // Over a value the caller may not read, the outcome would disclose it: reported as not decided.
+            if (withheld) {
+              blockers.push({ kind: "precondition", message: `Precondition not decided: ${precondition.description} (it reads a value this caller may not read)` });
+              continue;
             }
             preconditions[i]!.satisfied = satisfied;
             if (!satisfied) blockers.push({ kind: "precondition", message: `Precondition failed: ${precondition.description}` });
@@ -2008,7 +2092,13 @@ export class SemanticRuntime {
 
         const ctx = this.actionContext(identity, input, target);
         for (const precondition of action.preconditions ?? []) {
-          const ok = await precondition.check(ctx);
+          let withheld = false;
+          const ok = await precondition.check(this.actionContext(identity, input, target, () => (withheld = true)));
+          // A precondition over a value the caller may not read refuses whatever it returned, so neither the
+          // outcome nor the error tells the caller anything about that value (ADR-0053).
+          if (withheld) {
+            throw new PreconditionFailedError(`Precondition failed for action "${actionName}": ${precondition.description} (it reads a value the caller may not read)`);
+          }
           if (!ok) {
             throw new PreconditionFailedError(`Precondition failed for action "${actionName}": ${precondition.description}`);
           }

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   AuthorizationError,
   InvalidInputError,
+  NotFoundError,
   createSemanticValidator,
   describeModel,
   type ActionDescription,
@@ -11,14 +12,14 @@ import {
   type SemanticRegistry,
   type SemanticRuntime
 } from "@typesys/core";
-import { createClient, runtimeTransport, type ModelShape } from "@typesys/sdk";
+import { createClient, runtimeTransport, type ModelShape, type Transport } from "@typesys/sdk";
 import type { ValidateFunction } from "ajv";
 import type { AiModel } from "./ai.js";
 import type { AnyStep, AnyWorkflow, StepContext, WorkflowDefinition } from "./definition.js";
 import { AiOutputError, SimulatedCrash, WorkflowDefinitionError, WorkflowStateError, isRetryable } from "./errors.js";
 import type { FinalStatus, JournalEvent, JournalRecord, OutputSource, WorkflowJournal } from "./journal.js";
 import { InMemoryJournal } from "./journal.js";
-import { contextFor, outputsOf, verifyReplay } from "./replay.js";
+import { contextFor, outputsOf, reviewsAiOutput, verifyReplay } from "./replay.js";
 import { fold, viewOf, type RunState, type RunView } from "./state.js";
 import { validateWorkflow } from "./validate.js";
 
@@ -195,14 +196,63 @@ export class WorkflowEngine {
 
   /** What the approval a run waits on presents, to an approver the step's policy admits; refused (and audited) for anyone else. */
   async pendingApproval(runId: string, approver: Identity): Promise<PendingApproval> {
+    return this.presentApproval(runId, approver, true);
+  }
+
+  private async presentApproval(runId: string, approver: Identity, auditDenial: boolean): Promise<PendingApproval> {
     const { state, workflow } = await this.load(runId);
     if (!state.waitingOn) throw new WorkflowStateError(`Run ${runId} is not waiting on an approval`);
     const approval = this.approvalStep(workflow, state.waitingOn.step);
-    await this.admitApprover(workflow, state, approval, approver, "workflow.view-approval");
-    const outputs = outputsOf(state);
+    await this.admitApprover(workflow, state, approval, approver, "workflow.view-approval", auditDenial);
+    // What the run read, it read as the initiator: the approver sees each object only as they may read it.
+    const outputs = await this.asSeenBy(outputsOf(state), approver);
     const ctx = contextFor(runId, state.input, approval, outputs);
     const presented = approval.present ? approval.present(ctx) : Object.fromEntries((approval.needs ?? []).map((n) => [n, ctx.output(n)]));
     return { runId, workflow: workflow.name, step: approval.name, policy: approval.policy, initiator: state.initiator.subjectId, presented };
+  }
+
+  /**
+   * Outputs as `viewer` may see them: every object in them (a value with a
+   * string `$id` and `$type`, as the SDK returns objects) is read again as
+   * the viewer, and keeps only the values that read returns; an object the
+   * viewer may not read keeps only its id and Type. Other values pass as
+   * they are: what a compute or AI step made of withheld values is the
+   * workflow author's to keep out of an approval's `needs`.
+   */
+  private async asSeenBy(outputs: ReadonlyMap<string, unknown>, viewer: Identity): Promise<Map<string, unknown>> {
+    const views = new Map<string, Promise<Record<string, unknown> | undefined>>();
+    const view = (type: string, id: string) => {
+      const key = `${type}\u0000${id}`;
+      let v = views.get(key);
+      if (!v) {
+        v = this.options.host.runtime.getObject(type, id, viewer).then(
+          (o) => o.values,
+          () => undefined
+        );
+        views.set(key, v);
+      }
+      return v;
+    };
+    const redact = async (value: unknown): Promise<unknown> => {
+      if (Array.isArray(value)) return Promise.all(value.map(redact));
+      if (!value || typeof value !== "object") return value;
+      const o = value as Record<string, unknown>;
+      if (typeof o.$id === "string" && typeof o.$type === "string") {
+        const seen = await view(o.$type, o.$id);
+        const kept: Record<string, unknown> = { $id: o.$id, $type: o.$type };
+        for (const [k, v] of Object.entries(o)) {
+          if (k === "$id" || k === "$type") continue;
+          if (seen && Object.hasOwn(seen, k)) kept[k] = v;
+          // An included relationship: its objects are judged one by one.
+          else if (seen && v && typeof v === "object") kept[k] = await redact(v);
+        }
+        return kept;
+      }
+      return Object.fromEntries(await Promise.all(Object.entries(o).map(async ([k, v]) => [k, await redact(v)] as const)));
+    };
+    const seen = new Map<string, unknown>();
+    for (const [name, output] of outputs) seen.set(name, await redact(output));
+    return seen;
   }
 
   /**
@@ -218,7 +268,9 @@ export class WorkflowEngine {
       const { state } = await this.load(runId);
       if (state.finished || !state.waitingOn) continue;
       try {
-        found.push(await this.pendingApproval(runId, approver));
+        // A denial here is not an attempt on that run, only a listing passing it by: it is not audited, or
+        // every listing by anyone would write a denial per waiting run.
+        found.push(await this.presentApproval(runId, approver, false));
       } catch (err) {
         if (!(err instanceof AuthorizationError)) throw err;
       }
@@ -241,8 +293,19 @@ export class WorkflowEngine {
     return views;
   }
 
-  async status(runId: string): Promise<RunView> {
+  /**
+   * A run's progress. Given a `viewer`, only the initiator, or an approver
+   * the approval it waits on admits, may see it; anyone else is told there is
+   * no such run, as a missing one is. Without one, the caller is trusted (an
+   * operator's console, a test).
+   */
+  async status(runId: string, viewer?: Identity): Promise<RunView> {
     const { state, workflow } = await this.load(runId);
+    if (viewer && viewer.subjectId !== state.initiator.subjectId) {
+      const approval = state.waitingOn ? this.approvalStep(workflow, state.waitingOn.step) : undefined;
+      const admitted = approval ? await this.admitApprover(workflow, state, approval, viewer, "workflow.view-run", false).then(() => true, () => false) : false;
+      if (!admitted) throw new NotFoundError(`No run ${runId}`);
+    }
     return viewOf(state, workflow.steps.map((s) => s.name));
   }
 
@@ -295,11 +358,12 @@ export class WorkflowEngine {
     state: RunState,
     step: Extract<AnyStep, { kind: "approval" }>,
     approver: Identity,
-    operation: string
+    operation: string,
+    auditDenial = true
   ): Promise<void> {
     if (!step.allowSelfApproval && approver.subjectId === state.initiator.subjectId) {
       const reason = "The initiator of a run may not approve it";
-      await this.audit(approver.subjectId, operation, workflow, state.runId, "deny", { step: step.name, reason });
+      if (auditDenial) await this.audit(approver.subjectId, operation, workflow, state.runId, "deny", { step: step.name, reason });
       throw new AuthorizationError(`Not authorized: ${operation} ${workflow.name}/${step.name}`, reason);
     }
     const decision = await this.options.host.policyEngine.evaluate({
@@ -309,7 +373,7 @@ export class WorkflowEngine {
       resource: { typeName: workflow.name, actionName: step.name },
       context: { runId: state.runId, initiator: state.initiator.subjectId }
     });
-    await this.audit(approver.subjectId, operation, workflow, state.runId, decision.allow ? "allow" : "deny", { step: step.name, reason: decision.reason });
+    if (decision.allow || auditDenial) await this.audit(approver.subjectId, operation, workflow, state.runId, decision.allow ? "allow" : "deny", { step: step.name, reason: decision.reason });
     if (!decision.allow) throw new AuthorizationError(`Not authorized: ${operation} ${workflow.name}/${step.name}`, decision.reason);
   }
 
@@ -358,12 +422,17 @@ export class WorkflowEngine {
         const s = w.state.steps.get(step.name);
         if (s?.outcome?.kind === "completed" || s?.outcome?.kind === "skipped") continue;
         if (s?.outcome?.kind === "failed") {
+          if (this.indeterminate(step, w.state)) {
+            return view(
+              await this.finish(w, workflow, "needs-reconciliation", `Action "${step.action}" of step "${step.name}" may have run: it failed with a retryable error, and it is not idempotent`)
+            );
+          }
           // Failed before a restart, with its compensation not yet begun.
           await w.append({ type: "compensating", cause: "failed", step: step.name });
           break;
         }
         const ctx = contextFor(runId, w.state.input, step, outputsOf(w.state));
-        if (!s && step.when && !step.when(ctx)) {
+        if (!s && step.when && !reviewsAiOutput(workflow, step, w.state) && !step.when(ctx)) {
           await w.append({ type: "step-skipped", step: step.name });
           continue;
         }
@@ -386,6 +455,13 @@ export class WorkflowEngine {
           );
         }
         if (!(await this.attempt(w, workflow, step, ctx, identity))) {
+          // A retryable error (a timeout, a dropped connection) says the outcome is unknown, not that nothing
+          // happened: for an Action that is not idempotent, the write may have landed, so a person reconciles it.
+          if (this.indeterminate(step, w.state)) {
+            return view(
+              await this.finish(w, workflow, "needs-reconciliation", `Action "${step.action}" of step "${step.name}" may have run: it failed with a retryable error, and it is not idempotent`)
+            );
+          }
           await w.append({ type: "compensating", cause: "failed", step: step.name });
           break;
         }
@@ -393,6 +469,12 @@ export class WorkflowEngine {
       if (!w.state.compensating) return view(await this.finish(w, workflow, "completed"));
     }
     return view(await this.compensate(w, workflow, identity));
+  }
+
+  /** A failed Action step whose outcome is unknown: it is not idempotent, and its last error was retryable (a timeout after the write, say). */
+  private indeterminate(step: AnyStep, state: RunState): step is Extract<AnyStep, { kind: "action" }> {
+    const outcome = state.steps.get(step.name)?.outcome;
+    return step.kind === "action" && outcome?.kind === "failed" && outcome.retryable && this.actions.get(step.action)!.idempotency === "none";
   }
 
   /** Runs one step, retrying what may be retried. True when it completed. */
@@ -442,7 +524,9 @@ export class WorkflowEngine {
   ): Promise<{ output: unknown; source: OutputSource; model?: string; simulated?: { wouldExecute: boolean | null; note?: string } }> {
     switch (step.kind) {
       case "read": {
-        const client = createClient<ModelShape>(runtimeTransport(this.options.host.runtime, identity));
+        // A read step reads: it gets no way to invoke an Action, which would bypass the AI-review rule, the
+        // journal's no-replay guarantee for non-idempotent Actions, and a simulation's promise to change nothing.
+        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name));
         return { output: structuredClone(await step.run(client, ctx)), source: "read" };
       }
       case "compute":
@@ -516,4 +600,14 @@ export class WorkflowEngine {
     });
     return w.state;
   }
+}
+
+/** A transport for read steps: everything reads, and invoking an Action is refused. */
+function readOnlyTransport(inner: Transport, step: string): Transport {
+  return {
+    ...inner,
+    invokeAction: async (action) => {
+      throw new WorkflowDefinitionError(`Read step "${step}" tried to invoke Action "${action}": only an action step may, so it is reviewed, journaled and simulated`);
+    }
+  };
 }

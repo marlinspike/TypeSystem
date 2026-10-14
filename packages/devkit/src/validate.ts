@@ -77,7 +77,7 @@ class QueryChecker {
 
   /** The schema of a stored or computed value; reports an unknown name. `allowComputed` false reports a computed one too. */
   value(type: TypeDescription, name: string, path: string, opts: { allowComputed: true; what: string } | { allowComputed: false; what: string; why: string }): JsonSchema2020 | undefined | null {
-    if (name in type.properties) return type.properties[name];
+    if (Object.hasOwn(type.properties, name)) return type.properties[name];
     const computed = type.computed.find((c) => c.name === name);
     if (computed) {
       if (!opts.allowComputed) {
@@ -183,7 +183,7 @@ export function validateQuery(model: ModelDescription, query: unknown, limits?: 
   q.sort?.forEach((s, i) => check.value(type, s.property, `/sort/${i}/property`, { allowComputed: false, what: "A top-level sort", why: "the source system sorts, before it is computed (ADR-0054)" }));
   q.search?.properties?.forEach((p, i) => {
     const schema = check.value(type, p, `/search/properties/${i}`, { allowComputed: false, what: "A search", why: "search runs in the source system (ADR-0027)" });
-    if (p in type.properties && kinds(schema ?? undefined)?.has("string") === false) {
+    if (Object.hasOwn(type.properties, p) && kinds(schema ?? undefined)?.has("string") === false) {
       check.diagnostics.push({ severity: "error", code: "search-property", path: `/search/properties/${i}`, message: `Search reads string values, and ${type.name}.${p} is not one` });
     }
   });

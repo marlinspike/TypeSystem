@@ -144,3 +144,21 @@ not gated, since orchestrators call them by pod IP.
   ephemeral port (tests, `PORT=0`) can't list itself, and it checks after
   the per-request server is built. The guard here is port-agnostic and runs
   first.
+
+## Amendments
+
+**Amended 2026-10-14** (adversarial review, `packages/core/test/pressure-action-preview.test.ts`):
+`ctx.getProperty` handed preconditions the target's raw stored values,
+before classification and property policies, and `previewAction`'s
+per-precondition `satisfied` (and `invokeAction`'s `PreconditionFailed`)
+then disclosed one bit of a value the caller may not read, per call. It now
+reads the target as the caller's own read shows it, decided as
+`finalizeValues` decides it (classification, then the member's marking and
+policy, whether or not the target has a value): a withheld value reads as
+`undefined`. A precondition that reads one is not decided for that caller,
+whatever it returns: the preview reports `satisfied: null` with a
+`precondition` blocker, and `invokeAction` refuses with
+`PreconditionFailedError` ("... (it reads a value the caller may not
+read)"). Treating `undefined` as an answer would let a check such as
+`status !== "closed"` pass for a caller who can't see `status`. The
+adapter's `executeAction` context reads the same caller-visible values.

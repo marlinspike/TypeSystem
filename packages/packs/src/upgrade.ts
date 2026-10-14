@@ -1,5 +1,5 @@
 import semver from "semver";
-import { InMemoryRegistryStore, SemanticRegistry, describeModel, registerDomain, type BindingRegistry } from "@typesys/core";
+import { InMemoryRegistryStore, SemanticRegistry, canonical, describeModel, registerDomain, type BindingRegistry } from "@typesys/core";
 import { diffModels, type ContractChange } from "@typesys/devkit";
 import type { PackArchive } from "./archive.js";
 import type { PackDiagnostic } from "./diagnostics.js";
@@ -46,6 +46,57 @@ async function describe(packs: readonly PackArchive[], order: readonly PackArchi
   return describeModel(registry);
 }
 
+/** Every leaf of a protection keyword, by path: `propertyPolicies.deploymentLocation` → `airforce.maintainer-only`. */
+function leaves(value: unknown, path = ""): Map<string, string> {
+  const out = new Map<string, string>();
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    for (const [k, v] of Object.entries(value)) for (const [p, leaf] of leaves(v, path ? `${path}.${k}` : k)) out.set(p, leaf);
+  } else if (value !== undefined) out.set(path, canonical(value));
+  return out;
+}
+
+/**
+ * What the contract diff cannot see, because a model description carries no
+ * protections (ADR-0056): every policy and marking a Type had, every
+ * Action's authorization policy, and every data source and mapping, which
+ * decide where values come from. Each one removed or changed is a finding;
+ * one added only tightens. A consumer's code keeps working either way, so
+ * no version bump makes such a change safe; it needs a reviewer.
+ */
+function weakenedProtections(current: PackArchive, next: PackArchive): PackDiagnostic[] {
+  const out: PackDiagnostic[] = [];
+  const finding = (subject: string, message: string) => out.push({ code: "protection-weakened", pack: next.name, subject, message });
+  const types = new Map(next.contents.types.map((t) => [t.name, t]));
+  for (const t of current.contents.types) {
+    const now = types.get(t.name);
+    if (!now) continue; // A removed Type is a breaking change the contract diff reports.
+    for (const keyword of ["x-policy", "x-provenance"] as const) {
+      const after = leaves(now.schema[keyword]);
+      for (const [path, was] of leaves(t.schema[keyword])) {
+        const is = after.get(path);
+        if (is !== was) finding(t.name, `${keyword} ${path} was ${was}, is ${is ?? "removed"}`);
+      }
+    }
+  }
+  const actions = new Map(next.contents.actions.map((a) => [a.name, a]));
+  for (const a of current.contents.actions) {
+    const now = actions.get(a.name);
+    if (now && now.authorizationPolicy !== a.authorizationPolicy) finding(a.name, `authorization policy was ${a.authorizationPolicy}, is ${now.authorizationPolicy}`);
+  }
+  for (const [kind, before, after] of [
+    ["data source", current.contents.dataSources, next.contents.dataSources],
+    ["mapping", current.contents.mappings, next.contents.mappings]
+  ] as const) {
+    const byId = new Map<string, unknown>(after.map((x) => [x.id, x]));
+    for (const x of before) {
+      const now = byId.get(x.id);
+      if (now === undefined) finding(x.id, `${kind} removed`);
+      else if (canonical(now) !== canonical(x)) finding(x.id, `${kind} changed`);
+    }
+  }
+  return out;
+}
+
 /**
  * Whether `next` can replace the installed version of the same pack
  * (ADR-0059), checked offline with no code run: the contract diff across
@@ -77,6 +128,7 @@ export async function checkUpgrade(installed: readonly PackArchive[], next: Pack
   }
   const plan = await planInstall(after, { bindings: stubBindings(after) });
   diagnostics.push(...plan.diagnostics.filter((d) => d.code !== "version-conflict" || d.subject !== next.name));
+  diagnostics.push(...weakenedProtections(current, next));
 
   let changes: ContractChange[] = [];
   let underVersioned: { subject: string; from: string; to: string; needs: "major" | "minor" }[] = [];

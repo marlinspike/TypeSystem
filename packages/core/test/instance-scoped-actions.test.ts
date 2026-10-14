@@ -242,3 +242,47 @@ describe("previewAction (ADR-0053)", () => {
     ]);
   });
 });
+
+describe("Instance-scoped Action preconditions over a value the caller may not read (ADR-0053)", () => {
+  async function lockedIsLeadsOnly() {
+    const registry = new SemanticRegistry(new InMemoryRegistryStore());
+    await registry.registerType(
+      {
+        $id: "https://typesys.dev/types/ops/Ticket/1.0.0",
+        title: "Ticket",
+        type: "object",
+        properties: { team: { type: "string" }, state: { type: "string" }, locked: { type: "boolean" } },
+        "x-actions": { actions: ["ResolveTicket"] },
+        "x-policy": { objectPolicy: "ops.agents", propertyPolicies: { locked: "ops.leads" } }
+      },
+      { name: "ops.Ticket", version: "1.0.0" }
+    );
+    await registry.registerMapping({ id: "m", typeName: "ops.Ticket", target: "property", targetName: "*", dataSourceId: "ds", operation: "get", resolutionMode: "live" });
+    await registry.registerAction(Resolve);
+    const policy = new AbacPolicyEngine();
+    policy.registerRule("ops.agents", requireRole("agent"));
+    policy.registerRule("ops.leads", requireRole("lead"));
+    policy.registerRule("ops.owner-or-lead", allOf(requireRole("agent"), anyOf(requireRole("lead"), requireAttributeMatch("team", "team"))));
+    const tickets = new TicketAdapter();
+    tickets.tickets.set("L1", { team: "red", state: "open", locked: true });
+    tickets.tickets.set("U1", { team: "red", state: "open" });
+    return { rt: new SemanticRuntime(registry, [tickets], policy), tickets };
+  }
+
+  it("is not decided for that caller: the preview says so and the invocation is refused, whatever the value", async () => {
+    const { rt, tickets } = await lockedIsLeadsOnly();
+    for (const ticketId of ["L1", "U1"]) {
+      const preview = await rt.previewAction("ResolveTicket", { ticketId, state: "resolved" }, ann);
+      expect(preview.preconditions).toEqual([{ description: "The ticket is not locked", satisfied: null }]);
+      expect(preview.blockers.map((b) => b.kind)).toEqual(["precondition"]);
+      await expect(rt.invokeAction("ResolveTicket", { ticketId, state: "resolved" }, ann)).rejects.toThrow(
+        'Precondition failed for action "ResolveTicket": The ticket is not locked (it reads a value the caller may not read)'
+      );
+    }
+    expect(tickets.executed).toEqual([]);
+    // A caller who may read the value is decided on it, as before.
+    const redLead: Identity = { ...lead, attributes: { team: "red" } };
+    await expect(rt.invokeAction("ResolveTicket", { ticketId: "L1", state: "resolved" }, redLead)).rejects.toBeInstanceOf(PreconditionFailedError);
+    await expect(rt.invokeAction("ResolveTicket", { ticketId: "U1", state: "resolved" }, redLead)).resolves.toEqual({ id: "U1", state: "resolved" });
+  });
+});
