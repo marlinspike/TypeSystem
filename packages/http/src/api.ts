@@ -121,7 +121,7 @@ export function createApiRouter(opts: ApiOptions): Router {
   router.post("/actions/:name/invoke", route(200, async (req, who) => ({ result: (await runtime.invokeAction(param(req, "name"), req.body, who)) ?? null })));
 
   router.post("/workflows/:name/runs", route(201, (req, who) => workflows().start(param(req, "name"), body<{ input?: unknown }>(req).input, who)));
-  router.get("/workflow-runs/:id", route(200, (req) => workflows().status(param(req, "id"))));
+  router.get("/workflow-runs/:id", route(200, (req, who) => workflows().status(param(req, "id"), who)));
   router.get("/workflow-runs/:id/outputs", route(200, (req, who) => workflows().outputs(param(req, "id"), who)));
   router.get("/workflow-runs/:id/approval", route(200, (req, who) => workflows().pendingApproval(param(req, "id"), who)));
   router.get("/workflow-approvals", route(200, (_req, who) => workflows().approvalsFor(who)));

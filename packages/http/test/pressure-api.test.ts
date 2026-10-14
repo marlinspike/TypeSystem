@@ -151,7 +151,7 @@ describe("pressure: workflow runs", () => {
     const runId = String((JSON.parse(started.text) as { runId: string }).runId);
     const res = await raw("GET", `/api/workflow-runs/${runId}`, { host: `127.0.0.1:${port}` });
     expect(res.text).not.toContain("user-maintainer-1");
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404); // as for a run that does not exist: no oracle for run ids
   });
 
   it("an unknown run id is a 404 not-found, not a 409 conflict", async () => {

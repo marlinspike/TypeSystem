@@ -148,7 +148,8 @@ describe("the SDK's workflow client", () => {
     const as = (who: Who) => httpWorkflows({ baseUrl: `${base}/api`, ...(token(who) ? { token: token(who)! } : {}) });
     const run = await as("maintainer").start("airforce.GroundForRepair", { aircraftId: "AF86-0147", assignTo: "SSgt Rivera" });
     expect(run).toMatchObject({ status: "waiting-approval", waitingOn: { step: "leadApproval" }, initiator: "user-maintainer-1" });
-    expect((await as("viewer").status(run.runId)).status).toBe("waiting-approval");
+    expect((await as("lead").status(run.runId)).status).toBe("waiting-approval");
+    await expect(as("viewer").status(run.runId)).rejects.toMatchObject({ status: 404 });
     await expect(as("viewer").approval(run.runId)).rejects.toMatchObject({ status: 403, code: "forbidden" });
     expect(await as("lead").approval(run.runId)).toMatchObject({ step: "leadApproval", presented: { tailNumber: "AF86-0147" } });
     // Listed for the lead, never for its initiator or a viewer.
