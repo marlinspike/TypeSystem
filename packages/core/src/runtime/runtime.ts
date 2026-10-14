@@ -14,7 +14,7 @@ import type { ProvenanceRef } from "../model/provenance.js";
 import type { SemanticQuery, QueryFilter, QueryInclude, QueryResult, SortKey, SearchSpec, SemanticAggregateQuery, AggregateResult } from "../model/query.js";
 import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
-import { AuthorizationError, AuthorizationPlanError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError } from "./errors.js";
+import { AdapterTimeoutError, AdapterUnavailableError, AuthorizationError, AuthorizationPlanError, CircuitOpenError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError, SourceRefusedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
@@ -70,6 +70,25 @@ export interface ResolvedObject {
   objectId: string;
   values: Record<string, unknown>;
   provenance?: ProvenanceRef[];
+  /** Parts of the answer left out because their source failed (ADR-0072): only optional relationships' includes. */
+  unavailable?: UnavailablePart[];
+}
+
+/** What is missing from an answer, from which source, and why (ADR-0072). */
+export interface UnavailablePart {
+  /** The include left out: a relationship name of this object. */
+  path: string;
+  dataSourceId: string;
+  reason: "unavailable" | "timeout" | "refused-by-source";
+  message: string;
+}
+
+/** A source failing to answer, as opposed to the caller being refused or the request being wrong. */
+function sourceFailure(err: unknown): UnavailablePart["reason"] | undefined {
+  if (err instanceof SourceRefusedError) return "refused-by-source";
+  if (err instanceof AdapterTimeoutError) return "timeout";
+  if (err instanceof AdapterUnavailableError || err instanceof CircuitOpenError) return "unavailable";
+  return undefined;
 }
 
 /** An object's stored values as its policies see them (ADR-0030): frozen, so no rule can alter what the caller is later returned. */
@@ -1534,7 +1553,7 @@ export class SemanticRuntime {
             ...(q.includeProvenance ? { provenance: q.select ? provenance.filter((p) => p.propertyPath in projected) : provenance } : {})
           };
           if (q.include) {
-            Object.assign(resolved.values, await this.resolveIncludes(q.type, item.objectId, attributes, q.include, identity));
+            await this.attachIncludes(resolved, attributes, q.include, identity);
           }
           return resolved;
         });
@@ -1885,12 +1904,39 @@ export class SemanticRuntime {
       const nested = inc.include;
       if (nested && nested.length > 0) {
         await mapWithConcurrency(kept, this.maxConcurrency, async ({ object, attributes: relatedAttributes }) => {
-          Object.assign(object.values, await this.resolveIncludes(object.typeName, object.objectId, relatedAttributes, nested, identity));
+          await this.attachIncludes(object, relatedAttributes, nested, identity);
         });
       }
       return kept.map((r) => r.object);
     });
     return Object.fromEntries(includes.map((inc, i) => [inc.relationship, results[i]!]));
+  }
+
+  /**
+   * Resolves `object`'s includes into its values. An include of an
+   * `optional` relationship whose source fails (ADR-0072) is left out and
+   * recorded in `object.unavailable`, never returned as `[]`; anything else
+   * that fails, fails the read as before.
+   */
+  private async attachIncludes(object: ResolvedObject, attributes: Attributes, includes: QueryInclude[], identity: Identity): Promise<void> {
+    const typeDef = await this.requireType(object.typeName);
+    const relOf = (name: string) => typeDef.relationships.find((r) => r.name === this.registry.resolveAlias(typeDef, name));
+    const settled = await mapWithConcurrency(includes, this.maxConcurrency, async (inc): Promise<{ values: Record<string, ResolvedObject[]> } | { missing: UnavailablePart }> => {
+      try {
+        return { values: await this.resolveIncludes(object.typeName, object.objectId, attributes, [inc], identity) };
+      } catch (err) {
+        const rel = relOf(inc.relationship);
+        const reason = rel?.optional ? sourceFailure(err) : undefined;
+        if (!rel || !reason) throw err;
+        return { missing: { path: inc.relationship, dataSourceId: rel.resolution.dataSourceId, reason, message: err instanceof Error ? err.message : String(err) } };
+      }
+    });
+    const unavailable: UnavailablePart[] = [];
+    for (const part of settled) {
+      if ("values" in part) Object.assign(object.values, part.values);
+      else unavailable.push(part.missing);
+    }
+    if (unavailable.length > 0) object.unavailable = [...(object.unavailable ?? []), ...unavailable];
   }
 
   async getProvenance(

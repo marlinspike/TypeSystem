@@ -28,7 +28,7 @@ export interface TypeDescription {
   properties: Record<string, JsonSchema2020>;
   required: string[];
   computed: { name: string; dependsOn: string[]; schema?: JsonSchema2020 }[];
-  relationships: { name: string; target: string; cardinality: Cardinality }[];
+  relationships: { name: string; target: string; cardinality: Cardinality; optional?: true }[];
   /** The Actions that apply to this Type. */
   actions: string[];
   deprecated?: { since: string; supersededBy?: string; sunsetAt?: string };
@@ -116,7 +116,7 @@ export async function describeModel(registry: SemanticRegistry, opts: DescribeMo
         properties,
         required: [...required].filter((r) => r in properties).sort(),
         computed: t.computedProperties.map((cp) => ({ name: cp.name, dependsOn: [...cp.dependsOn], ...(cp.schema ? { schema: cp.schema } : {}) })),
-        relationships: t.relationships.map((r) => ({ name: r.name, target: r.targetType, cardinality: r.cardinality })),
+        relationships: t.relationships.map((r) => ({ name: r.name, target: r.targetType, cardinality: r.cardinality, ...(r.optional ? { optional: true as const } : {}) })),
         actions: actions.filter((a) => a.applicableTypes.includes(t.name)).map((a) => a.name),
         ...(t.deprecated ? { deprecated: t.deprecated } : {}),
         ...(t.aliases && Object.keys(t.aliases).length > 0 ? { aliases: { ...t.aliases } } : {})

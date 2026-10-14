@@ -6,7 +6,8 @@ import {
   InvalidInputError,
   NotFoundError,
   PreconditionFailedError,
-  RateLimitExceededError
+  RateLimitExceededError,
+  SourceRefusedError
 } from "@typesys/core";
 import type { Response } from "express";
 import { JournalConflictError, ReplayDivergenceError, WorkflowStateError } from "@typesys/workflow";
@@ -21,6 +22,7 @@ export type ProblemCode =
   | "conflict"
   | "workflow-diverged"
   | "unavailable"
+  | "source-refused"
   | "unauthorized"
   | "internal";
 
@@ -52,7 +54,9 @@ const MAPPING: readonly [ErrorClass, number, ProblemCode, string][] = [
   [ReplayDivergenceError, 409, "workflow-diverged", "Workflow definition diverged"],
   [AdapterTimeoutError, 503, "unavailable", "Source unavailable"],
   [AdapterUnavailableError, 503, "unavailable", "Source unavailable"],
-  [CircuitOpenError, 503, "unavailable", "Source unavailable"]
+  [CircuitOpenError, 503, "unavailable", "Source unavailable"],
+  // The source refused TypeSystem's own credential (ADR-0072): a gateway failure, not the caller's refusal.
+  [SourceRefusedError, 502, "source-refused", "Source refused"]
 ];
 
 /**

@@ -22,6 +22,8 @@
     { "path": "packages/packs" },
     { "path": "packages/studio" },
     { "path": "packages/mission-readiness" },
-    { "path": "packages/engineer" }
+    { "path": "packages/engineer" },
+    { "path": "packages/adapter-http" },
+    { "path": "packages/sortie-readiness" }
   ]
 }

@@ -16,6 +16,8 @@ export interface RelationshipDefinition {
   inverseName?: string;
   edgeSchema?: JsonSchema2020;
   resolution: { dataSourceId: string; operation: string };
+  /** An include of it is left out, and reported, when its source fails (ADR-0072). */
+  optional?: boolean;
   version: string;
   deprecated?: { since: string; supersededBy?: string };
   /** Defaults to "live" when omitted. Only "cached" is meaningfully different (see ADR-0016). */

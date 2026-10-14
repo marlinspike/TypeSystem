@@ -39,6 +39,7 @@ function toRelationshipDefinition(
     inverseName: spec.inverse,
     edgeSchema: spec.edgeSchema,
     resolution: spec.resolution,
+    ...(spec.optional === true ? { optional: true } : {}),
     version,
     resolutionMode: spec.resolutionMode,
     cacheTtlMs: spec.cacheTtlMs

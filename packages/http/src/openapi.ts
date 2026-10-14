@@ -48,7 +48,7 @@ export function openApiDocument(
         type: { type: "string" },
         title: { type: "string" },
         status: { type: "integer" },
-        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "unauthorized", "internal"] },
+        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "source-refused", "unauthorized", "internal"] },
         detail: { type: "string" },
         reason: { type: "string" },
         errors: {}
@@ -56,9 +56,15 @@ export function openApiDocument(
       required: ["type", "title", "status", "code", "detail"]
     },
     Provenance: { type: "object", additionalProperties: true },
+    // A part of the answer left out because its source failed (ADR-0072).
+    Unavailable: {
+      type: "object",
+      properties: { path: { type: "string" }, dataSourceId: { type: "string" }, reason: { enum: ["unavailable", "timeout", "refused-by-source"] }, message: { type: "string" } },
+      required: ["path", "dataSourceId", "reason", "message"]
+    },
     ResolvedObject: {
       type: "object",
-      properties: { typeName: { type: "string" }, objectId: { type: "string" }, values: { type: "object" }, provenance: { type: "array", items: ref("Provenance") } },
+      properties: { typeName: { type: "string" }, objectId: { type: "string" }, values: { type: "object" }, provenance: { type: "array", items: ref("Provenance") }, unavailable: { type: "array", items: ref("Unavailable") } },
       required: ["typeName", "objectId", "values"]
     },
     ModelDescription: { type: "object", properties: { format: { const: "typesys.model/1" } }, required: ["format"] },
@@ -110,7 +116,7 @@ export function openApiDocument(
     schemas[type.name] = { type: "object", description: "Every value optional: policy may withhold any of them.", properties: values };
     schemas[`${type.name}.Object`] = {
       type: "object",
-      properties: { typeName: { const: type.name }, objectId: { type: "string" }, values: ref(type.name), provenance: { type: "array", items: ref("Provenance") } },
+      properties: { typeName: { const: type.name }, objectId: { type: "string" }, values: ref(type.name), provenance: { type: "array", items: ref("Provenance") }, unavailable: { type: "array", items: ref("Unavailable") } },
       required: ["typeName", "objectId", "values"]
     };
     paths[`/objects/${type.name}/{id}`] = {

@@ -103,6 +103,21 @@ export class AdapterUnavailableError extends Error {
   }
 }
 
+/**
+ * A data source refused the credential TypeSystem holds for it (ADR-0072):
+ * the source's own authorization, not the caller's. Not retryable, and
+ * never reported as "nothing found".
+ */
+export class SourceRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly dataSourceId?: string
+  ) {
+    super(message);
+    this.name = "SourceRefusedError";
+  }
+}
+
 /** The circuit breaker for a data source is open, so the call failed fast without being attempted (ADR-0026). Not retryable. */
 export class CircuitOpenError extends Error {
   constructor(message: string) {

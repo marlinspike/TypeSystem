@@ -20,6 +20,12 @@ export interface XRelationshipSpec {
   description?: string;
   edgeSchema?: JsonSchema2020;
   resolution: { dataSourceId: string; operation: string };
+  /**
+   * When its source fails (unavailable, timed out, or refusing TypeSystem's
+   * credential), an include of this relationship is left out and reported in
+   * the object's `unavailable` list rather than failing the read (ADR-0072).
+   */
+  optional?: boolean;
   /** Defaults to "live" when omitted (see ADR-0016). */
   resolutionMode?: ResolutionMode;
   cacheTtlMs?: number;
