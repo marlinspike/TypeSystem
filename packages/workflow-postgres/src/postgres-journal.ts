@@ -27,19 +27,20 @@ export async function migrateWorkflowJournal(pool: Pool): Promise<void> {
 }
 
 /**
- * JSONB cannot hold U+0000, which an Action's output may. An event whose
- * JSON has one is stored as its JSON text under a key no event has (every
- * event has a `type`), where the NUL is the six characters of its escape.
+ * JSONB cannot hold U+0000 or an unpaired UTF-16 surrogate, which an Action's
+ * output or a caller's text may. An event whose JSON has either is stored as
+ * its JSON text under a key no event has, beside its `type`, so the journal's
+ * triggers still recognise what kind of event it is (a run-finished one ends
+ * the run whatever its reason holds).
  */
 const WRAPPED = "$typesys-json";
+const UNSTORABLE = /\\u0000|\\u[dD][89abAB][0-9a-fA-F]{2}/;
 const encode = (event: JournalEvent): string => {
   const json = JSON.stringify(event);
-  return json.includes("\\u0000") ? JSON.stringify({ [WRAPPED]: json }) : json;
+  return UNSTORABLE.test(json) ? JSON.stringify({ type: event.type, [WRAPPED]: json }) : json;
 };
-const decode = (stored: JournalEvent | { [WRAPPED]: string }): JournalEvent => {
-  const keys = Object.keys(stored);
-  return keys.length === 1 && keys[0] === WRAPPED ? (JSON.parse((stored as { [WRAPPED]: string })[WRAPPED]) as JournalEvent) : (stored as JournalEvent);
-};
+const decode = (stored: JournalEvent | { [WRAPPED]: string }): JournalEvent =>
+  Object.hasOwn(stored, WRAPPED) ? (JSON.parse((stored as { [WRAPPED]: string })[WRAPPED]) as JournalEvent) : (stored as JournalEvent);
 
 /**
  * The durable `WorkflowJournal` (ADR-0066). An append is one transaction:

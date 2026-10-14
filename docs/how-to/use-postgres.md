@@ -51,9 +51,12 @@ with no `binding` fails the same way, at write time.
 
 ## Operational notes worth knowing before you rely on this
 
-- Audit events are **append-only at the database level** — a trigger
-  rejects `UPDATE`/`DELETE` on `audit_events` unconditionally. There is no
-  "edit an audit row" path, anywhere, by design.
+- Audit events are **append-only at the database level**: triggers
+  reject `UPDATE`, `DELETE` and `TRUNCATE` on `audit_events`. There is no
+  "edit an audit row" path, anywhere, by design. A table's owner can still
+  disable its triggers, so run the migrations as one role and give the
+  runtime a different one that does not own the tables (it needs `SELECT`
+  and `INSERT` on `audit_events`, and the usual rights on the rest).
 - `listAuditEvents({limit, before})` uses real keyset pagination, not
   `OFFSET` — safe against a table that grows forever.
 - Migrations are plain tracked SQL files
