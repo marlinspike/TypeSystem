@@ -81,6 +81,33 @@ export function pointer(doc: unknown, ptr: string): unknown {
 const fieldOf = (f: HttpField) => (typeof f === "string" ? f : f.from);
 
 /**
+ * The service's field, as provenance names it: the decoded key for a
+ * top-level field (`/mc~1status` is `mc/status`), dotted keys for a nested
+ * one (`/nested/unit` is `nested.unit`), and the pointer itself when a key
+ * holds a dot or a slash, so no two pointers are named alike.
+ */
+export function fieldName(ptr: string): string {
+  const keys = ptr.slice(1).split("/").map((k) => k.replaceAll("~1", "/").replaceAll("~0", "~"));
+  if (keys.some((k) => k.includes("."))) return ptr;
+  if (keys.length === 1) return keys[0]!;
+  return keys.some((k) => k.includes("/")) ? ptr : keys.join(".");
+}
+
+/** A URL with any user name and password removed, for messages. */
+function withoutCredentials(text: string, baseUrl: string): string {
+  let out = text;
+  try {
+    const u = new URL(baseUrl);
+    for (const secret of [u.password, u.username, decodeURIComponent(u.password), decodeURIComponent(u.username)]) {
+      if (secret) out = out.replaceAll(secret, "***");
+    }
+  } catch {
+    // Not a URL: nothing in it to hide.
+  }
+  return out.replace(/\/\/[^/@\s]*@/g, "//***@");
+}
+
+/**
  * An Adapter over an independent HTTP/JSON service (ADR-0072), driven by a
  * mapping rather than code: which path serves a record and a list, where
  * each canonical field is in the service's JSON, and which credential the
@@ -97,6 +124,8 @@ export class HttpAdapter implements Adapter {
   readonly dataSourceId: string;
   private readonly fetch: typeof fetch;
   private token: { value: string; expiresAt: number } | undefined;
+  /** The token request in flight, shared by every read that needs a token meanwhile. */
+  private tokenRequest: Promise<string> | undefined;
 
   constructor(private readonly config: HttpAdapterConfig) {
     this.dataSourceId = config.dataSourceId;
@@ -105,6 +134,8 @@ export class HttpAdapter implements Adapter {
       for (const p of [m.id, m.list.items, m.list.next, ...Object.values(m.fields).map(fieldOf)]) {
         if (p !== undefined && p !== "" && !p.startsWith("/")) throw new TypeError(`${type}: "${p}" is not a JSON Pointer`);
       }
+      // A cursor the adapter cannot send back would end every list after its first page.
+      if (m.list.next !== undefined && !m.list.cursorParam) throw new TypeError(`${type}: list names a next cursor but no cursorParam to send it in`);
     }
   }
 
@@ -119,26 +150,48 @@ export class HttpAdapter implements Adapter {
     if (!auth) return {};
     if (auth.kind === "header") return { [auth.name]: auth.value };
     if (renew || !this.token || this.token.expiresAt <= Date.now()) {
-      const form = new URLSearchParams({ grant_type: "client_credentials", client_id: auth.clientId, client_secret: auth.clientSecret, ...(auth.scope ? { scope: auth.scope } : {}) });
-      const res = await this.send(auth.tokenUrl, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form.toString(), ...(signal ? { signal } : {}) });
-      if (res.status === 400 || res.status === 401) throw new SourceRefusedError(`${this.config.system} refused the client credentials (${res.status})`, this.dataSourceId);
-      if (!res.ok) throw new AdapterUnavailableError(`${this.config.system} token endpoint answered ${res.status}`);
-      const body = (await res.json()) as { access_token?: unknown; expires_in?: unknown };
-      if (typeof body.access_token !== "string") throw new AdapterUnavailableError(`${this.config.system} issued no access token`);
-      const ttl = typeof body.expires_in === "number" ? body.expires_in * 1000 : 60_000;
-      // Renew a little early, so a token never expires between this check and the service's.
-      this.token = { value: body.access_token, expiresAt: Date.now() + Math.max(0, ttl - 5_000) };
+      // One token request at a time: concurrent reads wait for the same token instead of each fetching one.
+      this.tokenRequest ??= this.requestToken(auth, signal).finally(() => (this.tokenRequest = undefined));
+      return { authorization: `Bearer ${await this.tokenRequest}` };
     }
     return { authorization: `Bearer ${this.token.value}` };
   }
 
-  private async send(url: string, init: RequestInit): Promise<Response> {
+  private async requestToken(auth: Extract<HttpAuth, { kind: "client-credentials" }>, signal: AbortSignal | undefined): Promise<string> {
+    const form = new URLSearchParams({ grant_type: "client_credentials", client_id: auth.clientId, client_secret: auth.clientSecret, ...(auth.scope ? { scope: auth.scope } : {}) });
+    const res = await this.send(auth.tokenUrl, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form.toString(), ...(signal ? { signal } : {}) });
+    if (res.status === 400 || res.status === 401 || res.status === 403) throw new SourceRefusedError(`${this.config.system} refused the client credentials (${res.status})`, this.dataSourceId);
+    if (!res.ok) throw new AdapterUnavailableError(`${this.config.system} token endpoint answered ${res.status}`);
+    let body: { access_token?: unknown; expires_in?: unknown };
     try {
-      return await this.fetch(url, init);
+      body = (await res.json()) as typeof body;
+    } catch {
+      throw new AdapterUnavailableError(`${this.config.system} token endpoint answered with something that is not JSON`);
+    }
+    if (typeof body?.access_token !== "string") throw new AdapterUnavailableError(`${this.config.system} issued no access token`);
+    const ttl = typeof body.expires_in === "number" ? body.expires_in * 1000 : 60_000;
+    // Renew a little early, so a token never expires between this check and the service's.
+    this.token = { value: body.access_token, expiresAt: Date.now() + Math.max(0, ttl - 5_000) };
+    return body.access_token;
+  }
+
+  /**
+   * One request, never redirected: a redirect would carry TypeSystem's
+   * credential (a key header, or a re-posted client secret) to wherever the
+   * service points, so it is reported as the service failing to answer.
+   */
+  private async send(url: string, init: RequestInit): Promise<Response> {
+    let res: Response;
+    try {
+      res = await this.fetch(url, { ...init, redirect: "manual" });
     } catch (err) {
       if (init.signal?.aborted) throw err;
-      throw new AdapterUnavailableError(`${this.config.system} could not be reached: ${err instanceof Error ? err.message : String(err)}`);
+      throw new AdapterUnavailableError(withoutCredentials(`${this.config.system} could not be reached: ${err instanceof Error ? err.message : String(err)}`, this.config.baseUrl));
     }
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+      throw new AdapterUnavailableError(`${this.config.system} answered with a redirect (${res.status}), which TypeSystem does not follow with its credentials`);
+    }
+    return res;
   }
 
   /** GET a path; `undefined` for a 404. */
@@ -170,13 +223,15 @@ export class HttpAdapter implements Adapter {
       const value = typeof f === "string" ? raw : typeof raw === "string" && Object.hasOwn(f.map, raw) ? f.map[raw] : undefined;
       if (value === undefined) continue;
       values[name] = value;
-      provenance.push({ propertyPath: name, source: { dataSourceId: this.dataSourceId, system: this.config.system, recordId: objectId, field: fieldOf(f).slice(1).replaceAll("/", ".") }, retrievedAt });
+      provenance.push({ propertyPath: name, source: { dataSourceId: this.dataSourceId, system: this.config.system, recordId: objectId, field: fieldName(fieldOf(f)) }, retrievedAt });
     }
     return { objectId, values, provenance };
   }
 
   async resolveProperties(typeName: string, objectId: string, _propertyNames: string[], opts?: AdapterCallOptions): Promise<ResolvedProperties> {
     const m = this.mapping(typeName);
+    // `.` and `..` (however encoded) would be resolved by the URL parser into another endpoint.
+    if (objectId === "." || objectId === "..") return { values: {}, provenance: [] };
     const record = await this.get(m.get.replace("{id}", encodeURIComponent(objectId)), opts?.signal);
     const c = record === undefined ? undefined : this.canonical(m, record);
     return c && c.objectId === objectId ? { values: c.values, provenance: c.provenance } : { values: {}, provenance: [] };
@@ -195,7 +250,8 @@ export class HttpAdapter implements Adapter {
     const out: NonNullable<ReturnType<HttpAdapter["canonical"]>>[] = [];
     let cursor: string | undefined;
     for (let page = 0; ; page++) {
-      if (page >= (this.config.maxPages ?? 20)) throw new AdapterUnavailableError(`${this.config.system} has more than ${this.config.maxPages ?? 20} pages for ${typeName}; narrow the query`);
+      // The caller's to fix, not an outage: reading the same pages again would answer the same.
+      if (page >= (this.config.maxPages ?? 20)) throw new AdapterUnavailableError(`${this.config.system} has more than ${this.config.maxPages ?? 20} pages for ${typeName}; narrow the query`, { retryable: false });
       const p = new URLSearchParams(params);
       if (cursor !== undefined && m.list.cursorParam) p.set(m.list.cursorParam, cursor);
       const qs = p.toString();
@@ -207,8 +263,9 @@ export class HttpAdapter implements Adapter {
         if (c) out.push(c);
       }
       const next = m.list.next === undefined ? undefined : pointer(body, m.list.next);
-      if (typeof next !== "string" || next === "" || !m.list.cursorParam) break;
-      cursor = next;
+      if (next === undefined || next === null || next === "") break;
+      if (typeof next !== "string" && typeof next !== "number") throw new AdapterUnavailableError(`${this.config.system}'s list for ${typeName} has a next cursor that is neither a string nor a number`);
+      cursor = String(next);
     }
     return out;
   }
