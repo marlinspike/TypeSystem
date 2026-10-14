@@ -605,6 +605,10 @@ flowchart TB
   registry, a parts depot and a crew roster), with the interoperability
   scenarios and the `examples/missions/sortie-readiness` application the
   engineering loop verifies (ADR-0072).
+- **`packages/evaluation`** (private) — the three-arm productivity
+  evaluation: tasks, hidden acceptance checks written independently,
+  isolated sandboxes, a cost-capped agent runner, and a report that shows
+  every loss ([ADR-0073](docs/adr/0073-the-evaluation-is-decided-by-hidden-checks.md)).
 - **`packages/registry-store-postgres`** (`@typesys/registry-store-postgres`) —
   a production PostgreSQL-backed `RegistryStore` (migrations, keyset-paginated
   audit queries, an append-only audit table enforced by a DB trigger, and a

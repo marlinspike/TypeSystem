@@ -24,6 +24,7 @@
     { "path": "packages/mission-readiness" },
     { "path": "packages/engineer" },
     { "path": "packages/adapter-http" },
-    { "path": "packages/sortie-readiness" }
+    { "path": "packages/sortie-readiness" },
+    { "path": "packages/evaluation" }
   ]
 }

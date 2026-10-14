@@ -1,0 +1,20 @@
+{
+  "name": "@typesys/evaluation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The three-arm productivity evaluation (ADR-0073): tasks, hidden acceptance checks, isolated sandboxes, agent runs and the report, losses included.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@typesys/sortie-readiness": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0"
+  },
+  "dependencies": {
+    "@typesys/engineer": "0.1.0"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "format": "typesys.mission/1",
+  "name": "requisition-expedite",
+  "requirement": "A maintainer asks to expedite a parts requisition that is still awaiting shipment, giving a reason. A planner approves the request; a maintainer cannot approve one, their own or anyone's. A requisition already in transit or issued cannot be expedited: the request fails. A viewer cannot ask, and reads no requisition. Someone not signed in sees nothing.",
+  "host": { "module": "@typesys/sortie-readiness", "build": "buildSortieHost", "identities": "resolveSortieIdentity" },
+  "callers": {
+    "planner": { "token": "demo-planner-token" },
+    "maintainer": { "token": "demo-maintainer-token" },
+    "viewer": { "token": "demo-viewer-token" },
+    "anonymous": { "token": "" }
+  },
+  "uses": { "types": ["ops.Requisition"] },
+  "workflow": {
+    "name": "ops.ExpediteRequisition",
+    "version": "1.0.0",
+    "startPolicy": "ops.maintenance",
+    "input": ["requisitionId", "reason"],
+    "steps": [
+      { "kind": "read", "name": "requisition", "type": "ops.Requisition", "id": "$input.requisitionId" },
+      { "kind": "check", "name": "stillAwaiting", "equal": ["$requisition.status", "awaiting"], "message": "only a requisition still awaiting shipment can be expedited" },
+      { "kind": "approval", "name": "plannerApproval", "policy": "ops.sortie-signoff", "present": ["requisition"] }
+    ]
+  },
+  "views": [],
+  "acceptance": [
+    { "id": "maintainer-reads-requisition", "kind": "reads", "as": "maintainer", "type": "ops.Requisition", "objectId": "KHIF-6282-0003", "sees": ["status", "nsn"] },
+    { "id": "viewer-refused-requisition", "kind": "refused", "as": "viewer", "type": "ops.Requisition", "objectId": "KHIF-6282-0003" },
+    { "id": "anonymous-refused-requisition", "kind": "refused", "as": "anonymous", "type": "ops.Requisition", "objectId": "KHIF-6282-0003" },
+    { "id": "maintainer-asks", "kind": "starts", "as": "maintainer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "AOG" }, "status": "waiting-approval", "waitingOn": "plannerApproval" },
+    { "id": "in-transit-fails", "kind": "starts", "as": "maintainer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6281-0001", "reason": "AOG" }, "status": "failed" },
+    { "id": "viewer-cannot-ask", "kind": "starts", "as": "viewer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "AOG" }, "status": "refused" },
+    { "id": "planner-approves", "kind": "approves", "as": "planner", "startedBy": "maintainer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "AOG" }, "step": "plannerApproval", "admitted": true, "then": "completed" },
+    { "id": "maintainer-cannot-approve", "kind": "approves", "as": "maintainer", "startedBy": "planner", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "AOG" }, "step": "plannerApproval", "admitted": false }
+  ]
+}

@@ -209,3 +209,4 @@ dist
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,node,macos
 /packages/engineer/.work/
 /packages/sortie-readiness/.work/
+/packages/evaluation/.work/
