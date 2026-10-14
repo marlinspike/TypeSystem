@@ -98,10 +98,15 @@ export async function callEngineerTool(root: string, name: string, args: Record<
     const loaded = await tryLoadHost(parsed.spec, path.dirname(file), { within: root });
     if ("diagnostic" in loaded) return { ok: false, diagnostics: [loaded.diagnostic] };
     const { host, resolve, workflows } = loaded;
-    const plan = await planMission(parsed.spec, host, resolve, workflows);
-    if (!out) return { ...plan };
-    if (!plan.ok) return { ok: false, plan, files: [] };
-    return { ok: true, plan, dir: path.relative(root, out), files: await scaffoldMission(parsed.spec, host, out) };
+    try {
+      const plan = await planMission(parsed.spec, host, resolve, workflows);
+      if (!out) return { ...plan };
+      if (!plan.ok) return { ok: false, plan, files: [] };
+      return { ok: true, plan, dir: path.relative(root, out), files: await scaffoldMission(parsed.spec, host, out) };
+    } finally {
+      // A host may start services of its own (the sortie host starts three); they go with the call.
+      await (host as { services?: { stop(): Promise<void> } }).services?.stop().catch(() => undefined);
+    }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

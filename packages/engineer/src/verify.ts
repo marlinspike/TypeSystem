@@ -58,6 +58,8 @@ async function call(baseUrl: string, token: string, method: "GET" | "POST", url:
 }
 
 const enc = encodeURIComponent;
+/** The most pages a query check reads before it calls the result unbounded. */
+const MAX_QUERY_PAGES = 100;
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
@@ -111,11 +113,22 @@ export async function runCheck(baseUrl: string, spec: MissionSpec, check: Accept
       return unanswered(a, "with a refusal or the object");
     }
     case "query": {
-      const a = await call(baseUrl, token, "POST", "/query", check.query);
-      if (a.status !== 200) return fail(a, `the query was refused (${a.status})`, "validate the query with typesys_validate_query");
-      const items = isRecord(a.body) ? a.body.items : undefined;
-      if (!Array.isArray(items)) return unanswered(a, "with a list of items");
-      const n = items.length;
+      // Every page counts: a page can be empty (its rows denied to this caller, ADR-0030) with rows on the next.
+      let n = 0;
+      let cursor: string | undefined;
+      const seen = new Set<string>();
+      for (let page = 0; ; page++) {
+        const a = await call(baseUrl, token, "POST", "/query", cursor === undefined ? check.query : { ...check.query, cursor });
+        if (a.status !== 200) return fail(a, `the query was refused (${a.status})`, "validate the query with typesys_validate_query");
+        const items = isRecord(a.body) ? a.body.items : undefined;
+        if (!Array.isArray(items)) return unanswered(a, "with a list of items");
+        n += items.length;
+        const next = isRecord(a.body) ? a.body.nextCursor : undefined;
+        if (typeof next !== "string" || next === "" || (check.atMost !== undefined && n > check.atMost)) break;
+        if (seen.has(next) || page >= MAX_QUERY_PAGES) return fail({ count: n, pages: page + 1 }, `the query's pages did not end after ${page + 1}`, "the API's nextCursor repeats, or the result is larger than a check should read; narrow the query");
+        seen.add(next);
+        cursor = next;
+      }
       if (check.atLeast !== undefined && n < check.atLeast) return fail({ count: n }, `${n} results, expected at least ${check.atLeast}`, "check the query's filters, and what this caller may read");
       if (check.atMost !== undefined && n > check.atMost) return fail({ count: n }, `${n} results, expected at most ${check.atMost}`, "this caller reads more than the requirement allows");
       return pass({ count: n });
@@ -146,8 +159,15 @@ export async function runCheck(baseUrl: string, spec: MissionSpec, check: Accept
       const status = a.status === 403 ? "refused" : (runStatus ?? `http-${a.status}`);
       const waitingOn = isRecord(a.body) && isRecord(a.body.waitingOn) && typeof a.body.waitingOn.step === "string" ? a.body.waitingOn.step : undefined;
       if (status !== check.status) return fail({ status, body: a.body }, `the run is ${status}, expected ${check.status}`, "read the run's steps: the first one not completed is why");
+      if (check.failsAt !== undefined) {
+        // A failed run proves the requirement only when it failed at the step that enforces it, not at a read before it.
+        const steps = isRecord(a.body) && Array.isArray(a.body.steps) ? (a.body.steps as unknown[]) : [];
+        const failed = steps.find((s) => isRecord(s) && s.status === "failed");
+        const at = isRecord(failed) && typeof failed.name === "string" ? failed.name : undefined;
+        if (at !== check.failsAt) return fail({ status, failedAt: at ?? null, reason: isRecord(a.body) ? a.body.reason : undefined }, `the run failed at ${at ?? "no step"}, expected ${check.failsAt}`, "read the run's reason: the step before the guard failed, so the guard never ran");
+      }
       if (check.waitingOn !== undefined && waitingOn !== check.waitingOn) return fail({ status, waitingOn }, `the run waits on ${waitingOn ?? "nothing"}, expected ${check.waitingOn}`, "check the workflow's approval steps");
-      return pass({ status, ...(waitingOn ? { waitingOn } : {}) });
+      return pass({ status, ...(waitingOn ? { waitingOn } : {}), ...(check.failsAt ? { failedAt: check.failsAt } : {}) });
     }
     case "approves": {
       const starter = spec.callers[check.startedBy]?.token ?? "";

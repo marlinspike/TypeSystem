@@ -92,7 +92,7 @@ export type AcceptanceCheck = { readonly id: string; readonly as: string; readon
   | { readonly kind: "query"; readonly query: SemanticQuery; readonly atLeast?: number; readonly atMost?: number }
   | { readonly kind: "offered"; readonly type: string; readonly objectId?: string; readonly action: string; readonly offered: boolean }
   | { readonly kind: "described"; readonly type: string; readonly described: boolean }
-  | { readonly kind: "starts"; readonly workflow: string; readonly input: Readonly<Record<string, string>>; readonly status: string; readonly waitingOn?: string }
+  | { readonly kind: "starts"; readonly workflow: string; readonly input: Readonly<Record<string, string>>; readonly status: string; readonly waitingOn?: string; /** With status "failed": the step the run must fail at. */ readonly failsAt?: string }
   | {
       readonly kind: "approves";
       readonly workflow: string;
@@ -232,6 +232,11 @@ export function missionProblems(doc: unknown): EngineerDiagnostic[] {
       if (typeof who !== "string" || !Object.hasOwn(callers, who)) err(at, `${field} ${typeof who === "string" ? `"${who}" is not one of the mission's callers` : "names no caller"}`, `name one of ${Object.keys(callers).join(", ")}`);
     }
     if ((c?.kind === "starts" || c?.kind === "approves") && c.workflow !== w?.name) err(at, `the check runs workflow "${c.workflow}", which the mission does not define`);
+    if (c?.kind === "starts" && c.failsAt !== undefined) {
+      const stepNames = ((Array.isArray(w?.steps) ? w.steps : []) as readonly (MissionStep | undefined)[]).map((s) => s?.name);
+      if (c.status !== "failed") err(`${at}/failsAt`, 'failsAt applies only to a check whose status is "failed"');
+      else if (typeof c.failsAt !== "string" || !stepNames.includes(c.failsAt)) err(`${at}/failsAt`, `"${String(c.failsAt)}" is not a step of the workflow`);
+    }
     if (c?.kind === "approves" && !approvals.has(c.step)) {
       const near = [...approvals][0];
       err(`${at}/step`, `"${c.step}" is not an approval step of the workflow`, near ? `the workflow's approvals are ${[...approvals].join(", ")}` : "the workflow has no approval step");

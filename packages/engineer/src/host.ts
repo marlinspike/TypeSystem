@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,12 +33,19 @@ export interface LoadHostOptions {
 /** The host's module, resolved as the application at `fromDir` would resolve it. */
 async function load(host: MissionHost, fromDir: string, options: LoadHostOptions): Promise<Record<string, unknown>> {
   const isPath = host.module.startsWith(".") || path.isAbsolute(host.module);
-  if (isPath && options.within !== undefined) {
-    const rel = path.relative(path.resolve(options.within), path.resolve(fromDir, host.module));
-    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error(`the host module ${host.module} is outside the root`);
+  // A package specifier with a `.` or `..` segment can climb out of its package when the package declares no
+  // `exports` (Node then resolves the subpath as a plain path), so it is never a package name the root allows.
+  if (!isPath && options.within !== undefined && host.module.split(/[\\/]/).some((seg) => seg === "." || seg === "..")) {
+    throw new Error(`the host module ${host.module} climbs out of its package`);
   }
   const require = createRequire(path.join(path.resolve(fromDir), "noop.js"));
-  return (await import(pathToFileURL(require.resolve(host.module)).href)) as Record<string, unknown>;
+  const resolved = require.resolve(host.module);
+  if (isPath && options.within !== undefined) {
+    // Checked on real paths, so a symlink inside the root cannot lead to a module outside it.
+    const rel = path.relative(realpathSync(path.resolve(options.within)), realpathSync(resolved));
+    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error(`the host module ${host.module} is outside the root`);
+  }
+  return (await import(pathToFileURL(resolved).href)) as Record<string, unknown>;
 }
 
 export type LoadedHost = { host: EngineerHost; resolve: TokenResolver; workflows: ProvidedWorkflow[] };
