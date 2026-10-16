@@ -1,3 +1,5 @@
+import type { UnavailablePart } from "@typesys/core";
+
 /**
  * The static shape of a TypeSys model, as `generateModel` emits it from a
  * registry (ADR-0055). It is a type only: nothing here exists at run time, so
@@ -54,4 +56,6 @@ export type RelationshipTarget<M extends ModelShape, N extends TypeName<M>, R ex
 export type Row<M extends ModelShape, N extends TypeName<M>, K extends ValueKey<M, N> = ValueKey<M, N>, I = unknown> = {
   readonly $id: string;
   readonly $type: N;
+  /** Included relationships left out because their source failed, and why (ADR-0072). Absent when nothing was. */
+  readonly $unavailable?: readonly UnavailablePart[];
 } & { readonly [P in K]?: Values<M, N>[P] } & I;

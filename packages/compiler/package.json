@@ -1,0 +1,36 @@
+{
+  "name": "@typesys/compiler",
+  "version": "0.1.0",
+  "description": "The TypeSystem semantic application compiler (ADR-0079): a typed application IR of governed reads, expressions, workflow steps, interface nodes and effects; a checker that types every reference against the model and enforces the governance rules early; and a deterministic, incremental compiler to an ordinary TypeScript and React application over the governed runtime, verified against acceptance checks the runtime decides.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "bin": {
+    "typesys-app": "./dist/bin.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/compiler"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
+    "@typesys/engineer": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "@typesys/workflow": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/domain-airforce": "0.1.0"
+  }
+}

@@ -11,7 +11,8 @@ export interface WorkflowDiagnostic {
     | "invalid-deadline"
     | "invalid-schema"
     | "missing-policy"
-    | "unreleasable-ai-input";
+    | "unreleasable-ai-input"
+    | "unknown-model";
   readonly step?: string;
   readonly message: string;
 }
