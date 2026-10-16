@@ -1,0 +1,41 @@
+{
+  "format": "typesys.mission-brief/1",
+  "requirement": "A maintainer asks to expedite a parts requisition that is still awaiting shipment, giving a reason. A planner may ask too. A planner approves the request, though never one they asked for themselves; a maintainer cannot approve one, their own or anyone's. A requisition already in transit or issued cannot be expedited: the request fails. A viewer cannot ask, and reads no requisition. Someone not signed in sees nothing. - The workflow is `ops.ExpediteRequisition`, with inputs `requisitionId` and `reason`. - Its approval step is `plannerApproval`.",
+  "host": {
+    "module": "@typesys/sortie-readiness",
+    "build": "buildSortieHost",
+    "identities": "resolveSortieIdentity"
+  },
+  "callers": {
+    "planner": {
+      "token": "demo-planner-token",
+      "description": "Maj Chen, sortie planner, 388FW"
+    },
+    "maintainer": {
+      "token": "demo-maintainer-token",
+      "description": "TSgt Ruiz, maintainer, 388FW"
+    },
+    "viewer": {
+      "token": "demo-viewer-token",
+      "description": "reads the fleet board"
+    },
+    "anonymous": {
+      "token": "",
+      "description": "someone not signed in"
+    }
+  },
+  "author": "planner",
+  "policies": {
+    "ops.maintenance": "people who work on parts (maintainers and planners)",
+    "ops.sortie-signoff": "sortie planners"
+  },
+  "agentAudience": {
+    "roles": [
+      "maintainer"
+    ],
+    "clearance": "UNCLASSIFIED",
+    "attributes": {
+      "unit": "388FW"
+    }
+  }
+}

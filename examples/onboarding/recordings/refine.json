@@ -1,0 +1,329 @@
+[
+  {
+    "format": "typesys.llm-recording/1",
+    "key": "6bc06a075d682fab7de29f1f220ccb7c60aeb15e9a26169e723b90c67a30b764",
+    "producedBy": "A Claude Code session acting as the development model (agent mode): it read this request and wrote the answer",
+    "at": "2026-10-16T13:47:58.866Z",
+    "answer": {
+      "json": {
+        "types": [
+          {
+            "entity": "pg:mxdb/mx.acft",
+            "name": "Aircraft",
+            "description": "An airframe assigned to the squadron, as its maintenance data system records it.",
+            "properties": [
+              {
+                "field": "pg:mxdb/mx.acft.tail_no",
+                "name": "tailNumber",
+                "description": "The aircraft's tail number: its identity."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.mds",
+                "name": "missionDesignSeries",
+                "description": "Mission design series, e.g. F-16C."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.unit_cd",
+                "name": "unit",
+                "description": "Code of the unit the aircraft is assigned to."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.base_icao",
+                "name": "baseIcao",
+                "description": "ICAO code of the aircraft's base."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.mc_stat",
+                "name": "missionCapability",
+                "description": "FMC fully, PMC partially, NMC not mission capable."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.flt_hrs",
+                "name": "flightHours",
+                "description": "Total airframe flight hours."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.last_insp_dt",
+                "name": "lastInspectionDate",
+                "description": "Date of the last inspection."
+              },
+              {
+                "field": "pg:mxdb/mx.acft.depl_loc",
+                "name": "deploymentLocation",
+                "description": "Forward deployment location; SECRET when populated."
+              }
+            ]
+          },
+          {
+            "entity": "pg:mxdb/mx.mx_evt",
+            "name": "MaintenanceEvent",
+            "description": "A discrepancy or a piece of scheduled work recorded against an aircraft.",
+            "properties": [
+              {
+                "field": "pg:mxdb/mx.mx_evt.evt_id",
+                "name": "eventId",
+                "description": "The event's identity."
+              },
+              {
+                "field": "pg:mxdb/mx.mx_evt.tail_no",
+                "name": "tailNumber",
+                "description": "Tail number of the aircraft the event is against."
+              },
+              {
+                "field": "pg:mxdb/mx.mx_evt.evt_typ",
+                "name": "eventType",
+                "description": "SCHED scheduled, UNSCH unscheduled, TCTO time compliance technical order, CANN cannibalization."
+              },
+              {
+                "field": "pg:mxdb/mx.mx_evt.wuc",
+                "name": "workUnitCode",
+                "description": "Work unit code of the affected system."
+              },
+              {
+                "field": "pg:mxdb/mx.mx_evt.descr",
+                "name": "description",
+                "description": "What was found or what is to be done."
+              },
+              {
+                "field": "pg:mxdb/mx.mx_evt.opened_ts",
+                "name": "openedAt",
+                "description": "When the event was opened."
+              },
+              {
+                "field": "pg:mxdb/mx.mx_evt.closed_ts",
+                "name": "closedAt",
+                "description": "When the event was closed; empty while it is open."
+              }
+            ]
+          },
+          {
+            "entity": "pg:mxdb/mx.tech",
+            "name": "Technician",
+            "description": "A maintenance technician.",
+            "properties": [
+              {
+                "field": "pg:mxdb/mx.tech.emp_id",
+                "name": "employeeId",
+                "description": "The technician's employee id."
+              },
+              {
+                "field": "pg:mxdb/mx.tech.last_nm",
+                "name": "lastName",
+                "description": "Family name."
+              },
+              {
+                "field": "pg:mxdb/mx.tech.first_nm",
+                "name": "firstName",
+                "description": "Given name."
+              },
+              {
+                "field": "pg:mxdb/mx.tech.ssn",
+                "name": "socialSecurityNumber",
+                "description": "Social security number."
+              },
+              {
+                "field": "pg:mxdb/mx.tech.home_phone",
+                "name": "homePhone",
+                "description": "Home telephone number."
+              },
+              {
+                "field": "pg:mxdb/mx.tech.afsc",
+                "name": "specialtyCode",
+                "description": "Air Force Specialty Code."
+              },
+              {
+                "field": "pg:mxdb/mx.tech.skill_lvl",
+                "name": "skillLevel",
+                "description": "Skill level: 3, 5, 7 or 9."
+              }
+            ]
+          },
+          {
+            "entity": "pg:mxdb/mx.wrk_ord",
+            "name": "WorkOrder",
+            "description": "A work order opened against a maintenance event.",
+            "properties": [
+              {
+                "field": "pg:mxdb/mx.wrk_ord.wo_no",
+                "name": "workOrderNumber",
+                "description": "The work order's number."
+              },
+              {
+                "field": "pg:mxdb/mx.wrk_ord.evt_id",
+                "name": "eventId",
+                "description": "The maintenance event the work order is for."
+              },
+              {
+                "field": "pg:mxdb/mx.wrk_ord.tech_emp",
+                "name": "technicianId",
+                "description": "Employee id of the assigned technician."
+              },
+              {
+                "field": "pg:mxdb/mx.wrk_ord.stat",
+                "name": "status",
+                "description": "OPEN, INWORK or CLOSED."
+              },
+              {
+                "field": "pg:mxdb/mx.wrk_ord.created_ts",
+                "name": "createdAt",
+                "description": "When the work order was opened."
+              }
+            ]
+          },
+          {
+            "entity": "openapi:roster#/components/schemas/Member",
+            "name": "CrewMember",
+            "description": "An aircrew member on the wing's roster.",
+            "properties": [
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/id",
+                "name": "id",
+                "description": "Roster id."
+              },
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/callsign",
+                "name": "callsign",
+                "description": "Callsign."
+              },
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/full_name",
+                "name": "fullName",
+                "description": "Rank and full name."
+              },
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/quals",
+                "name": "qualifications",
+                "description": "Qualifications as MDS:qualification, e.g. F-16C:IP."
+              },
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/home_unit",
+                "name": "homeUnit",
+                "description": "The member's home unit."
+              },
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/assigned_tail",
+                "name": "assignedTailNumber",
+                "description": "Tail number of the aircraft the member is assigned to."
+              },
+              {
+                "field": "openapi:roster#/components/schemas/Member/properties/duty",
+                "name": "dutyStatus",
+                "description": "available, leave, or dnif (duties not including flying: medically grounded)."
+              }
+            ]
+          }
+        ],
+        "relationships": [
+          {
+            "from": "pg:mxdb/mx.mx_evt.tail_no",
+            "to": "pg:mxdb/mx.acft.tail_no",
+            "name": "aircraft",
+            "inverse": "maintenanceEvents",
+            "description": "The aircraft a maintenance event is against.",
+            "cites": [
+              "pg:mxdb/mx.mx_evt#fk:mx_evt_tail_no_fkey"
+            ]
+          },
+          {
+            "from": "pg:mxdb/mx.wrk_ord.evt_id",
+            "to": "pg:mxdb/mx.mx_evt.evt_id",
+            "name": "maintenanceEvent",
+            "inverse": "workOrders",
+            "description": "The maintenance event a work order is for.",
+            "cites": [
+              "pg:mxdb/mx.wrk_ord#fk:wrk_ord_evt_id_fkey"
+            ]
+          },
+          {
+            "from": "pg:mxdb/mx.wrk_ord.tech_emp",
+            "to": "pg:mxdb/mx.tech.emp_id",
+            "name": "assignedTechnician",
+            "inverse": "assignedWorkOrders",
+            "description": "The technician a work order is assigned to. The column's comment names emp_id, but no foreign key enforces it.",
+            "cites": [
+              "pg:mxdb/mx.wrk_ord.tech_emp",
+              "pg:mxdb/mx.tech.emp_id"
+            ]
+          },
+          {
+            "from": "openapi:roster#/components/schemas/Member/properties/assigned_tail",
+            "to": "pg:mxdb/mx.acft.tail_no",
+            "name": "assignedAircraft",
+            "inverse": "assignedCrew",
+            "description": "The aircraft a crew member is assigned to, matched across the roster and MXDB by tail number.",
+            "cites": [
+              "openapi:roster#/components/schemas/Member/properties/assigned_tail",
+              "pg:mxdb/mx.acft.tail_no",
+              "pg:mxdb/mx.acft"
+            ]
+          }
+        ],
+        "sensitive": [
+          {
+            "field": "openapi:roster#/components/schemas/Member/properties/duty",
+            "category": "health",
+            "marking": "",
+            "reason": "dnif means the member is medically grounded, so a duty status can disclose a medical condition.",
+            "cites": [
+              "openapi:roster#/components/schemas/Member/properties/duty",
+              "openapi:roster#/components/schemas/Duty"
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "operation": "openapi:roster#/paths/~1api~1members~1{id}~1duty/post",
+            "name": "ChangeDutyStatus",
+            "description": "Changes a crew member's duty status in the roster to available, leave or dnif."
+          }
+        ],
+        "findings": [
+          {
+            "kind": "data-quality",
+            "severity": "warning",
+            "message": "wrk_ord.tech_emp names a technician by emp_id but no foreign key enforces it, so a work order can name a technician who does not exist.",
+            "cites": [
+              "pg:mxdb/mx.wrk_ord.tech_emp",
+              "pg:mxdb/mx.tech.emp_id"
+            ]
+          },
+          {
+            "kind": "inconsistency",
+            "severity": "warning",
+            "message": "The roster's assigned_tail is an unconstrained string while MXDB's tail_no is varchar(9): tail numbers written differently in the two systems will not match.",
+            "cites": [
+              "openapi:roster#/components/schemas/Member/properties/assigned_tail",
+              "pg:mxdb/mx.acft.tail_no"
+            ]
+          },
+          {
+            "kind": "ambiguity",
+            "severity": "info",
+            "message": "The roster's unit query parameter most likely filters home_unit; confirm before relying on it as a filter.",
+            "cites": [
+              "openapi:roster#/paths/~1api~1members/get",
+              "openapi:roster#/components/schemas/Member/properties/home_unit"
+            ]
+          },
+          {
+            "kind": "ambiguity",
+            "severity": "warning",
+            "message": "depl_loc is SECRET only when populated; TypeSystem marks the field SECRET whatever it holds, which a reviewer should confirm is intended.",
+            "cites": [
+              "pg:mxdb/mx.acft.depl_loc"
+            ]
+          },
+          {
+            "kind": "data-quality",
+            "severity": "info",
+            "message": "Nothing constrains closed_ts to be after opened_ts.",
+            "cites": [
+              "pg:mxdb/mx.mx_evt.opened_ts",
+              "pg:mxdb/mx.mx_evt.closed_ts"
+            ]
+          }
+        ]
+      }
+    }
+  }
+]

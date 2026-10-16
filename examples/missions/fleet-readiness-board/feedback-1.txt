@@ -1,0 +1,2 @@
+typesys engineer verify built and ran the drafted application. One acceptance check failed:
+error check-failed at acceptance/4: "maintainer-lists-poor-components" failed: 0 results, expected at least 1 (check the query's filters, and what this caller may read)

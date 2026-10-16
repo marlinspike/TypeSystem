@@ -224,3 +224,17 @@ export const VALIDATE_QUERY_OUTPUT: JsonSchema2020 = {
     }
   }
 };
+
+/** `typesys_compile_context` (ADR-0078): the model a coding task needs, as its caller is told of it and returned it. */
+export const CONTEXT_OUTPUT: JsonSchema2020 = {
+  type: "object",
+  required: ["text", "tokens", "types", "actions", "omitted", "digest"],
+  properties: {
+    text: { type: "string", description: "The context, to put in a prompt." },
+    tokens: { type: "integer", description: "Estimated at four characters a token." },
+    types: { type: "array", items: { type: "string" } },
+    actions: { type: "array", items: { type: "string" } },
+    omitted: { type: "array", items: { type: "string" }, description: "Relevant, but left out to stay within maxTokens." },
+    digest: { type: "string" }
+  }
+};

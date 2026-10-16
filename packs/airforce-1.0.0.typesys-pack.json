@@ -301,6 +301,7 @@
             }
           }
         },
+        "outputType": "airforce.WorkOrder",
         "authorizationPolicy": "airforce.maintainer-only",
         "preconditions": [
           {
@@ -457,5 +458,5 @@
     ],
     "actions": []
   },
-  "digest": "sha256:fd22eb6c7a790d6726ca9a084bbd50158ddc98e2183a90f96f9ac491a7f1924a"
+  "digest": "sha256:84ae3dba3dd1bc04343c13408c73c2ffe2074b218bed3cf30574f7c45bfe2850"
 }

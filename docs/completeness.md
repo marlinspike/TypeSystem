@@ -534,13 +534,13 @@ An independent adversarial review of M2
 ([`reviews/m2-adversarial-review.md`](reviews/m2-adversarial-review.md))
 found 27 defects (6 High, 11 Medium, 10 Low). All are fixed, and its
 reproduction tests (`packages/*/test/m2-adv-*.test.ts`) pass. It also
-listed what it saw in code but did not demonstrate. These are open, not
-fixed:
+listed what it saw in code but did not demonstrate. Three of those are
+closed by ADR-0075: an Action's result is released to a bound agent like a
+read of the object it is; an approver sees computes recomputed and AI
+answers only where they may see all their model was given; and the MCP
+server, its HTTP transport and the demo hosts bind the agent's audience.
+These are open, not fixed:
 
-- `invokeAction` over MCP and HTTP returns an Action's result to a bound
-  agent without deciding it for the audience.
-- `asSeenBy` passes compute and AI outputs to an approver unchanged.
-- No shipped host calls `bindAudience`.
 - A pack install's audit failure replaces a `PackError`, and on success it
   throws after registering. `signedBy` lists the key ids signatures claim,
   verified or not. `actor` is supplied by the caller.
@@ -609,9 +609,83 @@ The `examples/missions/sortie-readiness` application is verified by the
 engineering loop: 15 checks, each against a freshly started copy that
 starts its own services (`mission.test.ts`). Eight `interop.*` and
 `http-adapter.*` mutations are each killed by a test. Not addressed: a
-service learning which person a read is for (token exchange), Actions
-through `HttpAdapter`, and partial answers for property values split
-across sources.
+service learning which person a read is for (token exchange) and partial
+answers for property values split across sources. Actions through
+`HttpAdapter` were added by ADR-0076 (`http-actions.test.ts`).
+
+## Models: one capability layer, release decided wherever a call goes
+
+`@typesys/llm` (ADR-0074) calls Anthropic natively and OpenAI, OpenRouter,
+Ollama, LM Studio, vLLM and other servers through Chat Completions, using
+the vendors' own SDKs. `packages/llm/test/providers.test.ts` runs those
+SDKs against a loopback server that speaks their wire formats and shows
+schema-constrained answers validated independently (with one repair
+round), streaming, tool calls, retries that honor `retry-after`,
+interrupted streams, rate limits, outages, malformed and truncated
+answers, cancellation and timeouts, each ending in one `LlmError` code,
+and a failed authentication reported without the key. `routing.test.ts` shows selection, release
+of labeled content to a model's audience, and fallback that never crosses
+from a local model to a hosted one unless configured and labeled
+(ADR-0075). `packages/workflow/test/model-fallback.test.ts` shows a
+workflow AI step falling back only to a model that may receive its input,
+transitive release of one answer to a later step, and approvers shown
+only what they may see. No test calls a real provider unless
+`TYPESYS_LLM_LIVE_CONFIG` is set, and none has been run against one from
+this repository: no local model server was reachable where it was built.
+Not addressed: multimodal input (declared, never sent), prompt caching,
+batch APIs, provider-side tools, embeddings.
+
+## Onboarding: existing sources proposed from evidence, approved by an expert
+
+`@typesys/onboard` (ADR-0076) collects PostgreSQL catalogs (`pg_catalog`
+only, no rows), OpenAPI documents and JSON Schemas as evidence with
+stable ids, proposes a deterministic baseline, lets a development model
+refine it, and builds and verifies only what an expert's review accepts.
+`onboard.test.ts` shows the baseline invents no relationship or marking,
+and that a model's answer is refused wherever it cites evidence that does
+not exist, references a non-key, mismatches types, states a marking its
+evidence does not, or tries to remove a protection, including when a
+column comment instructs it to. It shows an Action is never approved by
+default, a decision lapses when its evidence changes, an expert's name is
+never renamed by a later run, and a rerun after a new column asks only
+about that column. `onboard-postgres.test.ts` and `npm run onboard:demo`
+(run by CI against PostgreSQL 17) onboard a live database and the crew
+roster service together: the approved model reads, follows relationships
+across both, withholds personal and SECRET values, and invokes the
+roster's duty change as an Action. The example's model answer was written
+by a coding agent in agent mode and is recorded and replayed as such; no
+configured provider has produced one from this repository. Not addressed:
+MySQL and other catalogs, a Type spanning a join, and OpenAPI
+`allOf`/`oneOf`. Onboarding is also an MCP server (`typesys-onboard-mcp`),
+whose test shows paths confined to its root and a failed database
+connection reported without its connection string.
+
+## Context for coding agents, and missions drafted from words
+
+`compileContext` (ADR-0078) and the `typesys_compile_context` MCP tool give
+a coding agent the part of the model a task needs, as its caller is told of
+it and returned it, within a token budget. `packages/mcp-server/test/context.test.ts`
+shows it finds the Types and Actions the component-replacement mission
+uses from that mission's requirement alone, marks values a viewer is never
+returned that a maintainer is, withholds SECRET values from a model's
+audience, omits Types the caller may not learn of and refuses an anonymous
+caller, and keeps its budget, listing what it left out.
+
+`typesys engineer draft` (ADR-0077) drafts a mission spec from a brief.
+The brief, not the model, owns the host, the callers and the policy rules
+a workflow may name. `draft.test.ts` shows the planner's errors (an
+unknown Type with its "did you mean", an unchecked caller, an invented
+policy rule) sent back until none is left, an answer that tries to set the
+host refused, and the model given no values it may not receive. In
+`examples/missions/fleet-readiness-board`, the agent's first answer failed
+one of ten checks under `verify`; with `verify`'s output as feedback the
+second passed all ten, and `npm run draft:demo` (run by CI) replays the
+drafting, scaffolds the application and verifies it. Both answers were
+written by a coding agent in agent mode; no configured provider has
+drafted a mission from this repository. Eight `context.*`, `draft.*` and
+`onboard.*` mutations are each killed by a test. An independent review of
+this work (`docs/reviews/m3-adversarial-review.md`) found 17 defects,
+three High, and each is fixed with a test.
 
 ## Real but narrow — the mechanism exists, exercised once
 

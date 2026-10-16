@@ -1,5 +1,4 @@
 import path from "node:path";
-import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -8,6 +7,10 @@ import { parseMission } from "./mission.js";
 import { planMission } from "./plan.js";
 import { scaffoldMission } from "./scaffold.js";
 import { verifyMission } from "./verify.js";
+import { engineerCommand } from "./cli.js";
+import { insideRoot } from "@typesys/devkit";
+
+export { insideRoot };
 
 /**
  * The engineering loop as MCP tools (ADR-0071), for an agent that already
@@ -42,37 +45,25 @@ export const ENGINEER_TOOLS: readonly Tool[] = [
       "Verify the application in a directory against its mission.json: plan, build (tsc and the views bundle), start it, and run every acceptance check through its API as each caller. Returns {ok, stages, checks, diagnostics}; each failing check names what was observed and a hint. Repair from the diagnostics and verify again until ok.",
     inputSchema: { type: "object", properties: { dir: { type: "string", description: "The application's directory, relative to the server's root" } }, required: ["dir"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "typesys_engineer_draft",
+    description:
+      "Draft a mission spec from a brief (typesys.mission-brief/1: a requirement in words, the host, the callers, the policy rules), with you as the development model (agent mode, ADR-0077). Call it with the answers you have written so far, in order; while another is needed it returns {answerNeeded: true, request}: read the request, write your answer as JSON to a file, and call again with that file added. When done it writes the spec to `out` with every round's diagnostics. Review the acceptance checks before scaffolding.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        brief: { type: "string", description: "Path to the brief, relative to the server's root" },
+        out: { type: "string", description: "Where to write mission.json, relative to the server's root" },
+        answers: { type: "array", items: { type: "string" }, description: "Your answers so far, as files relative to the root, in order" },
+        feedback: { type: "array", items: { type: "string" }, description: "Files with what verify or a reviewer said about a clean draft, one round each" }
+      },
+      required: ["brief", "out"],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true }
   }
 ];
-
-const escapes = (rel: string) => rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
-
-/** The real path of `p`: symlinks followed as far as the path exists, the rest appended as written. */
-function realOf(p: string): string {
-  const rest: string[] = [];
-  let at = p;
-  for (;;) {
-    try {
-      return path.join(realpathSync(at), ...rest.reverse());
-    } catch {
-      const parent = path.dirname(at);
-      if (parent === at) return p;
-      rest.push(path.basename(at));
-      at = parent;
-    }
-  }
-}
-
-/**
- * `p` inside `root`, or an error: an agent's path never leaves the tree the
- * server was started on, by `..` or by a symlink it leads through.
- */
-export function insideRoot(root: string, p: unknown): string {
-  if (typeof p !== "string" || p === "") throw new Error("a path is required");
-  const abs = path.resolve(root, p);
-  if (escapes(path.relative(path.resolve(root), abs)) || escapes(path.relative(realOf(path.resolve(root)), realOf(abs)))) throw new Error(`${p} is outside the server's root`);
-  return abs;
-}
 
 /** The mission at `file`. A file that is not a mission is reported without its contents, which may not be the agent's to read. */
 async function readSpec(file: string): Promise<ReturnType<typeof parseMission>> {
@@ -90,6 +81,7 @@ async function readSpec(file: string): Promise<ReturnType<typeof parseMission>> 
 export async function callEngineerTool(root: string, name: string, args: Record<string, unknown>): Promise<{ ok: boolean } & Record<string, unknown>> {
   try {
     if (name === "typesys_engineer_verify") return { ...(await verifyMission(insideRoot(root, args.dir), { within: root })) };
+    if (name === "typesys_engineer_draft") return await draftTool(root, args);
     if (name !== "typesys_engineer_plan" && name !== "typesys_engineer_scaffold") return { ok: false, error: `Unknown tool ${name}` };
     const file = insideRoot(root, args.mission);
     const out = name === "typesys_engineer_scaffold" ? insideRoot(root, args.out) : undefined;
@@ -110,6 +102,25 @@ export async function callEngineerTool(root: string, name: string, args: Record<
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+async function draftTool(root: string, args: Record<string, unknown>): Promise<{ ok: boolean } & Record<string, unknown>> {
+  const list = (v: unknown, field: string): string[] => {
+    if (v === undefined) return [];
+    if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw new Error(`${field} is a list of paths`);
+    return (v as string[]).map((p) => insideRoot(root, p));
+  };
+  const brief = insideRoot(root, args.brief);
+  const out = insideRoot(root, args.out);
+  const parsed = JSON.parse(await readFile(brief, "utf8")) as { host?: { module?: string } };
+  // The brief names code to run: a path module must be inside the root, as for a mission (and `within` refuses a specifier climbing out).
+  if (typeof parsed.host?.module === "string" && (parsed.host.module.startsWith(".") || path.isAbsolute(parsed.host.module))) insideRoot(root, path.resolve(path.dirname(brief), parsed.host.module));
+  const argv = ["draft", brief, "--out", out, ...list(args.answers, "answers").flatMap((a) => ["--answer", a]), ...list(args.feedback, "feedback").flatMap((f) => ["--feedback", f]), "--json"];
+  let printed = "";
+  const code = await engineerCommand(argv, (line) => (printed = line), { within: root });
+  const result = JSON.parse(printed) as Record<string, unknown>;
+  if (code === 2) return { ok: true, answerNeeded: true, request: await readFile(insideRoot(root, String(result.answerNeeded)), "utf8") };
+  return { ...result, ok: code === 0, out: path.relative(root, out) };
 }
 
 /** The MCP server; connect it to a transport (`mcp-bin.ts` uses stdio). */

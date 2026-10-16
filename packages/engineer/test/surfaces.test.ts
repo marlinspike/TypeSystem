@@ -32,7 +32,7 @@ describe("the engineer MCP tools", () => {
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "test", version: "1" });
     await Promise.all([createEngineerServer(repo).connect(a), client.connect(b)]);
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["typesys_engineer_plan", "typesys_engineer_scaffold", "typesys_engineer_verify"]);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["typesys_engineer_plan", "typesys_engineer_scaffold", "typesys_engineer_verify", "typesys_engineer_draft"]);
     const result = await client.callTool({ name: "typesys_engineer_plan", arguments: { mission: MISSION } });
     expect(result.isError).toBe(false);
     expect(JSON.parse((result.content as { text: string }[])[0]!.text)).toMatchObject({ mission: "component-replacement", ok: true });
@@ -46,5 +46,24 @@ describe("the engineer MCP tools", () => {
     const out = await callEngineerTool(repo, "typesys_engineer_scaffold", { mission: MISSION, out: "../escaped" });
     expect(out).toMatchObject({ ok: false, error: expect.stringMatching(/outside/) as string });
     expect(await callEngineerTool(repo, "typesys_engineer_verify", { dir: "/tmp" })).toMatchObject({ ok: false, error: expect.stringMatching(/outside/) as string });
+  });
+});
+
+describe("typesys_engineer_draft (agent mode over MCP)", () => {
+  it("hands the agent the request, then drafts with its answer; a brief whose host module leaves the root is refused", async () => {
+    const work = path.join(repo, "packages/engineer/.work/draft-mcp");
+    const { mkdirSync, writeFileSync, copyFileSync } = await import("node:fs");
+    mkdirSync(work, { recursive: true });
+    copyFileSync(path.join(repo, "examples/missions/fleet-readiness-board/brief.json"), path.join(work, "brief.json"));
+    copyFileSync(path.join(repo, "examples/missions/fleet-readiness-board/answers/1.json"), path.join(work, "1.json"));
+    const rel = (f: string) => path.relative(repo, path.join(work, f));
+    const first = await callEngineerTool(repo, "typesys_engineer_draft", { brief: rel("brief.json"), out: rel("mission.json") });
+    expect(first).toMatchObject({ ok: true, answerNeeded: true });
+    expect(first.request).toEqual(expect.stringContaining("REQUIREMENT:"));
+    const done = await callEngineerTool(repo, "typesys_engineer_draft", { brief: rel("brief.json"), out: rel("mission.json"), answers: [rel("1.json")] });
+    expect(done).toMatchObject({ ok: true, rounds: 1 });
+    writeFileSync(path.join(work, "evil.json"), JSON.stringify({ format: "typesys.mission-brief/1", host: { module: "../../../../../etc/x.js", build: "b", identities: "i" } }));
+    expect(await callEngineerTool(repo, "typesys_engineer_draft", { brief: rel("evil.json"), out: rel("m.json") })).toMatchObject({ ok: false, error: expect.stringMatching(/outside the server's root/) as string });
+    expect(await callEngineerTool(repo, "typesys_engineer_draft", { brief: "../outside.json", out: rel("m.json") })).toMatchObject({ ok: false });
   });
 });

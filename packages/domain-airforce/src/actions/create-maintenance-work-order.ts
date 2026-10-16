@@ -40,6 +40,8 @@ export const CreateMaintenanceWorkOrderAction: ActionDefinition = {
       status: { type: "string" }
     }
   },
+  // The result is the new work order: an agent reading for a model receives it as that model may read it (ADR-0075).
+  outputType: "airforce.WorkOrder",
   authorizationPolicy: "airforce.maintainer-only",
   preconditions: [
     {

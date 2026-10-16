@@ -164,8 +164,8 @@ export class PostgresRegistryStore implements RegistryStore {
     await this.pool.query(
       `INSERT INTO actions (id, name, version, description, applicable_types, input_schema, output_schema,
                              authorization_policy, preconditions, implementation, side_effects, idempotency,
-                             audit_required, deprecated, target, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
+                             audit_required, deprecated, target, output_type, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
        ON CONFLICT (name, version) DO UPDATE SET
          id = EXCLUDED.id,
          description = EXCLUDED.description,
@@ -180,6 +180,7 @@ export class PostgresRegistryStore implements RegistryStore {
          audit_required = EXCLUDED.audit_required,
          deprecated = EXCLUDED.deprecated,
          target = EXCLUDED.target,
+         output_type = EXCLUDED.output_type,
          updated_at = now()`,
       [
         def.id,
@@ -196,7 +197,8 @@ export class PostgresRegistryStore implements RegistryStore {
         def.idempotency,
         def.auditRequired,
         toJsonParam(def.deprecated),
-        toJsonParam(def.target)
+        toJsonParam(def.target),
+        def.outputType ?? null
       ]
     );
   }

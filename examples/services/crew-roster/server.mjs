@@ -4,6 +4,7 @@
 // short-lived bearer tokens with scopes. roster.read lists members;
 // full_name is personal data, returned only to a token with roster.pii.
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { pathToFileURL } from "node:url";
 
@@ -17,8 +18,13 @@ const MEMBERS = [
 /** Clients registered with the roster, and the scopes each may be granted. */
 const CLIENTS = {
   "typesys-ops": { secret: "ops-secret", scopes: ["roster.read"] },
-  "typesys-ops-pii": { secret: "ops-pii-secret", scopes: ["roster.read", "roster.pii"] }
+  "typesys-ops-pii": { secret: "ops-pii-secret", scopes: ["roster.read", "roster.pii"] },
+  "typesys-scheduler": { secret: "scheduler-secret", scopes: ["roster.read", "roster.write"] }
 };
+
+/** The roster's published contract, served to anyone at /openapi.json. */
+const OPENAPI = readFileSync(new URL("./openapi.json", import.meta.url), "utf8");
+const DUTIES = ["available", "leave", "dnif"];
 
 async function body(req) {
   let text = "";
@@ -34,6 +40,8 @@ export function createCrewRoster(options = {}) {
   const state = { latencyMs: options.latencyMs ?? 0, failing: options.failing ?? false, calls: 0, tokensIssued: 0 };
   const ttl = options.tokenTtlMs ?? 60_000;
   const tokens = new Map();
+  // Each server has its own copy, so a duty change in one test is not seen by another.
+  const members = MEMBERS.map((m) => ({ ...m }));
   const server = createHttpServer(async (req, res) => {
     state.calls++;
     const send = (status, payload, headers = {}) => {
@@ -44,6 +52,10 @@ export function createCrewRoster(options = {}) {
     if (state.failing) return send(503, { error: "temporarily_unavailable" });
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname === "/health") return send(200, { ok: true });
+    if (url.pathname === "/openapi.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(OPENAPI);
+    }
 
     if (url.pathname === "/oauth/token" && req.method === "POST") {
       const form = await body(req).catch(() => ({}));
@@ -63,16 +75,26 @@ export function createCrewRoster(options = {}) {
     if (!grant.scopes.includes("roster.read")) return send(403, { error: "insufficient_scope" });
     const shown = (m) => (grant.scopes.includes("roster.pii") ? m : Object.fromEntries(Object.entries(m).filter(([k]) => k !== "full_name")));
 
+    const duty = /^\/api\/members\/([^/]+)\/duty$/.exec(url.pathname);
+    if (duty && req.method === "POST") {
+      if (!grant.scopes.includes("roster.write")) return send(403, { error: "insufficient_scope" });
+      const found = members.find((m) => m.id === decodeURIComponent(duty[1]));
+      if (!found) return send(404, { error: "not_found" });
+      const input = await body(req).catch(() => ({}));
+      if (!DUTIES.includes(input.duty)) return send(400, { error: "invalid_duty" });
+      found.duty = input.duty;
+      return send(200, shown(found));
+    }
     const one = /^\/api\/members\/([^/]+)$/.exec(url.pathname);
     if (one) {
-      const found = MEMBERS.find((m) => m.id === decodeURIComponent(one[1]));
+      const found = members.find((m) => m.id === decodeURIComponent(one[1]));
       return found ? send(200, shown(found)) : send(404, { error: "not_found" });
     }
     if (url.pathname === "/api/members") {
       const unit = url.searchParams.get("unit");
       const qual = url.searchParams.get("qual");
       const tail = url.searchParams.get("assigned_tail");
-      const rows = MEMBERS.filter((m) => (unit === null || m.home_unit === unit) && (qual === null || m.quals.includes(qual)) && (tail === null || m.assigned_tail === tail));
+      const rows = members.filter((m) => (unit === null || m.home_unit === unit) && (qual === null || m.quals.includes(qual)) && (tail === null || m.assigned_tail === tail));
       return send(200, { members: rows.map(shown), count: rows.length });
     }
     send(404, { error: "not_found" });

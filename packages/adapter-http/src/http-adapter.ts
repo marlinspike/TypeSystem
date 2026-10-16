@@ -6,6 +6,7 @@ import {
   matchesFilter,
   parseResolution,
   type ActionDefinition,
+  type ActionContext,
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
@@ -53,6 +54,17 @@ export type HttpAuth =
   /** OAuth 2.0 client credentials (RFC 6749 §4.4); the token is cached until it expires, and refreshed once on a 401. */
   | { readonly kind: "client-credentials"; readonly tokenUrl: string; readonly clientId: string; readonly clientSecret: string; readonly scope?: string };
 
+/**
+ * How one Action is carried out by the service (ADR-0076): a request whose
+ * path takes `{field}` values from the Action's input, URI-encoded, and
+ * whose JSON body is the rest of the input (or the fields `body` names).
+ */
+export interface HttpActionMapping {
+  readonly method: "POST" | "PUT" | "PATCH" | "DELETE";
+  readonly path: string;
+  readonly body?: readonly string[];
+}
+
 export interface HttpAdapterConfig {
   readonly dataSourceId: string;
   /** The system's name, as provenance reports it. */
@@ -60,6 +72,8 @@ export interface HttpAdapterConfig {
   readonly baseUrl: string;
   readonly auth?: HttpAuth;
   readonly types: Readonly<Record<string, HttpTypeMapping>>;
+  /** Action name → the request that carries it out. An Action not listed is refused. */
+  readonly actions?: Readonly<Record<string, HttpActionMapping>>;
   /** Most pages one query reads before refusing to answer from a partial list. Default 20. */
   readonly maxPages?: number;
   readonly fetch?: typeof fetch;
@@ -293,8 +307,48 @@ export class HttpAdapter implements Adapter {
     return related.map((o) => ({ objectId: o.objectId }));
   }
 
-  executeAction(action: ActionDefinition): Promise<unknown> {
-    return Promise.reject(new Error(`HttpAdapter "${this.dataSourceId}" implements no Actions (asked for ${action.name})`));
+  async executeAction(action: ActionDefinition, input: unknown, _ctx: ActionContext, opts?: AdapterCallOptions): Promise<unknown> {
+    const m = this.config.actions?.[action.name];
+    if (!m) throw new Error(`HttpAdapter "${this.dataSourceId}" has no request for Action ${action.name}`);
+    const fields = input !== null && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+    const used = new Set<string>();
+    const path = m.path.replace(/\{([A-Za-z0-9_]+)\}/g, (_, name: string) => {
+      const v = fields[name];
+      if (typeof v !== "string" && typeof v !== "number") throw new TypeError(`Action ${action.name} needs "${name}" for its path`);
+      used.add(name);
+      // `.` and `..` would be resolved by the URL parser into another endpoint.
+      if (v === "." || v === "..") throw new TypeError(`Action ${action.name}: "${name}" is not a valid path segment`);
+      return encodeURIComponent(String(v));
+    });
+    const body = Object.fromEntries(Object.entries(fields).filter(([k]) => (m.body ? m.body.includes(k) : !used.has(k))));
+    const url = new URL(path, this.config.baseUrl).href;
+    const signal = opts?.signal;
+    const init = (headers: Record<string, string>): RequestInit => ({
+      method: m.method,
+      headers: { accept: "application/json", "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {})
+    });
+    let res = await this.send(url, init(await this.authHeaders(signal)));
+    if (res.status === 401 && this.config.auth?.kind === "client-credentials") res = await this.send(url, init(await this.authHeaders(signal, true)));
+    if (res.status === 401 || res.status === 403) throw new SourceRefusedError(`${this.config.system} refused ${action.name} (${res.status})`, this.dataSourceId);
+    // Not retried: the service answered, and the request may already have had its effect.
+    if (res.status >= 500) throw new AdapterUnavailableError(`${this.config.system} answered ${res.status} to ${action.name}`, { retryable: false });
+    if (!res.ok) throw new Error(`${this.config.system} rejected ${action.name} (${res.status})`);
+    const text = await res.text();
+    if (!text) return {};
+    let answer: unknown;
+    try {
+      answer = JSON.parse(text) as unknown;
+    } catch {
+      throw new AdapterUnavailableError(`${this.config.system} answered ${action.name} with something that is not JSON`, { retryable: false });
+    }
+    // An answer describing an object of the Action's output Type is that object, mapped as a read maps it, so
+    // the runtime can release it like a read (ADR-0075); the service's own field names never reach a caller.
+    const out = action.outputType ? this.config.types[action.outputType] : undefined;
+    if (!out) return answer;
+    const c = this.canonical(out, answer);
+    return c ? { id: c.objectId, ...c.values } : {};
   }
 }
 

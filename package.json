@@ -33,6 +33,8 @@
     "demo": "tsx packages/demo-web/src/server.ts",
     "studio": "tsx scripts/studio.ts",
     "mission": "tsx scripts/mission.ts",
+    "onboard:demo": "tsx scripts/onboard-demo.ts",
+    "draft:demo": "tsx scripts/draft-demo.ts",
     "clean": "tsc -b --clean",
     "changeset": "changeset",
     "version-packages": "changeset version",

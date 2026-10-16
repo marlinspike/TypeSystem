@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { requireBackend, requireIdentityResolver, type McpBackend, type McpServerInfo } from "./backend.js";
 import { createServer as createMcpServer } from "./server.js";
 import type { IdentityResolver } from "./auth.js";
+import type { Audience } from "@typesys/core";
 import { LOCAL_HOSTS, bearerToken, originGuard } from "@typesys/http";
 
 export interface HttpTransportOptions {
@@ -26,6 +27,8 @@ export interface HttpTransportOptions {
    * allowed host, any port; none at all when `allowedHosts` is `"*"`.
    */
   allowedOrigins?: readonly string[];
+  /** The model behind the agent this server answers (ADR-0075): every identity is bound to it. */
+  audience?: Audience;
 }
 
 function jsonRpcError(res: Response, status: number, code: number, message: string): void {
@@ -87,7 +90,7 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
     const perRequestResolver: IdentityResolver = (inBandToken) => baseResolver(headerToken ?? inBandToken);
 
     try {
-      const { server } = createMcpServer(backend, perRequestResolver, given?.serverInfo);
+      const { server } = createMcpServer(backend, perRequestResolver, given?.serverInfo, given?.audience ? { audience: given.audience } : {});
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);

@@ -65,7 +65,7 @@
       "adr": "0067",
       "description": "An AI step's input is computed from what the person read, not what the model may receive.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "const input = step.input(modelCtx);",
+      "find": "const input = step.input(view.ctx);",
       "replace": "const input = step.input(ctx);",
       "tests": [
         "packages/workflow/test/release-boundary.test.ts"
@@ -549,8 +549,8 @@
       "adr": "0067",
       "description": "An upstream step's when is not decided again on what the model may receive (review H3).",
       "file": "packages/workflow/src/engine.ts",
-      "find": "released.set(s.name, holds(s, sctx) ? await",
-      "replace": "released.set(s.name, true ? await",
+      "find": "outputs.set(s.name, holds(s, sctx) ? await",
+      "replace": "outputs.set(s.name, true ? await",
       "tests": [
         "packages/workflow/test/m2-adv-release.test.ts"
       ]
@@ -560,7 +560,7 @@
       "adr": "0067",
       "description": "An AI step runs though its own when holds only on what its model may not receive (review H3).",
       "file": "packages/workflow/src/engine.ts",
-      "find": "if (!holds(step, modelCtx)) {",
+      "find": "if (!view.holds) {",
       "replace": "if (false) {",
       "tests": [
         "packages/workflow/test/m2-adv-release.test.ts"
@@ -583,8 +583,8 @@
       "adr": "0067",
       "description": "An Action's outcome audit row omits the audience the caller read for (review L6).",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "...(identity.audience ? { details: { audience: identity.audience.id } } : {})",
-      "replace": "...({})",
+      "find": "...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : released.withheld.length",
+      "replace": "...(false ? { details: {} } : released.withheld.length",
       "tests": [
         "packages/domain-airforce/test/m2-adv-release.test.ts"
       ]
@@ -938,8 +938,8 @@
     {
       "id": "engineer.mcp-root-escape",
       "adr": "0071",
-      "description": "The engineer MCP tools accept a path outside their root.",
-      "file": "packages/engineer/src/mcp.ts",
+      "description": "The engineer and onboarding MCP tools accept a path outside their root.",
+      "file": "packages/devkit/src/paths.ts",
       "find": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);",
       "replace": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(\"../../../../\") || path.isAbsolute(rel);",
       "tests": [
@@ -1106,8 +1106,8 @@
     {
       "id": "engineer.symlink-escape",
       "adr": "0071",
-      "description": "The engineer MCP tools follow a symlink out of their root (M4 review M1).",
-      "file": "packages/engineer/src/mcp.ts",
+      "description": "The engineer and onboarding MCP tools follow a symlink out of their root (M4 review M1).",
+      "file": "packages/devkit/src/paths.ts",
       "find": "|| escapes(path.relative(realOf(path.resolve(root)), realOf(abs)))",
       "replace": "|| escapes(path.relative(path.resolve(root), abs))",
       "tests": [
@@ -1128,8 +1128,8 @@
     {
       "id": "engineer.dotdot-name-refused",
       "adr": "0071",
-      "description": "The engineer MCP tools refuse a name inside the root that starts with two dots (M4 review L6).",
-      "file": "packages/engineer/src/mcp.ts",
+      "description": "The engineer and onboarding MCP tools refuse a name inside the root that starts with two dots (M4 review L6).",
+      "file": "packages/devkit/src/paths.ts",
       "find": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);",
       "replace": "const escapes = (rel: string) => rel.startsWith(\"..\") || path.isAbsolute(rel);",
       "tests": [
@@ -1203,7 +1203,8 @@
       "tests": [
         "packages/adapter-http/test/http-adapter.test.ts",
         "packages/sortie-readiness/test/interop.test.ts"
-      ]
+      ],
+      "occurrence": 1
     },
     {
       "id": "http-adapter.truncated-list",
@@ -1236,7 +1237,8 @@
       "replace": "if (res.status === 0 && this.config.auth?.kind === \"client-credentials\") res =",
       "tests": [
         "packages/adapter-http/test/http-adapter.test.ts"
-      ]
+      ],
+      "occurrence": 1
     },
     {
       "id": "http.redirect-followed",
@@ -1326,6 +1328,358 @@
       "replace": "return forAudience.allow || forPerson.allow ? forPerson :",
       "tests": [
         "packages/workflow/test/p3-workflow-policy.test.ts"
+      ]
+    },
+    {
+      "id": "release.fallback-given-primary-release",
+      "adr": "0075",
+      "description": "A workflow fallback model is sent the input released for the primary model's audience, not its own.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "next = await this.releaseInput(workflow, step, w.state, ctx, identity, m);",
+      "replace": "next = await this.releaseInput(workflow, step, w.state, ctx, identity, models[0]!);",
+      "tests": [
+        "packages/workflow/test/model-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "release.approver-sees-run-unchanged",
+      "adr": "0075",
+      "description": "An approver is shown the run's outputs as the initiator's run made them.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "const outputs = (await this.viewFor(workflow, approval, state, approver, \"approver\")).outputs;",
+      "replace": "const outputs = outputsOf(state);",
+      "tests": [
+        "packages/workflow/test/model-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "release.answer-passes-regardless",
+      "adr": "0075",
+      "description": "An AI answer passes to whoever asks, whatever its model was given.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "return view.holds && covers(needs, given.needs) ? journaled : undefined;",
+      "replace": "return journaled;",
+      "tests": [
+        "packages/workflow/test/model-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "release.action-result-unreleased",
+      "adr": "0075",
+      "description": "An Action's result goes back to a caller reading for a model undecided.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "        return released.value;",
+      "replace": "        return result;",
+      "tests": [
+        "packages/domain-airforce/test/action-result-release.test.ts"
+      ]
+    },
+    {
+      "id": "llm.fallback-crosses-boundary",
+      "adr": "0075",
+      "description": "A model fallback leaves the primary's boundary without its configuration allowing it.",
+      "file": "packages/llm/src/llm.ts",
+      "find": "if (crosses && !primary.info.crossBoundaryFallback) return",
+      "replace": "if (false) return",
+      "tests": [
+        "packages/llm/test/routing.test.ts"
+      ]
+    },
+    {
+      "id": "llm.workflow-fallback-crosses-boundary",
+      "adr": "0075",
+      "description": "A workflow is offered fallbacks outside its model's boundary.",
+      "file": "packages/llm/src/workflow.ts",
+      "find": ".filter((f) => m.info.crossBoundaryFallback || withinBoundary(m.info.provider.environment, f.provider.environment))",
+      "replace": ".filter(() => true)",
+      "tests": [
+        "packages/llm/test/routing.test.ts"
+      ]
+    },
+    {
+      "id": "llm.unlabeled-crosses-boundary",
+      "adr": "0075",
+      "description": "Unlabeled content is sent across a boundary on fallback.",
+      "file": "packages/llm/src/llm.ts",
+      "find": "if (crosses && !request.label) return",
+      "replace": "if (false) return",
+      "tests": [
+        "packages/llm/test/routing.test.ts"
+      ]
+    },
+    {
+      "id": "llm.output-not-validated",
+      "adr": "0074",
+      "description": "A structured answer is accepted without validating it against the request's schema.",
+      "file": "packages/llm/src/model.ts",
+      "find": "const problems = this.env.validator.problems(request.output.schema, parsed.value);",
+      "replace": "const problems: string[] = [];",
+      "tests": [
+        "packages/llm/test/providers.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.unknown-cite-accepted",
+      "adr": "0076",
+      "description": "A model's item that cites evidence that does not exist is applied.",
+      "file": "packages/onboard/src/refine.ts",
+      "find": "const unknownCites = (cites: readonly string[]) => cites.filter((c) => !model.evidence.has(c));",
+      "replace": "const unknownCites = (_cites: readonly string[]): string[] => [];",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.marking-ungrounded",
+      "adr": "0076",
+      "description": "A marking the model gives is applied though no cited evidence states it.",
+      "file": "packages/onboard/src/refine.ts",
+      "find": "else if (!stated) reject(",
+      "replace": "else if (stated && !stated) reject(",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.action-approved-by-default",
+      "adr": "0076",
+      "description": "An Action no expert decided on is installed.",
+      "file": "packages/onboard/src/review.ts",
+      "find": "if (accepted(d)) actions.push(d.name && TYPE_LOCAL.test(d.name) ? { ...a, name: d.name } : a);",
+      "replace": "if (accepted(d) || !d) actions.push(d?.name && TYPE_LOCAL.test(d.name) ? { ...a, name: d.name } : a);",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.stale-decision-applies",
+      "adr": "0076",
+      "description": "A decision made on evidence that has since changed still applies.",
+      "file": "packages/onboard/src/review.ts",
+      "find": "    if (d.fingerprint !== fingerprint) {",
+      "replace": "    if (d.fingerprint !== fingerprint && d.fingerprint === fingerprint) {",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.rerun-drops-approved",
+      "adr": "0076",
+      "description": "A rerun that does not propose an approved item (no model this time) drops it from the approved model.",
+      "file": "packages/onboard/src/review.ts",
+      "find": "    ...before.filter((x) => !now.some((y) => y.id === x.id) && live(x.cites))",
+      "replace": "    ...before.filter(() => false)",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "llm.replay-answers-changed-request",
+      "adr": "0076",
+      "description": "A recorded answer is replayed for a request other than the one it answered.",
+      "file": "packages/llm/src/providers/scripted.ts",
+      "find": "const r = byKey.get(requestKey(model, request));",
+      "replace": "const r = byKey.get(requestKey(model, request)) ?? recordings[0];",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "http-adapter.action-dot-segment",
+      "adr": "0076",
+      "description": "An Action's path parameter of `..` is sent, and the URL parser resolves it to another endpoint.",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "if (v === \".\" || v === \"..\") throw",
+      "replace": "if (v === \"\\u0000\") throw",
+      "tests": [
+        "packages/adapter-http/test/http-actions.test.ts"
+      ]
+    },
+    {
+      "id": "context.budget-exceeded",
+      "adr": "0078",
+      "description": "The compiled context can exceed the caller's token budget.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "while (estimate(text) > budget && types.length",
+      "replace": "while (estimate(text) > budget * 4 && types.length",
+      "tests": [
+        "packages/mcp-server/test/context.test.ts"
+      ]
+    },
+    {
+      "id": "context.withheld-unmarked",
+      "adr": "0078",
+      "description": "The compiled context does not mark values this caller is never returned.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "vis?.has(v.name) ? \"  [not returned to this caller]\" : \"\"",
+      "replace": "\"\"",
+      "tests": [
+        "packages/mcp-server/test/context.test.ts"
+      ]
+    },
+    {
+      "id": "draft.audience-dropped",
+      "adr": "0077",
+      "description": "Drafting reads its context as the author, not as the author reading for the model, so the model is given what it may not receive.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "withAudience(await loaded.resolve(author.token), lm.info.audience)",
+      "replace": "await loaded.resolve(author.token)",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.caller-unchecked-allowed",
+      "adr": "0077",
+      "description": "A drafted check that cannot tell callers apart is only a warning, so a model's mission can pass without testing who may do what.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "d.code === \"caller-unchecked\" ? { ...d, severity: \"error\" as const } : d",
+      "replace": "d",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.policy-invented",
+      "adr": "0077",
+      "description": "A drafted workflow may name a policy rule the brief does not list.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "if (p !== undefined && !allowed.has(p))",
+      "replace": "if (p !== undefined && !allowed.has(p) && p === \"\")",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.check-dropped-silent",
+      "adr": "0077",
+      "description": "A check that disappears between rounds goes unreported.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "for (const id of before) if (!spec.acceptance.some((c) => c.id === id))",
+      "replace": "for (const id of before) if (!before.includes(id))",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.model-chooses-host",
+      "adr": "0077",
+      "description": "The draft schema admits fields the brief owns, such as the host and the callers.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "required: [\"name\", \"uses\", \"acceptance\"],\n  additionalProperties: false,",
+      "replace": "required: [\"name\", \"uses\", \"acceptance\"],\n  additionalProperties: true,",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.connection-string-leaked",
+      "adr": "0076",
+      "description": "A failed PostgreSQL collect reports the driver's message, which can carry the connection string.",
+      "file": "packages/onboard/src/command.ts",
+      "find": "${(err as { code?: string }).code ?? \"the connection failed\"}",
+      "replace": "${(err as Error).message}",
+      "tests": [
+        "packages/onboard/test/command.test.ts"
+      ]
+    },
+    {
+      "id": "draft.mcp-host-unconfined",
+      "adr": "0077",
+      "description": "typesys_engineer_draft loads a brief's host without the MCP root's confinement (M3 review H1).",
+      "file": "packages/engineer/src/cli.ts",
+      "find": "path.dirname(path.resolve(briefFile)), within === undefined ? {} : { within });",
+      "replace": "path.dirname(path.resolve(briefFile)), {});",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.content-unbound",
+      "adr": "0075",
+      "description": "Drafting does not bind its context to the audience it was read for, so a fallback with another audience is sent it (M3 review H2).",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "releasedFor: lm.info.audience.id, ",
+      "replace": "",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "llm.fallback-ignores-released-for",
+      "adr": "0075",
+      "description": "A fallback is admitted for content read for another audience (M3 review H2).",
+      "file": "packages/llm/src/llm.ts",
+      "find": "if (request.releasedFor !== undefined && request.releasedFor !== c.info.audience.id) return",
+      "replace": "if (request.releasedFor === \"\") return",
+      "tests": [
+        "packages/llm/test/release-binding.test.ts"
+      ]
+    },
+    {
+      "id": "llm.select-fallbacks-unchecked",
+      "adr": "0075",
+      "description": "A selection falls back to models that do not meet its requirements (M3 review M3).",
+      "file": "packages/llm/src/llm.ts",
+      "find": "return m !== undefined && rejection(m, req, env) === undefined;",
+      "replace": "return m !== undefined;",
+      "tests": [
+        "packages/llm/test/release-binding.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.marking-substring",
+      "adr": "0076",
+      "description": "SECRET inside TOP SECRET counts as a statement of SECRET (M3 review H3).",
+      "file": "packages/onboard/src/sources.ts",
+      "find": "const without = MARKINGS.filter((l) => l !== marking && l.includes(marking))",
+      "replace": "const without = MARKINGS.filter(() => false)",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.last-marking-built",
+      "adr": "0076",
+      "description": "The build keeps the last marking of a field, not the most restrictive (M3 review H3).",
+      "file": "packages/onboard/src/build.ts",
+      "find": "if (held === undefined || rank(marking) < rank(held))",
+      "replace": "if (held === undefined || rank(marking) !== rank(held))",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.write-unguarded",
+      "adr": "0076",
+      "description": "The onboarding tools write a file they name themselves through a symlink out of the root (M3 review M4).",
+      "file": "packages/onboard/src/command.ts",
+      "find": "const guard = (file: string) => (options.within === undefined ? file : insideRoot(options.within, file));",
+      "replace": "const guard = (file: string) => file;",
+      "tests": [
+        "packages/onboard/test/command.test.ts"
+      ]
+    },
+    {
+      "id": "draft.object-existence-told",
+      "adr": "0077",
+      "description": "The drafting model is told whether an object it was not shown exists (M3 review M2).",
+      "file": "packages/engineer/src/draft.ts",
+      "find": ".filter((d) => d.code !== \"unknown-object\" && d.code !== \"object-unconfirmed\")",
+      "replace": ".filter((d) => d.code !== \"object-unconfirmed\")",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "llm.direct-ignores-released-for",
+      "adr": "0075",
+      "description": "A model called directly receives content read for another audience (M3 review H2).",
+      "file": "packages/llm/src/model.ts",
+      "find": "if (request.releasedFor !== undefined && request.releasedFor !== this.info.audience.id) {",
+      "replace": "if (request.releasedFor === \"\") {",
+      "tests": [
+        "packages/llm/test/release-binding.test.ts"
       ]
     }
   ]

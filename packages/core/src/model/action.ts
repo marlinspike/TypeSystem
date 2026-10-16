@@ -55,6 +55,15 @@ export interface ActionDefinition {
    * decided per Type, as before.
    */
   target?: ActionTargetSpec;
+  /**
+   * The Type of the object this Action's output describes, its `id` naming
+   * it (a created work order, say). With it, a caller reading for an
+   * audience (ADR-0067) is given the output only as far as the audience may
+   * read that object (ADR-0075). An instance-scoped Action's output is
+   * decided against its target without it; any other Action's output is
+   * withheld from an audience.
+   */
+  outputType?: string;
   version: string;
   deprecated?: { since: string; supersededBy?: string };
 }

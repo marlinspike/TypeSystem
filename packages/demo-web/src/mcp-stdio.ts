@@ -5,7 +5,10 @@
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
+import { agentAudienceFromEnvironment } from "@typesys/llm";
 import { createServer } from "@typesys/mcp-server";
 
-const { server } = createServer(await buildAirforceTestbed(), resolveDemoIdentity);
+// TYPESYS_AGENT_MODEL names the model behind the agent (ADR-0075): everything it reads is decided for its user and that model.
+const audience = await agentAudienceFromEnvironment();
+const { server } = createServer(await buildAirforceTestbed(), resolveDemoIdentity, {}, audience ? { audience } : {});
 await server.connect(new StdioServerTransport());

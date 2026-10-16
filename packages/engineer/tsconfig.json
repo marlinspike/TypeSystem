@@ -4,6 +4,27 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../sdk" }, { "path": "../devkit" }, { "path": "../http" }, { "path": "../workflow" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../sdk"
+    },
+    {
+      "path": "../devkit"
+    },
+    {
+      "path": "../http"
+    },
+    {
+      "path": "../workflow"
+    },
+    {
+      "path": "../llm"
+    }
+  ]
 }

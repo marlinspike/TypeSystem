@@ -1,0 +1,40 @@
+{
+  "name": "sortie-confirmation",
+  "uses": { "types": ["ops.Aircraft", "ops.CrewMember", "ops.Requisition"] },
+  "workflow": {
+    "name": "ops.ConfirmSortie",
+    "version": "1.0.0",
+    "description": "A maintainer or planner asks to confirm a pilot for an aircraft; the pilot must be assigned to it; a planner other than the requester signs off.",
+    "startPolicy": "ops.crew",
+    "input": ["tailNumber", "pilotId"],
+    "steps": [
+      { "kind": "read", "name": "aircraft", "type": "ops.Aircraft", "id": "$input.tailNumber" },
+      { "kind": "read", "name": "pilot", "type": "ops.CrewMember", "id": "$input.pilotId" },
+      { "kind": "check", "name": "pilotAssigned", "equal": ["$pilot.assignedTail", "$aircraft.tailNumber"], "message": "The pilot is not assigned to this aircraft" },
+      { "kind": "approval", "name": "plannerSignoff", "policy": "ops.sortie-signoff", "present": ["aircraft", "pilot"] }
+    ]
+  },
+  "views": [
+    { "name": "Fleet", "title": "Fleet", "type": "ops.Aircraft", "fields": ["tailNumber", "mds", "unit", "base", "missionCapability"] },
+    { "name": "Crew", "title": "Crew", "type": "ops.CrewMember", "fields": ["callsign", "name", "unit", "assignedTail", "available"] },
+    { "name": "Parts", "title": "Parts", "type": "ops.Requisition", "fields": ["tailNumber", "nomenclature", "status", "estimatedDelivery"] }
+  ],
+  "acceptance": [
+    { "id": "viewer-sees-fleet-without-capability", "kind": "reads", "as": "viewer", "type": "ops.Aircraft", "objectId": "AF86-0147", "sees": ["tailNumber", "mds"], "withheld": ["missionCapability"] },
+    { "id": "maintainer-sees-capability", "kind": "reads", "as": "maintainer", "type": "ops.Aircraft", "objectId": "AF86-0147", "sees": ["missionCapability"] },
+    { "id": "viewer-sees-no-parts", "kind": "refused", "as": "viewer", "type": "ops.Requisition", "objectId": "KHIF-6281-0001" },
+    { "id": "viewer-sees-no-crew", "kind": "refused", "as": "viewer", "type": "ops.CrewMember", "objectId": "C-1001" },
+    { "id": "planner-sees-crew-name", "kind": "reads", "as": "planner", "type": "ops.CrewMember", "objectId": "C-1001", "sees": ["callsign", "name"] },
+    { "id": "maintainer-does-not-see-crew-name", "kind": "reads", "as": "maintainer", "type": "ops.CrewMember", "objectId": "C-1001", "sees": ["callsign"], "withheld": ["name"] },
+    { "id": "anonymous-sees-nothing", "kind": "refused", "as": "anonymous", "type": "ops.Aircraft", "objectId": "AF86-0147" },
+    { "id": "maintainer-asks", "kind": "starts", "as": "maintainer", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "status": "waiting-approval", "waitingOn": "plannerSignoff" },
+    { "id": "planner-asks", "kind": "starts", "as": "planner", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1002" }, "status": "waiting-approval", "waitingOn": "plannerSignoff" },
+    { "id": "unassigned-pilot-fails", "kind": "starts", "as": "planner", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1003" }, "status": "failed", "failsAt": "pilotAssigned" },
+    { "id": "viewer-cannot-ask", "kind": "starts", "as": "viewer", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "status": "refused" },
+    { "id": "anonymous-cannot-ask", "kind": "starts", "as": "anonymous", "workflow": "ops.ConfirmSortie", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "status": "refused" },
+    { "id": "planner-signs-off", "kind": "approves", "as": "planner", "workflow": "ops.ConfirmSortie", "startedBy": "maintainer", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "step": "plannerSignoff", "admitted": true, "then": "completed" },
+    { "id": "planner-cannot-sign-own", "kind": "approves", "as": "planner", "workflow": "ops.ConfirmSortie", "startedBy": "planner", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1002" }, "step": "plannerSignoff", "admitted": false },
+    { "id": "maintainer-cannot-sign", "kind": "approves", "as": "maintainer", "workflow": "ops.ConfirmSortie", "startedBy": "planner", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1002" }, "step": "plannerSignoff", "admitted": false },
+    { "id": "viewer-cannot-sign", "kind": "approves", "as": "viewer", "workflow": "ops.ConfirmSortie", "startedBy": "maintainer", "input": { "tailNumber": "AF86-0147", "pilotId": "C-1001" }, "step": "plannerSignoff", "admitted": false }
+  ]
+}

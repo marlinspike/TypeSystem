@@ -1,0 +1,39 @@
+{
+  "format": "typesys.mission-brief/1",
+  "requirement": "When a component on an aircraft needs replacing, a maintainer requests the replacement against one of that aircraft's maintenance events. A maintenance lead other than the requester approves it, and only then is a work order opened and assigned; if the work order cannot finish, it is closed again. Viewers can see the fleet's components and aircraft without their maintenance status, and cannot request a replacement or open a work order. Someone not signed in sees nothing. - The workflow is `airforce.ReplaceComponent`, with inputs `componentId`, `maintenanceEventId` and `assignTo` (the work order's assignee). - Its approval step is `leadApproval`. - A request whose component and maintenance event are on different aircraft fails.",
+  "host": {
+    "module": "@typesys/domain-airforce",
+    "build": "buildAirforceTestbed",
+    "identities": "resolveDemoIdentity",
+    "workflows": "airforceWorkflows"
+  },
+  "callers": {
+    "maintainer": {
+      "token": "demo-maintainer-token",
+      "description": "SSgt Rivera, a maintainer"
+    },
+    "lead": {
+      "token": "demo-lead-token",
+      "description": "MSgt Okafor, a maintenance lead"
+    },
+    "viewer": {
+      "token": "demo-viewer-token",
+      "description": "a read-only viewer"
+    },
+    "anonymous": {
+      "token": "",
+      "description": "someone not signed in"
+    }
+  },
+  "author": "maintainer",
+  "policies": {
+    "airforce.maintainer-only": "maintainers",
+    "airforce.maintenance-lead": "maintenance leads (who are also maintainers)"
+  },
+  "agentAudience": {
+    "roles": [
+      "viewer"
+    ],
+    "clearance": "UNCLASSIFIED"
+  }
+}

@@ -45,3 +45,25 @@ describe("an MCP server bound to its agent's model (ADR-0067)", () => {
     expect(rows.some((e) => e.decision === "deny" && e.details?.audience === demoAudiences.commercialModel.id)).toBe(true);
   });
 });
+
+describe("a server created with its agent's audience binds every call to it (ADR-0075)", () => {
+  it("createServer's audience option reads for the model, and an Action's result returns as the model may read it", async () => {
+    const testbed = await buildAirforceTestbed();
+    const { server } = createServer(testbed, resolveDemoIdentity, {}, { audience: demoAudiences.enclaveModel });
+    const client = new Client({ name: "audience-option-test", version: "0.0.0" });
+    const [c, s] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(c), server.connect(s)]);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const result = await client.callTool({ name, arguments: { ...args, authToken: MAINTAINER } });
+      return { isError: result.isError === true, text: (result.content as { text: string }[])[0]!.text };
+    };
+    const read = await call("typesys_get_object", { type: "airforce.Aircraft", id: "AF86-0147" });
+    expect(read.isError).toBe(false);
+    expect(read.text).not.toContain("FOB ALPHA");
+    const invoke = await call("CreateMaintenanceWorkOrder", { maintenanceEventId: "EVT-9002", assignedTo: "SSgt Rivera" });
+    expect(invoke.isError).toBe(false);
+    expect(invoke.text).toContain("EVT-9002");
+    const rows = (await testbed.registry.listAuditEvents({ limit: 100 })).items;
+    expect(rows.some((e) => e.action === "CreateMaintenanceWorkOrder" && e.details?.audience === demoAudiences.enclaveModel.id)).toBe(true);
+  });
+});

@@ -1,0 +1,23 @@
+{
+  "format": "typesys.mission-brief/1",
+  "requirement": "A fleet readiness board for the squadron. Maintainers see every aircraft with its readiness and maintenance status, and the components in poor condition so they can be replaced. Viewers see the aircraft and their components too, but not an aircraft's maintenance status or where it is deployed. A maintainer can open a work order against a maintenance event; a viewer cannot. Someone not signed in sees nothing.",
+  "host": {
+    "module": "@typesys/domain-airforce",
+    "build": "buildAirforceTestbed",
+    "identities": "resolveDemoIdentity",
+    "workflows": "airforceWorkflows"
+  },
+  "callers": {
+    "maintainer": { "token": "demo-maintainer-token", "description": "SSgt Rivera, a maintainer" },
+    "lead": { "token": "demo-lead-token", "description": "MSgt Okafor, a maintenance lead" },
+    "viewer": { "token": "demo-viewer-token", "description": "a read-only viewer" },
+    "anonymous": { "token": "", "description": "someone not signed in" }
+  },
+  "author": "maintainer",
+  "policies": {
+    "airforce.read-aircraft": "maintainers and viewers",
+    "airforce.maintainer-only": "maintainers",
+    "airforce.maintenance-lead": "maintenance leads (who are also maintainers)"
+  },
+  "agentAudience": { "roles": ["viewer"], "clearance": "UNCLASSIFIED" }
+}

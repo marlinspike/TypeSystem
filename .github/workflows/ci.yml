@@ -36,6 +36,8 @@ jobs:
       - run: npm run build
       - run: npm run build:postgres
       - run: npm test
+      - name: Drafting demonstration (a mission from words, replayed, scaffolded and verified)
+        run: npm run draft:demo
       - name: MCP smoke test (real stdio subprocess)
         run: npm run smoke:mcp
       - name: MCP smoke test (real HTTP transport)
@@ -93,6 +95,10 @@ jobs:
       - run: npm run build
       - run: npm run build:postgres
       - run: npm test
+      # Onboarding (ADR-0076) end to end: a real PostgreSQL schema and the crew roster service,
+      # the recorded agent-mode answer, the committed review, live checks, and an incremental rerun.
+      - name: Onboarding demonstration
+        run: npm run onboard:demo
       # Two server processes sharing Redis, under concurrent load with a per-identity limit: fails
       # on any unexpected error, or if the instances admit more than one shared rate-limit budget.
       - name: Multi-instance load test (2 processes, shared Redis)

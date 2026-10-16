@@ -33,6 +33,8 @@ export type JournalEvent =
       /** For an Action step, the Action and the input it is about to be invoked with; for an AI step, what the model is given. */
       readonly action?: string;
       readonly input?: unknown;
+      /** For an AI step, the model this attempt runs on: the step's own, or a fallback it moved to (ADR-0075). */
+      readonly model?: string;
       /**
        * For an AI step, the outputs of its needs as its model's audience may
        * receive them, and that audience (ADR-0067): what `input` was computed

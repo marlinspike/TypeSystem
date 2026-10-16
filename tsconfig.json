@@ -16,6 +16,8 @@
     { "path": "packages/kms-aws" },
     { "path": "packages/sdk" },
     { "path": "packages/devkit" },
+    { "path": "packages/llm" },
+    { "path": "packages/onboard" },
     { "path": "packages/workflow" },
     { "path": "packages/http" },
     { "path": "packages/react" },
