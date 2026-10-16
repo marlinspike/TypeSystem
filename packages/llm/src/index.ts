@@ -11,3 +11,4 @@ export { workflowModel, type WorkflowModel } from "./workflow.js";
 export { environmentSecrets, type Secrets } from "./providers/shared.js";
 export { scriptedAdapter, type ScriptedAnswer } from "./providers/scripted.js";
 export { loadLlmConfig } from "./load.js";
+export { agentAudienceFromEnvironment } from "./hosts.js";

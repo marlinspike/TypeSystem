@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { JsonSchema2020 } from "@typesys/core";
 import { createLlm, LlmError, type LlmConfig, type CallRecord, type ProviderKind } from "../src/index.js";
 import { anthropicMessage, anthropicStream, chatCompletion, chatStream, fakeProvider, type FakeReply, type Received } from "./fake-provider.js";
 
@@ -16,7 +17,7 @@ afterEach(async () => {
 
 async function setup(kind: ProviderKind, handler: (r: Received, n: number) => FakeReply | Promise<FakeReply>, extra: { model?: Record<string, unknown>; provider?: Record<string, unknown> } = {}) {
   const server = await fakeProvider(handler);
-  closers.push(server.close);
+  closers.push(() => server.close());
   const records: CallRecord[] = [];
   const sleeps: number[] = [];
   const config = {
@@ -43,8 +44,8 @@ async function setup(kind: ProviderKind, handler: (r: Received, n: number) => Fa
   return { llm, server, records, sleeps, model: llm.model("m", "development") };
 }
 
-const SCHEMA = { type: "object", properties: { name: { type: "string" }, count: { type: "integer", minimum: 0 } }, required: ["name", "count"], additionalProperties: false } as const;
-const LOOSE = { type: "object", properties: { name: { type: "string" } }, required: ["name"] } as const;
+const SCHEMA = { type: "object", properties: { name: { type: "string" }, count: { type: "integer", minimum: 0 } }, required: ["name", "count"], additionalProperties: false } satisfies JsonSchema2020;
+const LOOSE = { type: "object", properties: { name: { type: "string" } }, required: ["name"] } satisfies JsonSchema2020;
 
 describe("Anthropic, natively", () => {
   it("sends a Messages request and reads text, usage and the served model; hosted providers need https unless on loopback", async () => {

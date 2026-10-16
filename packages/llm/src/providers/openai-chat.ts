@@ -1,10 +1,11 @@
+import type * as OpenAISdk from "openai";
 import type { ResolvedProvider } from "../config.js";
 import { LlmError } from "../errors.js";
 import { jsonInstruction, strictCompatible } from "../structured.js";
-import type { AdapterRequest, DiscoveredModel, FinishReason, Message, ModelCapabilities, ProviderAdapter, ProviderResponse, ProviderStreamEvent, ToolCall, Usage } from "../types.js";
+import type { AdapterRequest, DiscoveredModel, FinishReason, Message, ModelCapabilities, ProviderAdapter, ProviderStreamEvent, ToolCall, Usage } from "../types.js";
 import { estimateUsage, headersFor, loadSdk, normalizeSdkError, secretValues, type Secrets } from "./shared.js";
 
-type OpenAIModule = typeof import("openai");
+type OpenAIModule = typeof OpenAISdk;
 type OpenAI = InstanceType<OpenAIModule["default"]>;
 
 const FINISH: Readonly<Record<string, FinishReason>> = { stop: "stop", length: "length", tool_calls: "tool-calls", function_call: "tool-calls", content_filter: "content-filter" };
@@ -181,7 +182,7 @@ function toolCallsOf(raw: unknown, provider: string): ToolCall[] {
     } catch {
       throw new LlmError("malformed-response", `The model's arguments for tool "${String(f.name)}" are not JSON`, { provider });
     }
-    return { id: typeof t.id === "string" && t.id ? t.id : `call_${i}`, name: String(f.name ?? ""), input };
+    return { id: typeof t.id === "string" && t.id ? t.id : `call_${i}`, name: typeof f.name === "string" ? f.name : "", input };
   });
 }
 
@@ -228,7 +229,7 @@ async function ollamaModels(provider: ResolvedProvider, headers: Record<string, 
     const details = (m.details ?? {}) as Record<string, unknown>;
     const capabilities: Partial<ModelCapabilities> = {
       ...(caps ? { tools: caps.includes("tools"), input: caps.includes("vision") ? (["text", "image"] as const) : (["text"] as const) } : {}),
-      ...(ctxKey && typeof info[ctxKey] === "number" ? { contextWindow: info[ctxKey] as number } : {})
+      ...(ctxKey && typeof info[ctxKey] === "number" ? { contextWindow: info[ctxKey] } : {})
     };
     out.push({
       id: name,

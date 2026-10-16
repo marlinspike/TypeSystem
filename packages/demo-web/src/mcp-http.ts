@@ -5,14 +5,18 @@
  * testbed is in-memory and the tokens are constants in source.
  */
 import { buildAirforceTestbed, resolveDemoIdentity } from "@typesys/domain-airforce";
+import { agentAudienceFromEnvironment } from "@typesys/llm";
 import { startHttpServer } from "@typesys/mcp-server";
 
 const port = Number(process.env.PORT ?? 3939);
 // Host names this server answers to, comma-separated (ADR-0053). Unset: localhost only. A container behind a
 // real name sets it, e.g. MCP_ALLOWED_HOSTS=typesys.example.org.
 const allowedHosts = process.env.MCP_ALLOWED_HOSTS?.split(",").map((h) => h.trim()).filter(Boolean);
+// TYPESYS_AGENT_MODEL names the model behind the agents this server answers (ADR-0075).
+const audience = await agentAudienceFromEnvironment();
 await startHttpServer(port, {
   backend: await buildAirforceTestbed(),
+  ...(audience ? { audience } : {}),
   identityResolver: resolveDemoIdentity,
   ...(allowedHosts?.length ? { allowedHosts } : {})
 });

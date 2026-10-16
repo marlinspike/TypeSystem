@@ -141,6 +141,7 @@ export interface ActionRow {
   deprecated: ActionDefinition["deprecated"] | null;
   /** Absent before migration 0003, null for a type-scoped Action (ADR-0053). */
   target?: ActionDefinition["target"] | null;
+  output_type?: string | null;
 }
 
 export function actionRowToDefinition(row: ActionRow, bindings: BindingRegistry): ActionDefinition {
@@ -159,7 +160,8 @@ export function actionRowToDefinition(row: ActionRow, bindings: BindingRegistry)
     idempotency: row.idempotency,
     auditRequired: row.audit_required,
     deprecated: row.deprecated ?? undefined,
-    ...(row.target ? { target: row.target } : {})
+    ...(row.target ? { target: row.target } : {}),
+    ...(row.output_type ? { outputType: row.output_type } : {})
   };
 }
 

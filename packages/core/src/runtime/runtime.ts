@@ -2429,6 +2429,51 @@ export class SemanticRuntime {
     ));
   }
 
+  /**
+   * An Action's result as a caller reading for an audience may receive it
+   * (ADR-0075). The effect has happened; what goes back to the model is
+   * decided like a read: the object the result describes (the Action's
+   * target, or its `outputType` named by the result's `id`) is read as the
+   * person and the audience, and the result keeps only the values that read
+   * returns. A result describing no object the runtime can decide, or one
+   * the read refuses, is withheld: `{}` for an object, `null` otherwise.
+   */
+  private async releaseActionResult(
+    action: ActionDefinition,
+    result: unknown,
+    target: { typeName: string; objectId: string } | undefined,
+    identity: Identity
+  ): Promise<{ value: unknown; withheld: string[] }> {
+    const isRecord = result !== null && typeof result === "object" && !Array.isArray(result);
+    const nothing = { value: isRecord ? {} : null, withheld: isRecord ? Object.keys(result) : ["(result)"] };
+    if (!isRecord) return nothing;
+    const id = (result as Record<string, unknown>).id;
+    // The object the result is: the declared output Type's object it names, or the target when the result names the target.
+    const subject =
+      action.outputType && typeof id === "string"
+        ? { typeName: action.outputType, objectId: id }
+        : target && id === target.objectId
+          ? target
+          : undefined;
+    if (!subject) return nothing;
+    let values: Record<string, unknown>;
+    try {
+      const typeDef = await this.requireType(subject.typeName);
+      const { stored, attributes } = await this.authorizeRead(typeDef, subject.objectId, identity);
+      ({ values } = await this.finalizeValues(typeDef, subject.objectId, identity, stored, attributes));
+    } catch (err) {
+      if (err instanceof AuthorizationError || err instanceof NotFoundError) return nothing;
+      throw err;
+    }
+    const value: Record<string, unknown> = {};
+    const withheld: string[] = [];
+    for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
+      if (Object.hasOwn(values, k)) value[k] = v;
+      else withheld.push(k);
+    }
+    return { value, withheld };
+  }
+
   async invokeAction(actionName: string, input: unknown, identity: Identity): Promise<unknown> {
     const action = await this.registry.getAction(actionName);
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
@@ -2465,6 +2510,9 @@ export class SemanticRuntime {
         // The target was read before the write; a cached copy of it is now stale.
         if (target && action.sideEffects !== "none") await this.invalidateObject(target.typeName, target.objectId);
 
+        // What an audience receives of the result is decided like any read of it (ADR-0075).
+        const released = identity.audience ? await this.releaseActionResult(action, result, target, identity) : { value: result, withheld: [] };
+
         if (action.auditRequired) {
           await this.registry.appendAuditEvent({
             id: ulid(),
@@ -2475,11 +2523,11 @@ export class SemanticRuntime {
             resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
             outcome: "success",
-            ...(identity.audience ? { details: { audience: identity.audience.id } } : {})
+            ...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : {})
           });
         }
 
-        return result;
+        return released.value;
       }
     ));
   }

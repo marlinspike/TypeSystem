@@ -534,13 +534,13 @@ An independent adversarial review of M2
 ([`reviews/m2-adversarial-review.md`](reviews/m2-adversarial-review.md))
 found 27 defects (6 High, 11 Medium, 10 Low). All are fixed, and its
 reproduction tests (`packages/*/test/m2-adv-*.test.ts`) pass. It also
-listed what it saw in code but did not demonstrate. These are open, not
-fixed:
+listed what it saw in code but did not demonstrate. Three of those are
+closed by ADR-0075: an Action's result is released to a bound agent like a
+read of the object it is; an approver sees computes recomputed and AI
+answers only where they may see all their model was given; and the MCP
+server, its HTTP transport and the demo hosts bind the agent's audience.
+These are open, not fixed:
 
-- `invokeAction` over MCP and HTTP returns an Action's result to a bound
-  agent without deciding it for the audience.
-- `asSeenBy` passes compute and AI outputs to an approver unchanged.
-- No shipped host calls `bindAudience`.
 - A pack install's audit failure replaces a `PackError`, and on success it
   throws after registering. `signedBy` lists the key ids signatures claim,
   verified or not. `actor` is supplied by the caller.
@@ -612,6 +612,28 @@ starts its own services (`mission.test.ts`). Eight `interop.*` and
 service learning which person a read is for (token exchange), Actions
 through `HttpAdapter`, and partial answers for property values split
 across sources.
+
+## Models: one capability layer, release decided wherever a call goes
+
+`@typesys/llm` (ADR-0074) calls Anthropic natively and OpenAI, OpenRouter,
+Ollama, LM Studio, vLLM and other servers through Chat Completions, using
+the vendors' own SDKs. `packages/llm/test/providers.test.ts` runs those
+SDKs against a loopback server that speaks their wire formats and shows
+schema-constrained answers validated independently (with one repair
+round), streaming, tool calls, retries that honor `retry-after`,
+interrupted streams, rate limits, outages, malformed and truncated
+answers, cancellation and timeouts, each ending in one `LlmError` code,
+and a failed authentication reported without the key. `routing.test.ts` shows selection, release
+of labeled content to a model's audience, and fallback that never crosses
+from a local model to a hosted one unless configured and labeled
+(ADR-0075). `packages/workflow/test/model-fallback.test.ts` shows a
+workflow AI step falling back only to a model that may receive its input,
+transitive release of one answer to a later step, and approvers shown
+only what they may see. No test calls a real provider unless
+`TYPESYS_LLM_LIVE_CONFIG` is set, and none has been run against one from
+this repository: no local model server was reachable where it was built.
+Not addressed: multimodal input (declared, never sent), prompt caching,
+batch APIs, provider-side tools, embeddings.
 
 ## Real but narrow — the mechanism exists, exercised once
 

@@ -1,4 +1,5 @@
 import type { Audience, JsonSchema2020 } from "@typesys/core";
+import { withinBoundary } from "./config.js";
 import { LlmError } from "./errors.js";
 import type { Llm } from "./llm.js";
 import type { LanguageModel } from "./model.js";
@@ -33,7 +34,7 @@ export function workflowModel(llm: Llm, id: string): WorkflowModel {
   const toWorkflow = (m: LanguageModel, withFallbacks: boolean): WorkflowModel => ({
     id: m.id,
     audience: m.info.audience,
-    ...(withFallbacks && m.info.fallbacks.length > 0 ? { fallbacks: m.info.fallbacks.map((f) => toWorkflow(llm.model(f, "runtime", { fallback: false }), false)) } : {}),
+    ...(withFallbacks ? fallbacksOf(m) : {}),
     async complete(request) {
       const result = await m.generate({
         system: SYSTEM,
@@ -47,5 +48,15 @@ export function workflowModel(llm: Llm, id: string): WorkflowModel {
       return result.object;
     }
   });
+  // A fallback outside the primary's boundary (local to hosted) is offered only where its configuration says so;
+  // one not configured for runtime use is never offered. What each may receive the engine decides.
+  const fallbacksOf = (m: LanguageModel): { fallbacks?: WorkflowModel[] } => {
+    const offered = m.info.fallbacks
+      .map((f) => llm.models().find((x) => x.id === f))
+      .filter((f): f is NonNullable<typeof f> => f !== undefined && f.uses.includes("runtime"))
+      .filter((f) => m.info.crossBoundaryFallback || withinBoundary(m.info.provider.environment, f.provider.environment))
+      .map((f) => toWorkflow(llm.model(f.id, "runtime", { fallback: false }), false));
+    return offered.length ? { fallbacks: offered } : {};
+  };
   return toWorkflow(llm.model(id, "runtime", { fallback: false }), true);
 }

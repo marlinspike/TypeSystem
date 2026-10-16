@@ -235,22 +235,23 @@ export class WorkflowEngine {
     if (!state.waitingOn) throw new WorkflowStateError(`Run ${runId} is not waiting on an approval`);
     const approval = this.approvalStep(workflow, state.waitingOn.step);
     await this.admitApprover(workflow, state, approval, approver, "workflow.view-approval", auditDenial);
-    // What the run read, it read as the initiator: the approver sees each object only as they may read it.
-    const outputs = await this.asSeenBy(outputsOf(state), approver);
+    // What the run read, it read as the initiator: the approver sees each object only as they may read it,
+    // each compute as made of what they may see, and each AI answer only if they may see all its model was given.
+    const outputs = (await this.viewFor(workflow, approval, state, approver, "approver")).outputs;
     const ctx = contextFor(runId, state.input, approval, outputs);
     const presented = approval.present ? approval.present(ctx) : Object.fromEntries((approval.needs ?? []).map((n) => [n, ctx.output(n)]));
     return { runId, workflow: workflow.name, step: approval.name, policy: approval.policy, initiator: state.initiator.subjectId, presented };
   }
 
   /**
-   * Outputs as `viewer` may see them: every object in them (a value with a
-   * string `$id` and `$type`, as the SDK returns objects) is read again as
-   * the viewer, and keeps only the values that read returns; an object the
-   * viewer may not read keeps only its id and Type. Other values pass as
-   * they are: what a compute or AI step made of withheld values is the
-   * workflow author's to keep out of an approval's `needs`.
+   * A function giving a journaled value as `viewer` may see it: every object
+   * in it (a value with a string `$id` and `$type`, as the SDK returns
+   * objects) is read again as the viewer, and keeps only the values that
+   * read returns; an object the viewer may not read keeps only its id and
+   * Type. The values kept are the journaled ones, what the run used, not
+   * whatever the object holds now.
    */
-  private async asSeenBy(outputs: ReadonlyMap<string, unknown>, viewer: Identity): Promise<Map<string, unknown>> {
+  private seenBy(viewer: Identity): (value: unknown) => Promise<unknown> {
     const views = new Map<string, Promise<Record<string, unknown> | undefined>>();
     const view = (type: string, id: string) => {
       const key = `${type}\u0000${id}`;
@@ -281,9 +282,7 @@ export class WorkflowEngine {
       }
       return Object.fromEntries(await Promise.all(Object.entries(o).map(async ([k, v]) => [k, await redact(v)] as const)));
     };
-    const seen = new Map<string, unknown>();
-    for (const [name, output] of outputs) seen.set(name, await redact(output));
-    return seen;
+    return redact;
   }
 
   /**
@@ -774,15 +773,18 @@ export class WorkflowEngine {
   /** Runs one step, retrying what may be retried. True when it completed; `"waiting"` when a retry backs off on a durable timer. */
   private async attempt(w: RunWriter, workflow: AnyWorkflow, step: AnyStep, ctx: StepContext, identity: Identity): Promise<boolean | "waiting"> {
     const maxAttempts = step.retry?.maxAttempts ?? 1;
+    const models = step.kind === "ai" && this.options.model ? [this.options.model, ...(this.options.model.fallbacks ?? [])] : [];
     const first = (w.state.steps.get(step.name)?.attempts ?? 0) + 1;
     for (let attempt = first; ; attempt++) {
       // A retry after an in-process backoff is checked again: credentials may have expired while it waited.
       if (attempt > first && !(await this.stillAuthorized(w, workflow, identity))) return "waiting";
       let input: unknown;
       let released: { audience: string; needs: Record<string, unknown> } | undefined;
+      // The model this attempt asks: the engine's, then each fallback in turn while the one before is unavailable (ADR-0075).
+      let candidate = 0;
       try {
         if (step.kind === "action") input = step.input(ctx);
-        if (step.kind === "ai") ({ input, released } = await this.releaseInput(workflow, step, w.state, ctx, identity));
+        if (step.kind === "ai") ({ input, released } = await this.releaseInput(workflow, step, w.state, ctx, identity, models[0]!));
       } catch (err) {
         const retryable = isRetryable(err);
         await w.append({ type: "step-failed", step: step.name, attempt, error: recorded(err), retryable, final: !retryable || attempt >= maxAttempts });
@@ -796,13 +798,36 @@ export class WorkflowEngine {
         ...(step.kind === "action" ? { action: step.action, input } : step.kind === "ai" ? { input, ...(released ? { released } : {}) } : {})
       });
       const fault = this.faults(step.name, attempt);
+      let lastErr: unknown;
       try {
         if (fault?.crash === "before-effect") throw new SimulatedCrash(step.name, "before-effect");
         if (fault?.error) throw fault.error;
-        const result = await this.effect(workflow, step, ctx, input, identity, w.state);
-        if (fault?.crash === "after-effect") throw new SimulatedCrash(step.name, "after-effect");
-        await w.append({ type: "step-completed", step: step.name, attempt, ...result });
-        return true;
+        for (;;) {
+          try {
+            const result = await this.effect(workflow, step, ctx, input, identity, w.state, models[candidate]);
+            if (fault?.crash === "after-effect") throw new SimulatedCrash(step.name, "after-effect");
+            await w.append({ type: "step-completed", step: step.name, attempt, ...result });
+            return true;
+          } catch (err) {
+            if (err instanceof SimulatedCrash || step.kind !== "ai" || !isRetryable(err)) throw err;
+            lastErr = err;
+            // The next fallback this step's input may be released to, deciding each one's release on its own.
+            let next: { input: unknown; released: { audience: string; needs: Record<string, unknown> } } | undefined;
+            while (!next && ++candidate < models.length) {
+              const m = models[candidate]!;
+              await w.append({ type: "step-failed", step: step.name, attempt, error: recorded(err), retryable: true, final: false });
+              try {
+                next = await this.releaseInput(workflow, step, w.state, ctx, identity, m);
+              } catch (refusal) {
+                if (!(refusal instanceof ReleaseRefusedError)) throw refusal;
+              }
+            }
+            if (!next) throw lastErr;
+            await this.audit(identity, "workflow.fallback", workflow, w.state.runId, "allow", { step: step.name, reason: `${models[candidate - 1]!.id} failed: ${recorded(err).message}`, audience: next.released.audience });
+            ({ input, released } = next);
+            await w.append({ type: "step-started", step: step.name, attempt, input, released, model: models[candidate]!.id });
+          }
+        }
       } catch (err) {
         if (err instanceof SimulatedCrash) throw err;
         const retryable = isRetryable(err);
@@ -826,7 +851,8 @@ export class WorkflowEngine {
     ctx: StepContext,
     input: unknown,
     identity: Identity,
-    state: RunState
+    state: RunState,
+    aiModel?: AiModel
   ): Promise<{ output: unknown; source: OutputSource; model?: string; simulated?: { wouldExecute: boolean | null; note?: string } }> {
     switch (step.kind) {
       case "read": {
@@ -838,7 +864,7 @@ export class WorkflowEngine {
       case "compute":
         return { output: structuredClone(step.run(ctx)), source: "compute" };
       case "ai": {
-        const model = this.options.model;
+        const model = aiModel ?? this.options.model;
         if (!model) throw new WorkflowDefinitionError(`Workflow ${workflow.name} has AI step "${step.name}", and the engine has no model`);
         const answer = await model.complete({ workflow: workflow.name, step: step.name, prompt: step.prompt, input, outputSchema: step.outputSchema });
         const key = `${workflow.name}@${workflow.version}#${step.name}`;
@@ -875,10 +901,9 @@ export class WorkflowEngine {
     step: Extract<AnyStep, { kind: "ai" }>,
     state: RunState,
     ctx: StepContext,
-    identity: Identity
+    identity: Identity,
+    model: AiModel
   ): Promise<{ input: unknown; released: { audience: string; needs: Record<string, unknown> } }> {
-    const model = this.options.model;
-    if (!model) throw new WorkflowDefinitionError(`Workflow ${workflow.name} has AI step "${step.name}", and the engine has no model`);
     const audience = audienceOf(model);
     const refuse = async (message: string, withheld: string[]): Promise<never> => {
       await this.audit(identity, "workflow.release", workflow, state.runId, "deny", { step: step.name, reason: message, audience: audience.id, withheld });
@@ -887,9 +912,41 @@ export class WorkflowEngine {
     if (identity.audience && identity.audience.id !== audience.id) {
       return refuse(`The run reads for ${identity.audience.id}; its AI step "${step.name}" cannot also release to ${audience.id}`, []);
     }
-    const releaseAs = withAudience(identity, audience);
+    const view = await this.viewFor(workflow, step, state, withAudience(identity, audience));
     const original = outputsOf(state);
-    const released = new Map<string, unknown>();
+    const withheld = (step.needs ?? []).filter((n) => canonical(view.outputs.get(n)) !== canonical(original.get(n)));
+    if (!view.holds) {
+      return refuse(`AI step "${step.name}" runs only because of data ${audience.id} may not receive (from ${withheld.join(", ") || "its needs"}): its when does not hold on what it may`, withheld);
+    }
+    const input = step.input(view.ctx);
+    const needs = Object.fromEntries((step.needs ?? []).map((n) => [n, view.outputs.get(n)]));
+    if (canonical(input) !== canonical(step.input(ctx))) {
+      if ((step.release ?? "refuse") === "refuse") {
+        await refuse(`AI step "${step.name}" would send ${audience.id} data it may not receive (from ${withheld.join(", ") || "its needs"}); declare release: "redact" to send only what it may`, withheld);
+      }
+    }
+    await this.audit(identity, "workflow.release", workflow, state.runId, "allow", { step: step.name, audience: audience.id, withheld });
+    return { input, released: { audience: audience.id, needs } };
+  }
+
+  /**
+   * The run's outputs upstream of `step` as `as` may receive them, and
+   * whether `step`'s own `when` holds on them (ADR-0067): reads run again as
+   * `as`, computes recomputed, each step's `when` decided again on what `as`
+   * may see, and earlier AI answers passed only where `as` may receive what
+   * their model was given (ADR-0075). `as` is the person bound to a model's
+   * audience for a release, or an approver for what they are shown.
+   */
+  private async viewFor(
+    workflow: AnyWorkflow,
+    step: AnyStep,
+    state: RunState,
+    as: Identity,
+    purpose: "release" | "approver" = "release"
+  ): Promise<{ outputs: Map<string, unknown>; ctx: StepContext; holds: boolean }> {
+    const original = outputsOf(state);
+    const redact = purpose === "approver" ? this.seenBy(as) : undefined;
+    const outputs = new Map<string, unknown>();
     const closure = upstream(workflow.steps, step.name);
     const holds = (s: AnyStep, sctx: StepContext): boolean => {
       if (!s.when || reviewsAiOutput(workflow, s, state)) return true;
@@ -902,31 +959,34 @@ export class WorkflowEngine {
     };
     for (const s of workflow.steps) {
       if (!closure.has(s.name)) continue;
-      const sctx = contextFor(state.runId, state.input, s, released);
-      // The model's view decides whether the step ran: a step the person's data skipped and the model's would run is run again as the model may see it.
-      released.set(s.name, holds(s, sctx) ? await this.releasedOutput(s, sctx, original.get(s.name), releaseAs) : undefined);
+      const sctx = contextFor(state.runId, state.input, s, outputs);
+      // The view decides whether the step ran: a step the person's data skipped and this view's would run is run again as this view sees it.
+      outputs.set(s.name, holds(s, sctx) ? await this.releasedOutput(workflow, s, sctx, original.get(s.name), as, state, redact) : undefined);
     }
-    const modelCtx = contextFor(state.runId, state.input, step, released);
-    const withheld = (step.needs ?? []).filter((n) => canonical(released.get(n)) !== canonical(original.get(n)));
-    if (!holds(step, modelCtx)) {
-      return refuse(`AI step "${step.name}" runs only because of data ${audience.id} may not receive (from ${withheld.join(", ") || "its needs"}): its when does not hold on what it may`, withheld);
-    }
-    const input = step.input(modelCtx);
-    const needs = Object.fromEntries((step.needs ?? []).map((n) => [n, released.get(n)]));
-    if (canonical(input) !== canonical(step.input(ctx))) {
-      if ((step.release ?? "refuse") === "refuse") {
-        await refuse(`AI step "${step.name}" would send ${audience.id} data it may not receive (from ${withheld.join(", ") || "its needs"}); declare release: "redact" to send only what it may`, withheld);
-      }
-    }
-    await this.audit(identity, "workflow.release", workflow, state.runId, "allow", { step: step.name, audience: audience.id, withheld });
-    return { input, released: { audience: audience.id, needs } };
+    const ctx = contextFor(state.runId, state.input, step, outputs);
+    return { outputs, ctx, holds: holds(step, ctx) };
   }
 
-  /** One upstream step's output as `releaseAs` may receive it: `undefined` where the runtime refuses it. */
-  private async releasedOutput(s: AnyStep, ctx: StepContext, journaled: unknown, releaseAs: Identity): Promise<unknown> {
+  /**
+   * One upstream step's output as `releaseAs` may receive it: `undefined`
+   * where the runtime refuses it. With `redact` (an approver's view), what a
+   * read or an Action returned is the journaled value as the approver may
+   * see it; for a release to a model, reads run again as its audience and
+   * Action results are not sent.
+   */
+  private async releasedOutput(
+    workflow: AnyWorkflow,
+    s: AnyStep,
+    ctx: StepContext,
+    journaled: unknown,
+    releaseAs: Identity,
+    state: RunState,
+    redact?: (value: unknown) => Promise<unknown>
+  ): Promise<unknown> {
     const refused = (err: unknown) => err instanceof AuthorizationError || err instanceof NotFoundError;
     switch (s.kind) {
       case "read": {
+        if (redact) return redact(journaled);
         const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
         try {
           return structuredClone(await s.run(client, ctx));
@@ -942,11 +1002,19 @@ export class WorkflowEngine {
           // A compute over a withheld value may fail; what it would have made of the full value is withheld too.
           return undefined;
         }
-      case "ai":
+      case "ai": {
+        // A model's answer is made of what its model was given (ADR-0075): it passes to whoever may receive all of that.
+        const given = state.steps.get(s.name)?.released;
+        if (!given || journaled === undefined) return undefined;
+        if (releaseAs.audience && given.audience === releaseAs.audience.id) return journaled;
+        const view = await this.viewFor(workflow, s, state, releaseAs, redact ? "approver" : "release");
+        const needs = Object.fromEntries((s.needs ?? []).map((n) => [n, view.outputs.get(n)]));
+        return view.holds && covers(needs, given.needs) ? journaled : undefined;
+      }
       case "approval":
         return journaled;
       case "action":
-        return undefined;
+        return redact && journaled !== undefined ? redact(journaled) : undefined;
     }
   }
 
@@ -1014,4 +1082,19 @@ function readOnlyTransport(inner: Transport, step: string): Transport {
       throw new WorkflowDefinitionError(`Read step "${step}" tried to invoke Action "${action}": only an action step may, so it is reviewed, journaled and simulated`);
     }
   };
+}
+
+/**
+ * Whether `seen` holds all of `given`: every value in `given` is in `seen`,
+ * equal, at the same place. Who may see everything a model was given may
+ * see its answer, even when they may see more than the model was given.
+ */
+function covers(seen: unknown, given: unknown): boolean {
+  if (given === undefined) return true;
+  if (Array.isArray(given)) return Array.isArray(seen) && seen.length === given.length && given.every((g, i) => covers(seen[i], g));
+  if (given && typeof given === "object") {
+    if (!seen || typeof seen !== "object" || Array.isArray(seen)) return false;
+    return Object.entries(given as Record<string, unknown>).every(([k, g]) => Object.hasOwn(seen, k) && covers((seen as Record<string, unknown>)[k], g));
+  }
+  return canonical(seen) === canonical(given);
 }

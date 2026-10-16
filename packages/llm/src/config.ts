@@ -257,14 +257,14 @@ function isLoopback(url: string): boolean {
 export function resolveConfig(config: LlmConfig, secret: (name: string) => string | undefined = (name) => process.env[name]): ResolvedConfig {
   const diagnostics: ConfigDiagnostic[] = [];
   const diag = (severity: ConfigDiagnostic["severity"], code: string, at: string, message: string, hint?: string) => diagnostics.push({ code, severity, at, message, ...(hint ? { hint } : {}) });
-  if (config?.format !== LLM_CONFIG_FORMAT) diag("error", "invalid-config", "format", `format is not ${LLM_CONFIG_FORMAT}`);
+  if (config?.format !== LLM_CONFIG_FORMAT) diag("error", "invalid-config", "format", `format is not ${String(LLM_CONFIG_FORMAT)}`);
 
   const providers = new Map<string, ResolvedProvider>();
   for (const [name, p] of Object.entries(config?.providers ?? {})) {
     const at = `providers/${name}`;
     const before = diagnostics.length;
     if (!ID.test(name)) diag("error", "invalid-name", at, `provider name "${name}" is not lower case letters, digits, ".", "_" or "-"`);
-    const profile = PROFILES[p?.kind as ProviderKind];
+    const profile = PROFILES[p?.kind];
     if (!profile) {
       diag("error", "unknown-provider-kind", `${at}/kind`, `"${String(p?.kind)}" is not a provider kind`, `one of ${PROVIDER_KINDS.join(", ")}`);
       continue;

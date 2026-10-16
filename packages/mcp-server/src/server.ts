@@ -3,6 +3,7 @@ import { DEFAULT_SERVER_INFO, requireBackend, requireIdentityResolver, type McpB
 import { registerResourceHandlers } from "./resources.js";
 import { registerToolHandlers } from "./tools.js";
 import type { IdentityResolver } from "./auth.js";
+import { bindAudience, type Audience } from "@typesys/core";
 
 /** The backend it was given, with the MCP `Server` built over it. */
 export type TypeSysMcpServer<B extends McpBackend = McpBackend> = B & { server: Server };
@@ -25,10 +26,16 @@ export type TypeSysMcpServer<B extends McpBackend = McpBackend> = B & { server: 
  *
  * `info` is what the server announces to clients; it defaults to
  * `typesys-mcp-server` 0.1.0.
+ *
+ * `options.audience` is the model behind the agent this server answers
+ * (ADR-0067, ADR-0075): every identity is bound to it, so everything the
+ * agent reads, and every Action result it receives, is decided for its
+ * user *and* its model. The host names it; a caller cannot.
  */
-export function createServer<B extends McpBackend>(backend: B, resolveIdentity: IdentityResolver, info: McpServerInfo = {}): TypeSysMcpServer<B> {
+export function createServer<B extends McpBackend>(backend: B, resolveIdentity: IdentityResolver, info: McpServerInfo = {}, options: { audience?: Audience } = {}): TypeSysMcpServer<B> {
   requireBackend("createServer", backend);
   requireIdentityResolver("createServer", resolveIdentity);
+  if (options.audience) resolveIdentity = bindAudience(resolveIdentity, options.audience);
   const server = new Server(
     { name: info.name ?? DEFAULT_SERVER_INFO.name, version: info.version ?? DEFAULT_SERVER_INFO.version },
     { capabilities: { resources: {}, tools: {} } }

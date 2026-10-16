@@ -87,16 +87,18 @@ const CONTAINMENT = { local: 0, private: 1, hosted: 2 } as const;
 /** Codes after which another model may answer: the model could not, not the request was wrong. */
 const FALLBACK_CODES = new Set(["unavailable", "overloaded", "rate-limited", "timeout"]);
 
+const asError = (reason: unknown): Error => (reason instanceof Error ? reason : new Error(String(reason)));
+
 const defaultSleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
-    if (signal.aborted) return reject(signal.reason);
+    if (signal.aborted) return reject(asError(signal.reason));
     const t = setTimeout(() => {
       signal.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
     const onAbort = () => {
       clearTimeout(t);
-      reject(signal.reason);
+      reject(asError(signal.reason));
     };
     signal.addEventListener("abort", onAbort, { once: true });
   });

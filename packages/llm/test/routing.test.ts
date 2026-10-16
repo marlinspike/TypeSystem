@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_LINEAR_CLASSIFICATION, withAudience } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
-import { createLlm, governedReadTools, LlmError, resolveConfig, runTools, scriptedAdapter, type CallRecord, type LlmConfig, type ScriptedAnswer } from "../src/index.js";
+import { createLlm, governedReadTools, LlmError, resolveConfig, runTools, scriptedAdapter, workflowModel, type CallRecord, type LlmConfig, type ScriptedAnswer } from "../src/index.js";
 
 /**
  * Selection, fallback and release (ADR-0075): which model a request may go
@@ -199,5 +199,21 @@ describe("tools", () => {
     // The person alone still reads the location: binding the model removed it.
     expect((await runtime.getObject("airforce.Aircraft", "AF86-0147", demoIdentities.maintainer)).values).toHaveProperty("deploymentLocation");
     expect(withAudience(demoIdentities.maintainer, llm.model("triage", "runtime").info.audience).audience!.id).toBe("model:squadron-enclave/triage");
+  });
+});
+
+describe("a configured model as a workflow's model (ADR-0075)", () => {
+  it("offers the engine only fallbacks for runtime use inside its boundary, unless its configuration lets it cross", () => {
+    expect(workflowModel(fleet().llm, "small").fallbacks).toBeUndefined();
+    const crossing = workflowModel(fleet({ primary: { crossBoundaryFallback: true } }).llm, "small");
+    expect(crossing.fallbacks?.map((f) => [f.id, f.audience.id])).toEqual([["enclave", "model:enclave"]]);
+  });
+
+  it("answers with the validated object, and the engine's input reaches the model as data", async () => {
+    const { llm, adapters } = fleet({}, { laptop: [{ json: { eventId: "EVT-9002" } }] });
+    const m = workflowModel(llm, "small");
+    const answer = await m.complete({ workflow: "w", step: "triage", prompt: "Choose", input: { tail: "AF86-0147" }, outputSchema: { type: "object", properties: { eventId: { type: "string" } }, required: ["eventId"] } });
+    expect(answer).toEqual({ eventId: "EVT-9002" });
+    expect(JSON.stringify(adapters.laptop.requests[0]!.messages)).toContain("AF86-0147");
   });
 });

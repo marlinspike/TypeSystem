@@ -22,11 +22,11 @@ export type FakeReply =
  */
 export async function fakeProvider(handler: (r: Received, n: number) => FakeReply | Promise<FakeReply>): Promise<{ url: string; received: Received[]; close(): Promise<void> }> {
   const received: Received[] = [];
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const text = Buffer.concat(chunks).toString("utf8");
-    let body: Record<string, unknown> = {};
+    let body: Record<string, unknown>;
     try {
       body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
     } catch {
@@ -53,7 +53,8 @@ export async function fakeProvider(handler: (r: Received, n: number) => FakeRepl
       await new Promise((ok) => setTimeout(ok, 50));
       res.destroy();
     } else res.end();
-  });
+  };
+  const server = createServer((req, res) => void handle(req, res));
   await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
   const { port } = server.address() as AddressInfo;
   return {

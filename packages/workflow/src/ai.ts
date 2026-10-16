@@ -25,6 +25,15 @@ export interface AiModel {
    * a policy grants everyone.
    */
   readonly audience?: Audience;
+  /**
+   * Models to ask, in order, when this one fails with an error that says it
+   * may succeed elsewhere (`retryable`: unavailable, overloaded, timed out).
+   * Each is a release of its own (ADR-0075): the engine computes the step's
+   * input again for its audience, refuses it as it would refuse this model,
+   * journals and audits what it sent, and never sends it what this model
+   * was given unless its audience may receive it.
+   */
+  readonly fallbacks?: readonly AiModel[];
   complete(request: AiRequest): Promise<unknown>;
 }
 

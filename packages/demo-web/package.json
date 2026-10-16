@@ -31,7 +31,8 @@
     "@typesys/mcp-server": "0.1.0",
     "@typesys/policy-cedar": "0.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "express": "5.2.1"
+    "express": "5.2.1",
+    "@typesys/llm": "0.1.0"
   },
   "devDependencies": {
     "@types/express": "5.0.6"

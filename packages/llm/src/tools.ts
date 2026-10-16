@@ -1,4 +1,4 @@
-import { withAudience, type Identity, type JsonSchema2020, type ModelDescription, type QueryFilter, type QueryResult, type ResolvedObject, type SemanticQuery } from "@typesys/core";
+import { withAudience, type Identity, type ModelDescription, type QueryFilter, type QueryResult, type ResolvedObject, type SemanticQuery } from "@typesys/core";
 import { LlmError } from "./errors.js";
 import type { LanguageModel } from "./model.js";
 import { OutputValidator } from "./structured.js";
@@ -97,7 +97,7 @@ export function governedReadTools(runtime: GovernedReader, person: Identity, mod
     {
       name: "typesys_describe",
       description: "The Types, relationships and Actions you may use, as the runtime describes them to you.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false } as JsonSchema2020,
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => {
         const d = await runtime.describeModel(as);
         return { types: d.types.map((t) => ({ name: t.name, description: t.description, properties: Object.keys(t.properties), computed: t.computed.map((c) => c.name), relationships: t.relationships.map((r) => ({ name: r.name, target: r.target })) })) };
@@ -106,7 +106,7 @@ export function governedReadTools(runtime: GovernedReader, person: Identity, mod
     {
       name: "typesys_get_object",
       description: "One object by Type and id, with the values you may read.",
-      inputSchema: { type: "object", properties: { type: str, id: str }, required: ["type", "id"], additionalProperties: false } as JsonSchema2020,
+      inputSchema: { type: "object", properties: { type: str, id: str }, required: ["type", "id"], additionalProperties: false },
       execute: async (input) => {
         const { type, id } = input as { type: string; id: string };
         try {
@@ -125,7 +125,7 @@ export function governedReadTools(runtime: GovernedReader, person: Identity, mod
         properties: { type: str, where: { type: "object", additionalProperties: { type: ["string", "number", "boolean"] } }, limit: { type: "integer", minimum: 1, maximum: 50 } },
         required: ["type"],
         additionalProperties: false
-      } as JsonSchema2020,
+      },
       execute: async (input) => {
         const { type, where, limit } = input as { type: string; where?: Record<string, string | number | boolean>; limit?: number };
         const filters: QueryFilter[] = Object.entries(where ?? {}).map(([property, value]) => ({ property, operator: "eq" as const, value }));

@@ -1,10 +1,11 @@
+import type * as AnthropicSdk from "@anthropic-ai/sdk";
 import type { ResolvedProvider } from "../config.js";
 import { LlmError } from "../errors.js";
 import { jsonInstruction } from "../structured.js";
 import type { AdapterRequest, DiscoveredModel, FinishReason, Message, ProviderAdapter, ProviderResponse, ProviderStreamEvent, ToolCall, Usage } from "../types.js";
 import { estimateUsage, normalizeSdkError, type Secrets, headersFor, loadSdk, secretValues } from "./shared.js";
 
-type AnthropicModule = typeof import("@anthropic-ai/sdk");
+type AnthropicModule = typeof AnthropicSdk;
 type Anthropic = InstanceType<AnthropicModule["default"]>;
 type Block = Record<string, unknown> & { type: string };
 
@@ -202,7 +203,7 @@ function usageOf(u: unknown): Usage {
 
 function responseOf(m: Record<string, unknown>, streamed?: Usage): ProviderResponse {
   const content = (Array.isArray(m.content) ? m.content : []) as Block[];
-  const text = content.filter((b) => b.type === "text").map((b) => String(b.text ?? "")).join("");
+  const text = content.filter((b) => b.type === "text").map((b) => (typeof b.text === "string" ? b.text : "")).join("");
   const toolCalls: ToolCall[] = content.filter((b) => b.type === "tool_use").map((b) => ({ id: String(b.id), name: String(b.name), input: b.input ?? {} }));
   const stop = typeof m.stop_reason === "string" ? m.stop_reason : undefined;
   if (stop === undefined) throw new LlmError("malformed-response", "The answer has no stop reason");

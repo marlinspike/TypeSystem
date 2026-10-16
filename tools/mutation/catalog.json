@@ -65,7 +65,7 @@
       "adr": "0067",
       "description": "An AI step's input is computed from what the person read, not what the model may receive.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "const input = step.input(modelCtx);",
+      "find": "const input = step.input(view.ctx);",
       "replace": "const input = step.input(ctx);",
       "tests": [
         "packages/workflow/test/release-boundary.test.ts"
@@ -549,8 +549,8 @@
       "adr": "0067",
       "description": "An upstream step's when is not decided again on what the model may receive (review H3).",
       "file": "packages/workflow/src/engine.ts",
-      "find": "released.set(s.name, holds(s, sctx) ? await",
-      "replace": "released.set(s.name, true ? await",
+      "find": "outputs.set(s.name, holds(s, sctx) ? await",
+      "replace": "outputs.set(s.name, true ? await",
       "tests": [
         "packages/workflow/test/m2-adv-release.test.ts"
       ]
@@ -560,7 +560,7 @@
       "adr": "0067",
       "description": "An AI step runs though its own when holds only on what its model may not receive (review H3).",
       "file": "packages/workflow/src/engine.ts",
-      "find": "if (!holds(step, modelCtx)) {",
+      "find": "if (!view.holds) {",
       "replace": "if (false) {",
       "tests": [
         "packages/workflow/test/m2-adv-release.test.ts"
@@ -583,7 +583,7 @@
       "adr": "0067",
       "description": "An Action's outcome audit row omits the audience the caller read for (review L6).",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "...(identity.audience ? { details: { audience: identity.audience.id } } : {})",
+      "find": "...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : {})",
       "replace": "...({})",
       "tests": [
         "packages/domain-airforce/test/m2-adv-release.test.ts"
@@ -1326,6 +1326,94 @@
       "replace": "return forAudience.allow || forPerson.allow ? forPerson :",
       "tests": [
         "packages/workflow/test/p3-workflow-policy.test.ts"
+      ]
+    },
+    {
+      "id": "release.fallback-given-primary-release",
+      "adr": "0075",
+      "description": "A workflow fallback model is sent the input released for the primary model's audience, not its own.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "next = await this.releaseInput(workflow, step, w.state, ctx, identity, m);",
+      "replace": "next = await this.releaseInput(workflow, step, w.state, ctx, identity, models[0]!);",
+      "tests": [
+        "packages/workflow/test/model-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "release.approver-sees-run-unchanged",
+      "adr": "0075",
+      "description": "An approver is shown the run's outputs as the initiator's run made them.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "const outputs = (await this.viewFor(workflow, approval, state, approver, \"approver\")).outputs;",
+      "replace": "const outputs = outputsOf(state);",
+      "tests": [
+        "packages/workflow/test/model-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "release.answer-passes-regardless",
+      "adr": "0075",
+      "description": "An AI answer passes to whoever asks, whatever its model was given.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "return view.holds && covers(needs, given.needs) ? journaled : undefined;",
+      "replace": "return journaled;",
+      "tests": [
+        "packages/workflow/test/model-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "release.action-result-unreleased",
+      "adr": "0075",
+      "description": "An Action's result goes back to a caller reading for a model undecided.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "        return released.value;",
+      "replace": "        return result;",
+      "tests": [
+        "packages/domain-airforce/test/action-result-release.test.ts"
+      ]
+    },
+    {
+      "id": "llm.fallback-crosses-boundary",
+      "adr": "0075",
+      "description": "A model fallback leaves the primary's boundary without its configuration allowing it.",
+      "file": "packages/llm/src/llm.ts",
+      "find": "if (crosses && !primary.info.crossBoundaryFallback) return",
+      "replace": "if (false) return",
+      "tests": [
+        "packages/llm/test/routing.test.ts"
+      ]
+    },
+    {
+      "id": "llm.workflow-fallback-crosses-boundary",
+      "adr": "0075",
+      "description": "A workflow is offered fallbacks outside its model's boundary.",
+      "file": "packages/llm/src/workflow.ts",
+      "find": ".filter((f) => m.info.crossBoundaryFallback || withinBoundary(m.info.provider.environment, f.provider.environment))",
+      "replace": ".filter(() => true)",
+      "tests": [
+        "packages/llm/test/routing.test.ts"
+      ]
+    },
+    {
+      "id": "llm.unlabeled-crosses-boundary",
+      "adr": "0075",
+      "description": "Unlabeled content is sent across a boundary on fallback.",
+      "file": "packages/llm/src/llm.ts",
+      "find": "if (crosses && !request.label) return",
+      "replace": "if (false) return",
+      "tests": [
+        "packages/llm/test/routing.test.ts"
+      ]
+    },
+    {
+      "id": "llm.output-not-validated",
+      "adr": "0074",
+      "description": "A structured answer is accepted without validating it against the request's schema.",
+      "file": "packages/llm/src/model.ts",
+      "find": "const problems = this.env.validator.problems(request.output.schema, parsed.value);",
+      "replace": "const problems: string[] = [];",
+      "tests": [
+        "packages/llm/test/providers.test.ts"
       ]
     }
   ]

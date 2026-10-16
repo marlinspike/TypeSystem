@@ -246,11 +246,14 @@ export class ManagedModel implements LanguageModel {
       let messages: readonly Message[] = request.messages;
       let usage: Usage = { inputTokens: 0, outputTokens: 0 };
       let attempts = 0;
-      let base = this.baseRecord(request, started, this.adapterRequest(request));
+      let ar = this.adapterRequest(request);
+      let base = this.baseRecord(request, started, ar);
       try {
         for (let repair = 0; ; repair++) {
-          const ar = this.adapterRequest({ ...request, messages });
-          base = this.baseRecord(request, started, ar);
+          if (repair > 0) {
+            ar = this.adapterRequest({ ...request, messages });
+            base = this.baseRecord(request, started, ar);
+          }
           const { value: response, attempts: n } = await this.withRetries(signal, timedOut, options, () => adapter.generate(this.info.model, ar, signal));
           attempts += n;
           usage = addUsage(usage, response.usage);
@@ -357,7 +360,7 @@ export class ManagedModel implements LanguageModel {
     const events: StreamEvent[] = [];
     let wake: (() => void) | undefined;
     let finished = false;
-    let failure: unknown;
+    let failure: Error | undefined;
     const push = (e: StreamEvent) => {
       events.push(e);
       wake?.();
@@ -369,7 +372,7 @@ export class ManagedModel implements LanguageModel {
         return r;
       },
       (err: unknown) => {
-        failure = err;
+        failure = err instanceof Error ? err : new Error(String(err));
         finished = true;
         wake?.();
         throw err;
