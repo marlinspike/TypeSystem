@@ -1,0 +1,1 @@
+{ "name": "hand-component-replacement", "private": true, "type": "module", "scripts": { "start": "node server.mjs" } }

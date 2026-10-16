@@ -1,0 +1,527 @@
+{
+ "reference": [
+  {
+   "task": "component-replacement",
+   "passed": 14,
+   "total": 14,
+   "built": true,
+   "started": true,
+   "code": {
+    "files": 5,
+    "codeLines": 341,
+    "imports": [
+     "@typesys/domain-airforce",
+     "@typesys/engineer",
+     "@typesys/http",
+     "@typesys/react",
+     "@typesys/sdk",
+     "@typesys/workflow",
+     "express",
+     "react",
+     "react-dom",
+     "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 8.2,
+    "largestFileLines": 158
+   },
+   "performance": {
+    "requests": 42,
+    "p50Ms": 12,
+    "p95Ms": 48
+   },
+   "checks": [
+    {
+     "id": "cr-maintainer-requests",
+     "ok": true
+    },
+    {
+     "id": "cr-no-work-order-before-approval",
+     "ok": true
+    },
+    {
+     "id": "cr-lead-approves-opens-and-assigns-work-order",
+     "ok": true
+    },
+    {
+     "id": "cr-assign-to-is-used",
+     "ok": true
+    },
+    {
+     "id": "cr-requester-maintainer-cannot-approve",
+     "ok": true
+    },
+    {
+     "id": "cr-lead-cannot-approve-own-request",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-and-anonymous-cannot-approve",
+     "ok": true
+    },
+    {
+     "id": "cr-different-aircraft-fails",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-cannot-request",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-sees-aircraft-without-maintenance-status",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-query-fleet-without-maintenance-status",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-sees-components",
+     "ok": true
+    },
+    {
+     "id": "cr-anonymous-sees-nothing",
+     "ok": true
+    },
+    {
+     "id": "cr-anonymous-cannot-request",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "task": "requisition-expedite",
+   "passed": 14,
+   "total": 14,
+   "built": true,
+   "started": true,
+   "code": {
+    "files": 4,
+    "codeLines": 200,
+    "imports": [
+     "@typesys/engineer",
+     "@typesys/http",
+     "@typesys/sortie-readiness",
+     "@typesys/workflow",
+     "express",
+     "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 4.5,
+    "largestFileLines": 113
+   },
+   "performance": {
+    "requests": 42,
+    "p50Ms": 7,
+    "p95Ms": 117
+   },
+   "checks": [
+    {
+     "id": "re-maintainer-asks",
+     "ok": true
+    },
+    {
+     "id": "re-planner-approves",
+     "ok": true
+    },
+    {
+     "id": "re-maintainer-cannot-approve-own",
+     "ok": true
+    },
+    {
+     "id": "re-maintainer-cannot-approve-anyones",
+     "ok": true
+    },
+    {
+     "id": "re-planner-may-ask",
+     "ok": true
+    },
+    {
+     "id": "re-planner-cannot-approve-own",
+     "ok": true
+    },
+    {
+     "id": "re-viewer-and-anonymous-cannot-approve",
+     "ok": true
+    },
+    {
+     "id": "re-in-transit-fails",
+     "ok": true
+    },
+    {
+     "id": "re-issued-fails",
+     "ok": true
+    },
+    {
+     "id": "re-reason-required",
+     "ok": true
+    },
+    {
+     "id": "re-viewer-cannot-ask",
+     "ok": true
+    },
+    {
+     "id": "re-viewer-reads-no-requisition",
+     "ok": true
+    },
+    {
+     "id": "re-anonymous-sees-nothing",
+     "ok": true
+    },
+    {
+     "id": "re-anonymous-cannot-ask",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "task": "sortie-confirmation",
+   "passed": 15,
+   "total": 15,
+   "built": true,
+   "started": true,
+   "code": {
+    "files": 5,
+    "codeLines": 290,
+    "imports": [
+     "@typesys/engineer",
+     "@typesys/http",
+     "@typesys/react",
+     "@typesys/sdk",
+     "@typesys/sortie-readiness",
+     "@typesys/workflow",
+     "express",
+     "react",
+     "react-dom",
+     "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 7.6,
+    "largestFileLines": 113
+   },
+   "performance": {
+    "requests": 36,
+    "p50Ms": 21,
+    "p95Ms": 145
+   },
+   "checks": [
+    {
+     "id": "sc-maintainer-asks-planner-confirms",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-may-ask",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-cannot-sign-own",
+     "ok": true
+    },
+    {
+     "id": "sc-maintainer-cannot-give",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-and-anonymous-cannot-give",
+     "ok": true
+    },
+    {
+     "id": "sc-unassigned-pilot-fails",
+     "ok": true
+    },
+    {
+     "id": "sc-other-unit-pilot-fails",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-and-anonymous-cannot-ask",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-sees-fleet-without-mission-capability",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-query-fleet",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-no-parts-no-crew",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-reads-three-services",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-sees-own-unit-name",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-other-unit-no-name",
+     "ok": true
+    },
+    {
+     "id": "sc-maintainer-no-crew-name",
+     "ok": true
+    }
+   ]
+  }
+ ],
+ "no-platform": [
+  {
+   "task": "component-replacement",
+   "passed": 14,
+   "total": 14,
+   "built": true,
+   "started": true,
+   "code": {
+    "files": 1,
+    "codeLines": 107,
+    "imports": [
+     "@typesys/core",
+     "@typesys/domain-airforce"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 49.5,
+    "largestFileLines": 107
+   },
+   "performance": {
+    "requests": 42,
+    "p50Ms": 7,
+    "p95Ms": 20
+   },
+   "checks": [
+    {
+     "id": "cr-maintainer-requests",
+     "ok": true
+    },
+    {
+     "id": "cr-no-work-order-before-approval",
+     "ok": true
+    },
+    {
+     "id": "cr-lead-approves-opens-and-assigns-work-order",
+     "ok": true
+    },
+    {
+     "id": "cr-assign-to-is-used",
+     "ok": true
+    },
+    {
+     "id": "cr-requester-maintainer-cannot-approve",
+     "ok": true
+    },
+    {
+     "id": "cr-lead-cannot-approve-own-request",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-and-anonymous-cannot-approve",
+     "ok": true
+    },
+    {
+     "id": "cr-different-aircraft-fails",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-cannot-request",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-sees-aircraft-without-maintenance-status",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-query-fleet-without-maintenance-status",
+     "ok": true
+    },
+    {
+     "id": "cr-viewer-sees-components",
+     "ok": true
+    },
+    {
+     "id": "cr-anonymous-sees-nothing",
+     "ok": true
+    },
+    {
+     "id": "cr-anonymous-cannot-request",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "task": "requisition-expedite",
+   "passed": 14,
+   "total": 14,
+   "built": true,
+   "started": true,
+   "code": {
+    "files": 1,
+    "codeLines": 96,
+    "imports": [
+     "@typesys/core",
+     "@typesys/sortie-readiness"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 55.2,
+    "largestFileLines": 96
+   },
+   "performance": {
+    "requests": 42,
+    "p50Ms": 5,
+    "p95Ms": 38
+   },
+   "checks": [
+    {
+     "id": "re-maintainer-asks",
+     "ok": true
+    },
+    {
+     "id": "re-planner-approves",
+     "ok": true
+    },
+    {
+     "id": "re-maintainer-cannot-approve-own",
+     "ok": true
+    },
+    {
+     "id": "re-maintainer-cannot-approve-anyones",
+     "ok": true
+    },
+    {
+     "id": "re-planner-may-ask",
+     "ok": true
+    },
+    {
+     "id": "re-planner-cannot-approve-own",
+     "ok": true
+    },
+    {
+     "id": "re-viewer-and-anonymous-cannot-approve",
+     "ok": true
+    },
+    {
+     "id": "re-in-transit-fails",
+     "ok": true
+    },
+    {
+     "id": "re-issued-fails",
+     "ok": true
+    },
+    {
+     "id": "re-reason-required",
+     "ok": true
+    },
+    {
+     "id": "re-viewer-cannot-ask",
+     "ok": true
+    },
+    {
+     "id": "re-viewer-reads-no-requisition",
+     "ok": true
+    },
+    {
+     "id": "re-anonymous-sees-nothing",
+     "ok": true
+    },
+    {
+     "id": "re-anonymous-cannot-ask",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "task": "sortie-confirmation",
+   "passed": 15,
+   "total": 15,
+   "built": true,
+   "started": true,
+   "code": {
+    "files": 1,
+    "codeLines": 97,
+    "imports": [
+     "@typesys/core",
+     "@typesys/sortie-readiness"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 55.7,
+    "largestFileLines": 97
+   },
+   "performance": {
+    "requests": 36,
+    "p50Ms": 11,
+    "p95Ms": 76
+   },
+   "checks": [
+    {
+     "id": "sc-maintainer-asks-planner-confirms",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-may-ask",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-cannot-sign-own",
+     "ok": true
+    },
+    {
+     "id": "sc-maintainer-cannot-give",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-and-anonymous-cannot-give",
+     "ok": true
+    },
+    {
+     "id": "sc-unassigned-pilot-fails",
+     "ok": true
+    },
+    {
+     "id": "sc-other-unit-pilot-fails",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-and-anonymous-cannot-ask",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-sees-fleet-without-mission-capability",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-query-fleet",
+     "ok": true
+    },
+    {
+     "id": "sc-viewer-no-parts-no-crew",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-reads-three-services",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-sees-own-unit-name",
+     "ok": true
+    },
+    {
+     "id": "sc-planner-other-unit-no-name",
+     "ok": true
+    },
+    {
+     "id": "sc-maintainer-no-crew-name",
+     "ok": true
+    }
+   ]
+  }
+ ],
+ "measuredAt": "2026-10-16, commit a82e935, Node v22.22.0"
+}
