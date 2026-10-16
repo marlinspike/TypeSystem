@@ -161,7 +161,10 @@ async function delegate(command: string, specifier: string, entry: string, argv:
     process.exitCode = 1;
     return;
   }
-  process.exitCode = await mod[entry]!(argv);
+  const code = await mod[entry]!(argv);
+  // The command is done: a host it loaded may still hold sockets or timers, which must not keep the CLI running.
+  await new Promise<void>((done) => process.stdout.write("", () => done()));
+  process.exit(code);
 }
 
 async function main(): Promise<void> {

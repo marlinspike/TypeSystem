@@ -1,0 +1,36 @@
+{
+  "name": "requisition-expedite",
+  "uses": { "types": ["ops.Requisition", "ops.Aircraft"] },
+  "workflow": {
+    "name": "ops.ExpediteRequisition",
+    "version": "1.0.0",
+    "description": "A maintainer or planner asks to expedite a requisition still awaiting shipment, with a reason; a planner other than the requester approves.",
+    "startPolicy": "ops.maintenance",
+    "input": ["requisitionId", "reason"],
+    "steps": [
+      { "kind": "read", "name": "requisition", "type": "ops.Requisition", "id": "$input.requisitionId" },
+      { "kind": "check", "name": "awaitingShipment", "equal": ["$requisition.status", "awaiting"], "message": "Only a requisition still awaiting shipment can be expedited" },
+      { "kind": "approval", "name": "plannerApproval", "policy": "ops.sortie-signoff", "present": ["requisition"] }
+    ]
+  },
+  "views": [
+    { "name": "Requisitions", "title": "Parts requisitions", "type": "ops.Requisition", "fields": ["tailNumber", "nomenclature", "status", "estimatedDelivery"] }
+  ],
+  "acceptance": [
+    { "id": "maintainer-reads-requisition", "kind": "reads", "as": "maintainer", "type": "ops.Requisition", "objectId": "KHIF-6282-0003", "sees": ["status", "nomenclature"] },
+    { "id": "viewer-reads-no-requisition", "kind": "refused", "as": "viewer", "type": "ops.Requisition", "objectId": "KHIF-6282-0003" },
+    { "id": "anonymous-reads-no-requisition", "kind": "refused", "as": "anonymous", "type": "ops.Requisition", "objectId": "KHIF-6282-0003" },
+    { "id": "anonymous-reads-no-aircraft", "kind": "refused", "as": "anonymous", "type": "ops.Aircraft", "objectId": "AF86-0147" },
+    { "id": "maintainer-asks", "kind": "starts", "as": "maintainer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Aircraft grounded waiting on the turbine blades" }, "status": "waiting-approval", "waitingOn": "plannerApproval" },
+    { "id": "planner-asks", "kind": "starts", "as": "planner", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Needed for Friday's sortie" }, "status": "waiting-approval", "waitingOn": "plannerApproval" },
+    { "id": "in-transit-fails", "kind": "starts", "as": "maintainer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6281-0001", "reason": "Urgent" }, "status": "failed", "failsAt": "awaitingShipment" },
+    { "id": "issued-fails", "kind": "starts", "as": "planner", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6281-0002", "reason": "Urgent" }, "status": "failed", "failsAt": "awaitingShipment" },
+    { "id": "viewer-cannot-ask", "kind": "starts", "as": "viewer", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Urgent" }, "status": "refused" },
+    { "id": "anonymous-cannot-ask", "kind": "starts", "as": "anonymous", "workflow": "ops.ExpediteRequisition", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Urgent" }, "status": "refused" },
+    { "id": "planner-approves-maintainers-request", "kind": "approves", "as": "planner", "workflow": "ops.ExpediteRequisition", "startedBy": "maintainer", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Aircraft grounded" }, "step": "plannerApproval", "admitted": true, "then": "completed" },
+    { "id": "planner-cannot-approve-own", "kind": "approves", "as": "planner", "workflow": "ops.ExpediteRequisition", "startedBy": "planner", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Needed for Friday" }, "step": "plannerApproval", "admitted": false },
+    { "id": "maintainer-cannot-approve-own", "kind": "approves", "as": "maintainer", "workflow": "ops.ExpediteRequisition", "startedBy": "maintainer", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Aircraft grounded" }, "step": "plannerApproval", "admitted": false },
+    { "id": "maintainer-cannot-approve-planners", "kind": "approves", "as": "maintainer", "workflow": "ops.ExpediteRequisition", "startedBy": "planner", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Needed for Friday" }, "step": "plannerApproval", "admitted": false },
+    { "id": "viewer-cannot-approve", "kind": "approves", "as": "viewer", "workflow": "ops.ExpediteRequisition", "startedBy": "maintainer", "input": { "requisitionId": "KHIF-6282-0003", "reason": "Aircraft grounded" }, "step": "plannerApproval", "admitted": false }
+  ]
+}

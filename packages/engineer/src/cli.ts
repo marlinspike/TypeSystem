@@ -96,26 +96,30 @@ export async function engineerCommand(argv: readonly string[], out: (s: string) 
   if (!("spec" in read)) return print(false, { ok: false, diagnostics: read.diagnostics }, ["INVALID mission", ...read.diagnostics.map(line)]);
   const loaded = await tryLoadHost(read.spec, path.dirname(path.resolve(target)));
   if ("diagnostic" in loaded) return print(false, { ok: false, diagnostics: [loaded.diagnostic] }, ["INVALID mission", line(loaded.diagnostic)]);
-  const { host, resolve, workflows } = loaded;
-  const plan = await planMission(read.spec, host, resolve, workflows);
-  const planLines = [
-    `${plan.ok ? "OK" : "INVALID"} — ${plan.mission}`,
-    ...plan.provided.types.map((t) => `  provides Type   ${t.name} (described to ${t.describedTo.join(", ") || "no caller"})`),
-    ...plan.provided.relationships.map((r) => `  provides relationship ${r.from}.${r.name} → ${r.target} (${r.cardinality})`),
-    ...plan.provided.actions.map((a) => `  provides Action ${a.name} (described to ${a.describedTo.join(", ") || "no caller"})`),
-    ...plan.provided.workflows.map((w) => `  provides workflow ${w.name} ${w.version}`),
-    ...plan.create.map((f) => `  creates  ${f.file}: ${f.detail}`),
-    ...plan.diagnostics.map(line)
-  ];
-  if (sub === "plan") return print(plan.ok, plan, planLines);
-  if (!plan.ok) return print(false, { ok: false, plan, files: [] }, [...planLines, "Nothing written: fix the errors above first."]);
-  const files = await scaffoldMission(read.spec, host, outDir!);
-  return print(true, { ok: true, plan, dir: outDir, files }, [...planLines, `Wrote ${files.length} files to ${outDir}; next: typesys engineer verify ${outDir}`]);
+  try {
+    const { host, resolve, workflows } = loaded;
+    const plan = await planMission(read.spec, host, resolve, workflows);
+    const planLines = [
+      `${plan.ok ? "OK" : "INVALID"} — ${plan.mission}`,
+      ...plan.provided.types.map((t) => `  provides Type   ${t.name} (described to ${t.describedTo.join(", ") || "no caller"})`),
+      ...plan.provided.relationships.map((r) => `  provides relationship ${r.from}.${r.name} → ${r.target} (${r.cardinality})`),
+      ...plan.provided.actions.map((a) => `  provides Action ${a.name} (described to ${a.describedTo.join(", ") || "no caller"})`),
+      ...plan.provided.workflows.map((w) => `  provides workflow ${w.name} ${w.version}`),
+      ...plan.create.map((f) => `  creates  ${f.file}: ${f.detail}`),
+      ...plan.diagnostics.map(line)
+    ];
+    if (sub === "plan") return print(plan.ok, plan, planLines);
+    if (!plan.ok) return print(false, { ok: false, plan, files: [] }, [...planLines, "Nothing written: fix the errors above first."]);
+    const files = await scaffoldMission(read.spec, host, outDir!);
+    return print(true, { ok: true, plan, dir: outDir, files }, [...planLines, `Wrote ${files.length} files to ${outDir}; next: typesys engineer verify ${outDir}`]);
+  } finally {
+    // A host may start services of its own (the sortie host starts three); they go with the command.
+    await (loaded.host as { services?: { stop(): Promise<void> } }).services?.stop().catch(() => undefined);
+  }
 }
 
 async function draftCommand(briefFile: string, outFile: string, rest: readonly string[], json: boolean, out: (s: string) => void, within?: string): Promise<number> {
   const writeTo = (file: string, text: string) => writeFile(within === undefined ? file : insideRoot(within, file), text, "utf8");
-  const flag = (name: string) => rest.flatMap((v, i) => (rest[i - 1] === name ? [v] : []));
   const print = (code: number, payload: unknown, lines: string[]) => {
     out(json ? JSON.stringify(payload) : lines.join("\n"));
     return code;
@@ -129,6 +133,24 @@ async function draftCommand(briefFile: string, outFile: string, rest: readonly s
   }
   const loaded = await tryLoadHost({ host: brief.host }, path.dirname(path.resolve(briefFile)), within === undefined ? {} : { within });
   if ("diagnostic" in loaded) return print(1, { ok: false, diagnostics: [loaded.diagnostic] }, ["INVALID brief", line(loaded.diagnostic)]);
+  try {
+    return await draftWith(loaded, brief, outFile, rest, json, print, writeTo);
+  } finally {
+    // A host may start services of its own (the sortie host starts three); they go with the command.
+    await (loaded.host as { services?: { stop(): Promise<void> } }).services?.stop().catch(() => undefined);
+  }
+}
+
+async function draftWith(
+  loaded: Exclude<Awaited<ReturnType<typeof tryLoadHost>>, { diagnostic: unknown }>,
+  brief: MissionBrief,
+  outFile: string,
+  rest: readonly string[],
+  json: boolean,
+  print: (code: number, payload: unknown, lines: string[]) => number,
+  writeTo: (file: string, text: string) => Promise<void>
+): Promise<number> {
+  const flag = (name: string) => rest.flatMap((v, i) => (rest[i - 1] === name ? [v] : []));
   const base = outFile.replace(/\.json$/, "");
   let lm: LanguageModel;
   let recordings: unknown[] | undefined;

@@ -1,0 +1,97 @@
+{
+  "task": "requisition-expedite",
+  "arm": "agent-with",
+  "at": "2026-10-16T15:29:59.084Z",
+  "production": {
+    "source": "agent",
+    "producer": "coding agent, agent-mode drafting",
+    "humanInterventions": 0
+  },
+  "total": 14,
+  "built": true,
+  "started": true,
+  "checks": [
+    {
+      "id": "re-maintainer-asks",
+      "ok": true
+    },
+    {
+      "id": "re-planner-approves",
+      "ok": true
+    },
+    {
+      "id": "re-maintainer-cannot-approve-own",
+      "ok": true
+    },
+    {
+      "id": "re-maintainer-cannot-approve-anyones",
+      "ok": true
+    },
+    {
+      "id": "re-planner-may-ask",
+      "ok": true
+    },
+    {
+      "id": "re-planner-cannot-approve-own",
+      "ok": true
+    },
+    {
+      "id": "re-viewer-and-anonymous-cannot-approve",
+      "ok": true
+    },
+    {
+      "id": "re-in-transit-fails",
+      "ok": true
+    },
+    {
+      "id": "re-issued-fails",
+      "ok": true
+    },
+    {
+      "id": "re-reason-required",
+      "ok": true
+    },
+    {
+      "id": "re-viewer-cannot-ask",
+      "ok": true
+    },
+    {
+      "id": "re-viewer-reads-no-requisition",
+      "ok": true
+    },
+    {
+      "id": "re-anonymous-sees-nothing",
+      "ok": true
+    },
+    {
+      "id": "re-anonymous-cannot-ask",
+      "ok": true
+    }
+  ],
+  "passed": 14,
+  "code": {
+    "files": 5,
+    "codeLines": 253,
+    "imports": [
+      "@typesys/engineer",
+      "@typesys/http",
+      "@typesys/react",
+      "@typesys/sdk",
+      "@typesys/sortie-readiness",
+      "@typesys/workflow",
+      "express",
+      "react",
+      "react-dom",
+      "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 6.7,
+    "largestFileLines": 113
+  },
+  "performance": {
+    "requests": 42,
+    "p50Ms": 8,
+    "p95Ms": 126
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "format": "typesys.mission-brief/1",
+  "requirement": "A sortie planner confirms a pilot for an aircraft before a sortie. The aircraft comes from the fleet registry, its crew from the crew roster and its parts from the parts depot: three services written by other people, each with its own authorization. A maintainer may ask for the confirmation, and so may a planner; only a planner may give it, never for a confirmation they asked for themselves, and never for a pilot not assigned to that aircraft. A viewer sees the fleet but not its mission capability, its parts or its crew. A crew member's name is shown only to a planner of that crew member's unit. - The workflow is `ops.ConfirmSortie`, with inputs `tailNumber` and `pilotId`. - Its approval step is `plannerSignoff`.",
+  "host": {
+    "module": "@typesys/sortie-readiness",
+    "build": "buildSortieHost",
+    "identities": "resolveSortieIdentity",
+    "options": {
+      "rosterPii": true
+    }
+  },
+  "callers": {
+    "planner": {
+      "token": "demo-planner-token",
+      "description": "Maj Chen, sortie planner, 388FW"
+    },
+    "maintainer": {
+      "token": "demo-maintainer-token",
+      "description": "TSgt Ruiz, maintainer, 388FW"
+    },
+    "viewer": {
+      "token": "demo-viewer-token",
+      "description": "reads the fleet board"
+    },
+    "anonymous": {
+      "token": "",
+      "description": "someone not signed in"
+    }
+  },
+  "author": "planner",
+  "policies": {
+    "ops.sortie-signoff": "who may sign off a sortie (planners)",
+    "ops.crew": "who may ask for a confirmation"
+  },
+  "agentAudience": {
+    "roles": [
+      "maintainer"
+    ],
+    "clearance": "UNCLASSIFIED",
+    "attributes": {
+      "unit": "388FW"
+    }
+  }
+}

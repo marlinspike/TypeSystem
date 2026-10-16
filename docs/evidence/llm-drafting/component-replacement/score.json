@@ -1,0 +1,97 @@
+{
+  "task": "component-replacement",
+  "arm": "agent-with",
+  "at": "2026-10-16T15:19:06.061Z",
+  "production": {
+    "source": "agent",
+    "producer": "coding agent, agent-mode drafting",
+    "humanInterventions": 0
+  },
+  "total": 14,
+  "built": true,
+  "started": true,
+  "checks": [
+    {
+      "id": "cr-maintainer-requests",
+      "ok": true
+    },
+    {
+      "id": "cr-no-work-order-before-approval",
+      "ok": true
+    },
+    {
+      "id": "cr-lead-approves-opens-and-assigns-work-order",
+      "ok": true
+    },
+    {
+      "id": "cr-assign-to-is-used",
+      "ok": true
+    },
+    {
+      "id": "cr-requester-maintainer-cannot-approve",
+      "ok": true
+    },
+    {
+      "id": "cr-lead-cannot-approve-own-request",
+      "ok": true
+    },
+    {
+      "id": "cr-viewer-and-anonymous-cannot-approve",
+      "ok": true
+    },
+    {
+      "id": "cr-different-aircraft-fails",
+      "ok": true
+    },
+    {
+      "id": "cr-viewer-cannot-request",
+      "ok": true
+    },
+    {
+      "id": "cr-viewer-sees-aircraft-without-maintenance-status",
+      "ok": true
+    },
+    {
+      "id": "cr-viewer-query-fleet-without-maintenance-status",
+      "ok": true
+    },
+    {
+      "id": "cr-viewer-sees-components",
+      "ok": true
+    },
+    {
+      "id": "cr-anonymous-sees-nothing",
+      "ok": true
+    },
+    {
+      "id": "cr-anonymous-cannot-request",
+      "ok": true
+    }
+  ],
+  "passed": 14,
+  "code": {
+    "files": 5,
+    "codeLines": 341,
+    "imports": [
+      "@typesys/domain-airforce",
+      "@typesys/engineer",
+      "@typesys/http",
+      "@typesys/react",
+      "@typesys/sdk",
+      "@typesys/workflow",
+      "express",
+      "react",
+      "react-dom",
+      "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 8.2,
+    "largestFileLines": 158
+  },
+  "performance": {
+    "requests": 42,
+    "p50Ms": 8,
+    "p95Ms": 38
+  }
+}

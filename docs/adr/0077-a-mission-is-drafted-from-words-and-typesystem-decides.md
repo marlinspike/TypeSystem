@@ -94,6 +94,10 @@ release under ADR-0075 treats it as the hosted model it runs on.
 - The context sent in that example was 1,202 estimated tokens; the two
   rounds were about 2,500 and 3,300 tokens in, 600 out each (estimated,
   `npm run draft:demo`).
+- On the three evaluation tasks of ADR-0073, agent-mode drafting passed
+  43 of 43 hidden checks in one round each, from the public requirement
+  only; the agent had seen the reference missions earlier, so this is an
+  upper bound. See `docs/evidence/llm-drafting-2026-10-16.md`.
 - Not addressed: drafting a new Type or Action (a mission uses the model
   it is given; onboarding, ADR-0076, proposes new Types), drafting policy
   rule bodies (never a model's), and multi-mission plans.

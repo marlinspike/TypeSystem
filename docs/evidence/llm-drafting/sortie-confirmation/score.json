@@ -1,0 +1,101 @@
+{
+  "task": "sortie-confirmation",
+  "arm": "agent-with",
+  "at": "2026-10-16T15:31:44.697Z",
+  "production": {
+    "source": "agent",
+    "producer": "coding agent, agent-mode drafting",
+    "humanInterventions": 0
+  },
+  "total": 15,
+  "built": true,
+  "started": true,
+  "checks": [
+    {
+      "id": "sc-maintainer-asks-planner-confirms",
+      "ok": true
+    },
+    {
+      "id": "sc-planner-may-ask",
+      "ok": true
+    },
+    {
+      "id": "sc-planner-cannot-sign-own",
+      "ok": true
+    },
+    {
+      "id": "sc-maintainer-cannot-give",
+      "ok": true
+    },
+    {
+      "id": "sc-viewer-and-anonymous-cannot-give",
+      "ok": true
+    },
+    {
+      "id": "sc-unassigned-pilot-fails",
+      "ok": true
+    },
+    {
+      "id": "sc-other-unit-pilot-fails",
+      "ok": true
+    },
+    {
+      "id": "sc-viewer-and-anonymous-cannot-ask",
+      "ok": true
+    },
+    {
+      "id": "sc-viewer-sees-fleet-without-mission-capability",
+      "ok": true
+    },
+    {
+      "id": "sc-viewer-query-fleet",
+      "ok": true
+    },
+    {
+      "id": "sc-viewer-no-parts-no-crew",
+      "ok": true
+    },
+    {
+      "id": "sc-planner-reads-three-services",
+      "ok": true
+    },
+    {
+      "id": "sc-planner-sees-own-unit-name",
+      "ok": true
+    },
+    {
+      "id": "sc-planner-other-unit-no-name",
+      "ok": true
+    },
+    {
+      "id": "sc-maintainer-no-crew-name",
+      "ok": true
+    }
+  ],
+  "passed": 15,
+  "code": {
+    "files": 5,
+    "codeLines": 324,
+    "imports": [
+      "@typesys/engineer",
+      "@typesys/http",
+      "@typesys/react",
+      "@typesys/sdk",
+      "@typesys/sortie-readiness",
+      "@typesys/workflow",
+      "express",
+      "react",
+      "react-dom",
+      "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 9,
+    "largestFileLines": 118
+  },
+  "performance": {
+    "requests": 36,
+    "p50Ms": 24,
+    "p95Ms": 149
+  }
+}
