@@ -1,0 +1,160 @@
+{
+  "name": "fleet-readiness-board",
+  "uses": {
+    "types": [
+      "airforce.Aircraft",
+      "airforce.Component",
+      "airforce.MaintenanceEvent"
+    ],
+    "actions": [
+      "CreateMaintenanceWorkOrder"
+    ]
+  },
+  "views": [
+    {
+      "name": "FleetReadiness",
+      "title": "Fleet readiness",
+      "type": "airforce.Aircraft",
+      "fields": [
+        "tailNumber",
+        "model",
+        "readinessStatus",
+        "maintenanceStatus",
+        "needsAttention"
+      ],
+      "limit": 100
+    },
+    {
+      "name": "ComponentCondition",
+      "title": "Components",
+      "type": "airforce.Component",
+      "fields": [
+        "name",
+        "partNumber",
+        "aircraftId",
+        "condition"
+      ],
+      "limit": 200
+    },
+    {
+      "name": "MaintenanceEvents",
+      "title": "Maintenance events",
+      "type": "airforce.MaintenanceEvent",
+      "fields": [
+        "aircraftId",
+        "eventType",
+        "occurredAt",
+        "description"
+      ],
+      "limit": 100
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "maintainer-sees-maintenance-status",
+      "kind": "reads",
+      "as": "maintainer",
+      "type": "airforce.Aircraft",
+      "objectId": "AF86-0147",
+      "sees": [
+        "tailNumber",
+        "readinessStatus",
+        "maintenanceStatus"
+      ]
+    },
+    {
+      "id": "lead-sees-maintenance-status",
+      "kind": "reads",
+      "as": "lead",
+      "type": "airforce.Aircraft",
+      "objectId": "AF86-0212",
+      "sees": [
+        "tailNumber",
+        "maintenanceStatus"
+      ]
+    },
+    {
+      "id": "viewer-sees-aircraft-without-status-or-location",
+      "kind": "reads",
+      "as": "viewer",
+      "type": "airforce.Aircraft",
+      "objectId": "AF86-0147",
+      "sees": [
+        "tailNumber",
+        "model"
+      ],
+      "withheld": [
+        "maintenanceStatus",
+        "deploymentLocation"
+      ]
+    },
+    {
+      "id": "viewer-sees-components",
+      "kind": "reads",
+      "as": "viewer",
+      "type": "airforce.Component",
+      "objectId": "comp-002",
+      "sees": [
+        "name",
+        "partNumber",
+        "condition"
+      ]
+    },
+    {
+      "id": "maintainer-filters-components-by-condition",
+      "kind": "query",
+      "as": "maintainer",
+      "query": {
+        "type": "airforce.Component",
+        "filter": {
+          "property": "condition",
+          "operator": "eq",
+          "value": "fair"
+        }
+      },
+      "atLeast": 1,
+      "because": "no component is in poor condition in this data, so the check filters by a condition some component has: the board's poor-condition list is the same query"
+    },
+    {
+      "id": "viewer-lists-fleet",
+      "kind": "query",
+      "as": "viewer",
+      "query": {
+        "type": "airforce.Aircraft"
+      },
+      "atLeast": 2
+    },
+    {
+      "id": "maintainer-offered-work-order",
+      "kind": "offered",
+      "as": "maintainer",
+      "type": "airforce.MaintenanceEvent",
+      "objectId": "EVT-9002",
+      "action": "CreateMaintenanceWorkOrder",
+      "offered": true
+    },
+    {
+      "id": "viewer-not-offered-work-order",
+      "kind": "offered",
+      "as": "viewer",
+      "type": "airforce.MaintenanceEvent",
+      "objectId": "EVT-9002",
+      "action": "CreateMaintenanceWorkOrder",
+      "offered": false
+    },
+    {
+      "id": "anonymous-refused-aircraft",
+      "kind": "refused",
+      "as": "anonymous",
+      "type": "airforce.Aircraft",
+      "objectId": "AF86-0147"
+    },
+    {
+      "id": "anonymous-refused-components",
+      "kind": "refused",
+      "as": "anonymous",
+      "type": "airforce.Component",
+      "objectId": "comp-002"
+    }
+  ]
+}

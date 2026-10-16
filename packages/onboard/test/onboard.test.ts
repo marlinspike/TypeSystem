@@ -149,14 +149,14 @@ describe("a model's refinement is applied only where the evidence supports it", 
 });
 
 describe("agent mode: a recorded answer replays only for the request it answered", () => {
-  it("replays through the model layer, validated and accounted, and declares itself local and for development", async () => {
+  it("replays through the model layer, validated and accounted, and declares itself hosted and for development only", async () => {
     const r = await onboard({ domain: "mx", sources: collect(), model: recordedModel(recordings) });
     expect(r.proposal.refinedBy).toMatchObject({ model: "agent" });
     expect(r.metrics.model).toMatchObject({ id: "agent", estimated: true });
     expect(r.metrics.model!.outputTokens).toBeGreaterThan(0);
     expect(recordings[0]!.producedBy).toMatch(/agent mode/);
     const cfg = agentModelConfig();
-    expect(cfg.providers.agent!.environment).toBe("local");
+    expect(cfg.providers.agent!.environment).toBe("hosted");
     expect(cfg.models.agent!.uses).toEqual(["development"]);
   });
 

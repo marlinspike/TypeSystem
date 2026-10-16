@@ -87,6 +87,7 @@ use that prefix):
 | Tool | Arguments | Returns (`structuredContent`) |
 |---|---|---|
 | `typesys_discover` | `task`, `limit`? | `{ "matches": [{ "kind", "name", "score", "matched", "summary" }] }`: the Types and Actions most relevant to a task in words, each summarized in a few lines (ADR-0056). Start here. |
+| `typesys_compile_context` | `task`, `focus`?, `maxTokens`?, `examples`? | `{ "text", "tokens", "types", "actions", "omitted", "digest" }`: the part of the model a coding task needs, as you are told of it and returned it, within `maxTokens` (ADR-0078). Put `text` in your prompt before writing code against TypeSystem. |
 | `typesys_list_types` | none | `{ "types": [...] }`: every Type's definition, as `typesys://types` gives them. |
 | `typesys_describe_type` | `type` | The Type's definition, as `typesys://types/<type>` gives it. |
 | `typesys_get_object` | `type`, `id` | The object with each value's provenance, as `typesys://objects/<type>/<id>`. |

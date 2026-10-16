@@ -9,7 +9,8 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "typesys-onboard": "./dist/bin.js"
+    "typesys-onboard": "./dist/bin.js",
+    "typesys-onboard-mcp": "./dist/mcp-bin.js"
   },
   "license": "MIT",
   "repository": {
@@ -33,6 +34,7 @@
     "dist"
   ],
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@typesys/adapter-http": "0.1.0",
     "@typesys/adapter-postgres": "0.1.0",
     "@typesys/core": "0.1.0",

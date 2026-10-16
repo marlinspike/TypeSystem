@@ -5,6 +5,9 @@ import { parseMission, type EngineerDiagnostic, type MissionSpec } from "./missi
 import { planMission } from "./plan.js";
 import { scaffoldMission } from "./scaffold.js";
 import { verifyMission } from "./verify.js";
+import { writeFile } from "node:fs/promises";
+import { answeringModel, createLlm, loadLlmConfig, requestText, type LanguageModel } from "@typesys/llm";
+import { BRIEF_FORMAT, draftMission, type MissionBrief } from "./draft.js";
 
 export const ENGINEER_USAGE = `typesys engineer — the engineering loop (ADR-0071)
 
@@ -12,6 +15,7 @@ Usage:
   typesys engineer plan <mission.json> [--json]
   typesys engineer scaffold <mission.json> --out <dir> [--json]
   typesys engineer verify <dir> [--json]
+  typesys engineer draft <brief.json> --out <mission.json> [--answer <answer.json>]... [--feedback <file>]... [--model <id> [--llm-config <file>]] [--json]
 
   plan      What the model already provides for the mission, what the
             application must add, and every problem with the spec, each
@@ -23,6 +27,18 @@ Usage:
             there, start it, and run every acceptance check through its
             API as the caller each names. Exits 1 unless every stage
             passes. Whatever is in <dir> is verified, generated or edited.
+
+  draft     Draft a mission spec from a brief: a requirement in words,
+            the host, the callers and the policy rules a workflow may
+            name (ADR-0077). A development model writes the rest from the
+            model context compiled for the brief's author; every answer is
+            planned, and its errors are sent back until none is left.
+            With --answer, the model is the coding agent you are working
+            with: give its answers in order; when another is needed the
+            request is written to <mission>.request.txt (exit 2). The
+            draft is a proposal: review its acceptance checks before
+            scaffold. --feedback sends what verify or a reviewer said
+            about a clean draft back to the model, one round each.
 
 --json prints one JSON object (the plan, or the report) for an agent.`;
 
@@ -45,6 +61,7 @@ export async function engineerCommand(argv: readonly string[], out: (s: string) 
   const json = rest.includes("--json") || argv.includes("--json");
   const outIndex = rest.indexOf("--out");
   const outDir = outIndex >= 0 ? rest[outIndex + 1] : undefined;
+  if (sub === "draft" && target && !target.startsWith("--") && outDir) return draftCommand(target, outDir, rest, json, out);
   if (!target || target.startsWith("--") || !(sub === "plan" || sub === "scaffold" || sub === "verify") || (sub === "scaffold" && !outDir)) {
     out(ENGINEER_USAGE);
     return 1;
@@ -83,4 +100,53 @@ export async function engineerCommand(argv: readonly string[], out: (s: string) 
   if (!plan.ok) return print(false, { ok: false, plan, files: [] }, [...planLines, "Nothing written: fix the errors above first."]);
   const files = await scaffoldMission(read.spec, host, outDir!);
   return print(true, { ok: true, plan, dir: outDir, files }, [...planLines, `Wrote ${files.length} files to ${outDir}; next: typesys engineer verify ${outDir}`]);
+}
+
+async function draftCommand(briefFile: string, outFile: string, rest: readonly string[], json: boolean, out: (s: string) => void): Promise<number> {
+  const flag = (name: string) => rest.flatMap((v, i) => (rest[i - 1] === name ? [v] : []));
+  const print = (code: number, payload: unknown, lines: string[]) => {
+    out(json ? JSON.stringify(payload) : lines.join("\n"));
+    return code;
+  };
+  let brief: MissionBrief;
+  try {
+    brief = JSON.parse(await readFile(briefFile, "utf8")) as MissionBrief;
+    if (brief.format !== BRIEF_FORMAT) throw new Error(`it is not ${String(BRIEF_FORMAT)}`);
+  } catch (err) {
+    return print(1, { ok: false, error: (err as Error).message }, [`INVALID brief — ${(err as Error).message}`]);
+  }
+  const loaded = await tryLoadHost({ host: brief.host }, path.dirname(path.resolve(briefFile)));
+  if ("diagnostic" in loaded) return print(1, { ok: false, diagnostics: [loaded.diagnostic] }, ["INVALID brief", line(loaded.diagnostic)]);
+  const base = outFile.replace(/\.json$/, "");
+  let lm: LanguageModel;
+  let recordings: unknown[] | undefined;
+  let needed: (() => unknown) | undefined;
+  const answers = flag("--answer");
+  if (answers.length || !flag("--model").length) {
+    const agent = answeringModel(await Promise.all(answers.map(async (f) => JSON.parse(await readFile(f, "utf8")) as unknown)), "a coding agent acting as the development model (agent mode)", brief.agentAudience ? { audience: brief.agentAudience } : {});
+    lm = agent.model;
+    recordings = agent.recordings;
+    needed = agent.needed;
+  } else {
+    const config = await loadLlmConfig(flag("--llm-config")[0]);
+    if (!config) return print(1, { ok: false, error: "no model configuration" }, ["--model needs a model configuration: --llm-config, TYPESYS_LLM_CONFIG or typesys.llm.json"]);
+    lm = createLlm(config).model(flag("--model")[0]!, "development");
+  }
+  try {
+    const feedback = await Promise.all(flag("--feedback").map((f) => readFile(f, "utf8")));
+    const result = await draftMission(brief, loaded, lm, { feedback });
+    if (result.spec) await writeFile(outFile, `${JSON.stringify(result.spec, null, 2)}\n`, "utf8");
+    await writeFile(`${base}.draft.json`, `${JSON.stringify({ ok: result.ok, rounds: result.rounds, context: { tokens: result.context.tokens, types: result.context.types.map((t) => t.name), actions: result.context.actions.map((a) => a.name), digest: result.context.digest }, ...(recordings ? { recordings } : {}) }, null, 2)}\n`, "utf8");
+    const last = result.rounds.at(-1);
+    return print(result.ok ? 0 : 1, { ok: result.ok, rounds: result.rounds.length, diagnostics: last?.diagnostics ?? [], out: outFile }, [
+      `${result.ok ? "DRAFTED" : "NOT READY"} — ${result.spec?.name ?? "(no spec)"} in ${result.rounds.length} round${result.rounds.length === 1 ? "" : "s"}; review its acceptance checks, then: typesys engineer scaffold ${outFile} --out <dir>`,
+      ...result.rounds.map((r, i) => `  round ${i + 1}: ${r.diagnostics.filter((d) => d.severity === "error").length} errors`),
+      ...(last?.diagnostics ?? []).map(line)
+    ]);
+  } catch (err) {
+    const request = needed?.() as Parameters<typeof requestText>[0] | undefined;
+    if (!request) throw err;
+    await writeFile(`${base}.request.txt`, `${requestText(request)}\n`, "utf8");
+    return print(2, { ok: false, answerNeeded: `${base}.request.txt`, answered: answers.length }, [`The coding agent's answer ${answers.length + 1} is needed: the request is in ${base}.request.txt. Write the answer as JSON and run again with one more --answer.`]);
+  }
 }

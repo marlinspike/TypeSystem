@@ -12,3 +12,4 @@ export { environmentSecrets, type Secrets } from "./providers/shared.js";
 export { scriptedAdapter, replayAdapter, requestKey, RECORDING_FORMAT, type ScriptedAnswer, type LlmRecording } from "./providers/scripted.js";
 export { loadLlmConfig } from "./load.js";
 export { agentAudienceFromEnvironment } from "./hosts.js";
+export { AGENT_MODEL, AGENT_PROVIDER_MODEL, agentModelConfig, answeringModel, recordedModel, requestText } from "./agent.js";

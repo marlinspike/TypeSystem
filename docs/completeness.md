@@ -655,8 +655,35 @@ across both, withholds personal and SECRET values, and invokes the
 roster's duty change as an Action. The example's model answer was written
 by a coding agent in agent mode and is recorded and replayed as such; no
 configured provider has produced one from this repository. Not addressed:
-MySQL and other catalogs, a Type spanning a join, OpenAPI `allOf`/`oneOf`,
-and onboarding over MCP.
+MySQL and other catalogs, a Type spanning a join, and OpenAPI
+`allOf`/`oneOf`. Onboarding is also an MCP server (`typesys-onboard-mcp`),
+whose test shows paths confined to its root and a failed database
+connection reported without its connection string.
+
+## Context for coding agents, and missions drafted from words
+
+`compileContext` (ADR-0078) and the `typesys_compile_context` MCP tool give
+a coding agent the part of the model a task needs, as its caller is told of
+it and returned it, within a token budget. `packages/mcp-server/test/context.test.ts`
+shows it finds the Types and Actions the component-replacement mission
+uses from that mission's requirement alone, marks values a viewer is never
+returned that a maintainer is, withholds SECRET values from a model's
+audience, omits Types the caller may not learn of and refuses an anonymous
+caller, and keeps its budget, listing what it left out.
+
+`typesys engineer draft` (ADR-0077) drafts a mission spec from a brief.
+The brief, not the model, owns the host, the callers and the policy rules
+a workflow may name. `draft.test.ts` shows the planner's errors (an
+unknown Type with its "did you mean", an unchecked caller, an invented
+policy rule) sent back until none is left, an answer that tries to set the
+host refused, and the model given no values it may not receive. In
+`examples/missions/fleet-readiness-board`, the agent's first answer failed
+one of ten checks under `verify`; with `verify`'s output as feedback the
+second passed all ten, and `npm run draft:demo` (run by CI) replays the
+drafting, scaffolds the application and verifies it. Both answers were
+written by a coding agent in agent mode; no configured provider has
+drafted a mission from this repository. Eight `context.*`, `draft.*` and
+`onboard.*` mutations are each killed by a test.
 
 ## Real but narrow — the mechanism exists, exercised once
 

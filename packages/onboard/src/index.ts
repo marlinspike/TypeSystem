@@ -7,3 +7,4 @@ export * from "./review.js";
 export * from "./run.js";
 export * from "./agent.js";
 export * from "./command.js";
+export * from "./mcp.js";

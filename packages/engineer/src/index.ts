@@ -5,3 +5,4 @@ export * from "./scaffold.js";
 export * from "./verify.js";
 export * from "./cli.js";
 export * from "./mcp.js";
+export * from "./draft.js";

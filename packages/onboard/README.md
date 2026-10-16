@@ -33,3 +33,8 @@ coding agent you are working with (`typesys onboard request`, then
 `propose --answer`). See
 [onboard a source](../../docs/how-to/onboard-a-source.md) and
 `npm run onboard:demo`.
+
+`typesys-onboard-mcp <root>` offers `collect`, `request` and `propose` as
+MCP tools over stdio, for a coding agent acting as the development model.
+Every path is confined to `<root>`, and a database's connection string is
+read only from the server's environment, by the variable the agent names.

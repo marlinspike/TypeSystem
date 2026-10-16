@@ -29,6 +29,7 @@
     "@typesys/core": "0.1.0",
     "@typesys/devkit": "0.1.0",
     "@typesys/http": "0.1.0",
+    "@typesys/llm": "0.1.0",
     "@typesys/sdk": "0.1.0",
     "@typesys/workflow": "0.1.0",
     "esbuild": "0.28.2",

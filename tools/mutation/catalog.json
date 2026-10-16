@@ -938,8 +938,8 @@
     {
       "id": "engineer.mcp-root-escape",
       "adr": "0071",
-      "description": "The engineer MCP tools accept a path outside their root.",
-      "file": "packages/engineer/src/mcp.ts",
+      "description": "The engineer and onboarding MCP tools accept a path outside their root.",
+      "file": "packages/devkit/src/paths.ts",
       "find": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);",
       "replace": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(\"../../../../\") || path.isAbsolute(rel);",
       "tests": [
@@ -1106,8 +1106,8 @@
     {
       "id": "engineer.symlink-escape",
       "adr": "0071",
-      "description": "The engineer MCP tools follow a symlink out of their root (M4 review M1).",
-      "file": "packages/engineer/src/mcp.ts",
+      "description": "The engineer and onboarding MCP tools follow a symlink out of their root (M4 review M1).",
+      "file": "packages/devkit/src/paths.ts",
       "find": "|| escapes(path.relative(realOf(path.resolve(root)), realOf(abs)))",
       "replace": "|| escapes(path.relative(path.resolve(root), abs))",
       "tests": [
@@ -1128,8 +1128,8 @@
     {
       "id": "engineer.dotdot-name-refused",
       "adr": "0071",
-      "description": "The engineer MCP tools refuse a name inside the root that starts with two dots (M4 review L6).",
-      "file": "packages/engineer/src/mcp.ts",
+      "description": "The engineer and onboarding MCP tools refuse a name inside the root that starts with two dots (M4 review L6).",
+      "file": "packages/devkit/src/paths.ts",
       "find": "const escapes = (rel: string) => rel === \"..\" || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);",
       "replace": "const escapes = (rel: string) => rel.startsWith(\"..\") || path.isAbsolute(rel);",
       "tests": [
@@ -1493,6 +1493,94 @@
       "replace": "if (v === \"\\u0000\") throw",
       "tests": [
         "packages/adapter-http/test/http-actions.test.ts"
+      ]
+    },
+    {
+      "id": "context.budget-exceeded",
+      "adr": "0078",
+      "description": "The compiled context can exceed the caller's token budget.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "while (estimate(text) > budget && types.length",
+      "replace": "while (estimate(text) > budget * 4 && types.length",
+      "tests": [
+        "packages/mcp-server/test/context.test.ts"
+      ]
+    },
+    {
+      "id": "context.withheld-unmarked",
+      "adr": "0078",
+      "description": "The compiled context does not mark values this caller is never returned.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "vis?.has(v.name) ? \"  [not returned to this caller]\" : \"\"",
+      "replace": "\"\"",
+      "tests": [
+        "packages/mcp-server/test/context.test.ts"
+      ]
+    },
+    {
+      "id": "draft.audience-dropped",
+      "adr": "0077",
+      "description": "Drafting reads its context as the author, not as the author reading for the model, so the model is given what it may not receive.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "withAudience(await loaded.resolve(author.token), lm.info.audience)",
+      "replace": "await loaded.resolve(author.token)",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.caller-unchecked-allowed",
+      "adr": "0077",
+      "description": "A drafted check that cannot tell callers apart is only a warning, so a model's mission can pass without testing who may do what.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "d.code === \"caller-unchecked\" ? { ...d, severity: \"error\" as const } : d",
+      "replace": "d",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.policy-invented",
+      "adr": "0077",
+      "description": "A drafted workflow may name a policy rule the brief does not list.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "if (p !== undefined && !allowed.has(p))",
+      "replace": "if (p !== undefined && !allowed.has(p) && p === \"\")",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.check-dropped-silent",
+      "adr": "0077",
+      "description": "A check that disappears between rounds goes unreported.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "for (const id of before) if (!spec.acceptance.some((c) => c.id === id))",
+      "replace": "for (const id of before) if (!before.includes(id))",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.model-chooses-host",
+      "adr": "0077",
+      "description": "The draft schema admits fields the brief owns, such as the host and the callers.",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "required: [\"name\", \"uses\", \"acceptance\"],\n  additionalProperties: false,",
+      "replace": "required: [\"name\", \"uses\", \"acceptance\"],\n  additionalProperties: true,",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.connection-string-leaked",
+      "adr": "0076",
+      "description": "A failed PostgreSQL collect reports the driver's message, which can carry the connection string.",
+      "file": "packages/onboard/src/command.ts",
+      "find": "${(err as { code?: string }).code ?? \"the connection failed\"}",
+      "replace": "${(err as Error).message}",
+      "tests": [
+        "packages/onboard/test/command.test.ts"
       ]
     }
   ]

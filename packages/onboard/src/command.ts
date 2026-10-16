@@ -127,7 +127,11 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
           try {
             const schemas = all("schema");
             if (!schemas.length) throw new Error("--postgres needs at least one --schema");
-            collected = fromPostgres(await introspectPostgres(pool, schemas), { source: source ?? "db", ...(one("system") ? { system: one("system")! } : {}) });
+            // The driver's message can quote the connection string: report the variable and the error's code only.
+            const catalog = await introspectPostgres(pool, schemas).catch((err: unknown) => {
+              throw new Error(`Could not read the database ${variable} names: ${(err as { code?: string }).code ?? "the connection failed"}`);
+            });
+            collected = fromPostgres(catalog, { source: source ?? "db", ...(one("system") ? { system: one("system")! } : {}) });
           } finally {
             await pool.end();
           }

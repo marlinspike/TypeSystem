@@ -125,4 +125,6 @@ environment variable in `adapters.json`, never written there.
   provider has been run against it from this repository.
 - Not addressed: column-level views or joins as one Type, relationships
   across sources resolved inside one SQL query, OpenAPI `allOf`/`oneOf`
-  compositions, MySQL and other catalogs, and onboarding tools over MCP.
+  compositions, and MySQL and other catalogs. Onboarding is also offered
+  over MCP (`typesys-onboard-mcp`: collect, request, propose), confined to
+  its root, with connection strings read only from its environment.

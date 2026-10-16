@@ -36,6 +36,8 @@ jobs:
       - run: npm run build
       - run: npm run build:postgres
       - run: npm test
+      - name: Drafting demonstration (a mission from words, replayed, scaffolded and verified)
+        run: npm run draft:demo
       - name: MCP smoke test (real stdio subprocess)
         run: npm run smoke:mcp
       - name: MCP smoke test (real HTTP transport)

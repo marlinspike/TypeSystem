@@ -15,8 +15,8 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { discover, validateQuery } from "@typesys/devkit";
-import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, DISCOVER_OUTPUT, EXPLAIN_OUTPUT, VALIDATE_QUERY_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
+import { compileContext, discover, validateQuery } from "@typesys/devkit";
+import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, CONTEXT_OUTPUT, DISCOVER_OUTPUT, EXPLAIN_OUTPUT, VALIDATE_QUERY_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
 const AUTH_TOKEN_FIELD = {
   authToken: { type: "string", description: "Bearer token identifying the caller (see ADR-0009/0012)." }
@@ -120,6 +120,36 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         const limit = args.limit === undefined ? 5 : args.limit;
         if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error(`${p}discover: "limit" must be an integer from 1 to 20`);
         return { matches: discover(await runtime.describeModel(identity), task, { limit }) };
+      }
+    },
+    [`${p}compile_context`]: {
+      description:
+        "Before writing code against this model: the part of it a coding task needs, as text for your prompt. Types with their values (enums spelled out, which values were not returned to you), relationships, the Actions on them and whether you may invoke them, and the rules for using TypeSystem, within a token budget.",
+      inputSchema: {
+        type: "object",
+        required: ["task"],
+        properties: {
+          task: { type: "string", description: "The coding task in your own words, e.g. \"a page listing the orders that are late, with a button to escalate one\"." },
+          focus: { type: "array", items: { type: "string" }, description: "Types or Actions to include whatever the task says." },
+          maxTokens: { type: "integer", minimum: 500, maximum: 32000, description: "Upper bound on the context (default 4000)." },
+          examples: { type: "integer", minimum: 0, maximum: 5, description: "Example objects per Type, as you are returned them (default 0)." }
+        }
+      },
+      outputSchema: CONTEXT_OUTPUT,
+      run: async (args, identity) => {
+        const { task } = strings(`${p}compile_context`, args, ["task"]);
+        const int = (name: string, min: number, max: number): number | undefined => {
+          const v = args[name];
+          if (v === undefined) return undefined;
+          if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) throw new Error(`${p}compile_context: "${name}" must be an integer from ${min} to ${max}`);
+          return v;
+        };
+        const focus = args.focus;
+        if (focus !== undefined && (!Array.isArray(focus) || focus.some((f) => typeof f !== "string"))) throw new Error(`${p}compile_context: "focus" must be a list of names`);
+        const maxTokens = int("maxTokens", 500, 32_000);
+        const examples = int("examples", 0, 5);
+        const c = await compileContext(runtime, identity, { task, ...(focus ? { focus: focus as string[] } : {}), ...(maxTokens !== undefined ? { maxTokens } : {}), ...(examples !== undefined ? { examples } : {}) });
+        return { text: c.text, tokens: c.tokens, types: c.types.map((t) => t.name), actions: c.actions.map((a) => a.name), omitted: c.omitted, digest: c.digest };
       }
     },
     [`${p}describe_type`]: {
