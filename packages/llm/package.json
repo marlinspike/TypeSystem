@@ -1,0 +1,56 @@
+{
+  "name": "@typesys/llm",
+  "version": "0.1.0",
+  "description": "Provider-agnostic language models for TypeSystem: one typed interface over Anthropic, OpenAI, OpenRouter, Ollama, LM Studio, vLLM and other OpenAI-compatible servers, with explicit capabilities, schema-validated output, normalized errors, usage and cost accounting, and model selection that respects what each model may receive.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/llm"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/llm#readme",
+  "keywords": [
+    "typesys",
+    "llm",
+    "anthropic",
+    "openai",
+    "ollama",
+    "vllm",
+    "structured-output"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/core": "0.1.0",
+    "@opentelemetry/api": "1.9.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "0.130.0",
+    "openai": "7.28.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.130.0",
+    "openai": "7.28.0",
+    "@typesys/domain-airforce": "0.1.0"
+  }
+}
