@@ -60,6 +60,8 @@ describe("compileContext", () => {
     const small = await compileContext(runtime, demoIdentities.maintainer, { task: MISSION.requirement, maxTokens: 500 });
     expect(small.tokens).toBeLessThanOrEqual(500);
     expect(small.omitted.length).toBeGreaterThan(0);
+    // Items are dropped to fit, not the task: a task that fits on its own is never shortened.
+    expect(small.text).toContain(MISSION.requirement);
     const narrow = await compileContext(runtime, demoIdentities.maintainer, { task: "close a work order", probe: 0 });
     expect(narrow.tokens).toBeLessThan(Math.ceil(compactCatalog(await describeModel(registry)).length / 4));
   });
