@@ -1203,7 +1203,8 @@
       "tests": [
         "packages/adapter-http/test/http-adapter.test.ts",
         "packages/sortie-readiness/test/interop.test.ts"
-      ]
+      ],
+      "occurrence": 1
     },
     {
       "id": "http-adapter.truncated-list",
@@ -1236,7 +1237,8 @@
       "replace": "if (res.status === 0 && this.config.auth?.kind === \"client-credentials\") res =",
       "tests": [
         "packages/adapter-http/test/http-adapter.test.ts"
-      ]
+      ],
+      "occurrence": 1
     },
     {
       "id": "http.redirect-followed",
@@ -1414,6 +1416,83 @@
       "replace": "const problems: string[] = [];",
       "tests": [
         "packages/llm/test/providers.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.unknown-cite-accepted",
+      "adr": "0076",
+      "description": "A model's item that cites evidence that does not exist is applied.",
+      "file": "packages/onboard/src/refine.ts",
+      "find": "const unknownCites = (cites: readonly string[]) => cites.filter((c) => !model.evidence.has(c));",
+      "replace": "const unknownCites = (_cites: readonly string[]): string[] => [];",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.marking-ungrounded",
+      "adr": "0076",
+      "description": "A marking the model gives is applied though no cited evidence states it.",
+      "file": "packages/onboard/src/refine.ts",
+      "find": "else if (!stated) reject(",
+      "replace": "else if (stated && !stated) reject(",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.action-approved-by-default",
+      "adr": "0076",
+      "description": "An Action no expert decided on is installed.",
+      "file": "packages/onboard/src/review.ts",
+      "find": "if (accepted(d)) actions.push(d.name && TYPE_LOCAL.test(d.name) ? { ...a, name: d.name } : a);",
+      "replace": "if (accepted(d) || !d) actions.push(d?.name && TYPE_LOCAL.test(d.name) ? { ...a, name: d.name } : a);",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.stale-decision-applies",
+      "adr": "0076",
+      "description": "A decision made on evidence that has since changed still applies.",
+      "file": "packages/onboard/src/review.ts",
+      "find": "    if (d.fingerprint !== fingerprint) {",
+      "replace": "    if (d.fingerprint !== fingerprint && d.fingerprint === fingerprint) {",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.rerun-drops-approved",
+      "adr": "0076",
+      "description": "A rerun that does not propose an approved item (no model this time) drops it from the approved model.",
+      "file": "packages/onboard/src/review.ts",
+      "find": "    ...before.filter((x) => !now.some((y) => y.id === x.id) && live(x.cites))",
+      "replace": "    ...before.filter(() => false)",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "llm.replay-answers-changed-request",
+      "adr": "0076",
+      "description": "A recorded answer is replayed for a request other than the one it answered.",
+      "file": "packages/llm/src/providers/scripted.ts",
+      "find": "const r = byKey.get(requestKey(model, request));",
+      "replace": "const r = byKey.get(requestKey(model, request)) ?? recordings[0];",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "http-adapter.action-dot-segment",
+      "adr": "0076",
+      "description": "An Action's path parameter of `..` is sent, and the URL parser resolves it to another endpoint.",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "if (v === \".\" || v === \"..\") throw",
+      "replace": "if (v === \"\\u0000\") throw",
+      "tests": [
+        "packages/adapter-http/test/http-actions.test.ts"
       ]
     }
   ]

@@ -609,9 +609,9 @@ The `examples/missions/sortie-readiness` application is verified by the
 engineering loop: 15 checks, each against a freshly started copy that
 starts its own services (`mission.test.ts`). Eight `interop.*` and
 `http-adapter.*` mutations are each killed by a test. Not addressed: a
-service learning which person a read is for (token exchange), Actions
-through `HttpAdapter`, and partial answers for property values split
-across sources.
+service learning which person a read is for (token exchange) and partial
+answers for property values split across sources. Actions through
+`HttpAdapter` were added by ADR-0076 (`http-actions.test.ts`).
 
 ## Models: one capability layer, release decided wherever a call goes
 
@@ -634,6 +634,29 @@ only what they may see. No test calls a real provider unless
 this repository: no local model server was reachable where it was built.
 Not addressed: multimodal input (declared, never sent), prompt caching,
 batch APIs, provider-side tools, embeddings.
+
+## Onboarding: existing sources proposed from evidence, approved by an expert
+
+`@typesys/onboard` (ADR-0076) collects PostgreSQL catalogs (`pg_catalog`
+only, no rows), OpenAPI documents and JSON Schemas as evidence with
+stable ids, proposes a deterministic baseline, lets a development model
+refine it, and builds and verifies only what an expert's review accepts.
+`onboard.test.ts` shows the baseline invents no relationship or marking,
+and that a model's answer is refused wherever it cites evidence that does
+not exist, references a non-key, mismatches types, states a marking its
+evidence does not, or tries to remove a protection, including when a
+column comment instructs it to. It shows an Action is never approved by
+default, a decision lapses when its evidence changes, an expert's name is
+never renamed by a later run, and a rerun after a new column asks only
+about that column. `onboard-postgres.test.ts` and `npm run onboard:demo`
+(run by CI against PostgreSQL 17) onboard a live database and the crew
+roster service together: the approved model reads, follows relationships
+across both, withholds personal and SECRET values, and invokes the
+roster's duty change as an Action. The example's model answer was written
+by a coding agent in agent mode and is recorded and replayed as such; no
+configured provider has produced one from this repository. Not addressed:
+MySQL and other catalogs, a Type spanning a join, OpenAPI `allOf`/`oneOf`,
+and onboarding over MCP.
 
 ## Real but narrow — the mechanism exists, exercised once
 

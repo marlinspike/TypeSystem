@@ -53,3 +53,34 @@ export function scriptedAdapter(script: ((request: AdapterRequest, model: string
 
 /** The digest a recording keys an answer by: the request as the adapter received it. */
 export const requestKey = (model: string, request: AdapterRequest): string => createHash("sha256").update(canonical({ model, request })).digest("hex");
+
+export const RECORDING_FORMAT = "typesys.llm-recording/1";
+
+/**
+ * One answer recorded for one exact request (ADR-0076): what makes a
+ * demonstration or a test repeatable without the model that answered.
+ * `producedBy` says who answered, honestly: a configured model, or a coding
+ * agent acting as the development model.
+ */
+export interface LlmRecording {
+  readonly format: typeof RECORDING_FORMAT;
+  /** `requestKey` of the request as the adapter received it. */
+  readonly key: string;
+  readonly producedBy: string;
+  readonly at: string;
+  readonly answer: { readonly text?: string; readonly json?: unknown };
+}
+
+/**
+ * A provider that answers only requests it has a recording of, and fails
+ * any other as unavailable (not retried): a request that changed since it
+ * was recorded is never answered with an answer to a different one.
+ */
+export function replayAdapter(recordings: readonly LlmRecording[], models: readonly string[] = ["recorded"]): ProviderAdapter & { readonly requests: AdapterRequest[] } {
+  const byKey = new Map(recordings.map((r) => [r.key, r]));
+  return scriptedAdapter((request, model) => {
+    const r = byKey.get(requestKey(model, request));
+    if (!r) return { error: new LlmError("unavailable", `No recording answers this request to ${model}: it has changed since it was recorded, so record it again`, { retryable: false }) };
+    return r.answer.json !== undefined ? { json: r.answer.json } : (r.answer.text ?? "");
+  }, models);
+}

@@ -27,6 +27,7 @@ Usage:
   typesys pack sign <pack.json> --key-id <id> --private-key <private.pem> --out <signed.json>
   typesys pack check-upgrade <next.json> --installed <pack.json>... [--json]
   typesys engineer plan|scaffold|verify ...   (with @typesys/engineer installed)
+  typesys onboard collect|request|propose|review|check ...   (with @typesys/onboard installed)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -143,25 +144,29 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
   process.exitCode = ok ? 0 : 1;
 }
 
-/** `typesys engineer`: the engineering loop (ADR-0071) lives in its own package, so the CLI stays small; it runs when that package is installed. */
-async function engineer(argv: string[]): Promise<void> {
-  const specifier = "@typesys/engineer";
-  let mod: { engineerCommand: (argv: readonly string[]) => Promise<number> };
+/**
+ * A command that lives in its own package, so the CLI stays small: `typesys
+ * engineer` (ADR-0071) and `typesys onboard` (ADR-0076) run when theirs is
+ * installed.
+ */
+async function delegate(command: string, specifier: string, entry: string, argv: string[]): Promise<void> {
+  let mod: Record<string, (argv: readonly string[]) => Promise<number>>;
   try {
     mod = (await import(specifier)) as typeof mod;
   } catch (err) {
     // Only a missing package means "install it"; anything else is the package failing to load, and its error says why.
     const e = err as { code?: string; message?: string };
     const missing = (e.code === "ERR_MODULE_NOT_FOUND" || e.code === "MODULE_NOT_FOUND") && (e.message ?? "").includes(`'${specifier}'`);
-    console.error(missing ? "typesys engineer needs @typesys/engineer: npm install --save-dev @typesys/engineer" : `typesys engineer: @typesys/engineer failed to load: ${e.message ?? String(err)}`);
+    console.error(missing ? `typesys ${command} needs ${specifier}: npm install --save-dev ${specifier}` : `typesys ${command}: ${specifier} failed to load: ${e.message ?? String(err)}`);
     process.exitCode = 1;
     return;
   }
-  process.exitCode = await mod.engineerCommand(argv);
+  process.exitCode = await mod[entry]!(argv);
 }
 
 async function main(): Promise<void> {
-  if (process.argv[2] === "engineer") return engineer(process.argv.slice(3));
+  if (process.argv[2] === "engineer") return delegate("engineer", "@typesys/engineer", "engineerCommand", process.argv.slice(3));
+  if (process.argv[2] === "onboard") return delegate("onboard", "@typesys/onboard", "onboardCommand", process.argv.slice(3));
   const args = parseArgs(process.argv.slice(2));
   const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 

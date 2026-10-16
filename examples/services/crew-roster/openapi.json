@@ -1,0 +1,102 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Crew Roster",
+    "version": "2.3.0",
+    "description": "Aircrew roster for the wing: who is qualified on what, assigned to which aircraft, and available for duty."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "roster": ["roster.read"] }],
+  "paths": {
+    "/api/members": {
+      "get": {
+        "operationId": "listMembers",
+        "summary": "List aircrew members",
+        "parameters": [
+          { "name": "unit", "in": "query", "schema": { "type": "string" }, "description": "Home unit, e.g. 388FW" },
+          { "name": "qual", "in": "query", "schema": { "type": "string" }, "description": "A qualification the member holds, e.g. F-16C:IP" },
+          { "name": "assigned_tail", "in": "query", "schema": { "type": "string" }, "description": "Tail number of an assigned aircraft" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Members, without full_name unless the token has roster.pii",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "members": { "type": "array", "items": { "$ref": "#/components/schemas/Member" } }, "count": { "type": "integer" } },
+                  "required": ["members", "count"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/members/{id}": {
+      "get": {
+        "operationId": "getMember",
+        "summary": "One aircrew member",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "The member", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Member" } } } },
+          "404": { "description": "No such member" }
+        }
+      }
+    },
+    "/api/members/{id}/duty": {
+      "post": {
+        "operationId": "setDutyStatus",
+        "summary": "Change a member's duty status",
+        "security": [{ "roster": ["roster.read", "roster.write"] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "properties": { "duty": { "$ref": "#/components/schemas/Duty" } }, "required": ["duty"], "additionalProperties": false }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "The member, updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Member" } } } },
+          "404": { "description": "No such member" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "roster": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "/oauth/token",
+            "scopes": {
+              "roster.read": "Read members",
+              "roster.pii": "Read personal data (full_name)",
+              "roster.write": "Change duty status"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Duty": { "type": "string", "enum": ["available", "leave", "dnif"], "description": "dnif: duties not including flying (medically grounded)" },
+      "Member": {
+        "type": "object",
+        "description": "An aircrew member",
+        "properties": {
+          "id": { "type": "string", "description": "Roster id" },
+          "callsign": { "type": "string" },
+          "full_name": { "type": "string", "description": "Rank and full name. Personal data: returned only to a token with roster.pii" },
+          "quals": { "type": "array", "items": { "type": "string" }, "description": "Qualifications as MDS:qualification, e.g. F-16C:IP" },
+          "home_unit": { "type": "string" },
+          "assigned_tail": { "type": "string", "description": "Tail number of the aircraft the member is assigned to" },
+          "duty": { "$ref": "#/components/schemas/Duty" }
+        },
+        "required": ["id", "callsign", "quals", "home_unit", "duty"]
+      }
+    }
+  }
+}

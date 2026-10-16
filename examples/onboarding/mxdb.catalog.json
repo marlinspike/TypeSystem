@@ -1,0 +1,355 @@
+{
+  "database": "onboard",
+  "schemas": [
+    {
+      "name": "mx",
+      "comment": "Squadron maintenance data system (MXDB)"
+    }
+  ],
+  "tables": [
+    {
+      "schema": "mx",
+      "name": "acft",
+      "kind": "table",
+      "comment": "Aircraft master record: one row per assigned airframe",
+      "columns": [
+        {
+          "name": "tail_no",
+          "type": "character varying(9)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "mds",
+          "type": "character varying(8)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true,
+          "comment": "Mission design series, e.g. F-16C"
+        },
+        {
+          "name": "unit_cd",
+          "type": "character varying(6)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "base_icao",
+          "type": "character(4)",
+          "udt": "bpchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "mc_stat",
+          "type": "character(3)",
+          "udt": "bpchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true,
+          "comment": "Mission capability: FMC fully, PMC partially, NMC not mission capable"
+        },
+        {
+          "name": "flt_hrs",
+          "type": "numeric(8,1)",
+          "udt": "numeric",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false,
+          "comment": "Total airframe flight hours"
+        },
+        {
+          "name": "last_insp_dt",
+          "type": "date",
+          "udt": "date",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false
+        },
+        {
+          "name": "depl_loc",
+          "type": "character varying(40)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false,
+          "comment": "Forward deployment location. CLASSIFIED: SECRET when populated"
+        }
+      ],
+      "primaryKey": [
+        "tail_no"
+      ],
+      "foreignKeys": [],
+      "checks": [
+        {
+          "name": "acft_mc_stat_check",
+          "columns": [
+            "mc_stat"
+          ],
+          "definition": "CHECK ((mc_stat = ANY (ARRAY['FMC'::bpchar, 'PMC'::bpchar, 'NMC'::bpchar])))"
+        }
+      ],
+      "unique": []
+    },
+    {
+      "schema": "mx",
+      "name": "mx_evt",
+      "kind": "table",
+      "comment": "Maintenance events (discrepancies and scheduled work)",
+      "columns": [
+        {
+          "name": "evt_id",
+          "type": "character varying(12)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "tail_no",
+          "type": "character varying(9)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "evt_typ",
+          "type": "mx.evt_typ",
+          "udt": "evt_typ",
+          "udtSchema": "mx",
+          "isEnum": true,
+          "notNull": true
+        },
+        {
+          "name": "wuc",
+          "type": "character varying(5)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false,
+          "comment": "Work unit code of the affected system"
+        },
+        {
+          "name": "descr",
+          "type": "text",
+          "udt": "text",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "opened_ts",
+          "type": "timestamp with time zone",
+          "udt": "timestamptz",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "closed_ts",
+          "type": "timestamp with time zone",
+          "udt": "timestamptz",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false
+        }
+      ],
+      "primaryKey": [
+        "evt_id"
+      ],
+      "foreignKeys": [
+        {
+          "name": "mx_evt_tail_no_fkey",
+          "columns": [
+            "tail_no"
+          ],
+          "references": {
+            "schema": "mx",
+            "table": "acft",
+            "columns": [
+              "tail_no"
+            ]
+          }
+        }
+      ],
+      "checks": [],
+      "unique": []
+    },
+    {
+      "schema": "mx",
+      "name": "tech",
+      "kind": "table",
+      "comment": "Maintenance technicians",
+      "columns": [
+        {
+          "name": "emp_id",
+          "type": "character varying(8)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "last_nm",
+          "type": "character varying(40)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "first_nm",
+          "type": "character varying(40)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "ssn",
+          "type": "character(9)",
+          "udt": "bpchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false
+        },
+        {
+          "name": "home_phone",
+          "type": "character varying(20)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false
+        },
+        {
+          "name": "afsc",
+          "type": "character varying(6)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true,
+          "comment": "Air Force Specialty Code"
+        },
+        {
+          "name": "skill_lvl",
+          "type": "smallint",
+          "udt": "int2",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false
+        }
+      ],
+      "primaryKey": [
+        "emp_id"
+      ],
+      "foreignKeys": [],
+      "checks": [
+        {
+          "name": "tech_skill_lvl_check",
+          "columns": [
+            "skill_lvl"
+          ],
+          "definition": "CHECK ((skill_lvl = ANY (ARRAY[3, 5, 7, 9])))"
+        }
+      ],
+      "unique": []
+    },
+    {
+      "schema": "mx",
+      "name": "wrk_ord",
+      "kind": "table",
+      "comment": "Work orders opened against maintenance events",
+      "columns": [
+        {
+          "name": "wo_no",
+          "type": "character varying(12)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "evt_id",
+          "type": "character varying(12)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "tech_emp",
+          "type": "character varying(8)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": false,
+          "comment": "Assigned technician (emp_id)"
+        },
+        {
+          "name": "stat",
+          "type": "character varying(10)",
+          "udt": "varchar",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true
+        },
+        {
+          "name": "created_ts",
+          "type": "timestamp with time zone",
+          "udt": "timestamptz",
+          "udtSchema": "pg_catalog",
+          "isEnum": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": [
+        "wo_no"
+      ],
+      "foreignKeys": [
+        {
+          "name": "wrk_ord_evt_id_fkey",
+          "columns": [
+            "evt_id"
+          ],
+          "references": {
+            "schema": "mx",
+            "table": "mx_evt",
+            "columns": [
+              "evt_id"
+            ]
+          }
+        }
+      ],
+      "checks": [
+        {
+          "name": "wrk_ord_stat_check",
+          "columns": [
+            "stat"
+          ],
+          "definition": "CHECK (((stat)::text = ANY ((ARRAY['OPEN'::character varying, 'INWORK'::character varying, 'CLOSED'::character varying])::text[])))"
+        }
+      ],
+      "unique": []
+    }
+  ],
+  "enums": [
+    {
+      "schema": "mx",
+      "name": "evt_typ",
+      "values": [
+        "SCHED",
+        "UNSCH",
+        "TCTO",
+        "CANN"
+      ]
+    }
+  ]
+}

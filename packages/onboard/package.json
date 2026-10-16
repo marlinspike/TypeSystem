@@ -1,0 +1,46 @@
+{
+  "name": "@typesys/onboard",
+  "version": "0.1.0",
+  "description": "AI-assisted semantic onboarding for TypeSystem: evidence from PostgreSQL catalogs, OpenAPI and JSON Schema; a deterministic baseline; model refinement that must cite its evidence; verification against the pack, policy and contract checks; expert review that later runs keep.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "bin": {
+    "typesys-onboard": "./dist/bin.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/onboard"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/onboard#readme",
+  "keywords": [
+    "typesys",
+    "onboarding",
+    "openapi",
+    "postgresql",
+    "json-schema",
+    "llm"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/adapter-http": "0.1.0",
+    "@typesys/adapter-postgres": "0.1.0",
+    "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
+    "@typesys/llm": "0.1.0",
+    "@typesys/packs": "0.1.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "pg": "8.23.0"
+  }
+}

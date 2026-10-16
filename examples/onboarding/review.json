@@ -1,0 +1,365 @@
+{
+  "format": "typesys.onboarding-review/1",
+  "domain": "mx",
+  "decisions": {
+    "type:pg:mxdb/mx.acft": {
+      "decision": "accept",
+      "fingerprint": "sha256:8613acd830fe0d0f75cb52839bd0528b70a2422e8e4acf9c89a2d414b35121bb",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "Aircraft"
+    },
+    "property:pg:mxdb/mx.acft.tail_no": {
+      "decision": "accept",
+      "fingerprint": "sha256:002c2c3b45b4332a75867f888b21934e3266623c8afc3cbbc6106c188a7fa371",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "tailNumber"
+    },
+    "property:pg:mxdb/mx.acft.mds": {
+      "decision": "accept",
+      "fingerprint": "sha256:369448e2adf977505d0561241cb47c8c198aecf292c3b7d5523b64de50968d52",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "missionDesignSeries"
+    },
+    "property:pg:mxdb/mx.acft.unit_cd": {
+      "decision": "accept",
+      "fingerprint": "sha256:6dd4bbc85363b3a1a0da4cdee15429192e3ae78d084e9bc6f0aae323407e41d3",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "unit"
+    },
+    "property:pg:mxdb/mx.acft.base_icao": {
+      "decision": "accept",
+      "fingerprint": "sha256:a7ce95b255b02def5afa2bbcf47ad44f237d20f0e4a8bcc8db1e19974071325f",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "baseIcao"
+    },
+    "property:pg:mxdb/mx.acft.mc_stat": {
+      "decision": "accept",
+      "fingerprint": "sha256:aea1773016089b746b98ce32e8cf54e09004e99c544610375573fccd1fe94895",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "missionCapability"
+    },
+    "property:pg:mxdb/mx.acft.flt_hrs": {
+      "decision": "accept",
+      "fingerprint": "sha256:037a390f1106615d382f3396b2454d68f8cf2823ac0b2e3a65d86eb2018ea9b1",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "flightHours"
+    },
+    "property:pg:mxdb/mx.acft.last_insp_dt": {
+      "decision": "accept",
+      "fingerprint": "sha256:d3b1b266eb5dd96d205751e1df222fffc239cb1051e8f261c1c6035c8cf3e6a8",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "lastInspectionDate"
+    },
+    "property:pg:mxdb/mx.acft.depl_loc": {
+      "decision": "accept",
+      "fingerprint": "sha256:766c4ff4cde9adc2330d47f1ce0074663eb524ac2e94ba480c5cb6eecb096136",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "deploymentLocation"
+    },
+    "type:pg:mxdb/mx.mx_evt": {
+      "decision": "accept",
+      "fingerprint": "sha256:abbaf9dc08469d23c0c9f8cf8bcef56873f3bffef47f7f4bdc475d6c7449642e",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "MaintenanceEvent"
+    },
+    "property:pg:mxdb/mx.mx_evt.evt_id": {
+      "decision": "accept",
+      "fingerprint": "sha256:a3535e73d92daab437f795c4636e9aa142eb89beecaaadaaabeea3d0de1963d1",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "eventId"
+    },
+    "property:pg:mxdb/mx.mx_evt.tail_no": {
+      "decision": "accept",
+      "fingerprint": "sha256:6d444facc5c70b6ea9a427a4c98ddf4fb27a21c45b1f4d83a06043f93a7a2600",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "tailNumber"
+    },
+    "property:pg:mxdb/mx.mx_evt.evt_typ": {
+      "decision": "accept",
+      "fingerprint": "sha256:4286cf44b3a522b4b08d1d1478febe3aca43cfe5301e24292d402197fd37e0c1",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "eventType"
+    },
+    "property:pg:mxdb/mx.mx_evt.wuc": {
+      "decision": "accept",
+      "fingerprint": "sha256:6ff40e299d92bf338dec4567a3b39bcda54ea1166ffa46e929151690a5565a3e",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "workUnitCode"
+    },
+    "property:pg:mxdb/mx.mx_evt.descr": {
+      "decision": "accept",
+      "fingerprint": "sha256:68094cbd38d3df3c0f3532bb0a7ff6f70bd60830f0f4576b7f21d4e2b5cbe0a0",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "description"
+    },
+    "property:pg:mxdb/mx.mx_evt.opened_ts": {
+      "decision": "accept",
+      "fingerprint": "sha256:0e89e508e846ce806a156e21e4cdbac13fd55c78e5ff2c504b1c2c43c4b1113c",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "openedAt"
+    },
+    "property:pg:mxdb/mx.mx_evt.closed_ts": {
+      "decision": "accept",
+      "fingerprint": "sha256:97a89b9b67752c424133a86a79ceb1578d611841f14cfed502810cb288f867f0",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "closedAt"
+    },
+    "type:pg:mxdb/mx.tech": {
+      "decision": "accept",
+      "fingerprint": "sha256:ad680df4574c9bd9ed1266df36b2b3e52d26280859feb62f8671d5999faaf9a7",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "Technician"
+    },
+    "property:pg:mxdb/mx.tech.emp_id": {
+      "decision": "accept",
+      "fingerprint": "sha256:c3e283594d24a23fe80458a5b84a5ace699300d1ef2b2a90462a56bdb2bda271",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "employeeId"
+    },
+    "property:pg:mxdb/mx.tech.last_nm": {
+      "decision": "accept",
+      "fingerprint": "sha256:6ca38c35cbd0ae6bd6595ad97d5d8d9d234a86b07ac9e0bfba9ebfc230e459ae",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "lastName"
+    },
+    "property:pg:mxdb/mx.tech.first_nm": {
+      "decision": "accept",
+      "fingerprint": "sha256:852a813dcbaf0ce6e0ac12de25d5722b0d5b7f49ff5343d64d0d3051e9867bf8",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "firstName"
+    },
+    "property:pg:mxdb/mx.tech.ssn": {
+      "decision": "accept",
+      "fingerprint": "sha256:65aedabe1a23e1634b4ffb610bcdf98c33415651b168f00c94ae782651e31c3b",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "socialSecurityNumber"
+    },
+    "property:pg:mxdb/mx.tech.home_phone": {
+      "decision": "accept",
+      "fingerprint": "sha256:f2b43af3ce7a5ca56ff174125dad6c1dcd1517ec58a697554f494329f9c3fdb3",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "homePhone"
+    },
+    "property:pg:mxdb/mx.tech.afsc": {
+      "decision": "accept",
+      "fingerprint": "sha256:1c47e9f369edd35772cb98290bb6e60c0e174ce57cf4052b9eb43e0e19e33682",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "specialtyCode"
+    },
+    "property:pg:mxdb/mx.tech.skill_lvl": {
+      "decision": "accept",
+      "fingerprint": "sha256:5e66ac095fae6319a3dd582c78746b01d00620917cfb66e3fa39c39caad7b2a9",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "skillLevel"
+    },
+    "type:pg:mxdb/mx.wrk_ord": {
+      "decision": "accept",
+      "fingerprint": "sha256:cf3b2133ce1834b47fe4022eda971e1da6146691d29f75b158ced7f6913fa99a",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "WorkOrder"
+    },
+    "property:pg:mxdb/mx.wrk_ord.wo_no": {
+      "decision": "accept",
+      "fingerprint": "sha256:6045f95f4519272a67370e63ef6908aea369423e77774e4d3f50551c089297b8",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "workOrderNumber"
+    },
+    "property:pg:mxdb/mx.wrk_ord.evt_id": {
+      "decision": "accept",
+      "fingerprint": "sha256:20a3d4b59b4695b2deee2a9c962bfe17f5440eec5dc15892d089f13952b8363f",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "eventId"
+    },
+    "property:pg:mxdb/mx.wrk_ord.tech_emp": {
+      "decision": "accept",
+      "fingerprint": "sha256:52aa8ffb423a22d73f07fc3ba1d0c58f25d040e00270435db5f8d8f363002c3f",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "technicianId"
+    },
+    "property:pg:mxdb/mx.wrk_ord.stat": {
+      "decision": "accept",
+      "fingerprint": "sha256:2b6a0b696256a5f6b11d1ac3fec49ce704d5efb45f03577239c3af47bd112c6c",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "status"
+    },
+    "property:pg:mxdb/mx.wrk_ord.created_ts": {
+      "decision": "accept",
+      "fingerprint": "sha256:f31ba1004747279cc0b7418ce8e84cd394369e3c91eea1c556209cb4cde1f8a6",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "createdAt"
+    },
+    "type:openapi:roster#/components/schemas/Member": {
+      "decision": "accept",
+      "fingerprint": "sha256:30c0209f21b78059f7b82d02f0303abd66533be5bea1eaf2903780d17eb16210",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "CrewMember"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/id": {
+      "decision": "accept",
+      "fingerprint": "sha256:8862e4b0299eb18d8ff463521dd8ae97701a29abdeb23f577d0f94e51eaf0e04",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "id"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/callsign": {
+      "decision": "accept",
+      "fingerprint": "sha256:d78c6b1eb0fd2ed51874b0222b1a30b7c2c249bf8bad66b073f366a7126fdf90",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "callsign"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/full_name": {
+      "decision": "accept",
+      "fingerprint": "sha256:cac9abdfef034bf64351272d827b156754dcf3a81c2d9371e3f99e7e7764ab5e",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "fullName"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/quals": {
+      "decision": "accept",
+      "fingerprint": "sha256:a4272a8e97d202c86a371e5588f67411a3b84e844d4aded787c4a0731e40c591",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "qualifications"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/home_unit": {
+      "decision": "accept",
+      "fingerprint": "sha256:817568736d92f2927ecc658cbce15342b780b44eeb85e5ca9e8ebab25070c47a",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "homeUnit"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/assigned_tail": {
+      "decision": "accept",
+      "fingerprint": "sha256:22b59ffeeee5644ec89041ed15c1b2e4cb09bd30a5d99c279b07270b2b289e64",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "assignedTailNumber"
+    },
+    "property:openapi:roster#/components/schemas/Member/properties/duty": {
+      "decision": "accept",
+      "fingerprint": "sha256:721434ecb4d32d175194292f57426b02590f38b7c050cafd88af75f0ac93c3dc",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "dutyStatus"
+    },
+    "relationship:pg:mxdb/mx.mx_evt.tail_no->pg:mxdb/mx.acft.tail_no": {
+      "decision": "accept",
+      "fingerprint": "sha256:2ba13373c1467953f7a936be449305205780fe5e56ceaadecb3caf2d935b8fac",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "aircraft",
+      "inverse": "maintenanceEvents"
+    },
+    "relationship:pg:mxdb/mx.wrk_ord.evt_id->pg:mxdb/mx.mx_evt.evt_id": {
+      "decision": "accept",
+      "fingerprint": "sha256:d3c1d8141cecc8efda4ad3c7d0f73d9db185a599d7cb42729bd2f8aea72ddee7",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "maintenanceEvent",
+      "inverse": "workOrders"
+    },
+    "relationship:pg:mxdb/mx.wrk_ord.tech_emp->pg:mxdb/mx.tech.emp_id": {
+      "decision": "accept",
+      "fingerprint": "sha256:0ade84afd3242220d84c8311ed967c92f8d1561ce56b185d3e9950e0a7c1e093",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "assignedTechnician",
+      "inverse": "assignedWorkOrders"
+    },
+    "relationship:openapi:roster#/components/schemas/Member/properties/assigned_tail->pg:mxdb/mx.acft.tail_no": {
+      "decision": "reject",
+      "fingerprint": "sha256:9f07341cb4675725eec7ce175897a820fe71036ee62ea74eecbc15ee4fb15b3d",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "note": "The roster's tail number is typed by hand; not a reference until the roster validates it"
+    },
+    "sensitive:pg:mxdb/mx.acft.depl_loc:classified": {
+      "decision": "accept",
+      "fingerprint": "sha256:766c4ff4cde9adc2330d47f1ce0074663eb524ac2e94ba480c5cb6eecb096136",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:pg:mxdb/mx.tech.last_nm:personal-name": {
+      "decision": "accept",
+      "fingerprint": "sha256:6ca38c35cbd0ae6bd6595ad97d5d8d9d234a86b07ac9e0bfba9ebfc230e459ae",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:pg:mxdb/mx.tech.first_nm:personal-name": {
+      "decision": "accept",
+      "fingerprint": "sha256:852a813dcbaf0ce6e0ac12de25d5722b0d5b7f49ff5343d64d0d3051e9867bf8",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:pg:mxdb/mx.tech.ssn:government-id": {
+      "decision": "accept",
+      "fingerprint": "sha256:65aedabe1a23e1634b4ffb610bcdf98c33415651b168f00c94ae782651e31c3b",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:pg:mxdb/mx.tech.home_phone:contact": {
+      "decision": "accept",
+      "fingerprint": "sha256:f2b43af3ce7a5ca56ff174125dad6c1dcd1517ec58a697554f494329f9c3fdb3",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:openapi:roster#/components/schemas/Member/properties/full_name:personal-name": {
+      "decision": "accept",
+      "fingerprint": "sha256:cac9abdfef034bf64351272d827b156754dcf3a81c2d9371e3f99e7e7764ab5e",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:openapi:roster#/components/schemas/Member/properties/full_name:personal": {
+      "decision": "accept",
+      "fingerprint": "sha256:cac9abdfef034bf64351272d827b156754dcf3a81c2d9371e3f99e7e7764ab5e",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "sensitive:openapi:roster#/components/schemas/Member/properties/duty:health": {
+      "decision": "accept",
+      "fingerprint": "sha256:be68ba60e4c1f28f74bfd400f8a2296c5eb30211cebe034b7be92ce9dff504da",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z"
+    },
+    "action:openapi:roster#/paths/~1api~1members~1{id}~1duty/post": {
+      "decision": "accept",
+      "fingerprint": "sha256:29fa5e5f2c4182b888e132701092dad6a53d4d83f7f866d8a3bdc12c7cda1f7e",
+      "by": "maintenance data steward (demonstration)",
+      "at": "2026-10-16T00:00:00.000Z",
+      "name": "ChangeDutyStatus"
+    }
+  }
+}
