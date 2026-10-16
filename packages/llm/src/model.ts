@@ -142,13 +142,19 @@ export class ManagedModel implements LanguageModel {
       this.env.record(this.failedRecord(request, "release-refused", release.reason ?? "refused"));
       throw new LlmError("release-refused", `The request may not be sent to model ${this.id}`, { model: this.id, provider: this.info.provider.name });
     }
+    if (request.releasedFor !== undefined && request.releasedFor !== this.info.audience.id) {
+      this.env.record(this.failedRecord(request, "release-refused", `the content was read for audience ${request.releasedFor}, not ${this.info.audience.id}`));
+      throw new LlmError("release-refused", `The request may not be sent to model ${this.id}`, { model: this.id, provider: this.info.provider.name });
+    }
   }
 
   private adapterRequest(request: GenerateRequest): AdapterRequest {
     const d = this.info.defaults;
     const structured = structuredMode(this.info, request);
+    // Which audience the content was read for decides who may receive it, not what is sent: it is not part of the request a provider (or a recording) sees.
+    const { releasedFor: _releasedFor, ...sent } = request;
     return {
-      ...request,
+      ...sent,
       ...(request.temperature === undefined && d.temperature !== undefined && this.info.capabilities.temperature ? { temperature: d.temperature } : {}),
       ...(request.seed === undefined && d.seed !== undefined && this.info.capabilities.seed ? { seed: d.seed } : {}),
       maxOutputTokens: request.maxOutputTokens ?? d.maxOutputTokens ?? Math.min(this.info.capabilities.maxOutputTokens ?? 8192, 8192),
@@ -165,7 +171,7 @@ export class ManagedModel implements LanguageModel {
       model: { id: this.id, provider: this.info.provider.name, providerModel: this.info.model, ...(this.info.version ? { version: this.info.version } : {}) },
       audience: this.info.audience.id,
       configDigest: this.info.configDigest,
-      requestDigest: digest({ ...request, label: undefined, purpose: undefined }),
+      requestDigest: digest({ ...request, label: undefined, purpose: undefined, releasedFor: undefined }),
       parameters: {
         ...(r.temperature !== undefined ? { temperature: r.temperature } : {}),
         ...(r.seed !== undefined ? { seed: r.seed } : {}),

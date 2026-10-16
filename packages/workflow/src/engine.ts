@@ -23,6 +23,15 @@ import { AiOutputError, JournalConflictError, ReleaseRefusedError, SimulatedCras
 import type { CompensationCause, FinalStatus, JournalEvent, JournalRecord, OutputSource, WorkflowJournal } from "./journal.js";
 import { InMemoryJournal } from "./journal.js";
 import { contextFor, outputsOf, reviewsAiOutput, verifyReplay } from "./replay.js";
+
+/** The failures of a model that move an AI step to its next model (ADR-0075): the model not answering, never an answer it gave. */
+const UNAVAILABLE = new Set(["unavailable", "overloaded", "rate-limited", "timeout"]);
+function modelUnavailable(err: unknown): boolean {
+  // A model from @typesys/llm says which failure it was; a malformed or refused answer is not a reason to ask another model.
+  const code = err instanceof Error && err.name === "LlmError" ? (err as Error & { code?: unknown }).code : undefined;
+  if (typeof code === "string") return UNAVAILABLE.has(code);
+  return isRetryable(err);
+}
 import { fold, viewOf, type RunState, type RunView } from "./state.js";
 import { upstream, validateWorkflow } from "./validate.js";
 
@@ -809,7 +818,7 @@ export class WorkflowEngine {
             await w.append({ type: "step-completed", step: step.name, attempt, ...result });
             return true;
           } catch (err) {
-            if (err instanceof SimulatedCrash || step.kind !== "ai" || !isRetryable(err)) throw err;
+            if (err instanceof SimulatedCrash || step.kind !== "ai" || !modelUnavailable(err)) throw err;
             lastErr = err;
             // The next fallback this step's input may be released to, deciding each one's release on its own.
             let next: { input: unknown; released: { audience: string; needs: Record<string, unknown> } } | undefined;

@@ -1,7 +1,7 @@
 import { answeringModel, type LlmRecording } from "@typesys/llm";
 export { agentModelConfig, recordedModel } from "@typesys/llm";
 import type { Proposal } from "./proposal.js";
-import { refine, type Refinement } from "./refine.js";
+import { refine, type Refinement, type RefineOptions } from "./refine.js";
 import type { SourceModel } from "./sources.js";
 
 /**
@@ -11,8 +11,8 @@ import type { SourceModel } from "./sources.js";
  * replay (`recordedModel`) will make. Returns the recording and the
  * proposal the answer refines to, rejections included.
  */
-export async function recordRefinement(model: SourceModel, base: Proposal, answer: Refinement, producedBy: string, at = new Date().toISOString()): Promise<{ recording: LlmRecording; proposal: Proposal }> {
+export async function recordRefinement(model: SourceModel, base: Proposal, answer: Refinement, producedBy: string, at = new Date().toISOString(), options: Pick<RefineOptions, "label"> = {}): Promise<{ recording: LlmRecording; proposal: Proposal }> {
   const agent = answeringModel([answer], producedBy, { at: () => at });
-  const { proposal } = await refine(model, base, agent.model);
+  const { proposal } = await refine(model, base, agent.model, options);
   return { recording: agent.recordings[0]!, proposal };
 }

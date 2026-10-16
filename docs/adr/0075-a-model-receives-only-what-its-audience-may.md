@@ -90,6 +90,18 @@ an `audience` option. The demo MCP hosts bind the audience named by
 `TYPESYS_AGENT_MODEL` from the model configuration, and refuse to start
 if it names a model that is not configured.
 
+**Content read for one audience stays with it.** Content the runtime
+released to a model's audience (read as `withAudience(person,
+model.info.audience)`) is labeled by what it holds, but the label does not
+say what was left out for that audience. Such a request names the audience
+in `releasedFor`. Only a model with that audience id receives it, and a
+fallback with another id is refused whatever the label. A deployment that
+gives several models one audience id says they may stand in for one
+another. A selection (`select`) falls back only to models that meet its
+requirements. An Action that declares an `outputType` has its result
+released as a read of that object to a person too, not only to an
+audience. (Added after the M3 review, `docs/reviews/m3-adversarial-review.md`.)
+
 ## Consequences
 
 - A deployment with no labels and no classification scheme cannot fall

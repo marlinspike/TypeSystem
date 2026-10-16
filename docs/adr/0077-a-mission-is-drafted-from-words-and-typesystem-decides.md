@@ -45,7 +45,9 @@ fails the model layer's schema check (`invalid-output`).
 the model context (ADR-0078) as `withAudience(author, model.audience)`:
 the author reading for the model, decided by the runtime under ADR-0075.
 A model granted nothing is told only what needs no grant, and is shown
-no example objects. The prompt says so in words, so the model does not
+no example objects. The request names the audience it was read for
+(`releasedFor`, ADR-0075), so a fallback with another audience is never
+sent it. The prompt says so in words, so the model does not
 take the absence of a value for its absence from the data.
 
 **Every answer is checked by the tools that check a hand-written spec,
@@ -54,7 +56,10 @@ plus the draft's own rules.** `draftProblems` runs `missionProblems` and
 itself breaks: a caller with no check (`caller-unchecked`) is an error,
 not a warning, and a workflow naming a policy rule the brief does not
 list is `unknown-policy`. Errors, with their location and the planner's
-hint ("did you mean …?"), go back to the model, which answers again with
+hint ("did you mean …?"), go back to the model. The hint is dropped when
+it names something outside the model's context, and whether an object
+exists is never said to the model, since a missing object and one it may
+not read must look the same to it; the person sees both. The errors go back, which answers again with
 the whole spec, for up to `maxRounds` rounds (default three).
 
 **What `verify` says comes back too.** A spec that plans cleanly can still

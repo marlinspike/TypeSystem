@@ -198,7 +198,13 @@ export function createLlm(config: LlmConfig, options: LlmOptions = {}): Llm {
       );
       const best = qualified[0];
       if (!best) throw new LlmError("unsupported-capability", `No configured model meets the requirements: ${considered.map((c) => `${c.id} (${c.rejected})`).join("; ") || "none is configured"}`);
-      return { model: llm.model(best.id, req.use), considered };
+      // A fallback must meet the same requirements: a selection made for zero retention is not answered by a model that retains.
+      const primary = raw(best.id);
+      const meeting = primary.info.fallbacks.filter((id) => {
+        const m = resolved.models.get(id);
+        return m !== undefined && rejection(m, req, env) === undefined;
+      });
+      return { model: meeting.length ? withFallbacks(primary, meeting.map(raw), req.use, env, fallbacks) : primary, considered };
     },
     async discover(name, opts = {}) {
       const provider = resolved.providers.get(name);
@@ -287,6 +293,7 @@ function withFallbacks(primary: ManagedModel, candidates: readonly ManagedModel[
       .filter(Boolean);
     if (missing.length) return `does not support ${missing.join(", ")}`;
     if (!decideRelease(env.scheme, c.info.audience, request.label, env.requireLabels).allow) return "may not receive this content";
+    if (request.releasedFor !== undefined && request.releasedFor !== c.info.audience.id) return `the content was read for audience ${request.releasedFor}`;
     return undefined;
   };
   const attempt = async <T>(request: GenerateRequest, call: (m: LanguageModel) => Promise<T>): Promise<T> => {

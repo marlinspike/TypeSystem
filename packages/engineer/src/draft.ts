@@ -189,6 +189,27 @@ export interface DraftResult {
   readonly context: CompiledContext;
 }
 
+/**
+ * What of `diagnostics` the drafting model may be told (M3 review M2). The
+ * planner works for the author, over the whole model; the model was told
+ * only its context. So a suggestion naming something outside the context
+ * loses its hint, and whether an object exists is never said to the model,
+ * since an object missing and one it may not read must look the same to
+ * it. Those stay in the round's diagnostics, for the person.
+ */
+function forTheModel(diagnostics: readonly EngineerDiagnostic[], context: CompiledContext): EngineerDiagnostic[] {
+  const told = new Set<string>([...context.omitted, ...context.actions.map((a) => a.name)]);
+  for (const t of context.types) for (const n of [t.name, ...t.values.map((v) => v.name), ...t.computed.map((c) => c.name), ...t.relationships.map((r) => r.name)]) told.add(n);
+  return diagnostics
+    .filter((d) => d.code !== "unknown-object" && d.code !== "object-unconfirmed")
+    .map((d) => {
+      const near = d.hint === undefined ? undefined : /^did you mean "([^"]+)"\?$/.exec(d.hint)?.[1];
+      if (near === undefined || told.has(near)) return d;
+      const { hint: _hint, ...rest } = d;
+      return rest;
+    });
+}
+
 const line = (d: EngineerDiagnostic) => `- ${d.severity} ${d.code} at ${d.at}: ${d.message}${d.hint ? ` (${d.hint})` : ""}`;
 
 /**
@@ -213,7 +234,7 @@ export async function draftMission(brief: MissionBrief, loaded: LoadedHost, lm: 
   let answering: string | undefined;
   for (let round = 0; round < (options.maxRounds ?? 3) + (options.feedback?.length ?? 0); round++) {
     const result: GenerateResult = await lm.generate(
-      { system: req.system, messages, output: { schema: req.schema, name: "mission_draft", description: "The mission spec's name, uses, workflow, views and acceptance checks." }, purpose: "engineer:draft", label: { markings: [] }, maxOutputTokens: 16_000 },
+      { system: req.system, messages, output: { schema: req.schema, name: "mission_draft", description: "The mission spec's name, uses, workflow, views and acceptance checks." }, purpose: "engineer:draft", label: { markings: [] }, releasedFor: lm.info.audience.id, maxOutputTokens: 16_000 },
       options.signal ? { signal: options.signal } : {}
     );
     const draft = result.object as MissionDraft;
@@ -226,7 +247,7 @@ export async function draftMission(brief: MissionBrief, loaded: LoadedHost, lm: 
     const u = result.record.usage;
     rounds.push({ answer: draft, ...(answering ? { feedback: answering } : {}), diagnostics: checked.diagnostics, call: { callId: result.record.callId, model: result.record.model.id, inputTokens: u?.inputTokens ?? 0, outputTokens: u?.outputTokens ?? 0, estimated: u?.estimated === true, latencyMs: result.record.latencyMs } });
     answering = undefined;
-    const errors = checked.diagnostics.filter((d) => d.severity === "error");
+    const errors = forTheModel(checked.diagnostics, context).filter((d) => d.severity === "error");
     if (errors.length === 0 && feedback.length === 0) break;
     const next = errors.length ? `TypeSystem found these problems with that mission:\n${errors.map(line).join("\n")}` : (answering = feedback.shift()!);
     messages.push({ role: "assistant", content: JSON.stringify(draft) }, { role: "user", content: `${next}\n\nAnswer again with the whole corrected mission.` });

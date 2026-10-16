@@ -683,7 +683,9 @@ second passed all ten, and `npm run draft:demo` (run by CI) replays the
 drafting, scaffolds the application and verifies it. Both answers were
 written by a coding agent in agent mode; no configured provider has
 drafted a mission from this repository. Eight `context.*`, `draft.*` and
-`onboard.*` mutations are each killed by a test.
+`onboard.*` mutations are each killed by a test. An independent review of
+this work (`docs/reviews/m3-adversarial-review.md`) found 17 defects,
+three High, and each is fixed with a test.
 
 ## Real but narrow — the mechanism exists, exercised once
 

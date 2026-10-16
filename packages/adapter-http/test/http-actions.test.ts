@@ -81,3 +81,19 @@ describe("HTTP Actions", () => {
     await expect(adapter(fetchStub).executeAction({ name: "Other" } as ActionDefinition, {}, ctx)).rejects.toThrow(/no request for Action Other/);
   });
 });
+
+describe("an HTTP Action's answer (M3 review M1)", () => {
+  it("is mapped as a read of its output Type maps it: the service's own field names never reach a caller", async () => {
+    const { fetchStub } = stub(() => ({ status: 200, body: JSON.stringify({ member_id: "C-1", full_name: "Capt Dana Reyes", duty_status: "LV", internal: "x" }) }));
+    const http = new HttpAdapter({
+      dataSourceId: "roster",
+      system: "Crew Roster",
+      baseUrl: "http://roster.test",
+      types: { "crew.Member": { get: "/api/members/{id}", list: { path: "/api/members", items: "" }, id: "/member_id", fields: { name: "/full_name", duty: { from: "/duty_status", map: { LV: "leave" } } } } },
+      actions: { ChangeDutyStatus: { method: "POST", path: "/api/members/{memberId}/duty", body: ["duty"] } },
+      fetch: fetchStub
+    });
+    const out = await http.executeAction({ ...action, outputType: "crew.Member" }, { memberId: "C-1", duty: "leave" }, ctx);
+    expect(out).toEqual({ id: "C-1", name: "Capt Dana Reyes", duty: "leave" });
+  });
+});

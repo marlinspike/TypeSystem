@@ -113,11 +113,11 @@ async function draftTool(root: string, args: Record<string, unknown>): Promise<{
   const brief = insideRoot(root, args.brief);
   const out = insideRoot(root, args.out);
   const parsed = JSON.parse(await readFile(brief, "utf8")) as { host?: { module?: string } };
-  // The brief names code to run: a path module must be inside the root, as for a mission.
+  // The brief names code to run: a path module must be inside the root, as for a mission (and `within` refuses a specifier climbing out).
   if (typeof parsed.host?.module === "string" && (parsed.host.module.startsWith(".") || path.isAbsolute(parsed.host.module))) insideRoot(root, path.resolve(path.dirname(brief), parsed.host.module));
   const argv = ["draft", brief, "--out", out, ...list(args.answers, "answers").flatMap((a) => ["--answer", a]), ...list(args.feedback, "feedback").flatMap((f) => ["--feedback", f]), "--json"];
   let printed = "";
-  const code = await engineerCommand(argv, (line) => (printed = line));
+  const code = await engineerCommand(argv, (line) => (printed = line), { within: root });
   const result = JSON.parse(printed) as Record<string, unknown>;
   if (code === 2) return { ok: true, answerNeeded: true, request: await readFile(insideRoot(root, String(result.answerNeeded)), "utf8") };
   return { ...result, ok: code === 0, out: path.relative(root, out) };

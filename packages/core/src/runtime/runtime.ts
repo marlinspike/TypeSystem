@@ -2468,7 +2468,8 @@ export class SemanticRuntime {
     const value: Record<string, unknown> = {};
     const withheld: string[] = [];
     for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
-      if (Object.hasOwn(values, k)) value[k] = v;
+      // The id names the object the caller was just allowed to read.
+      if (Object.hasOwn(values, k) || (k === "id" && v === subject.objectId)) value[k] = v;
       else withheld.push(k);
     }
     return { value, withheld };
@@ -2511,7 +2512,8 @@ export class SemanticRuntime {
         if (target && action.sideEffects !== "none") await this.invalidateObject(target.typeName, target.objectId);
 
         // What an audience receives of the result is decided like any read of it (ADR-0075).
-        const released = identity.audience ? await this.releaseActionResult(action, result, target, identity) : { value: result, withheld: [] };
+        // An Action that declares its output Type has its result released to a person the same way: as a read of that object.
+        const released = identity.audience || action.outputType ? await this.releaseActionResult(action, result, target, identity) : { value: result, withheld: [] };
 
         if (action.auditRequired) {
           await this.registry.appendAuditEvent({
@@ -2523,7 +2525,7 @@ export class SemanticRuntime {
             resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
             outcome: "success",
-            ...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : {})
+            ...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : released.withheld.length ? { details: { withheld: released.withheld } } : {})
           });
         }
 

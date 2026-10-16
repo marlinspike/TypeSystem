@@ -39,7 +39,7 @@ export const ONBOARD_TOOLS: readonly Tool[] = [
   {
     name: "typesys_onboard_request",
     description: "The refinement request a development model is sent for these sources: answer it yourself, as JSON matching its schema, write the answer to a file, then call typesys_onboard_propose with it.",
-    inputSchema: { type: "object", required: ["sources", "domain"], additionalProperties: false, properties: { sources: path_("The sources file"), domain: { type: "string" } } },
+    inputSchema: { type: "object", required: ["sources", "domain"], additionalProperties: false, properties: { sources: path_("The sources file"), domain: { type: "string" }, markings: { type: "array", items: { type: "string" }, description: "Markings of the metadata itself, when it is classified" } } },
     annotations: { readOnlyHint: true }
   },
   {
@@ -49,7 +49,7 @@ export const ONBOARD_TOOLS: readonly Tool[] = [
       type: "object",
       required: ["sources", "domain", "out"],
       additionalProperties: false,
-      properties: { sources: path_("The sources file"), domain: { type: "string" }, out: path_("The output directory"), answer: path_("Your refinement answer"), review: path_("The review file"), approved: path_("approved.json from the last run"), previous: path_("pack.json from the last run"), version: { type: "string" } }
+      properties: { sources: path_("The sources file"), domain: { type: "string" }, out: path_("The output directory"), answer: path_("Your refinement answer"), review: path_("The review file"), approved: path_("approved.json from the last run"), previous: path_("pack.json from the last run"), version: { type: "string" }, markings: { type: "array", items: { type: "string" }, description: "Markings of the metadata itself, when it is classified" } }
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true }
   }
@@ -60,6 +60,7 @@ export async function callOnboardTool(root: string, name: string, args: Record<s
   try {
     const p = (v: unknown) => insideRoot(root, v);
     const opt = (flag: string, v: unknown, asPath = true) => (v === undefined ? [] : [flag, asPath ? p(v) : typeof v === "string" ? v : JSON.stringify(v)]);
+    const markings = Array.isArray(args.markings) ? args.markings.flatMap((m) => ["--marking", String(m)]) : [];
     let argv: string[];
     if (name === "typesys_onboard_collect") {
       const openapi = typeof args.openapi === "string" && /^https?:\/\//.test(args.openapi) ? ["--openapi", args.openapi] : opt("--openapi", args.openapi);
@@ -68,12 +69,12 @@ export async function callOnboardTool(root: string, name: string, args: Record<s
       const keys = args.keys && typeof args.keys === "object" ? Object.entries(args.keys as Record<string, unknown>).flatMap(([k, v]) => ["--key", `${k}=${String(v as string)}`]) : [];
       argv = ["collect", ...opt("--out", args.out), ...opt("--source", args.source, false), ...opt("--system", args.system, false), ...opt("--postgres", args.postgres, false), ...schemas, ...openapi, ...json, ...keys];
     } else if (name === "typesys_onboard_request") {
-      argv = ["request", p(args.sources), ...opt("--domain", args.domain, false)];
+      argv = ["request", p(args.sources), ...opt("--domain", args.domain, false), ...markings];
     } else if (name === "typesys_onboard_propose") {
-      argv = ["propose", p(args.sources), ...opt("--domain", args.domain, false), ...opt("--out", args.out), ...opt("--answer", args.answer), ...opt("--review", args.review), ...opt("--approved", args.approved), ...opt("--previous", args.previous), ...opt("--version", args.version, false)];
+      argv = ["propose", p(args.sources), ...opt("--domain", args.domain, false), ...opt("--out", args.out), ...opt("--answer", args.answer), ...opt("--review", args.review), ...opt("--approved", args.approved), ...opt("--previous", args.previous), ...opt("--version", args.version, false), ...markings];
     } else return { ok: false, error: `Unknown tool ${name}` };
     let printed = "";
-    const code = await onboardCommand([...argv, "--json"], (line) => (printed = line), env);
+    const code = await onboardCommand([...argv, "--json"], (line) => (printed = line), env, { within: root });
     const result = JSON.parse(printed) as Record<string, unknown>;
     if (name === "typesys_onboard_request" && code === 0) return { ok: true, request: `SYSTEM:\n${String(result.system)}\n\n${String(result.prompt)}`, schema: result.schema };
     if (name === "typesys_onboard_propose" && typeof args.out === "string") return { ...result, ok: code === 0, out: path.relative(root, p(args.out)) };

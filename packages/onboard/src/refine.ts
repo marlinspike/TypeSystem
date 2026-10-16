@@ -1,11 +1,10 @@
 import type { JsonSchema2020 } from "@typesys/core";
 import type { ContentLabel, GenerateResult, LanguageModel } from "@typesys/llm";
 import { fingerprint, MEMBER, TYPE_LOCAL, type Finding, type FindingKind, type Proposal, type ProposedRelationship, type ProposedSensitive, type ProposedType, type Rejected } from "./proposal.js";
-import { digestOf, type SensitivityCategory, type SourceModel } from "./sources.js";
+import { digestOf, MARKINGS, statesMarking, type SensitivityCategory, type SourceModel } from "./sources.js";
 
 const CATEGORIES: readonly SensitivityCategory[] = ["personal-name", "government-id", "contact", "date-of-birth", "health", "financial", "location", "credential", "classified", "personal"];
 const KINDS: readonly FindingKind[] = ["inconsistency", "ambiguity", "missing-key", "unsupported", "naming", "data-quality"];
-const MARKINGS = ["TOP SECRET", "SECRET", "CONFIDENTIAL", "CUI"];
 
 const str = { type: "string" } as const;
 const strs = { type: "array", items: str } as const;
@@ -105,7 +104,7 @@ export async function refine(model: SourceModel, base: Proposal, lm: LanguageMod
   return {
     proposal: {
       ...proposal,
-      refinedBy: { model: result.record.model.id, callId: result.record.callId, ...(result.record.configDigest ? { configDigest: result.record.configDigest } : {}), requestDigest: result.record.requestDigest, at: result.record.at }
+      refinedBy: { model: result.record.model.id, ...(result.record.configDigest ? { configDigest: result.record.configDigest } : {}), requestDigest: result.record.requestDigest }
     },
     result
   };
@@ -260,9 +259,12 @@ export function applyRefinement(model: SourceModel, base: Proposal, r: Refinemen
     const cites = [...new Set([s.field, ...s.cites])];
     let grounded: string | undefined;
     if (marking) {
-      const stated = cites.some((c) => new RegExp(`\\b${marking.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(model.evidence.get(c)!.text));
-      if (!MARKINGS.includes(marking)) reject("sensitive", s, `"${marking}" is not a classification marking; the field is flagged without one`);
+      const stated = cites.some((c) => statesMarking(model.evidence.get(c)!.text, marking));
+      const rank = (m: string) => MARKINGS.indexOf(m as (typeof MARKINGS)[number]);
+      const higher = sensitive.find((b) => b.field === s.field && b.marking !== undefined && rank(b.marking) < rank(marking));
+      if (!MARKINGS.includes(marking as (typeof MARKINGS)[number])) reject("sensitive", s, `"${marking}" is not a classification marking; the field is flagged without one`);
       else if (!stated) reject("sensitive", s, `no cited evidence states ${marking}; the field is flagged without a marking`);
+      else if (higher) reject("sensitive", s, `${s.field} is already marked ${higher.marking}; a model may not mark it lower`);
       else grounded = marking;
     }
     if (sensitive.some((b) => b.field === s.field && b.category === s.category)) continue;

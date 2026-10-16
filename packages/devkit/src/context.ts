@@ -131,8 +131,9 @@ export async function compileContext(runtime: ContextRuntime, identity: Identity
     else actions.push(...(entry as ContextAction[]));
   }
 
+  let task = options.task;
   const render = () =>
-    [header(options.task, identity), "", "TYPES", ...types.map(renderType), "", "ACTIONS", ...(actions.length ? actions.map(renderAction) : ["  (none)"]), "", "RULES", ...GUIDANCE.map((g) => `- ${g}`), ...(omitted.length ? ["", `LEFT OUT to stay within ${budget} tokens: ${omitted.join(", ")}`] : [])].join("\n");
+    [header(task, identity), "", "TYPES", ...types.map(renderType), "", "ACTIONS", ...(actions.length ? actions.map(renderAction) : ["  (none)"]), "", "RULES", ...GUIDANCE.map((g) => `- ${g}`), ...(omitted.length ? ["", `LEFT OUT to stay within ${budget} tokens: ${omitted.join(", ")}`] : [])].join("\n");
   // The headings and the list of what was left out count too: drop the least relevant until the whole fits.
   let text = render();
   while (estimate(text) > budget && types.length + actions.length > 0) {
@@ -142,6 +143,13 @@ export async function compileContext(runtime: ContextRuntime, identity: Identity
     omitted.push(last.name);
     const rank = new Map(order.map((o, i) => [o.name, i]));
     omitted.sort((a, b) => rank.get(a)! - rank.get(b)!);
+    text = render();
+  }
+  // A task longer than the budget allows is shortened in the header (M3 review L4); the rules are never dropped.
+  if (estimate(text) > budget) {
+    const room = budget * 4 - (text.length - task.length) - 1;
+    if (room < 20) throw new RangeError(`maxTokens ${budget} is less than the context's rules and header need (${estimate(text) - estimate(task)} tokens)`);
+    task = `${options.task.slice(0, room)}…`;
     text = render();
   }
   return {
@@ -178,7 +186,9 @@ async function typeEntry(runtime: ContextRuntime, identity: Identity, t: TypeDes
       const items = (await runtime.query({ type: t.name, limit: probe }, identity)).items;
       if (items.length > 0) {
         const returned = new Set(items.flatMap((o) => Object.keys(o.values)));
-        visibility = { probed: items.length, returned: values.map((v) => v.name).filter((n) => returned.has(n)), neverReturned: values.map((v) => v.name).filter((n) => !returned.has(n)) };
+        // Computed values are observed like any other (ADR-0078): one can be withheld while what it depends on is not, and the reverse.
+        const names = [...values.map((v) => v.name), ...t.computed.map((c) => c.name)];
+        visibility = { probed: items.length, returned: names.filter((n) => returned.has(n)), neverReturned: names.filter((n) => !returned.has(n)) };
         if (examples > 0) sample = items.slice(0, examples).map((o) => ({ objectId: o.objectId, values: o.values }));
       }
     } catch {
@@ -220,7 +230,7 @@ function renderType(t: ContextType): string {
   const vis = t.visibility ? new Set(t.visibility.neverReturned) : undefined;
   const lines = [`${t.name}${t.description ? ` — ${t.description}` : ""}`];
   for (const v of t.values) lines.push(`  ${v.name}${v.required ? "" : "?"}: ${v.values ? v.values.map((x) => JSON.stringify(x)).join(" | ") : v.type}${v.description ? ` — ${v.description}` : ""}${vis?.has(v.name) ? "  [not returned to this caller]" : ""}`);
-  for (const c of t.computed) lines.push(`  ${c.name} (computed from ${c.dependsOn.join(", ")}): ${c.type}`);
+  for (const c of t.computed) lines.push(`  ${c.name} (computed from ${c.dependsOn.join(", ")}): ${c.type}${vis?.has(c.name) ? "  [not returned to this caller]" : ""}`);
   for (const r of t.relationships) lines.push(`  → ${r.name}: ${r.target}${r.many ? "[]" : ""}`);
   if (t.visibility) lines.push(`  (read as this caller: ${t.visibility.probed} probed)`);
   for (const e of t.examples ?? []) lines.push(`  example ${e.objectId}: ${JSON.stringify(e.values)}`);

@@ -104,7 +104,13 @@ export interface Proposal {
   readonly findings: readonly Finding[];
   readonly rejected: readonly Rejected[];
   /** The model call that refined it, when one did: what a reviewer needs to reproduce it. */
-  readonly refinedBy?: { readonly model: string; readonly callId: string; readonly configDigest?: string; readonly requestDigest: string; readonly at: string };
+  /**
+   * The model that refined it and what it was asked, by digest: the same
+   * on every run that asks the same, so a rerun's proposal differs only
+   * where the sources or the answer did. The call's id and time are in its
+   * call record (M3 review L8).
+   */
+  readonly refinedBy?: { readonly model: string; readonly configDigest?: string; readonly requestDigest: string };
 }
 
 // ------------------------------------------------------------------ naming

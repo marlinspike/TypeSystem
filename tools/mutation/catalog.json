@@ -583,8 +583,8 @@
       "adr": "0067",
       "description": "An Action's outcome audit row omits the audience the caller read for (review L6).",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : {})",
-      "replace": "...({})",
+      "find": "...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : released.withheld.length",
+      "replace": "...(false ? { details: {} } : released.withheld.length",
       "tests": [
         "packages/domain-airforce/test/m2-adv-release.test.ts"
       ]
@@ -1581,6 +1581,105 @@
       "replace": "${(err as Error).message}",
       "tests": [
         "packages/onboard/test/command.test.ts"
+      ]
+    },
+    {
+      "id": "draft.mcp-host-unconfined",
+      "adr": "0077",
+      "description": "typesys_engineer_draft loads a brief's host without the MCP root's confinement (M3 review H1).",
+      "file": "packages/engineer/src/cli.ts",
+      "find": "path.dirname(path.resolve(briefFile)), within === undefined ? {} : { within });",
+      "replace": "path.dirname(path.resolve(briefFile)), {});",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "draft.content-unbound",
+      "adr": "0075",
+      "description": "Drafting does not bind its context to the audience it was read for, so a fallback with another audience is sent it (M3 review H2).",
+      "file": "packages/engineer/src/draft.ts",
+      "find": "releasedFor: lm.info.audience.id, ",
+      "replace": "",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "llm.fallback-ignores-released-for",
+      "adr": "0075",
+      "description": "A fallback is admitted for content read for another audience (M3 review H2).",
+      "file": "packages/llm/src/llm.ts",
+      "find": "if (request.releasedFor !== undefined && request.releasedFor !== c.info.audience.id) return",
+      "replace": "if (request.releasedFor === \"\") return",
+      "tests": [
+        "packages/llm/test/release-binding.test.ts"
+      ]
+    },
+    {
+      "id": "llm.select-fallbacks-unchecked",
+      "adr": "0075",
+      "description": "A selection falls back to models that do not meet its requirements (M3 review M3).",
+      "file": "packages/llm/src/llm.ts",
+      "find": "return m !== undefined && rejection(m, req, env) === undefined;",
+      "replace": "return m !== undefined;",
+      "tests": [
+        "packages/llm/test/release-binding.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.marking-substring",
+      "adr": "0076",
+      "description": "SECRET inside TOP SECRET counts as a statement of SECRET (M3 review H3).",
+      "file": "packages/onboard/src/sources.ts",
+      "find": "const without = MARKINGS.filter((l) => l !== marking && l.includes(marking))",
+      "replace": "const without = MARKINGS.filter(() => false)",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.last-marking-built",
+      "adr": "0076",
+      "description": "The build keeps the last marking of a field, not the most restrictive (M3 review H3).",
+      "file": "packages/onboard/src/build.ts",
+      "find": "if (held === undefined || rank(marking) < rank(held))",
+      "replace": "if (held === undefined || rank(marking) !== rank(held))",
+      "tests": [
+        "packages/onboard/test/onboard.test.ts"
+      ]
+    },
+    {
+      "id": "onboard.write-unguarded",
+      "adr": "0076",
+      "description": "The onboarding tools write a file they name themselves through a symlink out of the root (M3 review M4).",
+      "file": "packages/onboard/src/command.ts",
+      "find": "const guard = (file: string) => (options.within === undefined ? file : insideRoot(options.within, file));",
+      "replace": "const guard = (file: string) => file;",
+      "tests": [
+        "packages/onboard/test/command.test.ts"
+      ]
+    },
+    {
+      "id": "draft.object-existence-told",
+      "adr": "0077",
+      "description": "The drafting model is told whether an object it was not shown exists (M3 review M2).",
+      "file": "packages/engineer/src/draft.ts",
+      "find": ".filter((d) => d.code !== \"unknown-object\" && d.code !== \"object-unconfirmed\")",
+      "replace": ".filter((d) => d.code !== \"object-unconfirmed\")",
+      "tests": [
+        "packages/engineer/test/draft.test.ts"
+      ]
+    },
+    {
+      "id": "llm.direct-ignores-released-for",
+      "adr": "0075",
+      "description": "A model called directly receives content read for another audience (M3 review H2).",
+      "file": "packages/llm/src/model.ts",
+      "find": "if (request.releasedFor !== undefined && request.releasedFor !== this.info.audience.id) {",
+      "replace": "if (request.releasedFor === \"\") {",
+      "tests": [
+        "packages/llm/test/release-binding.test.ts"
       ]
     }
   ]

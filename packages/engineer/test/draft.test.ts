@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { answeringModel, LlmError, recordedModel, type LlmRecording } from "@typesys/llm";
-import { draftMission, engineerCommand, loadHost, scaffoldMission, verifyMission, type MissionBrief, type MissionDraft, type MissionSpec } from "../src/index.js";
+import { answeringModel, createLlm, LlmError, recordedModel, scriptedAdapter, type LlmConfig, type LlmRecording } from "@typesys/llm";
+import { callEngineerTool, draftMission, engineerCommand, loadHost, scaffoldMission, verifyMission, type MissionBrief, type MissionDraft, type MissionSpec } from "../src/index.js";
 
 /**
  * Drafting a mission from words (ADR-0077): the model proposes, and
@@ -105,5 +106,78 @@ describe("typesys engineer draft", () => {
     expect(await engineerCommand(["draft", path.join(dir, "brief.json"), "--out", out, "--answer", path.join(dir, "1.json"), "--json"], (s) => lines.push(s))).toBe(0);
     expect(JSON.parse(lines.at(-1)!)).toMatchObject({ ok: true, rounds: 1 });
     expect((JSON.parse(readFileSync(out, "utf8")) as MissionSpec).name).toBe("fleet-readiness-board");
+  });
+});
+
+describe("drafting under review (M3 review)", () => {
+  const work = path.join(pkg, ".work", "draft-review");
+  const root = path.join(work, "root");
+  const outside = path.join(work, "outside");
+
+  it("H1: typesys_engineer_draft refuses a host specifier that climbs out of a package, before it runs", async () => {
+    await rm(work, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    const marker = path.join(outside, "draft.ran");
+    const file = path.join(outside, "draft.mjs");
+    writeFileSync(file, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "ran"); export const build = () => ({}); export const ids = () => ({});`);
+    const esbuildDir = path.dirname(createRequire(path.join(root, "noop.js")).resolve("esbuild/package.json"));
+    writeFileSync(path.join(root, "brief.json"), JSON.stringify({ ...brief, host: { module: `esbuild/${path.relative(esbuildDir, file).split(path.sep).join("/")}`, build: "build", identities: "ids" } }));
+    const result = await callEngineerTool(root, "typesys_engineer_draft", { brief: "brief.json", out: "mission.json" });
+    expect(existsSync(marker)).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("M4: typesys_engineer_draft writes no file through a symlink out of its root", async () => {
+    mkdirSync(root, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    const victim = path.join(outside, "victim.txt");
+    writeFileSync(victim, "untouched");
+    // Inside the package, so the brief's host module resolves.
+    const inner = path.join(pkg, ".work", "draft-review-root");
+    await rm(inner, { recursive: true, force: true });
+    mkdirSync(inner, { recursive: true });
+    writeFileSync(path.join(inner, "brief.json"), JSON.stringify(brief));
+    symlinkSync(victim, path.join(inner, "mission.request.txt"));
+    const result = await callEngineerTool(inner, "typesys_engineer_draft", { brief: "brief.json", out: "mission.json" });
+    expect(result.ok).toBe(false);
+    expect(readFileSync(victim, "utf8")).toBe("untouched");
+    await rm(inner, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  });
+
+  it("M2: the model is never told whether an object it was not shown exists; the person is", async () => {
+    const loaded = await loadHost(brief, pkg);
+    const ghost = { ...answer1, acceptance: answer1.acceptance.map((c) => ("objectId" in c && c.objectId === "AF86-0147" ? { ...c, objectId: "AF99-0000" } : c)) };
+    const agent = answeringModel([ghost], "test", { audience: brief.agentAudience! });
+    const r = await draftMission(brief, loaded, agent.model);
+    expect(r.rounds).toHaveLength(1);
+    expect(r.ok).toBe(false);
+    expect(r.rounds[0]!.diagnostics).toContainEqual(expect.objectContaining({ code: "unknown-object" }));
+    expect(agent.needed()).toBeUndefined();
+  });
+
+  it("H2: a fallback with another audience is never sent the context read for the primary", async () => {
+    const loaded = await loadHost(brief, pkg);
+    const config = {
+      format: "typesys.llm/1",
+      providers: { a: { kind: "custom", environment: "private" }, b: { kind: "custom", environment: "private" } },
+      models: {
+        primary: { provider: "a", model: "p", uses: ["development"], capabilities: { structuredOutput: "schema" }, audience: { roles: ["maintainer"], clearance: "SECRET" }, fallbacks: ["fallback"] },
+        fallback: { provider: "b", model: "f", uses: ["development"], capabilities: { structuredOutput: "schema" } }
+      }
+    } as unknown as LlmConfig;
+    const sent: string[] = [];
+    const adapters = {
+      a: scriptedAdapter([{ error: new LlmError("unavailable", "down") }]),
+      b: scriptedAdapter((request) => {
+        sent.push(JSON.stringify(request.messages));
+        return { json: answer1 };
+      })
+    };
+    const lm = createLlm(config, { adapters }).model("primary", "development");
+    const err = await draftMission(brief, loaded, lm).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LlmError);
+    expect(sent).toEqual([]);
   });
 });

@@ -58,7 +58,14 @@ describe.skipIf(!url)("onboarding a live PostgreSQL database and OpenAPI service
 
     const crew = r.review.approved.types.find((t) => t.name === "mx.CrewMember")!;
     const changed = (await env.runtime.invokeAction("ChangeDutyStatus", { [crew.key]: "C-1001", duty: "leave" }, env.everything)) as Record<string, unknown>;
-    expect(changed).toMatchObject({ duty: "leave" });
+    expect(changed).toMatchObject({ id: "C-1001", dutyStatus: "leave" });
+    // The answer is the member as a read gives it to this caller, never the service's own record (M3 review M1).
+    for (const who of [env.everything, env.without("mx.personal-name")]) {
+      const answer = (await env.runtime.invokeAction("ChangeDutyStatus", { [crew.key]: "C-1001", duty: "available" }, who)) as Record<string, unknown>;
+      const read = await env.runtime.getObject("mx.CrewMember", "C-1001", who);
+      expect(Object.keys(answer).sort()).toEqual([...new Set(["id", ...Object.keys(read.values)])].sort());
+      expect(JSON.stringify(answer)).not.toMatch(/full_name|home_unit/);
+    }
     await expect(env.runtime.invokeAction("ChangeDutyStatus", { [crew.key]: "C-1001", duty: "leave" }, env.without("mx.invoke-change-duty-status"))).rejects.toThrow();
   });
 });

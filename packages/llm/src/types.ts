@@ -101,6 +101,14 @@ export interface GenerateRequest {
   readonly seed?: number;
   readonly stopSequences?: readonly string[];
   readonly label?: ContentLabel;
+  /**
+   * The id of the audience the content was read for (ADR-0075): content
+   * the runtime released to one model's audience, as `withAudience(person,
+   * model.info.audience)` reads it, was decided for that audience, and its
+   * label does not say what else it holds. Only a model with this audience
+   * may receive it: a fallback with another is refused, whatever the label.
+   */
+  readonly releasedFor?: string;
   /** What the call is for, recorded with its usage (`onboarding.propose`, `engineer.draft`); never content. */
   readonly purpose?: string;
 }

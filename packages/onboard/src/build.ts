@@ -3,7 +3,7 @@ import { HttpAdapter, type HttpActionMapping, type HttpTypeMapping } from "@type
 import { PostgresTableAdapter, type PostgresColumn, type PostgresTableMapping } from "@typesys/adapter-postgres";
 import type { Pool } from "pg";
 import { kebab, type Proposal, type ProposedType } from "./proposal.js";
-import type { SourceModel } from "./sources.js";
+import { MARKINGS, type SourceModel } from "./sources.js";
 
 /**
  * How a deployment reaches each source: generated with the model, holding
@@ -50,6 +50,7 @@ const env = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
 
 /** The `typesys.pack/1` contents of a proposal: Types, relationships, policies by name, Actions, data sources and mappings, and the adapter configuration that serves them. */
 export function buildDomain(model: SourceModel, p: Proposal, version = "1.0.0"): BuiltDomain {
+  const basePathOf = (source: string) => model.sources.find((x) => x.info.id === source)?.info.basePath ?? "";
   const notes: string[] = [];
   const policies = new Set<string>();
   const typeOf = new Map(p.types.map((t) => [t.entity, t]));
@@ -111,7 +112,7 @@ export function buildDomain(model: SourceModel, p: Proposal, version = "1.0.0"):
       auditRequired: true
     });
     actionsByType.set(t.name, [...(actionsByType.get(t.name) ?? []), a.name]);
-    httpActions.set(op.source, { ...(httpActions.get(op.source) ?? {}), [a.name]: { method: op.method as HttpActionMapping["method"], path: op.path.replace(`{${op.pathParams[0]}}`, `{${keyProp.name}}`), body: Object.keys(bodyProps) } });
+    httpActions.set(op.source, { ...(httpActions.get(op.source) ?? {}), [a.name]: { method: op.method as HttpActionMapping["method"], path: basePathOf(op.source) + op.path.replace(`{${op.pathParams[0]}}`, `{${keyProp.name}}`), body: Object.keys(bodyProps) } });
   }
 
   const types: DomainTypeEntry[] = p.types.map((t) => {
@@ -124,7 +125,13 @@ export function buildDomain(model: SourceModel, p: Proposal, version = "1.0.0"):
       const o = owner(s.field);
       if (o?.type !== t) continue;
       // The marking as a classification scheme names it: `TOP SECRET` is `TOP_SECRET`.
-      if (s.marking) provenance[o.prop.name] = { classification: s.marking.replace(/ /g, "_") };
+      if (s.marking) {
+        // A field flagged twice keeps its most restrictive marking, whichever came last.
+        const marking = s.marking.replace(/ /g, "_");
+        const held = provenance[o.prop.name]?.classification;
+        const rank = (m: string) => MARKINGS.findIndex((x) => x.replace(/ /g, "_") === m);
+        if (held === undefined || rank(marking) < rank(held)) provenance[o.prop.name] = { classification: marking };
+      }
       else if (!propertyPolicies[o.prop.name]) {
         // One rule per kind of data, not per field: an expert decides who may read personal names once.
         const rule = `${p.domain}.${s.category}`;
@@ -190,8 +197,8 @@ export function buildDomain(model: SourceModel, p: Proposal, version = "1.0.0"):
           if (prop) params[prop.name] = q.name;
         }
         types[t.name] = {
-          get: get.path.replace(`{${get.pathParams.at(-1)}}`, "{id}"),
-          list: { path: list.path, items: list.items ?? "", ...(Object.keys(params).length ? { params } : {}) },
+          get: (s.info.basePath ?? "") + get.path.replace(`{${get.pathParams.at(-1)}}`, "{id}"),
+          list: { path: (s.info.basePath ?? "") + list.path, items: list.items ?? "", ...(Object.keys(params).length ? { params } : {}) },
           id: pointerOf(t.properties.find((x) => x.name === t.key)!.field),
           fields: Object.fromEntries(t.properties.map((x) => [x.name, pointerOf(x.field)]))
         };
@@ -219,6 +226,18 @@ export interface AdapterEnvironment {
 }
 
 /** The adapters an `AdapterPlan` describes, with its credentials read from the environment now. A missing one is an error naming the variable. */
+/**
+ * Where the client secret is posted. The token path comes from the collected
+ * OpenAPI document, which is the service's word, not the deployment's: an
+ * absolute URL there could send the secret anywhere. So it must be on the
+ * base URL's origin, which the deployment set (M3 review M5).
+ */
+function tokenUrlFor(source: string, tokenPath: string, baseUrl: string): string {
+  const url = new URL(tokenPath, baseUrl);
+  if (url.origin !== new URL(baseUrl).origin) throw new Error(`${source}'s token endpoint ${url.origin} is not on its base URL's origin; the client secret is sent only there`);
+  return url.href;
+}
+
 export function adaptersFor(plans: readonly AdapterPlan[], environment: AdapterEnvironment): (PostgresTableAdapter | HttpAdapter)[] {
   const need = (name: string) => {
     const v = environment.secret(name);
@@ -233,7 +252,7 @@ export function adaptersFor(plans: readonly AdapterPlan[], environment: AdapterE
     const baseUrl = need(plan.baseUrlEnv);
     const auth =
       plan.auth?.kind === "client-credentials"
-        ? { kind: "client-credentials" as const, tokenUrl: new URL(plan.auth.tokenPath, baseUrl).href, clientId: need(plan.auth.clientIdEnv), clientSecret: need(plan.auth.clientSecretEnv), ...(plan.auth.scope ? { scope: plan.auth.scope } : {}) }
+        ? { kind: "client-credentials" as const, tokenUrl: tokenUrlFor(plan.dataSourceId, plan.auth.tokenPath, baseUrl), clientId: need(plan.auth.clientIdEnv), clientSecret: need(plan.auth.clientSecretEnv), ...(plan.auth.scope ? { scope: plan.auth.scope } : {}) }
         : plan.auth?.kind === "header"
           ? { kind: "header" as const, name: plan.auth.name, value: need(plan.auth.valueEnv) }
           : undefined;

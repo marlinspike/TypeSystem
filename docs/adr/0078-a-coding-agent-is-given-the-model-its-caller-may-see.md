@@ -46,7 +46,9 @@ and an instance-scoped Action is described as decided per object.
 **A budget, kept.** The rendered text, headings and all, stays within
 `maxTokens` (estimated at four characters a token). Items are dropped
 least relevant first, and what was dropped is listed in the text and in
-`omitted`, so the agent knows to ask for it with `focus`.
+`omitted`, so the agent knows to ask for it with `focus`. A task too long
+for the budget is shortened in the header; a budget smaller than the
+rules and header alone is refused.
 
 **Stable and checkable.** The result carries the rendered text, its
 estimated tokens, the structured types and actions, and a sha256 digest

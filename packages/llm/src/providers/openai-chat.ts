@@ -116,8 +116,8 @@ export async function openAiChatAdapter(provider: ResolvedProvider, secrets: Sec
       };
     },
     async listModels(signal) {
-      if (provider.profile.discovery === "ollama") return ollamaModels(provider, headers, signal);
-      if (provider.profile.discovery === "openrouter") return openRouterModels(provider, headers, key, signal);
+      if (provider.profile.discovery === "ollama") return ollamaModels(provider, headers, known, signal);
+      if (provider.profile.discovery === "openrouter") return openRouterModels(provider, headers, key, known, signal);
       const out: DiscoveredModel[] = [];
       try {
         for await (const m of client.models.list({ signal })) out.push({ id: String((m as unknown as { id: string }).id) });
@@ -196,7 +196,7 @@ function usageOf(u: unknown): Usage {
   };
 }
 
-async function getJson(url: string, init: RequestInit, provider: ResolvedProvider): Promise<unknown> {
+async function getJson(url: string, init: RequestInit, provider: ResolvedProvider, known: readonly string[]): Promise<unknown> {
   let res: Response;
   try {
     res = await fetch(url, init);
@@ -204,7 +204,7 @@ async function getJson(url: string, init: RequestInit, provider: ResolvedProvide
     if ((err as Error).name === "AbortError") throw new LlmError("cancelled", `Discovery at ${provider.name} was cancelled`, { provider: provider.name });
     throw new LlmError("unavailable", `${provider.name} could not be reached`, { provider: provider.name });
   }
-  if (!res.ok) throw normalizeSdkError({ status: res.status, headers: res.headers, message: await res.text().catch(() => "") }, provider, []);
+  if (!res.ok) throw normalizeSdkError({ status: res.status, headers: res.headers, message: await res.text().catch(() => "") }, provider, known);
   try {
     return await res.json();
   } catch {
@@ -216,13 +216,13 @@ async function getJson(url: string, init: RequestInit, provider: ResolvedProvide
  * Ollama's own API, for what its OpenAI-compatible one does not say: each
  * model's capabilities (tools, vision) and context length, from `/api/show`.
  */
-async function ollamaModels(provider: ResolvedProvider, headers: Record<string, string>, signal: AbortSignal): Promise<DiscoveredModel[]> {
+async function ollamaModels(provider: ResolvedProvider, headers: Record<string, string>, known: readonly string[], signal: AbortSignal): Promise<DiscoveredModel[]> {
   const root = provider.baseUrl.replace(/\/v1$/, "");
-  const tags = (await getJson(`${root}/api/tags`, { headers, signal }, provider)) as { models?: Record<string, unknown>[] };
+  const tags = (await getJson(`${root}/api/tags`, { headers, signal }, provider, known)) as { models?: Record<string, unknown>[] };
   const out: DiscoveredModel[] = [];
   for (const m of tags.models ?? []) {
     const name = String(m.model ?? m.name);
-    const show = (await getJson(`${root}/api/show`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ model: name }), signal }, provider)) as Record<string, unknown>;
+    const show = (await getJson(`${root}/api/show`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ model: name }), signal }, provider, known)) as Record<string, unknown>;
     const caps = Array.isArray(show.capabilities) ? (show.capabilities as string[]) : undefined;
     const info = (show.model_info ?? {}) as Record<string, unknown>;
     const ctxKey = Object.keys(info).find((k) => k.endsWith(".context_length"));
@@ -248,8 +248,8 @@ async function ollamaModels(provider: ResolvedProvider, headers: Record<string, 
 }
 
 /** OpenRouter's catalog says, per model, which parameters some upstream provider honors. */
-async function openRouterModels(provider: ResolvedProvider, headers: Record<string, string>, key: string | undefined, signal: AbortSignal): Promise<DiscoveredModel[]> {
-  const list = (await getJson(`${provider.baseUrl}/models`, { headers: { ...headers, ...(key ? { authorization: `Bearer ${key}` } : {}) }, signal }, provider)) as { data?: Record<string, unknown>[] };
+async function openRouterModels(provider: ResolvedProvider, headers: Record<string, string>, key: string | undefined, known: readonly string[], signal: AbortSignal): Promise<DiscoveredModel[]> {
+  const list = (await getJson(`${provider.baseUrl}/models`, { headers: { ...headers, ...(key ? { authorization: `Bearer ${key}` } : {}) }, signal }, provider, known)) as { data?: Record<string, unknown>[] };
   return (list.data ?? []).map((m) => {
     const params = Array.isArray(m.supported_parameters) ? (m.supported_parameters as string[]) : [];
     const arch = (m.architecture ?? {}) as Record<string, unknown>;

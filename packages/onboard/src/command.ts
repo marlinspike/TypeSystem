@@ -1,12 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
-import { createLlm, loadLlmConfig, type LanguageModel } from "@typesys/llm";
+import { answeringModel, createLlm, LlmError, loadLlmConfig, type LanguageModel } from "@typesys/llm";
+import { insideRoot } from "@typesys/devkit";
 import type { PackArchive } from "@typesys/packs";
 import { recordedModel, recordRefinement } from "./agent.js";
 import { adaptersFor } from "./build.js";
 import { baseline, type Proposal } from "./proposal.js";
-import { refinementRequest, type Refinement } from "./refine.js";
+import { refine, refinementRequest, type Refinement } from "./refine.js";
 import { decide, REVIEW_FORMAT, type Review } from "./review.js";
 import { onboard } from "./run.js";
 import { fromJsonSchema, fromOpenApi, fromPostgres, introspectPostgres, sourceModel, type CollectedSource } from "./sources.js";
@@ -24,13 +25,15 @@ export const ONBOARD_USAGE = `typesys onboard — describe existing sources as a
       document, JSON Schemas. Several sources: run once per source with the
       same --out; each run adds or replaces its source.
 
-  typesys onboard request <sources.json> --domain <name> [--out <file>]
+  typesys onboard request <sources.json> --domain <name> [--out <file>] [--marking <m>...]
       The request a development model would be sent, for a coding agent to
       answer as the development model (agent mode). Its answer, a JSON
       object matching the request's schema, is given to propose --answer.
+      --marking labels the metadata itself (ADR-0075): marked metadata is
+      not given to a coding agent, which is granted nothing.
 
   typesys onboard propose <sources.json> --domain <name> --out <dir>
-        [--answer <refinement.json> | --model <id> [--llm-config <file>]]
+        [--answer <refinement.json> | --model <id> [--llm-config <file>]] [--marking <m>...]
         [--review <review.json>] [--approved <approved.json>] [--previous <pack.json>] [--version <semver>]
       Baseline, refinement (an agent's answer, a configured model, or
       neither), what was approved before carried forward, the review
@@ -95,7 +98,10 @@ async function readSources(file: string): Promise<CollectedSource[]> {
 }
 
 /** `typesys onboard`: returns the exit code. */
-export async function onboardCommand(argv: readonly string[], out: (s: string) => void = console.log, env: Readonly<Record<string, string | undefined>> = process.env): Promise<number> {
+export async function onboardCommand(argv: readonly string[], out: (s: string) => void = console.log, env: Readonly<Record<string, string | undefined>> = process.env, options: { readonly within?: string } = {}): Promise<number> {
+  // Under MCP every file written must be inside the root, checked as it is written: a name the agent did not give (proposal.json) can be a symlink out.
+  const guard = (file: string) => (options.within === undefined ? file : insideRoot(options.within, file));
+  const put = (file: string, value: unknown) => write(guard(file), value);
   const [sub, ...rest] = argv;
   let args: Args;
   try {
@@ -150,7 +156,7 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
         }
         const sources = [...existing.filter((s) => s.info.id !== collected.info.id), collected];
         sourceModel(sources); // ids must be unique across sources
-        await write(target, { format: SOURCES_FORMAT, sources });
+        await put(target, { format: SOURCES_FORMAT, sources });
         return print(true, { source: collected.info, evidence: collected.evidence.length }, [`Collected ${collected.info.id} (${collected.info.kind}): ${collected.entities.length} entities, ${collected.operations.length} operations, ${collected.evidence.length} facts → ${target}`]);
       }
 
@@ -159,9 +165,17 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
         const domain = one("domain");
         if (!file || !domain) break;
         const model = sourceModel(await readSources(file));
+        if (all("marking").length) {
+          // Asked of the agent as propose --answer would ask it: refused before anything is shown when the label may not go to it.
+          const refused = await refine(model, baseline(model, domain), answeringModel([], "agent").model, { label: { markings: all("marking") } }).then(
+            () => undefined,
+            (err: unknown) => (err instanceof LlmError && err.code === "release-refused" ? err : undefined)
+          );
+          if (refused) throw new Error(`The metadata is marked ${all("marking").join(", ")}: a coding agent may not be sent it; use a configured model whose audience may (--model)`);
+        }
         const req = refinementRequest(model, baseline(model, domain));
         const text = `SYSTEM:\n${req.system}\n\n${req.prompt}\n\nANSWER: one JSON object matching this schema:\n${JSON.stringify(req.schema, null, 2)}\n`;
-        if (one("out")) await writeFile(one("out")!, text, "utf8");
+        if (one("out")) await writeFile(guard(one("out")!), text, "utf8");
         else if (!asJson) out(text);
         return asJson ? print(true, { system: req.system, prompt: req.prompt, schema: req.schema }, []) : one("out") ? print(true, {}, [`Wrote the request to ${one("out")}`]) : 0;
       }
@@ -173,12 +187,13 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
         if (!file || !domain || !dir) break;
         const sources = await readSources(file);
         const model = sourceModel(sources);
+        const label = all("marking").length ? { markings: all("marking") } : undefined;
         let lm: LanguageModel | undefined;
         if (one("answer")) {
           // Agent mode: the answer is recorded against the request it answers, then replayed through the model layer like any model's.
-          const { recording } = await recordRefinement(model, baseline(model, domain), await json<Refinement>(one("answer")!), "a coding agent acting as the development model (agent mode)");
+          const { recording } = await recordRefinement(model, baseline(model, domain), await json<Refinement>(one("answer")!), "a coding agent acting as the development model (agent mode)", undefined, label ? { label } : {});
           await mkdir(dir, { recursive: true });
-          await write(path.join(dir, "recording.json"), [recording]);
+          await put(path.join(dir, "recording.json"), [recording]);
           lm = recordedModel([recording]);
         } else if (one("model")) {
           const config = await loadLlmConfig(one("llm-config"));
@@ -189,6 +204,7 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
         const final = await onboard({
           domain,
           sources,
+          ...(label ? { refineOptions: { label } } : {}),
           ...(lm ? { model: lm } : {}),
           ...(review ? { review } : {}),
           ...(one("approved") ? { approved: await json<Proposal>(one("approved")!) } : {}),
@@ -196,12 +212,12 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
           ...(one("version") ? { version: one("version")! } : {})
         });
         await mkdir(dir, { recursive: true });
-        await write(path.join(dir, "proposal.json"), final.proposal);
-        await write(path.join(dir, "pending.json"), final.review.pending);
-        await write(path.join(dir, "approved.json"), final.review.approved);
-        if (final.verification.pack) await write(path.join(dir, "pack.json"), final.verification.pack);
-        await write(path.join(dir, "adapters.json"), final.verification.built.adapters);
-        await write(path.join(dir, "checks.json"), final.verification.checks);
+        await put(path.join(dir, "proposal.json"), final.proposal);
+        await put(path.join(dir, "pending.json"), final.review.pending);
+        await put(path.join(dir, "approved.json"), final.review.approved);
+        if (final.verification.pack) await put(path.join(dir, "pack.json"), final.verification.pack);
+        await put(path.join(dir, "adapters.json"), final.verification.built.adapters);
+        await put(path.join(dir, "checks.json"), final.verification.checks);
         const v = final.verification;
         const m = final.metrics;
         return print(v.ok, { metrics: m, diagnostics: v.diagnostics, pending: final.review.pending, rejected: final.proposal.rejected, policies: v.built.policies }, [
@@ -227,7 +243,7 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
           if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
         const next = decide(proposal, previous, { by, accept: all("accept"), reject: pairs(all("reject"), "reject"), rename: pairs(all("rename"), "rename"), acceptRest: args.flags.has("accept-rest") });
-        await write(file, next);
+        await put(file, next);
         return print(true, { decisions: Object.keys(next.decisions).length }, [`${Object.keys(next.decisions).length} decisions in ${file}; run propose with --review ${file} to apply them`]);
       }
 

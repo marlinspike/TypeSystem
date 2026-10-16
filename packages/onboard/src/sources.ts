@@ -27,6 +27,12 @@ export interface SourceInfo {
   readonly description?: string;
   /** sha256 of the canonical metadata the evidence was drawn from: a later run compares it. */
   readonly digest: string;
+  /**
+   * The path an OpenAPI document's first server puts every operation under
+   * (`/roster` for `https://svc.example/roster`). Adapters prefix it to the
+   * operations' paths; the deployment's base URL supplies only the origin.
+   */
+  readonly basePath?: string;
 }
 
 /** Why a field may need protecting, found in its name or its documentation. */
@@ -165,7 +171,27 @@ const NAME_RULES: readonly { readonly match: (w: string[]) => boolean; readonly 
   { match: (w) => ["diagnosis", "medical", "health"].some((x) => w.includes(x)), category: "health", reason: "the name says it holds health data" }
 ];
 
-const MARKINGS = ["TOP SECRET", "SECRET", "CONFIDENTIAL", "CUI"];
+/** Classification markings, most restrictive first. */
+export const MARKINGS = ["TOP SECRET", "SECRET", "CONFIDENTIAL", "CUI"] as const;
+
+/** The path of an OpenAPI document's first server, without a trailing slash; empty when it has none or it is templated. */
+function basePathOf(doc: Record<string, unknown>): string {
+  const first: unknown = Array.isArray(doc.servers) ? (doc.servers as unknown[])[0] : undefined;
+  const url = first !== null && typeof first === "object" ? (first as { url?: unknown }).url : undefined;
+  if (typeof url !== "string" || url.includes("{")) return "";
+  try {
+    return new URL(url, "http://base.invalid").pathname.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+/** Whether `text` states `marking` as a whole term: `SECRET` inside `TOP SECRET` is not a statement of SECRET. */
+export function statesMarking(text: string, marking: string): boolean {
+  const escape = (m: string) => m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const without = MARKINGS.filter((l) => l !== marking && l.includes(marking)).reduce((t, l) => t.replace(new RegExp(`\\b${escape(l)}\\b`, "g"), " "), text);
+  return new RegExp(`\\b${escape(marking)}\\b`).test(without);
+}
 
 /** What a field's name and documentation say about its sensitivity. Deterministic, and only ever adds protection. */
 export function sensitivityHints(name: string, description: string | undefined): SensitivityHint[] {
@@ -173,8 +199,8 @@ export function sensitivityHints(name: string, description: string | undefined):
   const w = words(name);
   for (const r of NAME_RULES) if (r.match(w)) out.push({ category: r.category, reason: r.reason });
   const doc = description ?? "";
-  if (/\bclassified\b/i.test(doc) || MARKINGS.some((m) => new RegExp(`\\b${m}\\b`).test(doc))) {
-    const marking = MARKINGS.find((m) => new RegExp(`\\b${m}\\b`).test(doc));
+  if (/\bclassified\b/i.test(doc) || MARKINGS.some((m) => statesMarking(doc, m))) {
+    const marking = MARKINGS.find((m) => statesMarking(doc, m));
     out.push({ category: "classified", ...(marking ? { marking } : {}), reason: `its documentation says it is classified${marking ? ` ${marking}` : ""}` });
   }
   if (/\b(personal data|personally identifiable|pii)\b/i.test(doc)) out.push({ category: "personal", reason: "its documentation says it is personal data" });
@@ -589,7 +615,7 @@ export function fromOpenApi(doc: unknown, options: { readonly source: string; re
     return k && e.fields.some((f) => f.name === k) ? { ...e, key: k } : e;
   });
   return {
-    info: { id: source, kind: "openapi", system: title, ...(typeof info.description === "string" ? { description: info.description } : {}), digest: digestOf(doc) },
+    info: { id: source, kind: "openapi", system: title, ...(typeof info.description === "string" ? { description: info.description } : {}), digest: digestOf(doc), ...(basePathOf(doc) ? { basePath: basePathOf(doc) } : {}) },
     entities: keyed,
     operations,
     ...authOf(doc),

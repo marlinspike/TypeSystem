@@ -64,6 +64,16 @@ const triageWithLocation: AnyWorkflow = {
 };
 
 describe("an AI step falls back only to a model that may receive its input (ADR-0075)", () => {
+  it("a malformed answer is not a reason to ask another model: only the model being unavailable is (M3 review L5)", async () => {
+    const calls: string[] = [];
+    const spare = model(enclaveSpare, { triage: () => TRIAGE }, calls);
+    const malformed = () => Object.assign(new Error("not JSON"), { name: "LlmError", code: "malformed-response", retryable: true });
+    const primary = model(enclaveModel, { triage: () => Promise.reject(malformed()) }, calls, [spare]);
+    const { engine } = await engineWith(primary);
+    await engine.start("airforce.GroundForRepair", START, maintainer).catch(() => undefined);
+    expect(calls.filter((c) => c.startsWith(enclaveSpare.id))).toEqual([]);
+  });
+
   it("an unavailable model falls back to one in the same enclave; the move is journaled and audited, and the run replays", async () => {
     const calls: string[] = [];
     const spare = model(enclaveSpare, { triage: () => TRIAGE }, calls);

@@ -116,7 +116,8 @@ export class PostgresTableAdapter implements Adapter {
   private canonical(m: PostgresTableMapping, row: Record<string, unknown>): { objectId: string; values: Record<string, unknown>; provenance: ProvenanceRef[] } | undefined {
     const id = row[m.id];
     if (typeof id !== "string" && typeof id !== "number" && typeof id !== "bigint") return undefined;
-    const objectId = String(id);
+    // Trimmed as values are, so an id from a query is the id a read takes (`char(n)` pads it).
+    const objectId = typeof id === "string" ? id.trimEnd() : String(id);
     const retrievedAt = new Date().toISOString();
     const values: Record<string, unknown> = {};
     const provenance: ProvenanceRef[] = [];
@@ -132,7 +133,7 @@ export class PostgresTableAdapter implements Adapter {
 
   async resolveProperties(typeName: string, objectId: string, _propertyNames: string[], opts?: AdapterCallOptions): Promise<ResolvedProperties> {
     const m = this.mapping(typeName);
-    const [row] = await this.rows(`${this.select(m)} WHERE ${quoted(m.id)}::text = $1 LIMIT 1`, [objectId], opts?.signal);
+    const [row] = await this.rows(`${this.select(m)} WHERE rtrim(${quoted(m.id)}::text) = $1 LIMIT 1`, [objectId], opts?.signal);
     const c = row ? this.canonical(m, row) : undefined;
     return c ? { values: c.values, provenance: c.provenance } : { values: {}, provenance: [] };
   }
@@ -147,7 +148,8 @@ export class PostgresTableAdapter implements Adapter {
       // Only a column held as-is: a translated or converted value would be compared with the wrong one.
       if (typeof spec !== "string" || (typeof c.value !== "string" && typeof c.value !== "number" && typeof c.value !== "boolean")) continue;
       params.push(String(c.value));
-      where.push(`${quoted(spec)}::text = $${params.length}`);
+      // As the value is returned: `char(n)` padding trimmed from the end, so `eq` finds what a read shows (M3 review L6).
+      where.push(`rtrim(${quoted(spec)}::text) = $${params.length}`);
     }
     const max = this.config.maxRows ?? 10_000;
     const sql = `${this.select(m)}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${quoted(m.id)} LIMIT ${max + 1}`;

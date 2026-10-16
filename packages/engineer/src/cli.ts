@@ -7,6 +7,7 @@ import { scaffoldMission } from "./scaffold.js";
 import { verifyMission } from "./verify.js";
 import { writeFile } from "node:fs/promises";
 import { answeringModel, createLlm, loadLlmConfig, requestText, type LanguageModel } from "@typesys/llm";
+import { insideRoot } from "@typesys/devkit";
 import { BRIEF_FORMAT, draftMission, type MissionBrief } from "./draft.js";
 
 export const ENGINEER_USAGE = `typesys engineer — the engineering loop (ADR-0071)
@@ -55,13 +56,23 @@ async function readSpec(file: string): Promise<{ spec: MissionSpec } | { diagnos
   return parsed.spec ? { spec: parsed.spec } : { diagnostics: parsed.diagnostics };
 }
 
+export interface EngineerCommandOptions {
+  /**
+   * Confine what `draft` loads and writes to this directory, as the MCP
+   * tools are: a host module that is a path or a specifier climbing out
+   * with `..` is refused, and so is every file it would write that is, or
+   * leads through a symlink to, a place outside.
+   */
+  readonly within?: string;
+}
+
 /** Runs `typesys engineer <args>`; returns the exit code. */
-export async function engineerCommand(argv: readonly string[], out: (s: string) => void = console.log): Promise<number> {
+export async function engineerCommand(argv: readonly string[], out: (s: string) => void = console.log, options: EngineerCommandOptions = {}): Promise<number> {
   const [sub, target, ...rest] = argv;
   const json = rest.includes("--json") || argv.includes("--json");
   const outIndex = rest.indexOf("--out");
   const outDir = outIndex >= 0 ? rest[outIndex + 1] : undefined;
-  if (sub === "draft" && target && !target.startsWith("--") && outDir) return draftCommand(target, outDir, rest, json, out);
+  if (sub === "draft" && target && !target.startsWith("--") && outDir) return draftCommand(target, outDir, rest, json, out, options.within);
   if (!target || target.startsWith("--") || !(sub === "plan" || sub === "scaffold" || sub === "verify") || (sub === "scaffold" && !outDir)) {
     out(ENGINEER_USAGE);
     return 1;
@@ -102,7 +113,8 @@ export async function engineerCommand(argv: readonly string[], out: (s: string) 
   return print(true, { ok: true, plan, dir: outDir, files }, [...planLines, `Wrote ${files.length} files to ${outDir}; next: typesys engineer verify ${outDir}`]);
 }
 
-async function draftCommand(briefFile: string, outFile: string, rest: readonly string[], json: boolean, out: (s: string) => void): Promise<number> {
+async function draftCommand(briefFile: string, outFile: string, rest: readonly string[], json: boolean, out: (s: string) => void, within?: string): Promise<number> {
+  const writeTo = (file: string, text: string) => writeFile(within === undefined ? file : insideRoot(within, file), text, "utf8");
   const flag = (name: string) => rest.flatMap((v, i) => (rest[i - 1] === name ? [v] : []));
   const print = (code: number, payload: unknown, lines: string[]) => {
     out(json ? JSON.stringify(payload) : lines.join("\n"));
@@ -115,7 +127,7 @@ async function draftCommand(briefFile: string, outFile: string, rest: readonly s
   } catch (err) {
     return print(1, { ok: false, error: (err as Error).message }, [`INVALID brief — ${(err as Error).message}`]);
   }
-  const loaded = await tryLoadHost({ host: brief.host }, path.dirname(path.resolve(briefFile)));
+  const loaded = await tryLoadHost({ host: brief.host }, path.dirname(path.resolve(briefFile)), within === undefined ? {} : { within });
   if ("diagnostic" in loaded) return print(1, { ok: false, diagnostics: [loaded.diagnostic] }, ["INVALID brief", line(loaded.diagnostic)]);
   const base = outFile.replace(/\.json$/, "");
   let lm: LanguageModel;
@@ -135,8 +147,8 @@ async function draftCommand(briefFile: string, outFile: string, rest: readonly s
   try {
     const feedback = await Promise.all(flag("--feedback").map((f) => readFile(f, "utf8")));
     const result = await draftMission(brief, loaded, lm, { feedback });
-    if (result.spec) await writeFile(outFile, `${JSON.stringify(result.spec, null, 2)}\n`, "utf8");
-    await writeFile(`${base}.draft.json`, `${JSON.stringify({ ok: result.ok, rounds: result.rounds, context: { tokens: result.context.tokens, types: result.context.types.map((t) => t.name), actions: result.context.actions.map((a) => a.name), digest: result.context.digest }, ...(recordings ? { recordings } : {}) }, null, 2)}\n`, "utf8");
+    if (result.spec) await writeTo(outFile, `${JSON.stringify(result.spec, null, 2)}\n`);
+    await writeTo(`${base}.draft.json`, `${JSON.stringify({ ok: result.ok, rounds: result.rounds, context: { tokens: result.context.tokens, types: result.context.types.map((t) => t.name), actions: result.context.actions.map((a) => a.name), digest: result.context.digest }, ...(recordings ? { recordings } : {}) }, null, 2)}\n`);
     const last = result.rounds.at(-1);
     return print(result.ok ? 0 : 1, { ok: result.ok, rounds: result.rounds.length, diagnostics: last?.diagnostics ?? [], out: outFile }, [
       `${result.ok ? "DRAFTED" : "NOT READY"} — ${result.spec?.name ?? "(no spec)"} in ${result.rounds.length} round${result.rounds.length === 1 ? "" : "s"}; review its acceptance checks, then: typesys engineer scaffold ${outFile} --out <dir>`,
@@ -146,7 +158,7 @@ async function draftCommand(briefFile: string, outFile: string, rest: readonly s
   } catch (err) {
     const request = needed?.() as Parameters<typeof requestText>[0] | undefined;
     if (!request) throw err;
-    await writeFile(`${base}.request.txt`, `${requestText(request)}\n`, "utf8");
+    await writeTo(`${base}.request.txt`, `${requestText(request)}\n`);
     return print(2, { ok: false, answerNeeded: `${base}.request.txt`, answered: answers.length }, [`The coding agent's answer ${answers.length + 1} is needed: the request is in ${base}.request.txt. Write the answer as JSON and run again with one more --answer.`]);
   }
 }

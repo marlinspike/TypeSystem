@@ -29,7 +29,7 @@ describe("PostgresTableAdapter", () => {
       await pool.query(`DROP SCHEMA IF EXISTS pta CASCADE; CREATE SCHEMA pta;
         CREATE TABLE pta.unit (cd char(6) PRIMARY KEY, nm text);
         CREATE TABLE pta.item (id integer PRIMARY KEY, unit_cd char(6) REFERENCES pta.unit, st char(1), qty numeric(6,1), seen date);
-        INSERT INTO pta.unit VALUES ('388FW', 'Fighter Wing'), ('419FW', NULL);
+        INSERT INTO pta.unit VALUES ('388FW', 'Fighter Wing'), ('419FW', NULL), ('512AW', 'Airlift Wing  ');
         INSERT INTO pta.item VALUES (1, '388FW', 'A', 12.5, '2026-09-30'), (2, '388FW', 'Z', NULL, NULL), (3, '419FW', 'R', 3, '2026-01-02');`);
     });
     afterAll(async () => {
@@ -64,6 +64,14 @@ describe("PostgresTableAdapter", () => {
       const page = await a.queryByType("t.Item", undefined, 2, undefined, [{ property: "unit", direction: "desc" }]);
       expect(page.items.map((o) => o.objectId)).toEqual(["3", "1"]);
       expect(page.nextCursor).toBe("2");
+    });
+
+    it("finds by eq what a read returns, trailing spaces trimmed, alone or inside an or (M3 review L6)", async () => {
+      const a = adapter();
+      expect((await a.resolveProperties("t.Unit", "512AW", [])).values).toEqual({ code: "512AW", name: "Airlift Wing" });
+      const eq = { property: "name", operator: "eq" as const, value: "Airlift Wing" };
+      expect((await a.queryByType("t.Unit", eq)).items.map((o) => o.objectId)).toEqual(["512AW"]);
+      expect((await a.queryByType("t.Unit", { or: [eq, { property: "code", operator: "eq", value: "nothing" }] })).items.map((o) => o.objectId)).toEqual(["512AW"]);
     });
 
     it("follows a foreign key and an own field", async () => {

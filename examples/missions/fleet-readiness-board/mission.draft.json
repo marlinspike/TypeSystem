@@ -164,12 +164,12 @@
       },
       "diagnostics": [],
       "call": {
-        "callId": "c8c28e5a-21be-4c35-af2a-c3b20d01ae92",
+        "callId": "a72c4a54-8edc-4d61-8d63-304b68483d04",
         "model": "agent",
-        "inputTokens": 2546,
+        "inputTokens": 2554,
         "outputTokens": 590,
         "estimated": true,
-        "latencyMs": 30
+        "latencyMs": 27
       }
     },
     {
@@ -344,9 +344,9 @@
         }
       ],
       "call": {
-        "callId": "2e96ae8e-1459-4c76-809d-c1787b0651b3",
+        "callId": "8e8296e4-62ac-462a-bf23-621fbc57ee34",
         "model": "agent",
-        "inputTokens": 3320,
+        "inputTokens": 3328,
         "outputTokens": 619,
         "estimated": true,
         "latencyMs": 1
@@ -354,7 +354,7 @@
     }
   ],
   "context": {
-    "tokens": 1202,
+    "tokens": 1209,
     "types": [
       "airforce.WorkOrder",
       "airforce.Aircraft",
@@ -367,14 +367,14 @@
       "CreateMaintenanceWorkOrder",
       "UpdateWorkOrderStatus"
     ],
-    "digest": "sha256:8c5865bd721917bcfd5bee232001198c54a746091f38258f097b1056a63dbc52"
+    "digest": "sha256:65127ce990d14dd93c5de01819fcf1192c2f5ec0ab4885aa19d40e53c1afb4aa"
   },
   "recordings": [
     {
       "format": "typesys.llm-recording/1",
-      "key": "7dfb350ec6bc0da2070dea8c085cd6f61ff0ffa941fc4f4b6a83e728e5a66051",
+      "key": "78a96325aeef2399e6f44761cfa4c2a88c60ea50265bfc4619ef3aeead4db938",
       "producedBy": "a coding agent acting as the development model (agent mode)",
-      "at": "2026-10-16T14:14:48.527Z",
+      "at": "2026-10-16T15:00:48.259Z",
       "answer": {
         "json": {
           "name": "fleet-readiness-board",
@@ -540,9 +540,9 @@
     },
     {
       "format": "typesys.llm-recording/1",
-      "key": "92518b4e862ef125c1a1dd721b6fc3496bd1a6507e55977d90432f8449c9aaae",
+      "key": "f36b60ca5364f588d276e5d85573424056200388cbcb7e156f1345573b0800e0",
       "producedBy": "a coding agent acting as the development model (agent mode)",
-      "at": "2026-10-16T14:14:48.581Z",
+      "at": "2026-10-16T15:00:48.308Z",
       "answer": {
         "json": {
           "name": "fleet-readiness-board",

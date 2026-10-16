@@ -38,6 +38,14 @@ typesys onboard collect --postgres MXDB_URL --schema mx --source mxdb --system M
 typesys onboard collect --openapi https://roster.internal/openapi.json --source roster --out sources.json
 ```
 
+The path of an OpenAPI document's first server (`/roster` for
+`https://svc.example/roster`) is kept and put before every request path.
+The deployment's base URL gives the origin, and a client secret is posted
+only to that origin. If the metadata itself is classified, label it with
+`--marking SECRET` on `request` and `propose`. Marked metadata is then
+sent only to a configured model whose audience may receive it, never to a
+coding agent.
+
 Only catalog metadata is read: no rows.
 
 ### Refine with a model, or without one

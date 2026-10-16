@@ -337,11 +337,18 @@ export class HttpAdapter implements Adapter {
     if (!res.ok) throw new Error(`${this.config.system} rejected ${action.name} (${res.status})`);
     const text = await res.text();
     if (!text) return {};
+    let answer: unknown;
     try {
-      return JSON.parse(text) as unknown;
+      answer = JSON.parse(text) as unknown;
     } catch {
       throw new AdapterUnavailableError(`${this.config.system} answered ${action.name} with something that is not JSON`, { retryable: false });
     }
+    // An answer describing an object of the Action's output Type is that object, mapped as a read maps it, so
+    // the runtime can release it like a read (ADR-0075); the service's own field names never reach a caller.
+    const out = action.outputType ? this.config.types[action.outputType] : undefined;
+    if (!out) return answer;
+    const c = this.canonical(out, answer);
+    return c ? { id: c.objectId, ...c.values } : {};
   }
 }
 

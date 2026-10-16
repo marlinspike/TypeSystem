@@ -242,7 +242,8 @@ const CREDENTIAL_HEADER = /^(authorization|proxy-authorization|x-api-key|api-key
 function isLoopback(url: string): boolean {
   try {
     const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
-    return host === "localhost" || host === "::1" || /^127\./.test(host);
+    // An IPv4 literal in 127/8; `127.attacker.example` is a name, resolved wherever DNS says.
+    return host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
   } catch {
     return false;
   }

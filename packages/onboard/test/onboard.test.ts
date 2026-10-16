@@ -7,6 +7,7 @@ import {
   applyRefinement,
   applyReview,
   baseline,
+  buildDomain,
   carryForward,
   checkValues,
   decide,
@@ -17,6 +18,7 @@ import {
   recordedModel,
   refinementRequest,
   sourceModel,
+  statesMarking,
   verifyProposal,
   type CollectedSource,
   type PgCatalog,
@@ -146,12 +148,31 @@ describe("a model's refinement is applied only where the evidence supports it", 
     expect(p.sensitive.filter((s) => s.field === `${ACFT}.depl_loc`).map((s) => s.marking)).toEqual(["SECRET"]);
     expect(p.rejected).toHaveLength(1);
   });
+
+  it("a model cannot lower a marking: SECRET inside TOP SECRET is not a statement of SECRET, and the most restrictive marking is built (M3 review H3)", () => {
+    expect(statesMarking("CLASSIFIED: TOP SECRET when populated", "SECRET")).toBe(false);
+    expect(statesMarking("CLASSIFIED: TOP SECRET when populated", "TOP SECRET")).toBe(true);
+    expect(statesMarking("SECRET, not TOP SECRET", "SECRET")).toBe(true);
+    const ts: PgCatalog = { ...catalog, tables: catalog.tables.map((t) => (t.name === "acft" ? { ...t, columns: t.columns.map((c) => (c.name === "depl_loc" ? { ...c, comment: "Forward deployment location. CLASSIFIED: TOP SECRET when populated" } : c)) } : t)) };
+    const m = sourceModel(collect(ts));
+    const b = baseline(m, "mx");
+    expect(b.sensitive.find((x) => x.field === `${ACFT}.depl_loc`)).toMatchObject({ marking: "TOP SECRET" });
+    const p = applyRefinement(m, b, { ...bare, sensitive: [{ field: `${ACFT}.depl_loc`, category: "location", marking: "SECRET", reason: "a location", cites: [] }] });
+    expect(p.rejected).toHaveLength(1);
+    // Even a lower marking that got through is never the one built.
+    const lowered = { ...p, sensitive: [...p.sensitive, { ...p.sensitive.find((x) => x.field === `${ACFT}.depl_loc`)!, id: "sensitive:low", category: "location" as const, marking: "SECRET" }] };
+    const built = JSON.stringify(buildDomain(m, lowered).manifest);
+    expect(built).toContain("TOP_SECRET");
+    expect(built).not.toMatch(/"classification":"SECRET"/);
+  });
 });
 
 describe("agent mode: a recorded answer replays only for the request it answered", () => {
   it("replays through the model layer, validated and accounted, and declares itself hosted and for development only", async () => {
     const r = await onboard({ domain: "mx", sources: collect(), model: recordedModel(recordings) });
     expect(r.proposal.refinedBy).toMatchObject({ model: "agent" });
+    // A rerun asking the same is the same proposal, byte for byte (M3 review L8).
+    expect(JSON.stringify((await onboard({ domain: "mx", sources: collect(), model: recordedModel(recordings) })).proposal)).toBe(JSON.stringify(r.proposal));
     expect(r.metrics.model).toMatchObject({ id: "agent", estimated: true });
     expect(r.metrics.model!.outputTokens).toBeGreaterThan(0);
     expect(recordings[0]!.producedBy).toMatch(/agent mode/);
@@ -231,5 +252,34 @@ describe("review: only what an expert approved is installed, and later runs keep
     const v = await verifyProposal(without, approved);
     expect(v.ok).toBe(false);
     expect(v.diagnostics.map((d) => d.code)).toContain("ungrounded");
+  });
+});
+
+describe("adapters from the proposal (M3 review M5)", () => {
+  it("post the client secret only to the base URL's origin, whatever the OpenAPI document says", async () => {
+    const { adaptersFor } = await import("../src/index.js");
+    const plan = (tokenPath: string) => [{ kind: "http" as const, dataSourceId: "roster", system: "Crew Roster", baseUrlEnv: "ROSTER_BASE_URL", auth: { kind: "client-credentials" as const, tokenPath, clientIdEnv: "ID", clientSecretEnv: "SECRET", scope: "" }, types: {}, actions: {} }];
+    const secrets: Record<string, string> = { ROSTER_BASE_URL: "https://roster.internal/api/", ID: "c", SECRET: "s" };
+    expect(() => adaptersFor(plan("/oauth/token"), { secret: (n) => secrets[n] })).not.toThrow();
+    expect(() => adaptersFor(plan("http://collector.attacker.example/token"), { secret: (n) => secrets[n] })).toThrow(/not on its base URL's origin/);
+  });
+});
+
+describe("OpenAPI servers (M3 review L7)", () => {
+  it("the first server's path is kept, and every onboarded request goes under it", () => {
+    const doc = { ...(openapi as Record<string, unknown>), servers: [{ url: "https://roster.example/roster/v2/" }] };
+    const m = sourceModel([fromOpenApi(doc, { source: "roster" })]);
+    expect(m.sources[0]!.info.basePath).toBe("/roster/v2");
+    const b = baseline(m, "mx");
+    const built = buildDomain(m, b);
+    const http = built.adapters.find((a) => a.kind === "http") as unknown as { types: Record<string, { get: string; list: { path: string } }>; actions: Record<string, { path: string }> };
+    expect(Object.keys(http.types).length).toBeGreaterThan(0);
+    expect(Object.keys(http.actions).length).toBeGreaterThan(0);
+    for (const t of Object.values(http.types)) {
+      expect(t.get.startsWith("/roster/v2/")).toBe(true);
+      expect(t.list.path.startsWith("/roster/v2/")).toBe(true);
+    }
+    for (const a of Object.values(http.actions)) expect(a.path.startsWith("/roster/v2/")).toBe(true);
+    expect(sourceModel([fromOpenApi(openapi, { source: "roster" })]).sources[0]!.info.basePath).toBeUndefined();
   });
 });
