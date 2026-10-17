@@ -1,0 +1,60 @@
+{
+  "name": "@typesys/ui",
+  "version": "0.1.0",
+  "description": "The React composition layer compiled TypeSystem applications are built from: semantic components (KPIs, interactive tables, entity detail, timelines, graphs, maps, charts, forms, approval queues, run views, AI assistance) over the governed SDK, with loading, empty, error, withheld and partial-data states, behavior kept apart from two design systems, and extension points for your own components.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./styles.css": "./styles/ui.css"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/marlinspike/TypeSystem/tree/main/packages/ui#readme",
+  "keywords": [
+    "typesys",
+    "react",
+    "dashboard",
+    "components",
+    "design-system"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "styles"
+  ],
+  "dependencies": {
+    "@tanstack/react-table": "8.21.3",
+    "@typesys/app": "0.1.0",
+    "@typesys/core": "0.1.0",
+    "@typesys/react": "0.1.0",
+    "@typesys/sdk": "0.1.0",
+    "d3-force": "3.0.0",
+    "d3-geo": "3.1.1",
+    "recharts": "3.10.1",
+    "topojson-client": "3.1.0",
+    "us-atlas": "3.0.1",
+    "world-atlas": "2.0.2"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/d3-force": "3.0.10",
+    "@types/d3-geo": "3.1.1",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@types/topojson-client": "3.1.5",
+    "@types/topojson-specification": "1.0.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

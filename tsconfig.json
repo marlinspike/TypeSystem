@@ -28,6 +28,8 @@
     { "path": "packages/adapter-http" },
     { "path": "packages/sortie-readiness" },
     { "path": "packages/evaluation" },
+    { "path": "packages/app" },
+    { "path": "packages/ui" },
     { "path": "packages/compiler" }
   ]
 }

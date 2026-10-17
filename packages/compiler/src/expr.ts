@@ -152,7 +152,8 @@ export function checkExpr(e: unknown, scope: Scope, at: string, d: Diagnostics):
     const fty = field?.ty ?? UNKNOWN;
     if (op === "pluck") return carrying({ t: "list", of: fty }, list);
     if (fty.t !== "number" && fty.t !== "unknown") d.error("type-mismatch", `${opAt}/1`, `${op} adds up numbers, and "${name}" is ${describe(fty)}`);
-    return { ...carrying(op === "sum" ? NUMBER : fty.t === "number" ? fty : NUMBER, list), ...(op === "sum" ? {} : { nullable: true }) };
+    // A field the runtime may withhold from one element makes the total unknown, not the total of the rest.
+    return { ...carrying(op === "sum" ? NUMBER : fty.t === "number" ? fty : NUMBER, list), ...(op === "sum" ? {} : { nullable: true }), ...(field?.optional ? { withheld: true } : {}) };
   }
   const args = raw.map((x, i) => checkExpr(x as Expr, scope, `${opAt}/${i}`, d));
   switch (op) {

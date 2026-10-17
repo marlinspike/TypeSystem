@@ -687,6 +687,27 @@ drafted a mission from this repository. Eight `context.*`, `draft.*` and
 this work (`docs/reviews/m3-adversarial-review.md`) found 17 defects,
 three High, and each is fixed with a test.
 
+## 4.0: applications compiled from a typed IR (in progress)
+
+`@typesys/compiler` (ADR-0079 to ADR-0084) checks a `typesys.app/1`
+specification against the model and the host's own policy answers, then
+generates an ordinary TypeScript and React application over the existing
+runtime, workflow engine, SDK and HTTP layer: `defineWorkflow` flows,
+pages built from `@typesys/ui` components, and a server from
+`@typesys/app/server`. `packages/compiler/test/check.test.ts` covers the
+checker's diagnostics; `packages/compiler/test/compile.test.ts` shows the
+squadron fixture compiled, type-checked by tsc, bundled, and passing its
+four API checks and one screen check in Chromium, and in a browser a
+maintainer grounding an aircraft from a table and the lead approving it
+from their own queue while the maintainer's queue never shows their own
+run. It also shows a second compile writes nothing, a hand edit to a
+generated file stops the compile at that file, a removed page's file is
+removed, a handwritten function's stub is written once and never again,
+and a function that drifts from its generated contract fails the build at
+the contract check. The reference application, the mission migration, the
+agent surface (CLI, MCP, context compiler) and the productivity
+measurement are not built yet; this section is updated as each lands.
+
 ## Real but narrow — the mechanism exists, exercised once
 
 - Property-level policy is exercised on several fields, not just the two

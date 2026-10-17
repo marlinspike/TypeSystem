@@ -8,9 +8,6 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "bin": {
-    "typesys-app": "./dist/bin.js"
-  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,10 +24,16 @@
     "@typesys/core": "0.1.0",
     "@typesys/devkit": "0.1.0",
     "@typesys/engineer": "0.1.0",
+    "@typesys/llm": "0.1.0",
+    "@typesys/react": "0.1.0",
     "@typesys/sdk": "0.1.0",
-    "@typesys/workflow": "0.1.0"
+    "@typesys/workflow": "0.1.0",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.56.1"
   },
   "devDependencies": {
-    "@typesys/domain-airforce": "0.1.0"
+    "@typesys/app": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/ui": "0.1.0"
   }
 }

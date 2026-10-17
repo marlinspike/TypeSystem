@@ -6,3 +6,8 @@ export * from "./expr.js";
 export * from "./parse.js";
 export * from "./skeleton.js";
 export * from "./check.js";
+export * from "./build.js";
+export * from "./compile.js";
+export * from "./verify.js";
+export { pageSource, appSource } from "./emit/pages.js";
+export { flowSource } from "./emit/flows.js";
