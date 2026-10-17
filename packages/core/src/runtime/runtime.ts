@@ -19,7 +19,9 @@ import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
-import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery, type DiscoveryGate } from "./discovery.js";
+import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery, type DiscoveryGate, type Withheld } from "./discovery.js";
+import { buildInspection, type InspectionGate, type InspectionOptions, type ModelInspection } from "./inspection.js";
+import { EXPLANATION_CAVEAT, EXPLANATION_FORMAT, summarize, type ExplainOptions, type ExplainQuestion, type Explanation, type ExplanationOutcome, type Finding, type ObservedDecision, type TraceEntry } from "./explain.js";
 import { describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
@@ -158,7 +160,7 @@ function telemetryOf(policy: unknown): Telemetry {
 }
 
 /** The public runtime operations, as audit rows name them (ADR-0042). */
-export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction" | "describeModel";
+export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance" | "query" | "aggregate" | "explainQuery" | "listActions" | "invokeAction" | "previewAction" | "describeModel" | "inspectModel" | "explain";
 
 /** Why a previewed Action would not run (ADR-0053), in the order the runtime checks. */
 export interface ActionBlocker {
@@ -308,6 +310,12 @@ interface RequestContext {
   operation: RuntimeOperation;
   /** Computed properties' adapter reads, coalesced for this request when the runtime is so configured (ADR-0062). */
   reads?: ReadCoalescer;
+  /**
+   * Set while an explanation runs (ADR-0089): every decision the runtime makes
+   * is also kept here, with its policy's name, and the subject's own rate limit
+   * is not charged for an investigation of them.
+   */
+  explanation?: { readonly investigator: string; readonly trace: TraceEntry[] };
 }
 
 /**
@@ -320,6 +328,9 @@ interface RequestContext {
  * operation.
  */
 const requests = new AsyncLocalStorage<RequestContext>();
+
+/** Marks a decision the subject's audience refused (ADR-0067), for an explanation's trace only: never serialized. */
+const REFUSED_BY_AUDIENCE = Symbol("refusedByAudience");
 
 function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reason: string | undefined, identity: Identity): AuthorizationError {
   const target = resource.actionName ?? resource.propertyPath ?? resource.objectId;
@@ -409,6 +420,12 @@ export interface SemanticRuntimeOptions {
    * what the caller could use. `HIGH_ASSURANCE_V2` requires `"need-to-know"`.
    */
   discovery?: Discovery;
+  /**
+   * Who may inspect the enforcement structure (ADR-0088): sources, mappings,
+   * policies and markings. Omitted, nobody may. The policy is decided by the
+   * runtime's engine like any other.
+   */
+  inspection?: InspectionOptions;
 }
 
 /** Every option a runtime understands — under a security profile, anything else is refused as a likely typo. */
@@ -424,7 +441,8 @@ const RUNTIME_OPTIONS: Readonly<Record<keyof SemanticRuntimeOptions, true>> = {
   rowSecurity: true,
   securityProfile: true,
   computedReads: true,
-  discovery: true
+  discovery: true,
+  inspection: true
 };
 
 const isFunction = (value: unknown): boolean => typeof value === "function";
@@ -508,6 +526,8 @@ export class SemanticRuntime {
   private readonly coalesceComputedReads: boolean;
   /** Who may learn what the model is (ADR-0068). */
   readonly discovery: Discovery;
+  /** Who may inspect the enforcement structure (ADR-0088); undefined, nobody. */
+  private readonly inspection: InspectionOptions | undefined;
 
   constructor(
     private readonly registry: SemanticRegistry,
@@ -543,6 +563,9 @@ export class SemanticRuntime {
     const discovery = options.discovery ?? "open";
     if (!DISCOVERY_MODES.includes(discovery)) throw new TypeError(`discovery must be one of ${DISCOVERY_MODES.map((m) => `"${m}"`).join(", ")}`);
     this.discovery = discovery;
+    const inspection = options.inspection;
+    if (inspection !== undefined && (typeof inspection?.policy !== "string" || inspection.policy === "")) throw new TypeError("inspection.policy must name a policy");
+    this.inspection = inspection === undefined ? undefined : { policy: inspection.policy };
     // Only an omitted option means the default: an explicit `null` is malformed, and "clear" is the least private choice.
     this.telemetry = telemetryOf(options.telemetryIdentity === undefined ? "clear" : options.telemetryIdentity);
     this.mappingResolver = new MappingResolver(registry);
@@ -591,6 +614,16 @@ export class SemanticRuntime {
       const budget = this.currentRequest()?.budget;
       return budget ? budget.run(() => requests.exit(invoke)) : invoke();
     };
+    const explanation = this.currentRequest()?.explanation;
+    // A source that fails while an explanation runs is a finding of its own (ADR-0089), timeouts and open breakers included.
+    const traced = (call: Promise<unknown>): Promise<unknown> =>
+      !explanation || typeof (call as { catch?: unknown } | undefined)?.catch !== "function"
+        ? call
+        : call.catch((err: unknown) => {
+            const failure = sourceFailure(err);
+            if (failure) explanation.trace.push({ subjectId: "", action: "read", typeName: "", allow: false, control: "source", reason: failure, policy: dataSourceId });
+            throw err;
+          });
 
     return new Proxy(adapter, {
       get(target, prop, receiver) {
@@ -600,7 +633,7 @@ export class SemanticRuntime {
 
         // No resilience policy: the exact pre-ADR-0026 path — budget only, original args, no signal.
         if (resilience.isNoop) {
-          return (...args: unknown[]) => underBudget(() => method.apply(target, args));
+          return (...args: unknown[]) => traced(underBudget(() => method.apply(target, args)));
         }
 
         // With a policy the breaker/timeout/retry wrap the budget, so backoff sleeps don't hold a
@@ -609,10 +642,10 @@ export class SemanticRuntime {
         // computation calling `queryByType(type, filter)` must not have the signal taken as its `limit`.
         return (...args: unknown[]) => {
           const retryable = isRetryableAdapterCall(prop, args);
-          return resilience.run(dataSourceId, retryable, (signal) => {
+          return traced(resilience.run(dataSourceId, retryable, (signal) => {
             const callArgs = signal ? withSignal(prop, args, signal) : args;
             return underBudget(() => method.apply(target, callArgs));
-          });
+          }));
         };
       }
     });
@@ -638,6 +671,8 @@ export class SemanticRuntime {
   }
 
   private async checkRateLimit(identity: Identity): Promise<void> {
+    // An investigation is charged to the investigator once, when it starts (ADR-0089), never to the subject it replays.
+    if (this.currentRequest()?.explanation) return;
     if (!(await this.rateLimiter.tryAcquire(identity.subjectId))) {
       throw new RateLimitExceededError(`Rate limit exceeded for subject "${identity.subjectId}"`);
     }
@@ -882,7 +917,7 @@ export class SemanticRuntime {
     const [forPerson, forAudience] = await Promise.all([this.decideFor({ ...request, subject: person }), this.decideFor({ ...request, subject: audience })]);
     const faults = [...(forPerson.faults ?? []), ...(forAudience.faults ?? [])];
     if (!forPerson.allow) return { ...forPerson, ...(faults.length ? { faults } : {}) };
-    if (!forAudience.allow) return { allow: false, reason: `Not releasable to ${audience.subjectId}: ${forAudience.reason ?? "not allowed"}`, ...(faults.length ? { faults } : {}) };
+    if (!forAudience.allow) return { allow: false, reason: `Not releasable to ${audience.subjectId}: ${forAudience.reason ?? "not allowed"}`, ...(faults.length ? { faults } : {}), [REFUSED_BY_AUDIENCE]: true } as PolicyDecision;
     return { ...forPerson, ...(faults.length ? { faults } : {}) };
   }
 
@@ -913,10 +948,32 @@ export class SemanticRuntime {
     action: "read" | "invoke",
     resource: PolicyResource,
     decision: PolicyDecision,
-    details?: Record<string, unknown>
+    details?: Record<string, unknown>,
+    traced?: { policy?: string; byAudience?: boolean }
   ): Promise<void> {
     recordPolicyDecision(decision.allow ? "allow" : "deny");
-    const operation = this.currentRequest()?.operation;
+    const request = this.currentRequest();
+    const operation = request?.operation;
+    const explanation = request?.explanation;
+    if (explanation) {
+      explanation.trace.push({
+        subjectId: identity.subjectId,
+        action,
+        typeName: resource.typeName,
+        ...(resource.objectId !== undefined ? { objectId: resource.objectId } : {}),
+        ...(resource.propertyPath !== undefined ? { propertyPath: resource.propertyPath } : {}),
+        ...(resource.actionName !== undefined ? { actionName: resource.actionName } : {}),
+        allow: decision.allow,
+        ...(decision.reason !== undefined ? { reason: decision.reason } : {}),
+        ...(typeof details?.control === "string" ? { control: details.control } : traced?.policy ? { control: "policy" } : {}),
+        ...(traced?.policy ? { policy: traced.policy } : {}),
+        ...(traced?.byAudience ? { byAudience: true } : {}),
+        ...(Array.isArray(details?.markings) ? { markings: details.markings as string[] } : {}),
+        ...(Array.isArray(details?.inputs) ? { inputs: details.inputs as string[] } : {}),
+        ...(Array.isArray(details?.released) ? { released: details.released as string[] } : {})
+      });
+      details = { ...details, explainedBy: explanation.investigator };
+    }
     await this.registry.appendAuditEvent({
       id: ulid(),
       timestamp: new Date().toISOString(),
@@ -934,7 +991,7 @@ export class SemanticRuntime {
   private async evaluate(identity: Identity, action: "read" | "invoke", policyName: string, resource: PolicyResource): Promise<PolicyDecision> {
     const decision = await this.decide({ subject: identity, action, policyName, resource });
     if (decision.faults) recordPolicyFaults(decision.faults.length);
-    await this.audit(identity, action, resource, decision, decision.faults ? { faults: decision.faults } : undefined);
+    await this.audit(identity, action, resource, decision, decision.faults ? { faults: decision.faults } : undefined, { policy: policyName, byAudience: (decision as { [REFUSED_BY_AUDIENCE]?: true })[REFUSED_BY_AUDIENCE] === true });
     return decision;
   }
 
@@ -956,13 +1013,13 @@ export class SemanticRuntime {
     markings: readonly string[],
     resource: PolicyResource,
     action: "read" | "invoke"
-  ): { allow: boolean; label: readonly string[]; reason?: string } {
+  ): { allow: boolean; label: readonly string[]; reason?: string; byAudience?: true } {
     const { person, audience } = principalsOf(identity);
     const forPerson = this.classifyFor(person, markings, resource, action);
     if (!audience || !forPerson.allow) return forPerson;
     // Releasing marked data to an audience needs the audience cleared for it too (ADR-0067).
     const forAudience = this.classifyFor(audience, markings, resource, action);
-    return forAudience.allow ? forPerson : { ...forAudience, reason: `not releasable to ${audience.subjectId}: ${forAudience.reason ?? "refused"}` };
+    return forAudience.allow ? forPerson : { ...forAudience, reason: `not releasable to ${audience.subjectId}: ${forAudience.reason ?? "refused"}`, byAudience: true };
   }
 
   private classifyFor(
@@ -1009,7 +1066,7 @@ export class SemanticRuntime {
   ): Promise<boolean> {
     const marked = [...new Set(markings)];
     if (marked.length === 0) return true;
-    const { allow, label, reason } = this.classify(identity, marked, resource, action);
+    const { allow, label, reason, byAudience } = this.classify(identity, marked, resource, action);
     const details = {
       control: "classification",
       scheme: this.classification.name,
@@ -1019,7 +1076,7 @@ export class SemanticRuntime {
       ...(identity.audience ? { audienceClearance: identity.audience.clearance ?? null } : {}),
       ...(reason ? { reason } : {})
     };
-    await this.audit(identity, action, resource, allow ? { allow } : { allow, reason: CLEARANCE_REASON }, details);
+    await this.audit(identity, action, resource, allow ? { allow } : { allow, reason: CLEARANCE_REASON }, details, byAudience ? { byAudience } : undefined);
     return allow;
   }
 
@@ -1274,7 +1331,11 @@ export class SemanticRuntime {
       identity,
       objectId,
       typeName: typeDef.name,
-      getAdapter: (dataSourceId: string) => (reads ? reads.view(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId)),
+      getAdapter: (dataSourceId: string) => {
+        // A declared list is lineage the inspection reports as authoritative (ADR-0088), so it is enforced.
+        if (cp.reads && !cp.reads.includes(dataSourceId)) throw new TypeError(`Computed property "${cp.name}" on "${typeDef.name}" reads data source "${dataSourceId}", which its reads do not declare`);
+        return reads ? reads.view(this.getAdapter(dataSourceId)) : this.getAdapter(dataSourceId);
+      },
       getProperty: async (name: string) => {
         if (!cp.dependsOn.includes(name)) return undefined;
         if (name in values) return values[name];
@@ -1500,7 +1561,7 @@ export class SemanticRuntime {
         if (this.rowSecurity === "require-exact" && !isExact(plan)) {
           const codes = limitationsOf(plan).map((l) => l.code).join(", ");
           const message = `Refused under rowSecurity "require-exact": policy "${objectPolicyOf(typeDef)}" has no exact plan for this subject (${codes})`;
-          await this.audit(identity, "read", typeResource, { allow: false, reason: message }, { control: "row-plan", ...planSummary(plan) });
+          await this.audit(identity, "read", typeResource, { allow: false, reason: message }, { control: "row-plan", ...planSummary(plan) }, { policy: objectPolicyOf(typeDef) });
           throw new AuthorizationPlanError(message);
         }
         // The policy admits no object of this Type for this subject, whatever the store holds (ADR-0038), so the
@@ -1508,7 +1569,7 @@ export class SemanticRuntime {
         // silent page, because an error there would reveal that hidden rows exist (ADR-0049).
         if (plan.kind === "never") {
           const reason = "No object of this Type is readable by this subject";
-          await this.audit(identity, "read", typeResource, { allow: false, reason }, { control: "row-plan", ...planSummary(plan) });
+          await this.audit(identity, "read", typeResource, { allow: false, reason }, { control: "row-plan", ...planSummary(plan) }, { policy: objectPolicyOf(typeDef) });
           throw notAuthorized("read", typeResource, reason, identity);
         }
         // A predicate excludes objects without deciding them one by one, so the query records it once.
@@ -2205,18 +2266,402 @@ export class SemanticRuntime {
           await this.audit(identity, "read", resource, { allow: false, reason }, { discovery: this.discovery });
           throw new AuthorizationError("Not authorized: describe the model", reason);
         }
-        const full = await describeModel(this.registry, opts);
-        if (this.discovery !== "need-to-know") {
-          await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: full.types.length, actions: full.actions.length });
-          return full;
-        }
-        const definitions = new Map((await this.registry.listTypes()).map((t) => [t.name, t]));
-        const actionDefinitions = new Map((await this.registry.listActions()).map((a) => [a.name, a]));
-        const { model, withheld } = await narrowModel(full, definitions, actionDefinitions, this.discoveryGate(identity));
-        await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, withheld });
+        const { model, withheld } = await this.modelFor(identity, opts);
+        await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, ...(withheld ? { withheld } : {}) });
         return model;
       }
     ));
+  }
+
+  /** The model as `identity` may learn of it (ADR-0068), not audited: each public caller audits its own call. */
+  private async modelFor(identity: Identity, opts: DescribeModelOptions = {}): Promise<{ model: ModelDescription; withheld?: Withheld }> {
+    const full = await describeModel(this.registry, opts);
+    if (this.discovery !== "need-to-know") return { model: full };
+    const definitions = new Map((await this.registry.listTypes()).map((t) => [t.name, t]));
+    const actionDefinitions = new Map((await this.registry.listActions()).map((a) => [a.name, a]));
+    return narrowModel(full, definitions, actionDefinitions, this.discoveryGate(identity));
+  }
+
+  /**
+   * The enforcement structure of the model as `identity` may learn of it
+   * (ADR-0088): sources and mappings, the policy and markings guarding each
+   * Type, member and Action, what each computed value derives from and is
+   * released from, and each policy's rule as the engine describes it. Only
+   * for an inspector the deployment's `inspection.policy` admits, and never
+   * more of the model than their own discovery describes. `types` narrows it
+   * to those Types (and the Actions on them).
+   */
+  async inspectModel(identity: Identity, opts: { types?: readonly string[] } = {}): Promise<ModelInspection> {
+    return this.withRequest("inspectModel", () => this.instrument(
+      "SemanticRuntime.inspectModel",
+      "model",
+      this.telemetry.subject(identity),
+      async () => {
+        await this.checkRateLimit(identity);
+        await this.requireInspector(identity);
+        const { model } = await this.modelFor(identity);
+        const wanted = opts.types ? new Set(opts.types) : undefined;
+        const selected: ModelDescription = wanted
+          ? { ...model, types: model.types.filter((t) => wanted.has(t.name)), actions: model.actions.filter((a) => a.applicableTypes.some((t) => wanted.has(t))) }
+          : model;
+        const gate: InspectionGate = {
+          markingKnowable: (marking) => this.clearedToKnow(identity, [marking], { typeName: "*" }, "read"),
+          describePolicy: async (name) => {
+            if (typeof this.policyEngine.describe !== "function") return undefined;
+            try {
+              const text: unknown = await this.policyEngine.describe(name);
+              return typeof text === "string" ? text.slice(0, 4_000) : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          connected: (id) => this.adapters.has(id)
+        };
+        return buildInspection(this.registry, selected, this.discovery === "need-to-know", gate, this.classification.name);
+      }
+    ));
+  }
+
+  /**
+   * Whether `identity` may inspect the enforcement structure (ADR-0088),
+   * decided by the inspection policy and audited: for code beside the
+   * runtime (the workflow engine's explanations) that must apply the same
+   * rule. `false`, without a decision, when no inspection is configured.
+   */
+  async canInspect(identity: Identity): Promise<boolean> {
+    return this.withRequest("inspectModel", () => this.mayInspect(identity));
+  }
+
+  /** Whether `identity` may inspect (ADR-0088), decided and audited once; `false` without asking when no inspection is configured. */
+  private async mayInspect(identity: Identity): Promise<boolean> {
+    if (!this.inspection || isAnonymous(principalsOf(identity).person)) return false;
+    return (await this.evaluate(identity, "read", this.inspection.policy, { typeName: "*", actionName: "inspect-model" })).allow;
+  }
+
+  /**
+   * Why `question` is allowed, refused, partly answered or unavailable for a
+   * subject (ADR-0089): the investigator's own access, or with `opts.as`
+   * someone else's, which needs the inspection policy. The operation is run
+   * as the subject through the runtime's own decision path with nothing
+   * executed and every value discarded; what is kept is each decision, its
+   * control and, for an inspector, the policy and rule behind it. Only what
+   * the investigator may learn of is named: a Type, member or Action their
+   * own discovery withholds is answered as unknown, and an object they may
+   * not read themselves is refused to them as their own read would be.
+   */
+  async explain(question: ExplainQuestion, investigator: Identity, opts: ExplainOptions = {}): Promise<Explanation> {
+    await this.checkRateLimit(investigator);
+    const subject = opts.as ?? investigator;
+    const self = opts.as === undefined;
+    // The investigator's own checks run in a request of their own, so the trace below holds only the subject's decisions.
+    const prepared = await this.withRequest("explain", async () => {
+      const inspector = await this.mayInspect(investigator);
+      if (!self && !inspector) {
+        const reason = this.inspection ? "Explaining another subject's access needs the inspection policy" : "Inspection is not configured for this runtime";
+        await this.audit(investigator, "read", { typeName: "*", actionName: "explain" }, { allow: false, reason }, { control: "inspection" });
+        throw new AuthorizationError("Not authorized: explain another subject's access", this.toldReason(reason, investigator));
+      }
+      const { model: seen } = await this.modelFor(investigator);
+      const subjectModel = this.discovery === "need-to-know" && !self ? (await this.modelFor(subject)).model : seen;
+      return { inspector, seen, subjectModel };
+    });
+    const { inspector, seen, subjectModel } = prepared;
+    const trace: TraceEntry[] = [];
+    const replay = <T>(fn: () => Promise<T>): Promise<T> =>
+      requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain", explanation: { investigator: investigator.subjectId, trace } }, fn);
+    const asInvestigator = <T>(fn: () => Promise<T>): Promise<T> => requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain" }, fn);
+
+    const told = (reason: string | undefined) => (inspector ? reason : this.toldReason(reason, subject));
+    const controlShown = inspector || this.discovery === "open";
+    const findings: Finding[] = [];
+    const ruleOf = async (policy: string | undefined): Promise<string | undefined> => {
+      if (!policy || !inspector || typeof this.policyEngine.describe !== "function") return undefined;
+      try {
+        const text: unknown = await this.policyEngine.describe(policy);
+        return typeof text === "string" ? text.slice(0, 4_000) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const knowable = (markings: readonly string[] | undefined) => (markings ?? []).filter((m) => this.clearedToKnow(investigator, [m], { typeName: "*" }, "read"));
+    /** A finding from the decision that made it, disclosed as far as the investigator may be told. */
+    const fromEntry = async (about: string, member: string | undefined, outcome: Finding["outcome"], entry: TraceEntry, control: NonNullable<Finding["control"]>): Promise<Finding> => {
+      const policy = entry.control === "policy" || entry.control === "row-plan" ? entry.policy : undefined;
+      const rule = await ruleOf(policy);
+      const markings = inspector ? knowable(entry.markings) : [];
+      let remedy: string | undefined;
+      if (inspector) {
+        if (entry.byAudience && subject.audience) remedy = `${subject.audience.id} must be allowed this too: decisions about an audience are made for the audience as well as the person (ADR-0067)`;
+        else if (control === "classification") remedy = markings.length ? `the subject's clearance must dominate ${markings.join(", ")}` : "the subject needs a higher clearance";
+        else if (control === "row-plan" && rule) remedy = `the object policy admits no object of this Type for the subject; it allows when ${rule}`;
+        else if (control === "derivation") remedy = `readable only where ${(entry.inputs ?? []).join(", ")} ${(entry.inputs ?? []).length === 1 ? "is" : "are"}; or the domain releases ${(entry.inputs ?? []).length === 1 ? "it" : "them"} in x-computed, a reviewable assertion that the value does not disclose ${(entry.inputs ?? []).length === 1 ? "it" : "them"} (ADR-0052)`;
+        else if (rule) remedy = `allowed when ${rule}`;
+      }
+      return {
+        about,
+        ...(member ? { member } : {}),
+        outcome,
+        basis: "evaluated",
+        ...(controlShown ? { control: entry.byAudience ? "audience" : control } : {}),
+        ...(inspector && policy ? { policy } : {}),
+        ...(rule ? { rule } : {}),
+        ...(entry.reason === undefined || (outcome === "withheld" && !inspector) ? {} : { reason: told(entry.reason)! }),
+        ...(inspector && (control === "derivation" || control === "release") && entry.inputs?.length ? { inputs: entry.inputs } : {}),
+        ...(inspector && control === "release" && entry.released?.length ? { inputs: entry.released } : {}),
+        ...(markings.length ? { markings } : {}),
+        ...(remedy ? { remedy } : {})
+      };
+    };
+    const controlOf = (e: TraceEntry, member: boolean): NonNullable<Finding["control"]> =>
+      e.control === "classification" ? "classification" : e.control === "derivation" ? "derivation" : e.control === "row-plan" ? "row-plan" : e.actionName ? "action-policy" : member ? "member-policy" : "object-policy";
+    const sourceFinding = (about: string): Finding | undefined => {
+      const failed = trace.find((e) => e.control === "source");
+      if (!failed) return undefined;
+      return { about, outcome: "unavailable", basis: "evaluated", control: "source", reason: failed.reason ?? "unavailable", ...(inspector && failed.policy ? { source: failed.policy } : {}) };
+    };
+    const denies = (filter: (e: TraceEntry) => boolean) => trace.filter((e) => e.subjectId === subject.subjectId && !e.allow && filter(e));
+    let outcome: ExplanationOutcome = "allowed";
+    let observedFor: { typeName: string; objectId?: string; actionName?: string } | undefined;
+    let effects: Explanation["effects"];
+
+    const unknown = (what: string) => new NotFoundError(what);
+    if (question.kind === "read" || question.kind === "relationship") {
+      const tDesc = seen.types.find((t) => t.name === question.type);
+      if (!tDesc) throw unknown(`Unknown type "${question.type}"`);
+      const typeDef = await this.requireType(question.type);
+      const about = `${question.type}/${question.id}`;
+      observedFor = { typeName: question.type, objectId: question.id };
+      if (!self) await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));
+      const subjectType = subjectModel.types.find((t) => t.name === question.type);
+      if (!subjectType) {
+        findings.push({ about: question.type, outcome: "refused", basis: "evaluated", ...(controlShown ? { control: "discovery" } : {}), ...(inspector ? { remedy: "need-to-know discovery does not describe this Type to the subject: they may read no object of it (ADR-0068)" } : {}) });
+        outcome = "refused";
+      } else if (question.kind === "read") {
+        let values: Record<string, unknown> | undefined;
+        try {
+          values = (await replay(() => this.readObject(question.type, question.id, subject))).object.values;
+        } catch (err) {
+          if (err instanceof ObjectNotFoundError) {
+            findings.push({ about, outcome: "not-found", basis: "evaluated" });
+            outcome = "not-found";
+          } else if (err instanceof AuthorizationError) {
+            const e = denies((x) => x.typeName === question.type && x.objectId === question.id && x.propertyPath === undefined)[0];
+            findings.push(e ? await fromEntry(about, undefined, "refused", e, controlOf(e, false)) : { about, outcome: "refused", basis: "evaluated", reason: told(err.reason) ?? "Not authorized" });
+            outcome = "refused";
+          } else if (sourceFailure(err)) {
+            findings.push(sourceFinding(about) ?? { about, outcome: "unavailable", basis: "evaluated", control: "source", reason: sourceFailure(err)! });
+            outcome = "unavailable";
+          } else throw err;
+        }
+        if (values) {
+          const members = [...Object.keys(tDesc.properties), ...tDesc.computed.map((c) => c.name)];
+          const subjectMembers = new Set([...Object.keys(subjectType.properties), ...subjectType.computed.map((c) => c.name)]);
+          for (const member of members) {
+            const at = `${about}.${member}`;
+            if (member in values) {
+              const release = trace.find((x) => x.subjectId === subject.subjectId && x.allow && x.control === "derivation" && x.objectId === question.id && x.propertyPath === member);
+              findings.push(release ? await fromEntry(at, member, "returned", release, "release") : { about: at, member, outcome: "returned", basis: "evaluated" });
+              continue;
+            }
+            if (!subjectMembers.has(member)) {
+              findings.push({ about: at, member, outcome: "withheld", basis: "evaluated", ...(controlShown ? { control: "discovery" } : {}), ...(inspector ? { remedy: "need-to-know discovery does not describe this value to the subject (ADR-0068)" } : {}) });
+              continue;
+            }
+            const ranked = denies((x) => x.objectId === question.id && x.propertyPath === member);
+            const e = ranked.find((x) => x.control === "classification") ?? ranked.find((x) => x.control === "policy") ?? ranked.find((x) => x.control === "derivation");
+            findings.push(e ? await fromEntry(at, member, "withheld", e, controlOf(e, true)) : { about: at, member, outcome: "no-value", basis: "evaluated", ...(inspector ? { reason: "the source holds no value for it on this object, or the computation returned none" } : {}) });
+          }
+          outcome = findings.some((f) => f.outcome === "withheld") ? "partial" : "allowed";
+        }
+      } else {
+        const relDesc = tDesc.relationships.find((r) => r.name === question.relationship);
+        if (!relDesc) throw unknown(`Unknown relationship "${question.relationship}" on type "${question.type}"`);
+        const relDef = typeDef.relationships.find((r) => r.name === question.relationship)!;
+        const at = `${about}.${question.relationship}`;
+        let returned: Set<string> | undefined;
+        try {
+          returned = new Set((await replay(() => this.readRelationship(question.type, question.id, question.relationship, subject))).map((r) => r.object.objectId));
+        } catch (err) {
+          if (err instanceof ObjectNotFoundError) {
+            findings.push({ about, outcome: "not-found", basis: "evaluated" });
+            outcome = "not-found";
+          } else if (err instanceof AuthorizationError) {
+            const e = denies((x) => x.typeName === question.type && x.objectId === question.id && (x.propertyPath === undefined || x.propertyPath === question.relationship))[0];
+            findings.push(e ? await fromEntry(e.propertyPath ? at : about, e.propertyPath, "refused", e, controlOf(e, e.propertyPath !== undefined)) : { about, outcome: "refused", basis: "evaluated", reason: told(err.reason) ?? "Not authorized" });
+            outcome = "refused";
+          } else if (sourceFailure(err)) {
+            findings.push(sourceFinding(at) ?? { about: at, outcome: "unavailable", basis: "evaluated", control: "source", reason: sourceFailure(err)! });
+            outcome = "unavailable";
+          } else throw err;
+        }
+        if (returned) {
+          findings.push({ about: at, member: question.relationship, outcome: "returned", basis: "evaluated", reason: `${returned.size} related object${returned.size === 1 ? "" : "s"} returned` });
+          if (!self) {
+            // Each related object the investigator may read and the subject was not returned, and why. Objects the investigator may not read are not counted.
+            const refs = await asInvestigator(() => this.resolveRelationship(this.getAdapter(relDef.resolution.dataSourceId), typeDef, relDef, question.id));
+            if (refs.length > this.queryLimits.maxRelatedPerObject) findings.push({ about: at, member: question.relationship, outcome: "truncated", basis: "structural", control: "relationship", reason: `only the first ${this.queryLimits.maxRelatedPerObject} related objects are read (maxRelatedPerObject, ADR-0028)` });
+            const targetDef = await this.requireType(relDef.targetType);
+            for (const ref of refs.slice(0, Math.min(this.queryLimits.maxRelatedPerObject, 50))) {
+              if (returned.has(ref.objectId)) continue;
+              const target = `${relDef.targetType}/${ref.objectId}`;
+              try {
+                await asInvestigator(() => this.authorizeRead(targetDef, ref.objectId, investigator));
+              } catch (err) {
+                if (err instanceof ObjectNotFoundError) findings.push({ about: target, outcome: "dangling", basis: "evaluated", control: "relationship", reason: `${question.relationship} names ${ref.objectId}, which its source does not hold (ADR-0048): the reference is left out` });
+                continue;
+              }
+              const e = denies((x) => x.typeName === relDef.targetType && x.objectId === ref.objectId && x.propertyPath === undefined)[0];
+              findings.push(e ? await fromEntry(target, undefined, "refused", e, controlOf(e, false)) : { about: target, outcome: "refused", basis: "evaluated" });
+            }
+          }
+          outcome = findings.some((f) => f.outcome === "refused" || f.outcome === "dangling") ? "partial" : "allowed";
+        }
+      }
+    } else if (question.kind === "invoke") {
+      const aDesc = seen.actions.find((a) => a.name === question.action);
+      if (!aDesc) throw unknown(`Unknown action "${question.action}"`);
+      const action = (await this.registry.getAction(question.action))!;
+      const targetId = action.target && typeof question.input === "object" && question.input !== null ? (question.input as Record<string, unknown>)[action.target.idFrom] : undefined;
+      const targetType = action.target?.type ?? action.applicableTypes[0] ?? "unknown";
+      observedFor = { typeName: targetType, actionName: action.name, ...(typeof targetId === "string" ? { objectId: targetId } : {}) };
+      if (!self && typeof targetId === "string" && targetId !== "") {
+        try {
+          await asInvestigator(async () => this.authorizeRead(await this.requireType(targetType), targetId, investigator));
+        } catch (err) {
+          // The investigator may read the Type and the id names nothing: theirs to learn, as their own read would tell them.
+          if (!(err instanceof ObjectNotFoundError)) throw err;
+          findings.push({ about: `${targetType}/${targetId}`, outcome: "not-found", basis: "evaluated", control: "target", reason: err.message });
+          return this.explanation(question, subject, investigator, inspector, "not-found", findings, []);
+        }
+      }
+      const policyFinding = async (allowed: boolean): Promise<Finding> => {
+        const e = trace.find((x) => x.subjectId === subject.subjectId && x.actionName === action.name && x.allow === allowed && (x.control === "policy" || x.control === "classification"));
+        if (e) return fromEntry(action.name, undefined, allowed ? "allowed" : "refused", e, e.control === "classification" ? "classification" : "action-policy");
+        return { about: action.name, outcome: allowed ? "allowed" : "refused", basis: "evaluated", ...(controlShown ? { control: "action-policy" } : {}) };
+      };
+      if (!subjectModel.actions.some((a) => a.name === action.name)) {
+        findings.push({ about: action.name, outcome: "refused", basis: "evaluated", ...(controlShown ? { control: "discovery" } : {}), ...(inspector ? { remedy: "need-to-know discovery does not describe this Action to the subject: its policy admits them on no object, or they may read no object it acts on (ADR-0068)" } : {}) });
+        outcome = "refused";
+      } else {
+        let preview: ActionPreview | undefined;
+        try {
+          preview = await replay(() => this.previewAction(action.name, question.input, subject));
+        } catch (err) {
+          if (err instanceof AuthorizationError || err instanceof NotFoundError) {
+            findings.push({ about: action.name, outcome: "refused", basis: "evaluated", reason: told(err instanceof AuthorizationError ? err.reason : "Not authorized") ?? "Not authorized" });
+            outcome = "refused";
+          } else if (sourceFailure(err)) {
+            findings.push(sourceFinding(action.name) ?? { about: action.name, outcome: "unavailable", basis: "evaluated", control: "source", reason: sourceFailure(err)! });
+            outcome = "unavailable";
+          } else throw err;
+        }
+        if (preview) {
+          const target = preview.target ?? (typeof targetId === "string" ? { typeName: targetType, objectId: targetId } : undefined);
+          const targetRefused = target ? denies((x) => x.typeName === target.typeName && x.objectId === target.objectId && x.actionName === undefined)[0] : undefined;
+          for (const b of preview.blockers) {
+            if (b.kind === "authorization") {
+              if (targetRefused) findings.push(await fromEntry(`${target!.typeName}/${target!.objectId}`, undefined, "refused", targetRefused, "target"));
+              else findings.push(await policyFinding(false));
+            } else if (b.kind === "target") findings.push({ about: target ? `${target.typeName}/${target.objectId}` : action.name, outcome: "not-found", basis: "evaluated", control: "target", reason: b.message });
+            else if (b.kind === "input") findings.push({ about: action.name, outcome: "invalid", basis: "evaluated", control: "input", reason: b.message });
+          }
+          if (preview.authorized) findings.push(await policyFinding(true));
+          for (const p of preview.preconditions) {
+            if (p.satisfied === null && !preview.blockers.some((b) => b.kind === "precondition" && b.message.includes(p.description))) continue;
+            findings.push({ about: action.name, outcome: p.satisfied === true ? "allowed" : p.satisfied === false ? "refused" : "withheld", basis: "evaluated", control: "precondition", reason: p.satisfied === null ? `not decided: ${p.description} (it reads a value the subject may not read)` : p.description });
+          }
+          outcome = preview.wouldExecute ? "allowed" : preview.blockers.some((b) => b.kind === "input") && preview.authorized ? "invalid" : preview.blockers.some((b) => b.kind === "target") ? "not-found" : "refused";
+          effects = { sideEffects: action.sideEffects, idempotency: action.idempotency, auditRequired: action.auditRequired, ...(inspector ? { source: action.implementation.dataSourceId } : {}) };
+        }
+      }
+    } else {
+      let q: ReturnType<InputValidator["validateQuery"]>;
+      try {
+        q = this.inputValidator.validateQuery(question.query);
+      } catch (err) {
+        if (!(err instanceof InvalidInputError)) throw err;
+        findings.push({ about: "query", outcome: "invalid", basis: "evaluated", control: "input", reason: err.message });
+        return this.explanation(question, subject, investigator, inspector, "invalid", findings, []);
+      }
+      const tDesc = seen.types.find((t) => t.name === q.type);
+      if (!tDesc) throw unknown(`Unknown type "${q.type}"`);
+      observedFor = { typeName: q.type };
+      const typeDef = await this.requireType(q.type);
+      const mine = self ? undefined : await asInvestigator(() => this.query(question.query, investigator));
+      let theirs: Set<string> | undefined;
+      try {
+        theirs = new Set((await replay(() => this.query(question.query, subject))).items.map((o) => o.objectId));
+      } catch (err) {
+        if (err instanceof AuthorizationError) {
+          const e = denies((x) => x.typeName === q.type && x.objectId === undefined)[0];
+          findings.push(e ? await fromEntry(q.type, undefined, "refused", e, controlOf(e, false)) : { about: q.type, outcome: "refused", basis: "evaluated", reason: told(err.reason) ?? "Not authorized" });
+          outcome = "refused";
+        } else if (sourceFailure(err)) {
+          findings.push(sourceFinding(q.type) ?? { about: q.type, outcome: "unavailable", basis: "evaluated", control: "source", reason: sourceFailure(err)! });
+          outcome = "unavailable";
+        } else throw err;
+      }
+      if (theirs) {
+        findings.push({ about: q.type, outcome: "returned", basis: "evaluated", reason: `${theirs.size} object${theirs.size === 1 ? "" : "s"} returned on this page` });
+        // Only rows the investigator is returned are explained, so nothing is said about objects they may not read.
+        for (const o of (mine?.items ?? []).slice(0, 50)) {
+          const at = `${q.type}/${o.objectId}`;
+          if (!theirs.has(o.objectId)) {
+            let refused = denies((x) => x.typeName === q.type && x.objectId === o.objectId && x.propertyPath === undefined)[0];
+            if (!refused) {
+              // Excluded in the source by the subject's plan (ADR-0038), so never decided one by one: decided now.
+              await replay(() => this.authorizeRead(typeDef, o.objectId, subject)).catch(() => undefined);
+              refused = denies((x) => x.typeName === q.type && x.objectId === o.objectId && x.propertyPath === undefined)[0];
+            }
+            if (refused) findings.push(await fromEntry(at, undefined, "refused", refused, controlOf(refused, false)));
+          }
+        }
+        outcome = findings.some((f) => f.outcome === "refused") ? "partial" : "allowed";
+      }
+    }
+
+    let observed: ObservedDecision[] = [];
+    if (inspector && observedFor) {
+      const rows = (await this.registry.listAuditEvents({ limit: 500 })).items;
+      observed = rows
+        .filter((r) => r.subjectId === subject.subjectId && r.operation !== "explain" && r.resource.typeName === observedFor.typeName && (observedFor.objectId === undefined || r.resource.objectId === observedFor.objectId) && (observedFor.actionName === undefined || r.action === observedFor.actionName))
+        .slice(0, 20)
+        .map((r) => ({ at: r.timestamp, ...(r.operation ? { operation: r.operation } : {}), action: r.action, ...(r.resource.propertyPath ? { member: r.resource.propertyPath } : {}), decision: r.decision, ...(r.reason ? { reason: r.reason } : {}) }));
+    }
+    return this.explanation(question, subject, investigator, inspector, outcome, findings, observed, effects);
+  }
+
+  private async explanation(question: ExplainQuestion, subject: Identity, investigator: Identity, inspector: boolean, outcome: ExplanationOutcome, findings: Finding[], observed: ObservedDecision[], effects?: Explanation["effects"]): Promise<Explanation> {
+    await this.withRequest("explain", () =>
+      this.audit(investigator, "read", { typeName: "*", actionName: "explain" }, { allow: true }, { control: "explain", question: question.kind, subject: subject.subjectId, outcome, disclosure: inspector ? "inspector" : "caller" })
+    );
+    return {
+      format: EXPLANATION_FORMAT,
+      question,
+      subject: subject.subjectId,
+      ...(subject.audience ? { audience: subject.audience.id } : {}),
+      investigator: investigator.subjectId,
+      disclosure: inspector ? "inspector" : "caller",
+      outcome,
+      summary: summarize(outcome, findings, subject.subjectId),
+      findings,
+      ...(effects ? { effects } : {}),
+      observed,
+      caveat: EXPLANATION_CAVEAT
+    };
+  }
+
+  /** Whether `identity` may inspect (ADR-0088): an inspection policy is configured, the caller is authenticated, and the policy allows them (and their audience). Audited either way. */
+  private async requireInspector(identity: Identity): Promise<void> {
+    const resource: PolicyResource = { typeName: "*", actionName: "inspect-model" };
+    const refuse = async (reason: string): Promise<never> => {
+      await this.audit(identity, "read", resource, { allow: false, reason }, { control: "inspection" });
+      throw new AuthorizationError("Not authorized: inspect the model", this.toldReason(reason, identity));
+    };
+    if (!this.inspection) return refuse("Inspection is not configured for this runtime");
+    if (isAnonymous(principalsOf(identity).person)) return refuse("Inspecting the model needs an authenticated caller");
+    const decision = await this.evaluate(identity, "read", this.inspection.policy, resource);
+    if (!decision.allow) throw new AuthorizationError("Not authorized: inspect the model", this.toldReason(decision.reason, identity));
   }
 
   /** Why a refusal happened, as the caller may be told it: masked for an audience (ADR-0067), withheld unless discovery is open (ADR-0068). */

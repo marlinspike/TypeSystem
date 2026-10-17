@@ -100,8 +100,8 @@
       "adr": "0068",
       "description": "Need-to-know describes the whole model.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "if (this.discovery !== \"need-to-know\") {",
-      "replace": "if (true) {",
+      "find": "if (this.discovery !== \"need-to-know\") return { model: full };",
+      "replace": "if (true) return { model: full };",
       "tests": [
         "packages/domain-airforce/test/discovery.test.ts",
         "packages/mcp-server/test/discovery-security.test.ts"
@@ -1790,6 +1790,94 @@
       "replace": "false",
       "tests": [
         "packages/ui/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "inspection.unguarded",
+      "adr": "0088",
+      "description": "Inspection ignores the inspection policy's denial.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!decision.allow) throw new AuthorizationError(\"Not authorized: inspect the model\"",
+      "replace": "if (false) throw new AuthorizationError(\"Not authorized: inspect the model\"",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "inspection.widens-discovery",
+      "adr": "0088",
+      "description": "Inspection describes the whole model, whatever the inspector's discovery.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "        const { model } = await this.modelFor(identity);\n        const wanted",
+      "replace": "        const model = await describeModel(this.registry);\n        const wanted",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "inspection.names-uncleared-marking",
+      "adr": "0088",
+      "description": "Inspection names markings the inspector is not cleared for.",
+      "file": "packages/core/src/runtime/inspection.ts",
+      "find": "const known = markings.filter((m) => gate.markingKnowable(m));",
+      "replace": "const known = [...markings];",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "computed.reads-unenforced",
+      "adr": "0088",
+      "description": "A computed value reads a source its declared reads do not list.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (cp.reads && !cp.reads.includes(dataSourceId))",
+      "replace": "if (false)",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "explain.as-without-inspection",
+      "adr": "0089",
+      "description": "Anyone may explain another subject's access.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!self && !inspector) {",
+      "replace": "if (false) {",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "explain.caller-told-policy",
+      "adr": "0089",
+      "description": "A caller explaining their own access is told the policy's name.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "...(inspector && policy ? { policy } : {}),",
+      "replace": "...(policy ? { policy } : {}),",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "explain.unread-object",
+      "adr": "0089",
+      "description": "An inspector learns about an object they may not read.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!self) await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));",
+      "replace": "if (!self && question.id === \"\") await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));",
+      "tests": [
+        "packages/domain-airforce/test/inspect-explain.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.explain-as-without-inspection",
+      "adr": "0089",
+      "description": "Anyone may explain another subject's access to a workflow.",
+      "file": "packages/workflow/src/explain.ts",
+      "find": "if (opts.as !== undefined && !inspector) throw",
+      "replace": "if (false) throw",
+      "tests": [
+        "packages/workflow/test/explain.test.ts"
       ]
     }
   ]

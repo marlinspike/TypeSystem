@@ -112,6 +112,9 @@
               "releases": [
                 "maintenanceStatus"
               ],
+              "reads": [
+                "mock-remis-rest"
+              ],
               "binding": "computeNeedsAttention",
               "schema": {
                 "type": "boolean"
@@ -458,5 +461,5 @@
     ],
     "actions": []
   },
-  "digest": "sha256:84ae3dba3dd1bc04343c13408c73c2ffe2074b218bed3cf30574f7c45bfe2850"
+  "digest": "sha256:3578f50f53ac5c2f085bc4b7b1640876566e261bd9528308f59df521d676a1f7"
 }

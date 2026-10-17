@@ -251,6 +251,7 @@ export class SemanticRegistry {
           name,
           dependsOn: spec.dependsOn,
           ...(releases.length > 0 ? { releases: [...releases] } : {}),
+          ...(spec.reads ? { reads: [...spec.reads] } : {}),
           ...(spec.schema ? { schema: spec.schema } : {}),
           resolutionMode: spec.resolutionMode ?? "live",
           cacheTtlMs: spec.cacheTtlMs,

@@ -23,6 +23,7 @@ export interface PersistedComputedProperty {
   binding: string;
   /** Dependencies whose read policy this value is released from (ADR-0052). Absent on rows written before it. */
   releases?: string[];
+  reads?: string[];
   /** The computed value's schema (ADR-0055). Absent on rows written before it. */
   schema?: JsonSchema2020;
 }
@@ -36,7 +37,7 @@ export function computedPropertiesToPersisted(cps: ComputedPropertyDefinition[])
           `"binding" key it was registered under (see ADR-0015).`
       );
     }
-    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding, ...(cp.releases?.length ? { releases: cp.releases } : {}), ...(cp.schema ? { schema: cp.schema } : {}) };
+    return { name: cp.name, dependsOn: cp.dependsOn, resolutionMode: cp.resolutionMode, binding: cp.binding, ...(cp.releases?.length ? { releases: cp.releases } : {}), ...(cp.reads ? { reads: cp.reads } : {}), ...(cp.schema ? { schema: cp.schema } : {}) };
   });
 }
 
@@ -48,7 +49,7 @@ export function persistedToComputedProperties(
   return persisted.map((p) => {
     const compute = bindings.computed[p.binding];
     if (!compute) throw new MissingBindingError("computed", p.binding, context);
-    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, ...(p.releases?.length ? { releases: p.releases } : {}), ...(p.schema ? { schema: p.schema } : {}), compute };
+    return { name: p.name, dependsOn: p.dependsOn, resolutionMode: p.resolutionMode, binding: p.binding, ...(p.releases?.length ? { releases: p.releases } : {}), ...(p.reads ? { reads: p.reads } : {}), ...(p.schema ? { schema: p.schema } : {}), compute };
   });
 }
 

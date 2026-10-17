@@ -47,6 +47,8 @@ export const AircraftType: DomainTypeEntry = {
         // although it discloses one bit of the maintainer-only maintenanceStatus (false means not down and not
         // degraded). readinessStatus, which maps maintenanceStatus one to one, is not released.
         releases: ["maintenanceStatus"],
+        // The maintenance system it looks the aircraft up in (ADR-0088): declared, so the runtime refuses any other.
+        reads: [MAINTENANCE_DATA_SOURCE_ID],
         binding: "computeNeedsAttention",
         schema: { type: "boolean" },
         resolutionMode: "live"

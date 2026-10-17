@@ -7,4 +7,5 @@ export * from "./validate.js";
 export { canonical, replay, verifyReplay } from "./replay.js";
 export * from "./engine.js";
 export * from "./simulate.js";
+export * from "./explain.js";
 export { workflowJournalContract, type JournalContractHarness } from "./testing/journal-contract.js";

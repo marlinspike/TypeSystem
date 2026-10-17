@@ -34,6 +34,7 @@ function modelUnavailable(err: unknown): boolean {
 }
 import { fold, viewOf, type RunState, type RunView } from "./state.js";
 import { upstream, validateWorkflow } from "./validate.js";
+import { explainWorkflow, type WorkflowExplanation } from "./explain.js";
 
 /** What the engine runs on: a built runtime (`buildRuntime`, or a domain's testbed). */
 export interface WorkflowHost {
@@ -244,6 +245,24 @@ export class WorkflowEngine {
       ...(decision.comment !== undefined ? { comment: decision.comment } : {})
     });
     return this.advance(runId);
+  }
+
+  /**
+   * Whether `as` (default the investigator) may start the newest version of
+   * `name`, approve each approval and invoke each Action, and what its AI
+   * steps may be given (ADR-0089). Another subject's access needs the
+   * runtime's inspection policy.
+   */
+  async explain(name: string, investigator: Identity, opts: { as?: Identity } = {}): Promise<WorkflowExplanation> {
+    const versions = this.definitions.get(name);
+    if (!versions) throw new WorkflowStateError(`Unknown workflow "${name}"`);
+    const workflow = [...versions.values()].reduce((a, b) => (newer(b.version, a.version) ? b : a));
+    return explainWorkflow({ runtime: this.options.host.runtime, policyEngine: this.options.host.policyEngine, ...(this.options.models ? { models: this.options.models } : {}), ...(this.options.model ? { model: this.options.model } : {}) }, workflow, investigator, opts);
+  }
+
+  /** The newest version of each registered workflow: what a dependency graph or an explanation describes. */
+  definitionsList(): AnyWorkflow[] {
+    return [...this.definitions.values()].map((versions) => [...versions.values()].reduce((a, b) => (newer(b.version, a.version) ? b : a)));
   }
 
   /** What the approval a run waits on presents, to an approver the step's policy admits; refused (and audited) for anyone else. */
