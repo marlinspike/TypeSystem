@@ -136,6 +136,13 @@ export interface PolicyEngine {
    * ships. A security profile admits aggregation only through such a plan.
    */
   planAssurance?(request: PolicyRequest): PlanAssurance | Promise<PlanAssurance>;
+  /**
+   * Optional (ADR-0088): the structure of the rule registered under
+   * `policyName`, as short text for a person or agent inspecting the model
+   * (`role in [maintainer, lead]`). Never a decision, and never anything
+   * about a subject or a resource. `undefined` when the engine cannot say.
+   */
+  describe?(policyName: string): string | undefined | Promise<string | undefined>;
 }
 
 /**

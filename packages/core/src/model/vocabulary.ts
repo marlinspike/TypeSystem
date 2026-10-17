@@ -51,6 +51,15 @@ export interface XComputedSpec {
    */
   releases?: string[];
   /**
+   * Data sources the computation reads directly through `ctx.getAdapter`,
+   * besides its declared inputs (ADR-0088): `Aircraft.needsAttention` looks
+   * an aircraft up in the maintenance system. Declared, the runtime refuses
+   * any other source the computation asks for, so the list is authoritative
+   * lineage. Omitted, the computation may read any source, and inspection
+   * says the reads are undeclared.
+   */
+  reads?: string[];
+  /**
    * The schema of the value this property computes (ADR-0055): what a typed
    * client is generated from. The runtime checks every computed value against
    * it, so the type a client is told is the type it receives. Omitted, the

@@ -72,8 +72,9 @@ dependency — see `npx changeset status`). `@typesys/demo-web` is in
 
 ### A gated release workflow
 
-`.github/workflows/release.yml`, on every push to `main`: builds and
-runs the full test suite exactly like `ci.yml`, then checks whether an
+`.github/workflows/release.yml`, started by hand (amended 2026-10-17:
+it no longer runs on every push to `main`, since what runs on GitHub per
+change is kept to a few minutes): builds and runs the full test suite, then checks whether an
 `NPM_TOKEN` repository secret is configured. If not — the case for this
 repository, today — the workflow logs that it's skipping and stops
 there; nothing fails, nothing attempts to publish. If a maintainer ever

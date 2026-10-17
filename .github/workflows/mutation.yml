@@ -1,16 +1,13 @@
 name: Mutation
 
-# Regenerates the mutation evidence (ADR-0070): every catalogued defect in a
-# security mechanism is applied, the tree is rebuilt with `tsc -b --force`,
-# and the tests the catalog names must fail. The evidence record is uploaded
-# as an artifact; a survivor, a stale entry or an unrun mutation fails the job.
+# Optional, and never hooked up: it runs only when someone starts it by hand
+# from the Actions tab. A full run of the catalog takes over half an hour, so
+# mutation testing is done locally (`npm run mutation`, ADR-0070); this is
+# for a maintainer who chooses to spend the Actions time. Every catalogued
+# defect in a security mechanism is applied, the tree is rebuilt, and the
+# tests the catalog names must fail; the evidence record is uploaded.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 6 * * 1"
-  # Every pull request: a change to guarded code or to the tests that kill
-  # its mutations matters as much as a change to the catalog (P3-M5).
-  pull_request:
 
 jobs:
   mutation:

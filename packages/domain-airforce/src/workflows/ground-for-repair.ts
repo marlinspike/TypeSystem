@@ -42,6 +42,7 @@ export const groundForRepair = defineWorkflow<AirforceModel, GroundForRepairInpu
       kind: "read",
       name: "aircraft",
       description: "The aircraft, as the initiator may read it.",
+      reads: ["airforce.Aircraft"],
       retry: { maxAttempts: 3, backoffMs: 25 },
       run: async (af, ctx) => af.get("airforce.Aircraft", ctx.input.aircraftId)
     },
@@ -54,6 +55,7 @@ export const groundForRepair = defineWorkflow<AirforceModel, GroundForRepairInpu
     {
       kind: "read",
       name: "history",
+      reads: ["airforce.Aircraft", "airforce.MaintenanceEvent"],
       needs: ["flagged"],
       when: flagged,
       retry: { maxAttempts: 3, backoffMs: 25 },

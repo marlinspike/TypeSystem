@@ -1,14 +1,10 @@
 name: Release
 
-# Docs-only pushes skip this too, matching ci.yml.
+# Optional, and never hooked up: it runs only when someone starts it by hand.
+# It rebuilds and retests what the pull request's CI already checked, and
+# publishes nothing while the repository has no NPM_TOKEN (ADR-0020).
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
-      - "llms.txt"
-      - "packages/*/README.md"
+  workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 

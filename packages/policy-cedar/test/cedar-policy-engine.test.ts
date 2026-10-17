@@ -242,3 +242,16 @@ forbid (principal, action == TypeSys::Action::"hospital.read-patient", resource)
     expect((await open.evaluate(request)).allow).toBe(true);
   });
 });
+
+describe("CedarPolicyEngine.describe (ADR-0088)", () => {
+  it("returns the policies whose action scope names the policy, as written", () => {
+    const text = engine().describe("hospital.read-patient");
+    expect(text).toContain('action == TypeSys::Action::"hospital.read-patient"');
+    expect(text).toContain('principal in TypeSys::Role::"clinician"');
+    expect(text).not.toContain("hospital.read-provider\"");
+  });
+
+  it("says so when no policy names it", () => {
+    expect(engine().describe("nobody.names-this")).toMatch(/denies every request/);
+  });
+});

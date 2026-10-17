@@ -1,15 +1,14 @@
 name: CI
 
-# A change touching only docs/, README.md, llms.txt, or package READMEs skips
-# CI; any other file in the same push or PR still triggers it.
+# Lean on purpose: everything that runs on GitHub for a pull request totals a
+# few minutes. One job, cached dependencies, no service containers: install,
+# lint, typecheck, build and the suite, whose Postgres, Redis and KMS tests
+# skip without those services. Everything else runs locally: `npm run
+# check:full` with Postgres and Redis (the database-backed tests, the demos,
+# the MCP smoke and conformance runs, the load test) and `npm run mutation`.
+# Mutation and Release are workflows started by hand only. A change touching
+# only docs/, README.md, llms.txt, or package READMEs skips CI.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
-      - "llms.txt"
-      - "packages/*/README.md"
   pull_request:
     paths-ignore:
       - "docs/**"
@@ -17,11 +16,15 @@ on:
       - "llms.txt"
       - "packages/*/README.md"
 
+# A newer push to the same pull request cancels the run in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # Runs first, without Postgres: proves the default in-memory path — the one every
-  # new/small project actually uses — works with zero external infrastructure.
-  build-and-test:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,76 +37,4 @@ jobs:
       - run: npm run check:terminology
       - run: npm run typecheck
       - run: npm run build
-      - run: npm run build:postgres
       - run: npm test
-      - name: Drafting demonstration (a mission from words, replayed, scaffolded and verified)
-        run: npm run draft:demo
-      - name: MCP smoke test (real stdio subprocess)
-        run: npm run smoke:mcp
-      - name: MCP smoke test (real HTTP transport)
-        run: npm run smoke:mcp-http
-      # The official MCP conformance suite against the HTTP server, with known failures listed and explained
-      # in scripts/mcp-conformance-baseline.yml: a new failure or a stale entry fails the build (ADR-0051).
-      - name: MCP conformance (official suite, baselined)
-        run: npm run conformance:mcp
-
-  # A second job, with real Postgres and Redis service containers: proves the same
-  # suite passes against @typesys/registry-store-postgres, @typesys/adapter-postgres,
-  # and @typesys/redis instead of skipping those tests, including the multi-instance
-  # tests (docs/how-to/use-postgres.md, docs/how-to/run-multiple-instances.md). A
-  # local-kms emulator runs @typesys/kms-aws against the real AWS SDK (ADR-0037).
-  test-with-postgres-and-redis:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: typesys
-          POSTGRES_PASSWORD: typesys
-          POSTGRES_DB: typesys_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-      redis:
-        image: redis:8
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-      kms:
-        image: nsmithuk/local-kms:3.11.7
-        ports:
-          - 8080:8080
-    env:
-      DATABASE_URL: postgresql://typesys:typesys@localhost:5432/typesys_ci
-      REDIS_URL: redis://localhost:6379
-      KMS_ENDPOINT: http://localhost:8080
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: npm run build:postgres
-      - run: npm test
-      # Onboarding (ADR-0076) end to end: a real PostgreSQL schema and the crew roster service,
-      # the recorded agent-mode answer, the committed review, live checks, and an incremental rerun.
-      - name: Onboarding demonstration
-        run: npm run onboard:demo
-      # Two server processes sharing Redis, under concurrent load with a per-identity limit: fails
-      # on any unexpected error, or if the instances admit more than one shared rate-limit budget.
-      - name: Multi-instance load test (2 processes, shared Redis)
-        run: npm run load-test
-        env:
-          LOAD_DURATION_S: "5"
-          RATE_LIMIT_CAPACITY: "200"
-          RATE_LIMIT_REFILL_PER_SECOND: "50"

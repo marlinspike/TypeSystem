@@ -49,8 +49,11 @@ conflict. If you add a new top-level TypeScript folder, add it to
 
 ## The check gate (run before opening a PR)
 
-CI (`.github/workflows/ci.yml`) runs all of this on every push and PR, so
-save yourself a round trip:
+CI (`.github/workflows/ci.yml`) is deliberately lean: one job of lint,
+typecheck, build and the suite, with no databases. Before opening a PR,
+run `npm run check:full` with `DATABASE_URL` and `REDIS_URL` set: it adds
+the database-backed tests, the demos, the MCP smoke and conformance runs
+and the load test, none of which run on GitHub. The quick gate:
 
 ```bash
 npm run build && npm test && npm run lint && npm run typecheck
@@ -66,7 +69,8 @@ npm run smoke:mcp-http   # the same over the HTTP transport
 
 If you touched a security mechanism the mutation catalog names, rerun its
 mutations (ADR-0070); a catalog entry whose code moved goes stale and fails
-the run until you update it:
+the run until you update it. Mutation testing runs only on your machine for
+a change, never on GitHub, so this is the only place it happens:
 
 ```bash
 npm run mutation -- --only <id,...> --allow-dirty

@@ -35,6 +35,8 @@ export interface ComputedPropertyDefinition {
   binding: string;
   /** Inputs whose read policy this value is released from (ADR-0052). Every entry is one of `dependsOn`. */
   releases?: string[];
+  /** Data sources the computation reads directly (ADR-0088); the runtime refuses any other. Undefined: undeclared, any. */
+  reads?: string[];
   /** The computed value's schema (ADR-0055), checked on every computation. */
   schema?: JsonSchema2020;
   compute: (ctx: ComputeContext) => Promise<unknown>;

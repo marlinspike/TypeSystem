@@ -232,7 +232,7 @@ describe("row-level authorization under Cedar (ADR-0030 + ADR-0031)", () => {
     const { runtime } = await cedarHospital();
     await expect(runtime.getObject("hospital.Patient", "PT-1001", clinicianB)).rejects.toBeInstanceOf(AuthorizationError);
     expect(ids((await runtime.query({ type: "hospital.Patient" }, clinicianB)).items)).toEqual(["PT-1002"]);
-    expect(ids((await runtime.query({ type: "hospital.Patient", filter: { property: "name", operator: "eq", value: "Jordan Lee" } }, clinicianB)).items)).toEqual([]);
+    expect(ids((await runtime.query({ type: "hospital.Patient", filter: { property: "displayName", operator: "eq", value: "Jordan Lee" } }, clinicianB)).items)).toEqual([]);
     expect(await runtime.getRelationship("hospital.Appointment", "APT-3002", "patient", clinicianB)).toEqual([]);
     const viaProviders = await runtime.query({ type: "hospital.Provider", include: [{ relationship: "patients" }] }, clinicianB);
     expect(viaProviders.items.flatMap((p) => ids(p.values.patients as { objectId: string }[]))).not.toContain("PT-1001");

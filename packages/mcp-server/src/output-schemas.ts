@@ -235,6 +235,26 @@ export const CONTEXT_OUTPUT: JsonSchema2020 = {
     types: { type: "array", items: { type: "string" } },
     actions: { type: "array", items: { type: "string" } },
     omitted: { type: "array", items: { type: "string" }, description: "Relevant, but left out to stay within maxTokens." },
+    leftOut: {
+      type: "array",
+      description: "The same, each with why: `budget`, or `needs <Type>` for an Action whose Type was left out.",
+      items: { type: "object", required: ["name", "reason"], properties: { name: { type: "string" }, reason: { type: "string" } } }
+    },
+    access: {
+      type: "object",
+      description: "Per Type: each value's status for you (verified, inferred, withheld, unavailable) and what was found.",
+      additionalProperties: {
+        type: "array",
+        items: { type: "object", required: ["member", "status", "note"], properties: { member: { type: "string" }, status: { enum: ["verified", "inferred", "withheld", "unavailable"] }, note: { type: "string" } } }
+      }
+    },
+    checks: {
+      type: "array",
+      description: "Acceptance checks that use a selected Type: a change must keep them passing.",
+      items: { type: "object", required: ["consumer", "check"], properties: { consumer: { type: "string" }, check: { type: "string" } } }
+    },
+    modelDigest: { type: "string", description: "Which model the context describes: compare it to know the model changed." },
+    governance: { enum: ["shown", "withheld"], description: "Whether sources, policies and markings are in the context: only for a caller who may inspect." },
     digest: { type: "string" }
   }
 };

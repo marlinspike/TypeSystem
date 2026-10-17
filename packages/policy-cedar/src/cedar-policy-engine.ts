@@ -12,7 +12,7 @@ import {
 } from "@cedar-policy/cedar-wasm/nodejs";
 import { NEVER, type AuthorizationPlan, type PolicyDecision, type PolicyEngine, type PolicyRequest } from "@typesys/core";
 import { CedarPolicyError } from "./errors.js";
-import { cedarEntityType, toCedarPrincipal, toCedarRequest, type AttributeIndex } from "./mapping.js";
+import { ACTION_TYPE, cedarEntityType, toCedarPrincipal, toCedarRequest, type AttributeIndex } from "./mapping.js";
 import { planFromResiduals } from "./planner.js";
 import { indexSchema, messagesOf } from "./schema.js";
 
@@ -101,6 +101,27 @@ export class CedarPolicyEngine implements PolicyEngine {
     for (const parsed of [policies, schema]) {
       if (parsed.type === "failure") throw new CedarPolicyError("Cedar could not load the policies", messagesOf(parsed.errors));
     }
+  }
+
+  /**
+   * The Cedar policies that can decide `policyName` (ADR-0088): each whose
+   * action scope names it, or names no action at all, as written, in
+   * policy-set order. A policy text names attributes, never their values for
+   * a request, so it describes structure only.
+   */
+  describe(policyName: string): string | undefined {
+    const applies = (text: string): boolean => {
+      const json = policyToJson(text);
+      if (json.type !== "success") return true;
+      const action = json.json.action as { op: string; entity?: { type: string; id: string }; entities?: { type: string; id: string }[] };
+      const names = (e: { type: string; id: string } | undefined) => e?.type === ACTION_TYPE && e.id === policyName;
+      if (action.op === "All") return true;
+      if (action.op === "==") return names(action.entity);
+      if (action.op === "in") return (action.entities ?? (action.entity ? [action.entity] : [])).some(names);
+      return true;
+    };
+    const texts = Object.values(this.staticPolicies).filter(applies).map((t) => t.trim());
+    return texts.length === 0 ? `no Cedar policy names "${policyName}": denies every request` : texts.join("\n");
   }
 
   async evaluate(request: PolicyRequest): Promise<PolicyDecision> {

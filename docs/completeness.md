@@ -452,9 +452,12 @@ document that gap rather than close it in this pass.
   that puts row-level access, classification, encryption at rest, and the
   two policy engines side by side, and a header switch that routes the whole
   app through either engine.
-- CI (`.github/workflows/ci.yml`) builds and runs the full suite on
-  every push, including a Postgres-service-container job for the
-  database-gated tests.
+- CI (`.github/workflows/ci.yml`) is one lean job on every pull request:
+  lint, typecheck, build and the suite, with the database-backed tests
+  skipping. Those tests, the demos, the MCP smoke and conformance runs
+  and the load test run locally with `npm run check:full` against
+  Postgres and Redis. Mutation testing and releases are not hooked up:
+  they run locally or are started by hand.
 - A latency/throughput benchmark (`npm run benchmark`) for
   `SemanticRuntime` operations against both the in-memory and
   PostgreSQL adapters — regression tracking, not a deployment-specific
@@ -749,6 +752,59 @@ The 4.0 pressure test
 defects. 21 are fixed, one in part, each with a test that failed first.
 Four are kept with their reasons, and one did not reproduce. Ten
 mutations guard the fixes.
+
+## 5.0: a semantic workbench for understanding an unfamiliar system
+
+ADR-0088 to ADR-0095 add tools for a developer or coding agent who has
+to understand a system before changing it, each decided by the runtime
+for the caller who asks.
+
+An authorized developer inspects the enforcement structure, policies
+with their rules, markings, sources and audit, never wider than their
+discovery (`inspectModel`). `explain` answers why a read, a traversal, an
+Action or a query came out as it did, replayed through the runtime's own
+decisions with every value discarded; a caller is told what a refusal
+would tell them, and only an inspector is told about anyone else
+(`packages/domain-airforce/test/inspect-explain.test.ts`,
+`packages/domain-hospital/test/explain-disclosure.test.ts`).
+`WorkflowEngine.explain` does the same for a workflow
+(`packages/workflow/test/explain.test.ts`).
+
+One dependency graph relates Types, values, relationships, Actions,
+sources, policies, markings, workflow steps, application parts and
+acceptance checks, with what each depends on and what depends on it
+(`packages/devkit/test/graph.test.ts`). Studio shows it, with the
+explanations and change impact, as a workbench in the browser
+(`packages/studio/test/workbench.test.ts`, Chromium); HTTP, MCP and the
+CLI serve the same answers (`packages/http/test/workbench.test.ts`,
+`packages/mcp-server/test/workbench-tools.test.ts`).
+
+Task-aware context marks each statement verified, inferred, unavailable
+or withheld, with the control that withholds it
+(`packages/devkit/test/context-v2.test.ts`). Change impact compares a
+baseline of the model and of each caller's decided reads with the model
+after a change: contract changes, governance changes and every read
+whose decision changed, with the consumers and checks each reaches
+(`packages/devkit/test/impact.test.ts`; `npm run impact:demo`). Link
+probes report, for each cross-system relationship, what resolves,
+what dangles and what a source did not answer
+(`packages/cold-chain/test/links.test.ts`).
+
+`scripts/measure-workbench.ts` measures the three arms the mandate asks
+for without a model call
+([`evidence/semantic-workbench-2026-10-17.md`](evidence/semantic-workbench-2026-10-17.md)).
+5.0 answers what depends on a value and whether a change alters who
+sees what, which 4.0 cannot; the contract diff missed all four
+governance changes and change impact found all six changes. Context
+selection was no better than 4.0's, and the context is 1.5 times its
+size. The measurement found that undeclared source columns reached every
+reader, fixed by ADR-0095.
+
+The 5.0 pressure test
+([`reviews/5-0-pressure-test.md`](reviews/5-0-pressure-test.md)) found 17
+defects. 15 are fixed, one in part, and one is kept with its reason; 24
+mutations guard the fixes. Nothing measures a person or an agent using
+these tools on a real task.
 
 ## Real but narrow — the mechanism exists, exercised once
 

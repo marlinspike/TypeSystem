@@ -5,7 +5,7 @@ export const samplePatients: InMemoryRecord[] = [
     objectId: "PT-1001",
     values: {
       id: "PT-1001",
-      name: "Jordan Lee",
+      displayName: "Jordan Lee",
       medicalRecordNumber: "MRN-1001",
       dateOfBirth: "1985-03-14",
       assignedClinicianId: "PR-2001"
@@ -15,7 +15,7 @@ export const samplePatients: InMemoryRecord[] = [
     objectId: "PT-1002",
     values: {
       id: "PT-1002",
-      name: "Amara Okafor",
+      displayName: "Amara Okafor",
       medicalRecordNumber: "MRN-1002",
       dateOfBirth: "1993-11-02",
       assignedClinicianId: "PR-2002"

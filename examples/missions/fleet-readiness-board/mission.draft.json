@@ -164,12 +164,12 @@
       },
       "diagnostics": [],
       "call": {
-        "callId": "a72c4a54-8edc-4d61-8d63-304b68483d04",
+        "callId": "bba5f175-9529-440a-9677-7bbf19993784",
         "model": "agent",
-        "inputTokens": 2554,
+        "inputTokens": 2803,
         "outputTokens": 590,
         "estimated": true,
-        "latencyMs": 27
+        "latencyMs": 23
       }
     },
     {
@@ -344,9 +344,9 @@
         }
       ],
       "call": {
-        "callId": "8e8296e4-62ac-462a-bf23-621fbc57ee34",
+        "callId": "086a54aa-a619-423c-86c5-7b891155dd54",
         "model": "agent",
-        "inputTokens": 3328,
+        "inputTokens": 3577,
         "outputTokens": 619,
         "estimated": true,
         "latencyMs": 1
@@ -354,12 +354,12 @@
     }
   ],
   "context": {
-    "tokens": 1209,
+    "tokens": 1453,
     "types": [
       "airforce.WorkOrder",
+      "airforce.MaintenanceEvent",
       "airforce.Aircraft",
       "airforce.Component",
-      "airforce.MaintenanceEvent",
       "core.Event",
       "core.Asset"
     ],
@@ -367,14 +367,14 @@
       "CreateMaintenanceWorkOrder",
       "UpdateWorkOrderStatus"
     ],
-    "digest": "sha256:65127ce990d14dd93c5de01819fcf1192c2f5ec0ab4885aa19d40e53c1afb4aa"
+    "digest": "sha256:ea6c6f9e4c7d99cfc290b5db4f3487e518f379f64302aaac4c3a13e89d953c56"
   },
   "recordings": [
     {
       "format": "typesys.llm-recording/1",
-      "key": "78a96325aeef2399e6f44761cfa4c2a88c60ea50265bfc4619ef3aeead4db938",
+      "key": "bab3a2620ce6584071602ad58f141388c443de1bec50bebbb84e5ad5e5deeba7",
       "producedBy": "a coding agent acting as the development model (agent mode)",
-      "at": "2026-10-16T15:00:48.259Z",
+      "at": "2026-10-17T08:24:58.478Z",
       "answer": {
         "json": {
           "name": "fleet-readiness-board",
@@ -540,9 +540,9 @@
     },
     {
       "format": "typesys.llm-recording/1",
-      "key": "f36b60ca5364f588d276e5d85573424056200388cbcb7e156f1345573b0800e0",
+      "key": "48e074c22b6bfa4b915d137b82c83e51b1ed701ea2106ccdb69f08d5b6469eef",
       "producedBy": "a coding agent acting as the development model (agent mode)",
-      "at": "2026-10-16T15:00:48.308Z",
+      "at": "2026-10-17T08:24:58.517Z",
       "answer": {
         "json": {
           "name": "fleet-readiness-board",

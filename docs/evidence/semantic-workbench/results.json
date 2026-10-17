@@ -1,0 +1,638 @@
+{
+  "generated": "2026-10-17T09:49:40.778Z",
+  "commit": "c798f08",
+  "context4Commit": "1f40e56",
+  "node": "v22.22.0",
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "Why does the viewer not get maintenanceStatus on AF86-0147?",
+      "truth": "member policy airforce.maintainer-only",
+      "A": {
+        "answered": true,
+        "calls": 0,
+        "files": [
+          "packages/domain-airforce/src/actions/create-maintenance-work-order.ts",
+          "packages/domain-airforce/src/setup.ts",
+          "packages/domain-airforce/src/types/aircraft.ts",
+          "packages/domain-airforce/src/workflows/ground-for-repair.ts"
+        ],
+        "tokens": 5109,
+        "note": "The policy is named in the Type and defined in setup.ts; the viewer's roles are in setup.ts."
+      },
+      "B": {
+        "answered": "partly",
+        "calls": 3,
+        "tokens": 621,
+        "note": "The query plan lists maintenanceStatus under the member policies it redacts, without naming the policy."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 840,
+        "note": "The lead's explanation as the viewer names airforce.maintainer-only, its rule and the remedy. The viewer's own says member-policy."
+      },
+      "leaks": {
+        "B": [
+          "in-memory-airforce-repo"
+        ],
+        "C": []
+      }
+    },
+    {
+      "id": "Q2",
+      "question": "Why does the viewer not get readinessStatus?",
+      "truth": "it is computed from maintenanceStatus, which the viewer may not read, and not released",
+      "A": {
+        "answered": true,
+        "calls": 0,
+        "files": [
+          "packages/domain-airforce/src/computed/readiness-status.ts",
+          "packages/domain-airforce/src/model.generated.ts",
+          "packages/domain-airforce/src/setup.ts",
+          "packages/domain-airforce/src/types/aircraft.ts",
+          "packages/domain-airforce/src/workflows/ground-for-repair.ts"
+        ],
+        "tokens": 5445,
+        "note": "dependsOn and releases are in the Type; the rule that a computed value follows its inputs is in the runtime's documentation."
+      },
+      "B": {
+        "answered": "partly",
+        "calls": 3,
+        "tokens": 621,
+        "note": "The plan shows readinessStatus computed from maintenanceStatus and maintenanceStatus redacted; the agent must infer the rule."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 497,
+        "note": "control derivation, with its input and how to release it."
+      },
+      "leaks": {
+        "B": [],
+        "C": []
+      }
+    },
+    {
+      "id": "Q3",
+      "question": "Why does the viewer not get deploymentLocation?",
+      "truth": "it is marked SECRET and the viewer is cleared CUI",
+      "A": {
+        "answered": true,
+        "calls": 0,
+        "files": [
+          "packages/domain-airforce/src/model.generated.ts",
+          "packages/domain-airforce/src/setup.ts",
+          "packages/domain-airforce/src/types/aircraft.ts"
+        ],
+        "tokens": 3784,
+        "note": "The marking is in the Type; clearances are in setup.ts."
+      },
+      "B": {
+        "answered": "partly",
+        "calls": 3,
+        "tokens": 621,
+        "note": "The plan lists deploymentLocation as marked, without the marking; its description says SECRET."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 840,
+        "note": "control classification; the lead is told the marking and the remedy."
+      },
+      "leaks": {
+        "B": [],
+        "C": []
+      }
+    },
+    {
+      "id": "Q4",
+      "question": "Why is the viewer refused CreateMaintenanceWorkOrder?",
+      "truth": "Action policy airforce.maintainer-only",
+      "A": {
+        "answered": true,
+        "calls": 0,
+        "files": [
+          "packages/domain-airforce/src/actions/create-maintenance-work-order.ts",
+          "packages/domain-airforce/src/manifest.ts",
+          "packages/domain-airforce/src/model.generated.ts",
+          "packages/domain-airforce/src/sample-data/work-orders.ts",
+          "packages/domain-airforce/src/types/maintenance-event.ts",
+          "packages/domain-airforce/src/workflows/ground-for-repair.ts"
+        ],
+        "tokens": 3390,
+        "note": "The Action names its policy; the rule is in setup.ts."
+      },
+      "B": {
+        "answered": "partly",
+        "calls": 2,
+        "tokens": 104,
+        "note": "listActions says it is not invocable; the preview's refusal gives the engine's reason."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 339,
+        "note": "The explanation names the policy, its rule and the remedy, and the effects it would have."
+      },
+      "leaks": {
+        "B": [],
+        "C": []
+      }
+    },
+    {
+      "id": "Q5",
+      "question": "What in the squadron application and GroundForRepair is built on maintenanceStatus, directly or through a value computed from it?",
+      "truth": "5 parts and workflows: check.viewer-lacks-status, data.attention, page.Board, workflow:airforce.GroundAircraft, workflow:airforce.GroundForRepair",
+      "A": {
+        "answered": true,
+        "calls": 0,
+        "files": [
+          "the squadron application spec",
+          "packages/domain-airforce/src/workflows/ground-for-repair.ts"
+        ],
+        "tokens": 3585,
+        "note": "Read the application spec and the workflow, and follow each part's references by hand."
+      },
+      "B": {
+        "answered": false,
+        "calls": 0,
+        "tokens": 0,
+        "note": "No 4.0 tool relates a value to what uses it. diffApps compares two specs; it does not say what a spec rests on."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 1683,
+        "note": "One dependents query on maintenanceStatus names 5 of the 5, and 2 more that use them through another part.",
+        "parts": [
+          "check.board-shows-attention",
+          "check.viewer-lacks-status",
+          "data.attention",
+          "page.Board",
+          "page.Board.data.selectedAircraft",
+          "workflow:airforce.GroundAircraft",
+          "workflow:airforce.GroundForRepair"
+        ]
+      },
+      "leaks": {
+        "B": [],
+        "C": []
+      }
+    },
+    {
+      "id": "Q6",
+      "question": "Which system does a shipment's destination Site come from, and does the link resolve?",
+      "truth": "the pharmacy inventory, by the facility code the tracker holds",
+      "A": {
+        "answered": true,
+        "calls": 0,
+        "files": [
+          "packages/cold-chain/src/model.ts"
+        ],
+        "tokens": 3221,
+        "note": "The relationship, its resolution and the Site's mapping are in model.ts and adapters.ts."
+      },
+      "B": {
+        "answered": true,
+        "calls": 3,
+        "tokens": 596,
+        "note": "The description names no source. Following the link and reading the Site with provenance names it, one object at a time."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 390,
+        "note": "One probe lists every cross-system link of Shipment, the systems each crosses and how it resolved on three shipments."
+      },
+      "leaks": {
+        "B": [],
+        "C": []
+      }
+    },
+    {
+      "id": "Q7",
+      "question": "Appointment APT-0404 shows no patient. Is the patient missing, refused, or never linked?",
+      "truth": "the appointment names PT-0404, which no source holds (a dangling reference)",
+      "A": {
+        "answered": false,
+        "calls": 0,
+        "files": [],
+        "tokens": 0,
+        "note": "The definitions cannot say; it is a fact about the data. A developer queries the record system by hand."
+      },
+      "B": {
+        "answered": false,
+        "calls": 1,
+        "tokens": 1,
+        "note": "getRelationship returns an empty list, the same as no patient or a refused one (ADR-0048)."
+      },
+      "C": {
+        "answered": true,
+        "calls": 1,
+        "tokens": 212,
+        "note": "Explained by the administrator as the clinician: dangling, naming PT-0404. The clinician's own explanation does not name it."
+      },
+      "leaks": {
+        "B": [],
+        "C": []
+      }
+    }
+  ],
+  "contexts": [
+    {
+      "id": "R1",
+      "task": "Show the viewer a list of aircraft that need attention, with each one's installed components",
+      "as": "viewer",
+      "needs": {
+        "types": [
+          "airforce.Aircraft",
+          "airforce.Component"
+        ],
+        "actions": []
+      },
+      "B": {
+        "tokens": 739,
+        "typesNeeded": 2,
+        "actionsNeeded": 0,
+        "extraTypes": 3,
+        "withheldMarked": 3,
+        "withheldExplained": 0,
+        "withheld": 3,
+        "checks": 0,
+        "leaks": []
+      },
+      "C": {
+        "tokens": 1110,
+        "typesNeeded": 2,
+        "actionsNeeded": 0,
+        "extraTypes": 3,
+        "withheldMarked": 3,
+        "withheldExplained": 3,
+        "withheld": 3,
+        "checks": 3,
+        "leaks": []
+      },
+      "selected": {
+        "B": [
+          "airforce.Aircraft",
+          "airforce.Component",
+          "airforce.MaintenanceEvent",
+          "core.Asset",
+          "airforce.WorkOrder"
+        ],
+        "C": [
+          "airforce.Aircraft",
+          "airforce.Component",
+          "airforce.WorkOrder",
+          "airforce.MaintenanceEvent",
+          "core.Asset"
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "task": "Let a maintainer open a work order for an aircraft from its maintenance history page",
+      "as": "maintainer",
+      "needs": {
+        "types": [
+          "airforce.Aircraft",
+          "airforce.MaintenanceEvent",
+          "airforce.WorkOrder"
+        ],
+        "actions": [
+          "CreateMaintenanceWorkOrder"
+        ]
+      },
+      "B": {
+        "tokens": 756,
+        "typesNeeded": 3,
+        "actionsNeeded": 1,
+        "extraTypes": 3,
+        "withheldMarked": 0,
+        "withheldExplained": 0,
+        "withheld": 0,
+        "checks": 0,
+        "leaks": []
+      },
+      "C": {
+        "tokens": 1149,
+        "typesNeeded": 3,
+        "actionsNeeded": 1,
+        "extraTypes": 3,
+        "withheldMarked": 0,
+        "withheldExplained": 0,
+        "withheld": 0,
+        "checks": 3,
+        "leaks": []
+      },
+      "selected": {
+        "B": [
+          "airforce.WorkOrder",
+          "airforce.MaintenanceEvent",
+          "airforce.Aircraft",
+          "airforce.Component",
+          "core.Asset",
+          "core.Event"
+        ],
+        "C": [
+          "airforce.WorkOrder",
+          "airforce.MaintenanceEvent",
+          "airforce.Aircraft",
+          "airforce.Component",
+          "core.Asset",
+          "core.Event"
+        ]
+      }
+    },
+    {
+      "id": "R3",
+      "task": "A report of components in poor condition, grouped by aircraft, for the viewer",
+      "as": "viewer",
+      "needs": {
+        "types": [
+          "airforce.Component",
+          "airforce.Aircraft"
+        ],
+        "actions": []
+      },
+      "B": {
+        "tokens": 724,
+        "typesNeeded": 2,
+        "actionsNeeded": 0,
+        "extraTypes": 5,
+        "withheldMarked": 3,
+        "withheldExplained": 0,
+        "withheld": 3,
+        "checks": 0,
+        "leaks": []
+      },
+      "C": {
+        "tokens": 1124,
+        "typesNeeded": 2,
+        "actionsNeeded": 0,
+        "extraTypes": 5,
+        "withheldMarked": 3,
+        "withheldExplained": 3,
+        "withheld": 3,
+        "checks": 3,
+        "leaks": []
+      },
+      "selected": {
+        "B": [
+          "airforce.Component",
+          "airforce.MaintenanceEvent",
+          "airforce.Aircraft",
+          "core.Organization",
+          "core.Asset",
+          "airforce.WorkOrder",
+          "core.Person"
+        ],
+        "C": [
+          "airforce.Component",
+          "airforce.MaintenanceEvent",
+          "airforce.Aircraft",
+          "core.Organization",
+          "core.Asset",
+          "airforce.WorkOrder",
+          "core.Person"
+        ]
+      }
+    },
+    {
+      "id": "R4",
+      "task": "Flag jets that are overdue for upkeep so a crew chief can schedule them",
+      "as": "maintainer",
+      "needs": {
+        "types": [
+          "airforce.Aircraft",
+          "airforce.MaintenanceEvent"
+        ],
+        "actions": [
+          "CreateMaintenanceWorkOrder"
+        ]
+      },
+      "B": {
+        "tokens": 895,
+        "typesNeeded": 2,
+        "actionsNeeded": 1,
+        "extraTypes": 8,
+        "withheldMarked": 0,
+        "withheldExplained": 0,
+        "withheld": 0,
+        "checks": 0,
+        "leaks": []
+      },
+      "C": {
+        "tokens": 1339,
+        "typesNeeded": 2,
+        "actionsNeeded": 1,
+        "extraTypes": 8,
+        "withheldMarked": 0,
+        "withheldExplained": 0,
+        "withheld": 0,
+        "checks": 3,
+        "leaks": []
+      },
+      "selected": {
+        "B": [
+          "airforce.Aircraft",
+          "airforce.Component",
+          "airforce.MaintenanceEvent",
+          "airforce.WorkOrder",
+          "core.Asset",
+          "core.Event",
+          "core.Location",
+          "core.Organization",
+          "core.Party",
+          "core.Person"
+        ],
+        "C": [
+          "airforce.Aircraft",
+          "airforce.Component",
+          "airforce.MaintenanceEvent",
+          "airforce.WorkOrder",
+          "core.Asset",
+          "core.Event",
+          "core.Location",
+          "core.Organization",
+          "core.Party",
+          "core.Person"
+        ]
+      }
+    }
+  ],
+  "changes": {
+    "recordMs": 15,
+    "baselineTokens": 6095,
+    "rows": [
+      {
+        "id": "X1",
+        "change": "release readinessStatus to every reader, as needsAttention is",
+        "truth": {
+          "viewerGains": [
+            "readinessStatus"
+          ],
+          "viewerLoses": []
+        },
+        "B": {
+          "verdict": "compatible",
+          "changes": 0,
+          "tokens": 9,
+          "seesAccessChange": false,
+          "consumersNamed": 0
+        },
+        "C": {
+          "verdict": "risky",
+          "items": 2,
+          "tokens": 1192,
+          "exposuresRight": true,
+          "narrowingsRight": true,
+          "seesAccessChange": true,
+          "consumersNamed": 3,
+          "checks": 1,
+          "analyzeMs": 6
+        }
+      },
+      {
+        "id": "X2",
+        "change": "take the member policy off maintenanceStatus",
+        "truth": {
+          "viewerGains": [
+            "maintenanceStatus",
+            "readinessStatus"
+          ],
+          "viewerLoses": []
+        },
+        "B": {
+          "verdict": "compatible",
+          "changes": 0,
+          "tokens": 9,
+          "seesAccessChange": false,
+          "consumersNamed": 0
+        },
+        "C": {
+          "verdict": "risky",
+          "items": 3,
+          "tokens": 1980,
+          "exposuresRight": true,
+          "narrowingsRight": true,
+          "seesAccessChange": true,
+          "consumersNamed": 3,
+          "checks": 2,
+          "analyzeMs": 3
+        }
+      },
+      {
+        "id": "X3",
+        "change": "guard tailNumber with airforce.maintainer-only",
+        "truth": {
+          "viewerGains": [],
+          "viewerLoses": [
+            "tailNumber"
+          ]
+        },
+        "B": {
+          "verdict": "compatible",
+          "changes": 0,
+          "tokens": 9,
+          "seesAccessChange": false,
+          "consumersNamed": 0
+        },
+        "C": {
+          "verdict": "risky",
+          "items": 2,
+          "tokens": 905,
+          "exposuresRight": true,
+          "narrowingsRight": true,
+          "seesAccessChange": true,
+          "consumersNamed": 3,
+          "checks": 2,
+          "analyzeMs": 3
+        }
+      },
+      {
+        "id": "X4",
+        "change": "drop the SECRET marking from deploymentLocation",
+        "truth": {
+          "viewerGains": [
+            "deploymentLocation"
+          ],
+          "viewerLoses": []
+        },
+        "B": {
+          "verdict": "compatible",
+          "changes": 0,
+          "tokens": 9,
+          "seesAccessChange": false,
+          "consumersNamed": 0
+        },
+        "C": {
+          "verdict": "risky",
+          "items": 2,
+          "tokens": 1145,
+          "exposuresRight": true,
+          "narrowingsRight": true,
+          "seesAccessChange": true,
+          "consumersNamed": 3,
+          "checks": 1,
+          "analyzeMs": 3
+        }
+      },
+      {
+        "id": "X5",
+        "change": "remove the model value",
+        "truth": {
+          "viewerGains": [],
+          "viewerLoses": [
+            "model"
+          ]
+        },
+        "B": {
+          "verdict": "breaking",
+          "changes": 1,
+          "tokens": 48,
+          "seesAccessChange": false,
+          "consumersNamed": 0
+        },
+        "C": {
+          "verdict": "breaking",
+          "items": 3,
+          "tokens": 1184,
+          "exposuresRight": true,
+          "narrowingsRight": true,
+          "seesAccessChange": true,
+          "consumersNamed": 3,
+          "checks": 1,
+          "analyzeMs": 4
+        }
+      },
+      {
+        "id": "X6",
+        "change": "a patch version bump and nothing else (control)",
+        "truth": {
+          "viewerGains": [],
+          "viewerLoses": []
+        },
+        "B": {
+          "verdict": "compatible",
+          "changes": 0,
+          "tokens": 9,
+          "seesAccessChange": false,
+          "consumersNamed": 0
+        },
+        "C": {
+          "verdict": "compatible",
+          "items": 0,
+          "tokens": 141,
+          "exposuresRight": true,
+          "narrowingsRight": true,
+          "seesAccessChange": true,
+          "consumersNamed": 0,
+          "checks": 0,
+          "analyzeMs": 3
+        }
+      }
+    ]
+  }
+}

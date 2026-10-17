@@ -1,12 +1,15 @@
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool, type ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
+  AuthorizationError,
+  NotFoundError,
   semanticQuerySchema,
   aggregateQuerySchema,
   withSpan,
   summarizeAction,
   type ActionDefinition,
   type Identity,
+  type ExplainQuestion,
   type JsonSchema2020,
   type SemanticQuery,
   type SemanticAggregateQuery,
@@ -15,7 +18,8 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { compileContext, discover, validateQuery } from "@typesys/devkit";
+import { GRAPH_VIEWS, compileContext, discover, governedBaseline, governedGraph, governedImpact, isBaseline, queryGraph, validateQuery, type GraphViewName } from "@typesys/devkit";
+import type { McpBackend } from "./backend.js";
 import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, CONTEXT_OUTPUT, DISCOVER_OUTPUT, EXPLAIN_OUTPUT, VALIDATE_QUERY_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
 const AUTH_TOKEN_FIELD = {
@@ -94,8 +98,20 @@ interface BuiltInTool {
   run(args: Args, identity: Identity): Promise<Record<string, unknown>>;
 }
 
-function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Record<string, BuiltInTool> {
+const OPEN_OBJECT: JsonSchema2020 = { type: "object", additionalProperties: true };
+
+function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime, extras: Pick<McpBackend, "consumers" | "subjects"> = {}): Record<string, BuiltInTool> {
   const p = RESERVED_TOOL_PREFIX;
+  /** Another subject, for an inspector only: anyone else is refused before the directory is asked, so they learn nothing of who exists. */
+  const subject = async (tool: string, as: unknown, identity: Identity): Promise<Identity | undefined> => {
+    if (as === undefined) return undefined;
+    if (typeof as !== "string" || as === "") throw new Error(`${tool}: "as" must be a subject id`);
+    if (!(await runtime.canInspect(identity))) throw new AuthorizationError("Explaining another subject's access needs the inspection policy");
+    if (!extras.subjects) throw new NotFoundError("This server has no subject directory, so only your own access can be explained");
+    const found = await extras.subjects.resolve(as);
+    if (!found) throw new NotFoundError(`No subject "${as}"`);
+    return found;
+  };
   return {
     [`${p}list_types`]: {
       description: "List every registered semantic Type, with its schema, relationships, Actions, and computed properties.",
@@ -124,7 +140,7 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
     },
     [`${p}compile_context`]: {
       description:
-        "Before writing code against this model: the part of it a coding task needs, as text for your prompt. Types with their values (enums spelled out, which values were not returned to you), relationships, the Actions on them and whether you may invoke them, and the rules for using TypeSystem, within a token budget.",
+        "Before writing code against this model: the part of it a coding task needs, as text for your prompt. Types with their values (enums spelled out), each value marked verified, inferred, withheld or unavailable for you, relationships, the Actions on them and whether you may invoke them, the workflows, pages and checks built on them, how to query them and call them with the typed SDK, and the rules for using TypeSystem, within a token budget. An Action is never included without the Types it needs.",
       inputSchema: {
         type: "object",
         required: ["task"],
@@ -148,8 +164,20 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         if (focus !== undefined && (!Array.isArray(focus) || focus.some((f) => typeof f !== "string"))) throw new Error(`${p}compile_context: "focus" must be a list of names`);
         const maxTokens = int("maxTokens", 500, 32_000);
         const examples = int("examples", 0, 5);
-        const c = await compileContext(runtime, identity, { task, ...(focus ? { focus: focus as string[] } : {}), ...(maxTokens !== undefined ? { maxTokens } : {}), ...(examples !== undefined ? { examples } : {}) });
-        return { text: c.text, tokens: c.tokens, types: c.types.map((t) => t.name), actions: c.actions.map((a) => a.name), omitted: c.omitted, digest: c.digest };
+        const c = await compileContext(runtime, identity, { task, ...(focus ? { focus: focus as string[] } : {}), ...(maxTokens !== undefined ? { maxTokens } : {}), ...(examples !== undefined ? { examples } : {}), consumers: extras.consumers ?? [] });
+        return {
+          text: c.text,
+          tokens: c.tokens,
+          types: c.types.map((t) => t.name),
+          actions: c.actions.map((a) => a.name),
+          omitted: c.omitted,
+          leftOut: c.leftOut,
+          access: Object.fromEntries(c.types.flatMap((t) => (t.access ? [[t.name, t.access]] : []))),
+          checks: c.checks,
+          modelDigest: c.modelDigest,
+          governance: c.governance,
+          digest: c.digest
+        };
       }
     },
     [`${p}describe_type`]: {
@@ -261,6 +289,70 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime): Rec
         return { valid: !diagnostics.some((d) => d.severity === "error"), diagnostics };
       }
     },
+    [`${p}inspect`]: {
+      description:
+        "For a developer the deployment's inspection policy admits: where each value of a Type comes from, which policy (with its rule) and marking guard it, what each computed value derives from, is released from and reads, and which source each Action writes to. Refused to anyone else.",
+      inputSchema: { type: "object", properties: { types: { type: "array", items: { type: "string" }, description: "Only these Types (default: every Type you may learn of)." } } },
+      outputSchema: OPEN_OBJECT,
+      run: async (args, identity) => {
+        const types = args.types;
+        if (types !== undefined && (!Array.isArray(types) || types.some((t) => typeof t !== "string"))) throw new Error(`${p}inspect: "types" must be a list of Type names`);
+        return { ...(await runtime.inspectModel(identity, types ? { types: types as string[] } : {})) };
+      }
+    },
+    [`${p}explain`]: {
+      description:
+        "Why a read, relationship, Action invocation or query is allowed, partly answered, refused or unavailable: the runtime's own decision replayed, each finding marked structural, evaluated or observed. Nothing is executed and no value is returned. Your own access by default; `as` (a subject id) explains someone else's, for an inspector only.",
+      inputSchema: {
+        type: "object",
+        required: ["question"],
+        properties: {
+          question: {
+            type: "object",
+            description: '{"kind":"read","type","id"} | {"kind":"relationship","type","id","relationship"} | {"kind":"invoke","action","input"} | {"kind":"query","query"}'
+          },
+          as: { type: "string", description: "Optional: the subject whose access to explain." }
+        }
+      },
+      outputSchema: OPEN_OBJECT,
+      run: async (args, identity) => {
+        const as = await subject(`${p}explain`, args.as, identity);
+        return { ...(await runtime.explain(args.question as ExplainQuestion, identity, as ? { as } : {})) };
+      }
+    },
+    [`${p}graph`]: {
+      description:
+        "The dependency graph of the model, its sources, policies and markings, and the workflows and applications built on it, as you may learn it. `overview` first; then `neighborhood`, `dependents` (what a change to a node reaches) or `dependencies` (what it rests on) of one node id such as `member:shop.Order.status`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          view: { enum: [...GRAPH_VIEWS], description: "Default overview." },
+          node: { type: "string", description: "A node id from an earlier answer: type:, member:, relationship:, action:, source:, policy:, workflow:, app:, part:." },
+          depth: { type: "integer", minimum: 1, maximum: 50 },
+          limit: { type: "integer", minimum: 5, maximum: 400 }
+        }
+      },
+      outputSchema: OPEN_OBJECT,
+      run: async (args, identity) => {
+        const view = args.view ?? "overview";
+        if (typeof view !== "string" || !(GRAPH_VIEWS as readonly string[]).includes(view)) throw new Error(`${p}graph: "view" is one of ${GRAPH_VIEWS.join(", ")}`);
+        for (const k of ["depth", "limit"] as const) if (args[k] !== undefined && (typeof args[k] !== "number" || !Number.isInteger(args[k]))) throw new Error(`${p}graph: "${k}" must be an integer`);
+        const graph = await governedGraph(runtime, identity, extras.consumers ?? []);
+        const node = typeof args.node === "string" ? args.node : undefined;
+        if (view !== "overview" && view !== "full" && !graph.nodes.some((n) => n.id === node)) throw new Error(`${p}graph: no node "${node ?? ""}" in the graph you may see; start from view "overview"`);
+        return queryGraph(graph, { view: view as GraphViewName, ...(node ? { node } : {}), ...(args.depth !== undefined ? { depth: args.depth as number } : {}), ...(args.limit !== undefined ? { limit: args.limit as number } : {}) });
+      }
+    },
+    [`${p}impact`]: {
+      description:
+        "What a change to the model does. Without `baseline`: records one now, as you may learn the model (the description, the inspection if you may inspect, and how each caller's read of a few objects is decided, never a value). Keep it. With `baseline`: records the model as it is now and compares: contract changes, governance changes (policies, markings, releases, sources), every read whose decision changed for a caller, and the workflows and checks each change reaches. `exposures` lists reads a caller is newly returned.",
+      inputSchema: { type: "object", properties: { baseline: { type: "object", description: "A typesys.baseline/1 from an earlier call." } } },
+      outputSchema: OPEN_OBJECT,
+      run: async (args, identity) => {
+        if (args.baseline !== undefined && !isBaseline(args.baseline)) throw new Error(`${p}impact: "baseline" is not a typesys.baseline/1 from an earlier call`);
+        return args.baseline === undefined ? { ...(await governedBaseline(runtime, identity, extras.subjects)) } : { ...(await governedImpact(runtime, identity, args.baseline, extras.consumers ?? [], extras.subjects)) };
+      }
+    },
     [`${p}aggregate`]: {
       description: "Run a grouped aggregation (count/sum/avg/min/max, optional groupBy) against a Type.",
       inputSchema: aggregateQuerySchema(runtime.queryLimits),
@@ -301,9 +393,10 @@ export function registerToolHandlers(
   server: Server,
   registry: SemanticRegistry,
   runtime: SemanticRuntime,
-  resolveIdentity: IdentityResolver
+  resolveIdentity: IdentityResolver,
+  extras: Pick<McpBackend, "consumers" | "subjects"> = {}
 ): void {
-  const builtIns = builtInTools(registry, runtime);
+  const builtIns = builtInTools(registry, runtime, extras);
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const actions = await listableActions(registry, runtime, resolveIdentity);

@@ -20,7 +20,7 @@ See [`docs/adr/0020-publish-infrastructure.md`](../docs/adr/0020-publish-infrast
 for how this repo actually uses changesets: `npx changeset version` bumps
 package versions and writes CHANGELOGs from the accumulated changesets;
 `.github/workflows/release.yml` runs that (and, only if `NPM_TOKEN` is
-configured, `npx changeset publish`) automatically on `main`. No token is
+configured, `npx changeset publish`) when a maintainer starts it by hand. No token is
 configured in this repository's own CI, so the publish step in that
 workflow cannot actually publish anything — see the ADR for why that's
 deliberate.

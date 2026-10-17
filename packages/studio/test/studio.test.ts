@@ -110,13 +110,13 @@ describe("the Studio's screen logic", () => {
 
   it("states each step of a real plan for the caller", async () => {
     const base = await serve({ clientDir: "/nonexistent" });
-    const query = { type: "airforce.Aircraft", filter: { and: [{ property: "status", operator: "eq", value: "active" }, { property: "needsAttention", operator: "eq", value: true }] }, select: ["tailNumber"] };
+    const query = { type: "airforce.Aircraft", filter: { and: [{ property: "model", operator: "eq", value: "F-16C" }, { property: "needsAttention", operator: "eq", value: true }] }, select: ["tailNumber"] };
     const plan = (await (await post(base, "/api/query/explain", query, "demo-viewer-token")).json()) as ExecutionPlan;
     const lines = planLines(plan);
     expect(lines.length).toBeGreaterThanOrEqual(plan.steps.length);
     expect(lines.slice(0, plan.steps.length).every((l, i) => l.startsWith(`${i + 1}. `))).toBe(true);
     const text = lines.join("\n");
-    expect(text).toMatch(/Scan .*filtered in the source by status eq "active"/);
+    expect(text).toMatch(/Scan .*filtered in the source by model eq "F-16C"/);
     expect(text).toMatch(/Filter after computing by needsAttention eq true/);
     expect(text).toMatch(/Return only tailNumber/);
     for (const note of plan.notes) expect(lines).toContain(note);

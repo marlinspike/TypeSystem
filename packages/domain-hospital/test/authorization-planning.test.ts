@@ -64,10 +64,10 @@ async function walk(runtime: SemanticRuntime, query: SemanticQuery, who: Identit
 
 const QUERIES: SemanticQuery[] = [
   { type: "hospital.Patient" },
-  { type: "hospital.Patient", sort: [{ property: "name", direction: "desc" }] },
-  { type: "hospital.Patient", filter: { property: "name", operator: "icontains", value: "of" } },
-  { type: "hospital.Patient", search: { text: "2001", properties: ["name"] } },
-  { type: "hospital.Patient", select: ["name"], include: [{ relationship: "appointments" }] },
+  { type: "hospital.Patient", sort: [{ property: "displayName", direction: "desc" }] },
+  { type: "hospital.Patient", filter: { property: "displayName", operator: "icontains", value: "of" } },
+  { type: "hospital.Patient", search: { text: "2001", properties: ["displayName"] } },
+  { type: "hospital.Patient", select: ["displayName"], include: [{ relationship: "appointments" }] },
   { type: "hospital.Provider", include: [{ relationship: "patients" }] },
   { type: "hospital.Appointment", include: [{ relationship: "patient" }] }
 ];

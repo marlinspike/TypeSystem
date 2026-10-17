@@ -15,6 +15,7 @@ export function ModelView(props: {
   readonly model: ModelDescription;
   readonly onQuery: (type: string) => void;
   readonly onAction: (name: string) => void;
+  readonly onGraph: (type: string) => void;
 }) {
   const { api, model } = props;
   const [selected, setSelected] = useState(model.types[0]?.name ?? "");
@@ -81,6 +82,7 @@ export function ModelView(props: {
             <h2>{type.name}</h2>
             <span className="muted">v{type.version}</span>
             <button onClick={() => props.onQuery(type.name)}>Query this Type</button>
+            <button onClick={() => props.onGraph(type.name)}>Open in the graph</button>
           </div>
           {type.description && <p>{type.description}</p>}
           {type.extends && (

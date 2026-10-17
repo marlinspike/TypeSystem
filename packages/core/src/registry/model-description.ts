@@ -55,7 +55,8 @@ export interface DescribeModelOptions {
   prefixes?: string[];
 }
 
-async function composedProperties(registry: SemanticRegistry, typeDef: TypeDefinition): Promise<{ properties: Record<string, JsonSchema2020>; required: Set<string> }> {
+/** A Type's stored properties as the registry composes them: its base's, then its traits', then its own. */
+export async function composedProperties(registry: SemanticRegistry, typeDef: TypeDefinition): Promise<{ properties: Record<string, JsonSchema2020>; required: Set<string> }> {
   const base = typeDef.extends ? await registry.getType(typeDef.extends) : undefined;
   const { properties, required } = base ? await composedProperties(registry, base) : { properties: {}, required: new Set<string>() };
   for (const trait of typeDef.traits ?? []) {

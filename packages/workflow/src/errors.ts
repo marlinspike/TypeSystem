@@ -12,7 +12,8 @@ export interface WorkflowDiagnostic {
     | "invalid-schema"
     | "missing-policy"
     | "unreleasable-ai-input"
-    | "unknown-model";
+    | "unknown-model"
+    | "unknown-type";
   readonly step?: string;
   readonly message: string;
 }

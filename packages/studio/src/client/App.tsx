@@ -6,8 +6,22 @@ import { ModelView } from "./ModelView.js";
 import { QueryView } from "./QueryView.js";
 import { ActionsView } from "./ActionsView.js";
 import { ErrorNote } from "./ErrorNote.js";
+import { GraphView } from "./GraphView.js";
+import { ExplainView, type ExplainSeed } from "./ExplainView.js";
+import { ImpactView } from "./ImpactView.js";
+import type { GraphNode } from "@typesys/devkit";
 
-type Tab = "model" | "query" | "actions";
+type Tab = "model" | "graph" | "explain" | "impact" | "query" | "actions";
+const TAB_LABEL: Record<Tab, string> = { model: "Model", graph: "Graph", explain: "Explain", impact: "Impact", query: "Query", actions: "Actions" };
+
+/** What to explain about a node of the graph: the question its kind asks. */
+function seedFor(node: GraphNode): ExplainSeed {
+  const owner = node.parent?.startsWith("type:") ? node.parent.slice(5) : node.label;
+  if (node.kind === "action") return { kind: "invoke", action: node.label };
+  if (node.kind === "workflow") return { kind: "workflow", workflow: node.label };
+  if (node.kind === "relationship") return { kind: "relationship", type: owner, relationship: node.label };
+  return { kind: "read", type: owner };
+}
 
 function storedToken(): string | undefined {
   try {
@@ -41,6 +55,8 @@ export function App() {
   const [tab, setTab] = useState<Tab>("model");
   const [query, setQuery] = useState(starterQuery("airforce.Aircraft"));
   const [action, setAction] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [seed, setSeed] = useState<ExplainSeed | null>(null);
 
   const api = useMemo(() => studioApi(token), [token]);
 
@@ -81,6 +97,14 @@ export function App() {
     setAction(name);
     setTab("actions");
   }, []);
+  const openGraph = useCallback((type: string) => {
+    setFocus(`type:${type}`);
+    setTab("graph");
+  }, []);
+  const openExplain = useCallback((node: GraphNode) => {
+    setSeed(seedFor(node));
+    setTab("explain");
+  }, []);
 
   return (
     <div className="studio">
@@ -117,15 +141,18 @@ export function App() {
         </form>
       </header>
       <nav role="tablist">
-        {(["model", "query", "actions"] as const).map((t) => (
+        {(["model", "graph", "explain", "impact", "query", "actions"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-            {t === "model" ? "Model" : t === "query" ? "Query" : "Actions"}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </nav>
       <main>
         <ErrorNote error={error} />
-        {model && tab === "model" && <ModelView api={api} model={model} onQuery={openQuery} onAction={openAction} />}
+        {model && tab === "model" && <ModelView api={api} model={model} onQuery={openQuery} onAction={openAction} onGraph={openGraph} />}
+        {model && tab === "graph" && <GraphView key={`${token ?? ""}|${focus ?? ""}`} api={api} focus={focus} onExplain={openExplain} />}
+        {model && tab === "explain" && <ExplainView key={`${token ?? ""}|${JSON.stringify(seed)}`} api={api} model={model} seed={seed} />}
+        {model && tab === "impact" && <ImpactView key={token ?? ""} api={api} />}
         {model && tab === "query" && <QueryView api={api} text={query} onText={setQuery} />}
         {model && tab === "actions" && <ActionsView api={api} model={model} selected={action} onSelect={setAction} />}
       </main>

@@ -12,7 +12,11 @@ export default defineConfig({
     // file instead of spawning one per file, which is what makes running
     // everything sequentially still fast (~1s, not ~7s) — safe here since no
     // test file relies on a fresh global/module registry per file.
-    fileParallelism: false,
+    // Without those databases (a pull request's CI, or `npm test` with nothing
+    // configured) nothing is shared, so files run in parallel.
+    fileParallelism: process.env.DATABASE_URL === undefined && process.env.REDIS_URL === undefined,
+    // In parallel on a shared runner a test that takes 3s alone can take more than vitest's default 5s.
+    testTimeout: 30_000,
     isolate: false
   }
 });

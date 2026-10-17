@@ -23,7 +23,16 @@ export interface PlannableRule {
  */
 const STRUCTURAL = new WeakSet<PolicyRule>();
 
-function plannable(rule: PolicyRule, plan: PlannableRule["plan"], children: readonly PolicyRule[] = []): PlannableRule {
+/** What each combinator-built rule tests, written from the arguments it was built with (ADR-0088). */
+const DESCRIPTIONS = new WeakMap<PolicyRule, string>();
+
+/** A rule's structure as text: a combinator's own, or `opaque` for a plain function, which cannot be read. */
+export function describeRule(rule: PolicyRule): string {
+  return DESCRIPTIONS.get(rule) ?? "opaque rule (a function)";
+}
+
+function plannable(rule: PolicyRule, plan: PlannableRule["plan"], children: readonly PolicyRule[] = [], description?: string): PlannableRule {
+  if (description !== undefined) DESCRIPTIONS.set(rule, description);
   const planned = Object.assign(rule, { plan });
   if (children.every((child) => STRUCTURAL.has(child) || typeof (child as Partial<PlannableRule>).plan !== "function")) STRUCTURAL.add(planned);
   return planned;
@@ -67,6 +76,17 @@ export class AbacPolicyEngine implements PolicyEngine {
     return !rule || STRUCTURAL.has(rule) ? "structural" : "unverified";
   }
 
+  /**
+   * The registered rule's structure (ADR-0088): exact for the combinators
+   * below, `undefined` for a plain function rule. An unregistered policy
+   * denies every request, and says so.
+   */
+  describe(policyName: string): string | undefined {
+    const rule = this.rules.get(policyName);
+    if (!rule) return "not registered: denies every request";
+    return DESCRIPTIONS.get(rule);
+  }
+
   /** From the registered rule's own structure (ADR-0038). An unregistered policy denies everything, so it plans `never`. */
   async plan(request: PolicyRequest): Promise<AuthorizationPlan> {
     const rule = this.rules.get(request.policyName);
@@ -77,7 +97,9 @@ export class AbacPolicyEngine implements PolicyEngine {
 /** Always allows — useful for a "public" policy name on genuinely open resources. */
 export const allowAllRule: PolicyRule = plannable(
   () => ({ allow: true }),
-  () => ALWAYS
+  () => ALWAYS,
+  [],
+  "always"
 );
 
 /** Allows only when the subject has one of the given roles. */
@@ -88,7 +110,9 @@ export function requireRole(...roles: string[]): PolicyRule {
       holds(request)
         ? { allow: true }
         : { allow: false, reason: `Requires one of roles [${roles.join(", ")}], subject has [${request.subject.roles.join(", ")}]` },
-    (request) => (holds(request) ? ALWAYS : NEVER)
+    (request) => (holds(request) ? ALWAYS : NEVER),
+    [],
+    `role in [${roles.join(", ")}]`
   );
 }
 
@@ -120,7 +144,9 @@ export function requireAttributeMatch(resourceAttribute: string, subjectAttribut
     ({ subject }) => {
       const wanted = identifierAt(subject.attributes, subjectAttribute);
       return wanted === undefined ? NEVER : predicatePlan({ attribute: resourceAttribute, eq: wanted });
-    }
+    },
+    [],
+    `resource.${resourceAttribute} = subject.${subjectAttribute}`
   );
 }
 
@@ -163,7 +189,8 @@ export function anyOf(...rules: PolicyRule[]): PolicyRule {
       return withFaults({ allow: false, reason: `No alternative allowed: ${reasons.join("; ")}` }, faults);
     },
     async (request) => anyPlan(await Promise.all(rules.map((rule) => planOf(rule, request)))),
-    rules
+    rules,
+    rules.length === 1 ? describeRule(rules[0]!) : `any of (${rules.map(describeRule).join("; ")})`
   );
 }
 
@@ -182,6 +209,7 @@ export function allOf(...rules: PolicyRule[]): PolicyRule {
       return withFaults({ allow: true }, faults);
     },
     async (request) => allPlans(await Promise.all(rules.map((rule) => planOf(rule, request)))),
-    rules
+    rules,
+    rules.length === 1 ? describeRule(rules[0]!) : `all of (${rules.map(describeRule).join("; ")})`
   );
 }

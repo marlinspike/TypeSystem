@@ -43,6 +43,7 @@ describe("buildRuntime", () => {
         $id: "https://typesys.dev/types/test/Thing/1.0.0",
         title: "Thing",
         type: "object",
+        properties: { id: { type: "string" }, displayName: { type: "string" } },
         "x-policy": { objectPolicy: "allow-viewer" }
       },
       { name: "test.Thing", version: "1.0.0" }
