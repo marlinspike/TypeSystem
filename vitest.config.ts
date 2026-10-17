@@ -15,6 +15,8 @@ export default defineConfig({
     // Without those databases (a pull request's CI, or `npm test` with nothing
     // configured) nothing is shared, so files run in parallel.
     fileParallelism: process.env.DATABASE_URL === undefined && process.env.REDIS_URL === undefined,
+    // In parallel on a shared runner a test that takes 3s alone can take more than vitest's default 5s.
+    testTimeout: 30_000,
     isolate: false
   }
 });
