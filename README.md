@@ -42,14 +42,16 @@ shows it end to end on Cold Chain Command.
 ## See all of it running: the developer showcase
 
 ```bash
-npm install && npm run build
-npx typesys app build examples/apps/cold-chain && npx typesys app build examples/apps/recall-response
-npm run showcase        # guide at http://127.0.0.1:4300
+npm install
+npm run showcase        # builds what is out of date, then the guide is at http://127.0.0.1:4300
 ```
 
-You need Node 22 and nothing else: no database, no Docker, no API key.
-If something is missing or a port is busy, `npm run showcase -- check`
-says what and what to run. Ctrl-C stops everything it started.
+You need Node 22 or later and npm (the repository is npm workspaces, which
+pnpm and yarn do not link), and nothing else: no database, no Docker, no API
+key. `npm run showcase` brings the build up to date first, incrementally, so
+it also works straight after a `git pull`; from a fresh clone that takes
+about fifteen seconds. If a port is busy, it says which. Ctrl-C stops
+everything it started.
 
 **A five-minute tour.** Open http://127.0.0.1:4300 and read down the page.
 
@@ -1140,7 +1142,7 @@ per-record and per-field rules are involved.
 ```bash
 npm install
 npm run build
-npm run showcase      # http://127.0.0.1:4300: everything below at once, with the guide
+npm run showcase      # http://127.0.0.1:4300: builds what is stale, then everything below at once, with the guide
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
 npm run studio        # http://localhost:4400: the semantic workbench: model, explain, graph, impact

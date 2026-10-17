@@ -3,13 +3,11 @@
 One command starts everything TypeSystem demonstrates, over the same independent services, and a guide that answers ten engineering questions on the running surfaces, each with the terminal command and MCP tool that answer it without a browser.
 
 ```bash
-npm install && npm run build
-npx typesys app build examples/apps/cold-chain
-npx typesys app build examples/apps/recall-response
-npm run showcase                      # then open http://127.0.0.1:4300
+npm install                           # npm, not pnpm or yarn: the repository is npm workspaces
+npm run showcase                      # builds what is out of date, then open http://127.0.0.1:4300
 ```
 
-`npm run showcase -- check` says what is missing (a build, a busy port) and what to run, without starting anything. Ctrl-C stops every process it started.
+`npm run showcase` brings the packages, browser clients and both applications up to date first (incremental, a few seconds when nothing changed; `--no-build` skips it). `npm run showcase -- check` says whether a port is busy, without starting anything. Ctrl-C stops every process it started.
 
 ## What starts
 
