@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
@@ -10,7 +10,9 @@ let server: Server;
 let base: string;
 
 beforeAll(async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "spa-"));
+  // Under a folder whose name starts with a dot, as an application checked out in ~/.local or a .work folder is.
+  const dir = path.join(mkdtempSync(path.join(tmpdir(), "spa-")), ".work", "app");
+  mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "index.html"), "<!doctype html><div id=root></div>");
   writeFileSync(path.join(dir, "app.js"), "console.log(1)");
   const app = express();

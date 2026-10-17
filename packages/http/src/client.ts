@@ -58,8 +58,10 @@ export function clientRouter(opts: ClientRouterOptions): Router {
   if (existsSync(opts.dir)) {
     router.use(express.static(opts.dir, { index: "index.html", fallthrough: true }));
     if (opts.spa) {
-      const index = path.join(opts.dir, "index.html");
-      router.get(/^\/(?!api(\/|$)).*/, (req, res, next) => (req.accepts("html") && !path.extname(req.path) ? res.sendFile(index) : next()));
+      // Sent relative to its own folder: an absolute path through a folder whose name starts with a dot
+      // (~/.local, a .work checkout) is a dotfile to `send`, which answers 404 for every deep link.
+      const root = path.resolve(opts.dir);
+      router.get(/^\/(?!api(\/|$)).*/, (req, res, next) => (req.accepts("html") && !path.extname(req.path) ? res.sendFile("index.html", { root }) : next()));
     }
   }
   else router.get("/", (_req, res) => void res.status(503).type("text/plain").send("The client is not built. Run npm run build."));
