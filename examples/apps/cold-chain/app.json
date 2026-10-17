@@ -1,0 +1,1653 @@
+{
+  "format": "typesys.app/1",
+  "name": "cold-chain",
+  "title": "Cold Chain Command",
+  "requirement": "A pharmaceutical distributor watches refrigerated shipments across three systems it did not write: a shipment tracker, a temperature sensor hub and a pharmacy inventory. When a shipment's temperature leaves 2 to 8 °C, a logistics coordinator asks for a disposition: a model inside the quality enclave assesses the excursion against the product's stability budget, a quality assurance pharmacist signs it off, and only then is the excursion closed in the sensor hub and, unless the lots are released, every lot on the shipment quarantined in the inventory. If the quarantine fails, the excursion is reopened. Contract pricing is confidential: only quality assurance sees a lot's unit cost or the value at risk, and the model never receives it. An auditor reads everything else and changes nothing. A carrier's dispatcher sees only their own freight.",
+  "host": {
+    "module": "@typesys/cold-chain",
+    "build": "buildColdChainHost",
+    "identities": "resolveColdChainIdentity"
+  },
+  "callers": {
+    "logistics": {
+      "token": "demo-logistics-token",
+      "description": "Dana Whitfield, logistics coordinator"
+    },
+    "qa": {
+      "token": "demo-qa-token",
+      "description": "Dr. Priya Raman, quality assurance pharmacist"
+    },
+    "auditor": {
+      "token": "demo-auditor-token",
+      "description": "Sam Ortega, compliance auditor"
+    },
+    "carrier": {
+      "token": "demo-carrier-token",
+      "description": "Northline Cold Freight dispatch"
+    },
+    "anonymous": {
+      "token": "",
+      "description": "Not signed in"
+    }
+  },
+  "llm": "typesys.llm.json",
+  "models": {
+    "stability": {
+      "id": "stability",
+      "description": "The quality enclave's stability assessor."
+    }
+  },
+  "design": {
+    "system": "meridian",
+    "brand": {
+      "name": "Cold Chain Command"
+    }
+  },
+  "data": {
+    "shipments": {
+      "kind": "query",
+      "query": {
+        "type": "coldchain.Shipment",
+        "select": [
+          "origin",
+          "destination",
+          "carrier",
+          "status",
+          "lat",
+          "lon",
+          "departedAt",
+          "eta"
+        ],
+        "limit": 100,
+        "all": true
+      },
+      "refresh": {
+        "everyMs": 30000
+      }
+    },
+    "openExcursions": {
+      "kind": "query",
+      "query": {
+        "type": "coldchain.Excursion",
+        "filter": {
+          "property": "status",
+          "operator": "eq",
+          "value": "open"
+        },
+        "sort": [
+          {
+            "property": "startedAt",
+            "direction": "desc"
+          }
+        ]
+      }
+    },
+    "lots": {
+      "kind": "query",
+      "query": {
+        "type": "coldchain.Lot",
+        "select": [
+          "product",
+          "manufacturer",
+          "doses",
+          "unitCost",
+          "status",
+          "expiresOn",
+          "siteId",
+          "shipmentId"
+        ],
+        "limit": 200,
+        "all": true
+      }
+    },
+    "atRisk": {
+      "kind": "derive",
+      "value": {
+        "where": [
+          "$lots",
+          {
+            "in": [
+              "$item.shipmentId",
+              {
+                "pluck": [
+                  "$openExcursions",
+                  "shipmentId"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "description": "Lots on a shipment with an open excursion."
+    }
+  },
+  "flows": {
+    "assess": {
+      "name": "coldchain.AssessExcursion",
+      "version": "1.0.0",
+      "title": "Stability assessment",
+      "description": "Ask the quality enclave's model to assess an excursion. It reads and asks; it changes nothing.",
+      "startPolicy": "coldchain.dispose",
+      "input": {
+        "excursionId": {
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "objectOf": "coldchain.Excursion"
+        }
+      },
+      "steps": [
+        {
+          "kind": "read",
+          "name": "excursion",
+          "read": {
+            "kind": "object",
+            "type": "coldchain.Excursion",
+            "id": "$input.excursionId"
+          }
+        },
+        {
+          "kind": "read",
+          "name": "shipment",
+          "read": {
+            "kind": "object",
+            "type": "coldchain.Shipment",
+            "id": "$excursion.shipmentId"
+          }
+        },
+        {
+          "kind": "parallel",
+          "name": "evidence",
+          "steps": [
+            {
+              "kind": "read",
+              "name": "readings",
+              "read": {
+                "kind": "related",
+                "of": "$shipment.$id",
+                "type": "coldchain.Shipment",
+                "relationship": "readings"
+              },
+              "retry": {
+                "maxAttempts": 3,
+                "backoffMs": 200
+              }
+            },
+            {
+              "kind": "read",
+              "name": "lots",
+              "read": {
+                "kind": "related",
+                "of": "$shipment.$id",
+                "type": "coldchain.Shipment",
+                "relationship": "lots"
+              },
+              "retry": {
+                "maxAttempts": 3,
+                "backoffMs": 200
+              }
+            }
+          ]
+        },
+        {
+          "kind": "compute",
+          "name": "budget",
+          "value": {
+            "fn": "stability#budgetMinutes",
+            "args": {
+              "peakC": "$excursion.peakC"
+            },
+            "returns": {
+              "type": "number"
+            }
+          },
+          "description": "Minutes outside 2–8 °C the products tolerate at this peak."
+        },
+        {
+          "kind": "compute",
+          "name": "doses",
+          "value": {
+            "sum": [
+              "$lots",
+              "doses"
+            ]
+          }
+        },
+        {
+          "kind": "ai",
+          "name": "assess",
+          "model": "stability",
+          "prompt": "You are a pharmaceutical quality assessor. Given a temperature excursion, the shipment's readings, its lots and the stability budget in minutes, recommend release, quarantine or destroy, how confident you are, and why in one or two sentences.",
+          "input": {
+            "peakC": "$excursion.peakC",
+            "minutesOut": "$excursion.minutesOut",
+            "severity": "$excursion.severity",
+            "budgetMinutes": "$budget",
+            "readings": "$readings",
+            "lots": "$lots"
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "disposition": {
+                "type": "string",
+                "enum": [
+                  "release",
+                  "quarantine",
+                  "destroy"
+                ]
+              },
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              "rationale": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "disposition",
+              "confidence",
+              "rationale"
+            ],
+            "additionalProperties": false
+          },
+          "release": "redact"
+        }
+      ]
+    },
+    "disposition": {
+      "name": "coldchain.DispositionExcursion",
+      "version": "1.0.0",
+      "title": "Excursion disposition",
+      "description": "Assess an excursion against the product's stability budget, have quality assurance sign it off, then record it and hold the lots.",
+      "startPolicy": "coldchain.dispose",
+      "input": {
+        "excursionId": {
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "objectOf": "coldchain.Excursion"
+        }
+      },
+      "steps": [
+        {
+          "kind": "read",
+          "name": "excursion",
+          "read": {
+            "kind": "object",
+            "type": "coldchain.Excursion",
+            "id": "$input.excursionId"
+          }
+        },
+        {
+          "kind": "check",
+          "name": "stillOpen",
+          "assert": {
+            "eq": [
+              "$excursion.status",
+              "open"
+            ]
+          },
+          "message": "the excursion is already dispositioned"
+        },
+        {
+          "kind": "read",
+          "name": "shipment",
+          "read": {
+            "kind": "object",
+            "type": "coldchain.Shipment",
+            "id": "$excursion.shipmentId"
+          }
+        },
+        {
+          "kind": "parallel",
+          "name": "evidence",
+          "steps": [
+            {
+              "kind": "read",
+              "name": "readings",
+              "read": {
+                "kind": "related",
+                "of": "$shipment.$id",
+                "type": "coldchain.Shipment",
+                "relationship": "readings"
+              },
+              "retry": {
+                "maxAttempts": 3,
+                "backoffMs": 200
+              }
+            },
+            {
+              "kind": "read",
+              "name": "lots",
+              "read": {
+                "kind": "related",
+                "of": "$shipment.$id",
+                "type": "coldchain.Shipment",
+                "relationship": "lots"
+              },
+              "retry": {
+                "maxAttempts": 3,
+                "backoffMs": 200
+              }
+            }
+          ]
+        },
+        {
+          "kind": "compute",
+          "name": "budget",
+          "value": {
+            "fn": "stability#budgetMinutes",
+            "args": {
+              "peakC": "$excursion.peakC"
+            },
+            "returns": {
+              "type": "number"
+            }
+          },
+          "description": "Minutes outside 2–8 °C the products tolerate at this peak."
+        },
+        {
+          "kind": "compute",
+          "name": "doses",
+          "value": {
+            "sum": [
+              "$lots",
+              "doses"
+            ]
+          }
+        },
+        {
+          "kind": "ai",
+          "name": "assess",
+          "model": "stability",
+          "prompt": "You are a pharmaceutical quality assessor. Given a temperature excursion, the shipment's readings, its lots and the stability budget in minutes, recommend release, quarantine or destroy, how confident you are, and why in one or two sentences.",
+          "input": {
+            "peakC": "$excursion.peakC",
+            "minutesOut": "$excursion.minutesOut",
+            "severity": "$excursion.severity",
+            "budgetMinutes": "$budget",
+            "readings": "$readings",
+            "lots": "$lots"
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "disposition": {
+                "type": "string",
+                "enum": [
+                  "release",
+                  "quarantine",
+                  "destroy"
+                ]
+              },
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              "rationale": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "disposition",
+              "confidence",
+              "rationale"
+            ],
+            "additionalProperties": false
+          },
+          "release": "redact"
+        },
+        {
+          "kind": "approval",
+          "name": "pharmacistSignoff",
+          "policy": "coldchain.qa-release",
+          "present": [
+            "excursion",
+            "assess",
+            "budget",
+            "doses"
+          ],
+          "deadlineMs": 14400000
+        },
+        {
+          "kind": "action",
+          "name": "close",
+          "action": "CloseExcursion",
+          "input": {
+            "excursionId": "$input.excursionId",
+            "disposition": "$assess.disposition",
+            "note": "$assess.rationale"
+          },
+          "compensate": {
+            "action": "ReopenExcursion",
+            "input": {
+              "excursionId": "$input.excursionId"
+            }
+          }
+        },
+        {
+          "kind": "action",
+          "name": "hold",
+          "when": {
+            "ne": [
+              "$assess.disposition",
+              "release"
+            ]
+          },
+          "action": "QuarantineShipmentLots",
+          "input": {
+            "shipmentId": "$shipment.$id",
+            "reason": {
+              "concat": [
+                "Excursion ",
+                "$input.excursionId",
+                ": ",
+                "$assess.disposition"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "name": "Command",
+      "title": "Cold chain command",
+      "path": "/",
+      "description": "Every refrigerated shipment, as the signed-in person may see it.",
+      "state": {
+        "selected": {
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default": null
+        }
+      },
+      "data": {
+        "selectedShipment": {
+          "kind": "object",
+          "type": "coldchain.Shipment",
+          "id": "$state.selected"
+        }
+      },
+      "layout": {
+        "kind": "grid",
+        "children": [
+          {
+            "kind": "metric",
+            "id": "in-transit",
+            "label": "In transit",
+            "span": 3,
+            "value": {
+              "count": {
+                "where": [
+                  "$shipments",
+                  {
+                    "eq": [
+                      "$item.status",
+                      "in-transit"
+                    ]
+                  }
+                ]
+              }
+            },
+            "caption": {
+              "concat": [
+                {
+                  "count": "$shipments"
+                },
+                " shipments tracked"
+              ]
+            }
+          },
+          {
+            "kind": "metric",
+            "id": "open-excursions-count",
+            "label": "Open excursions",
+            "span": 3,
+            "value": {
+              "count": "$openExcursions"
+            },
+            "tone": {
+              "if": [
+                {
+                  "gt": [
+                    {
+                      "count": "$openExcursions"
+                    },
+                    0
+                  ]
+                },
+                "bad",
+                "good"
+              ]
+            },
+            "caption": "outside 2–8 °C"
+          },
+          {
+            "kind": "metric",
+            "id": "doses-at-risk",
+            "label": "Doses at risk",
+            "span": 3,
+            "format": "integer",
+            "value": {
+              "sum": [
+                "$atRisk",
+                "doses"
+              ]
+            },
+            "tone": "warn",
+            "caption": {
+              "concat": [
+                {
+                  "count": "$atRisk"
+                },
+                " lots on affected shipments"
+              ]
+            }
+          },
+          {
+            "kind": "metric",
+            "id": "value-at-risk",
+            "label": "Value at risk",
+            "span": 3,
+            "format": "currency",
+            "value": {
+              "fn": "risk#valueAtRisk",
+              "args": {
+                "lots": "$atRisk"
+              },
+              "returns": {
+                "type": "number"
+              }
+            },
+            "caption": "contract price, quality assurance only"
+          },
+          {
+            "kind": "map",
+            "id": "shipment-map",
+            "title": "Shipments",
+            "span": 8,
+            "data": "shipments",
+            "lat": "lat",
+            "lon": "lon",
+            "label": {
+              "concat": [
+                "$item.$id",
+                " to ",
+                "$item.destination"
+              ]
+            },
+            "select": "selected",
+            "tone": {
+              "if": [
+                {
+                  "in": [
+                    "$item.$id",
+                    {
+                      "pluck": [
+                        "$openExcursions",
+                        "shipmentId"
+                      ]
+                    }
+                  ]
+                },
+                "bad",
+                {
+                  "if": [
+                    {
+                      "eq": [
+                        "$item.status",
+                        "held"
+                      ]
+                    },
+                    "warn",
+                    "good"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "kind": "section",
+            "id": "selection",
+            "title": "Selected shipment",
+            "span": 4,
+            "children": [
+              {
+                "kind": "text",
+                "id": "map-hint",
+                "text": "Select a shipment on the map.",
+                "tone": "neutral",
+                "when": {
+                  "not": {
+                    "exists": "$state.selected"
+                  }
+                }
+              },
+              {
+                "kind": "detail",
+                "id": "selected-shipment",
+                "data": "selectedShipment",
+                "fields": [
+                  "origin",
+                  "destination",
+                  "carrier",
+                  {
+                    "field": "status",
+                    "format": "badge",
+                    "tone": {
+                      "in-transit": "info",
+                      "delivered": "good",
+                      "held": "warn"
+                    }
+                  },
+                  {
+                    "field": "eta",
+                    "format": "relative-time",
+                    "label": "ETA"
+                  }
+                ],
+                "when": {
+                  "exists": "$state.selected"
+                }
+              },
+              {
+                "kind": "actions",
+                "id": "selected-actions",
+                "when": {
+                  "exists": "$state.selected"
+                },
+                "buttons": [
+                  {
+                    "label": "Open shipment",
+                    "tone": "primary",
+                    "do": [
+                      {
+                        "navigate": "Shipment",
+                        "params": {
+                          "id": "$state.selected"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "table",
+            "id": "open-excursions",
+            "title": "Open excursions",
+            "span": 7,
+            "data": "openExcursions",
+            "columns": [
+              {
+                "field": "$id",
+                "label": "Excursion"
+              },
+              {
+                "field": "shipmentId",
+                "label": "Shipment"
+              },
+              {
+                "field": "severity",
+                "format": "badge",
+                "tone": {
+                  "minor": "info",
+                  "major": "warn",
+                  "critical": "bad"
+                }
+              },
+              {
+                "field": "peakC",
+                "label": "Peak",
+                "format": "temperature"
+              },
+              {
+                "field": "minutesOut",
+                "label": "Outside range",
+                "format": "duration-minutes"
+              },
+              {
+                "field": "startedAt",
+                "label": "Started",
+                "format": "relative-time"
+              }
+            ],
+            "rowActions": [
+              {
+                "label": "Review",
+                "do": [
+                  {
+                    "navigate": "Excursion",
+                    "params": {
+                      "id": "$row.$id"
+                    }
+                  }
+                ]
+              }
+            ],
+            "empty": "No shipment is outside its range."
+          },
+          {
+            "kind": "approvals",
+            "id": "approvals",
+            "title": "Waiting for your sign-off",
+            "span": 5,
+            "flows": [
+              "disposition"
+            ]
+          },
+          {
+            "kind": "table",
+            "id": "shipments-table",
+            "title": "Shipments",
+            "span": 12,
+            "data": "shipments",
+            "columns": [
+              {
+                "field": "$id",
+                "label": "Shipment"
+              },
+              "origin",
+              "destination",
+              "carrier",
+              {
+                "field": "status",
+                "format": "badge",
+                "tone": {
+                  "in-transit": "info",
+                  "delivered": "good",
+                  "held": "warn"
+                }
+              },
+              {
+                "field": "departedAt",
+                "label": "Departed",
+                "format": "relative-time"
+              },
+              {
+                "field": "eta",
+                "label": "ETA",
+                "format": "relative-time"
+              }
+            ],
+            "filters": [
+              "status",
+              "carrier"
+            ],
+            "search": true,
+            "pageSize": 10,
+            "onSelect": [
+              {
+                "navigate": "Shipment",
+                "params": {
+                  "id": "$row.$id"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Shipment",
+      "title": "Shipment",
+      "path": "/shipments/:id",
+      "params": {
+        "id": {
+          "schema": {
+            "type": "string"
+          },
+          "objectOf": "coldchain.Shipment"
+        }
+      },
+      "data": {
+        "shipment": {
+          "kind": "object",
+          "type": "coldchain.Shipment",
+          "id": "$params.id",
+          "provenance": true
+        },
+        "readings": {
+          "kind": "related",
+          "of": "$params.id",
+          "type": "coldchain.Shipment",
+          "relationship": "readings"
+        },
+        "excursions": {
+          "kind": "related",
+          "of": "$params.id",
+          "type": "coldchain.Shipment",
+          "relationship": "excursions"
+        },
+        "shipmentLots": {
+          "kind": "related",
+          "of": "$params.id",
+          "type": "coldchain.Shipment",
+          "relationship": "lots"
+        },
+        "destination": {
+          "kind": "object",
+          "type": "coldchain.Site",
+          "id": "$shipment.destination"
+        }
+      },
+      "layout": {
+        "kind": "grid",
+        "children": [
+          {
+            "kind": "detail",
+            "id": "shipment-detail",
+            "title": "Shipment",
+            "span": 4,
+            "data": "shipment",
+            "provenance": true,
+            "fields": [
+              "origin",
+              "destination",
+              "carrier",
+              {
+                "field": "status",
+                "format": "badge",
+                "tone": {
+                  "in-transit": "info",
+                  "delivered": "good",
+                  "held": "warn"
+                }
+              },
+              {
+                "field": "departedAt",
+                "format": "date-time",
+                "label": "Departed"
+              },
+              {
+                "field": "eta",
+                "format": "relative-time",
+                "label": "ETA"
+              }
+            ]
+          },
+          {
+            "kind": "chart",
+            "id": "temperature-chart",
+            "title": "Temperature",
+            "span": 8,
+            "data": "readings",
+            "chart": "line",
+            "x": "at",
+            "y": [
+              "temperatureC"
+            ],
+            "band": {
+              "from": 2,
+              "to": 8,
+              "label": "2–8 °C"
+            },
+            "format": "temperature"
+          },
+          {
+            "kind": "detail",
+            "id": "destination-site",
+            "title": "Destination",
+            "span": 4,
+            "data": "destination",
+            "fields": [
+              "name",
+              "kind",
+              "city"
+            ]
+          },
+          {
+            "kind": "timeline",
+            "id": "excursion-timeline",
+            "title": "Excursions",
+            "span": 4,
+            "data": "excursions",
+            "time": "startedAt",
+            "label": {
+              "concat": [
+                "$item.$id",
+                ": ",
+                "$item.severity"
+              ]
+            },
+            "detail": {
+              "concat": [
+                "peak ",
+                "$item.peakC",
+                " °C for ",
+                "$item.minutesOut",
+                " min, ",
+                "$item.status"
+              ]
+            },
+            "tone": {
+              "if": [
+                {
+                  "eq": [
+                    "$item.status",
+                    "open"
+                  ]
+                },
+                "bad",
+                "good"
+              ]
+            }
+          },
+          {
+            "kind": "graph",
+            "id": "shipment-graph",
+            "title": "What this shipment reaches",
+            "span": 4,
+            "root": "shipment",
+            "relationships": [
+              "lots",
+              "excursions"
+            ]
+          },
+          {
+            "kind": "table",
+            "id": "shipment-lots",
+            "title": "Lots on board",
+            "span": 12,
+            "data": "shipmentLots",
+            "columns": [
+              {
+                "field": "$id",
+                "label": "Lot"
+              },
+              "product",
+              "manufacturer",
+              {
+                "field": "doses",
+                "format": "integer"
+              },
+              {
+                "field": "unitCost",
+                "label": "Unit cost",
+                "format": "currency"
+              },
+              {
+                "field": "status",
+                "format": "badge",
+                "tone": {
+                  "available": "good",
+                  "in-transit": "info",
+                  "quarantined": "warn",
+                  "destroyed": "bad"
+                }
+              },
+              {
+                "field": "expiresOn",
+                "format": "date"
+              }
+            ],
+            "empty": "No lots are recorded on this shipment."
+          }
+        ]
+      }
+    },
+    {
+      "name": "Excursion",
+      "title": "Excursion review",
+      "path": "/excursions/:id",
+      "params": {
+        "id": {
+          "schema": {
+            "type": "string"
+          },
+          "objectOf": "coldchain.Excursion"
+        }
+      },
+      "state": {
+        "runId": {
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default": null
+        }
+      },
+      "data": {
+        "excursion": {
+          "kind": "object",
+          "type": "coldchain.Excursion",
+          "id": "$params.id",
+          "provenance": true
+        },
+        "readings": {
+          "kind": "related",
+          "of": "$excursion.shipmentId",
+          "type": "coldchain.Shipment",
+          "relationship": "readings"
+        },
+        "budget": {
+          "kind": "derive",
+          "value": {
+            "fn": "stability#budgetMinutes",
+            "args": {
+              "peakC": "$excursion.peakC"
+            },
+            "returns": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "layout": {
+        "kind": "grid",
+        "children": [
+          {
+            "kind": "detail",
+            "id": "excursion-detail",
+            "title": "Excursion",
+            "span": 4,
+            "data": "excursion",
+            "provenance": true,
+            "fields": [
+              {
+                "field": "shipmentId",
+                "label": "Shipment"
+              },
+              "logger",
+              {
+                "field": "severity",
+                "format": "badge",
+                "tone": {
+                  "minor": "info",
+                  "major": "warn",
+                  "critical": "bad"
+                }
+              },
+              {
+                "field": "peakC",
+                "format": "temperature",
+                "label": "Peak"
+              },
+              {
+                "field": "minutesOut",
+                "format": "duration-minutes",
+                "label": "Outside range"
+              },
+              {
+                "field": "startedAt",
+                "format": "date-time",
+                "label": "Started"
+              },
+              {
+                "field": "status",
+                "format": "badge",
+                "tone": {
+                  "open": "bad",
+                  "closed": "good"
+                }
+              },
+              "disposition"
+            ]
+          },
+          {
+            "kind": "custom",
+            "id": "stability-gauge",
+            "title": "Stability budget",
+            "span": 4,
+            "component": "gauge#StabilityGauge",
+            "props": {
+              "minutesOut": "$excursion.minutesOut",
+              "budgetMinutes": "$budget"
+            },
+            "propTypes": {
+              "minutesOut": {
+                "type": "integer"
+              },
+              "budgetMinutes": {
+                "type": "number"
+              }
+            }
+          },
+          {
+            "kind": "stack",
+            "span": 4,
+            "children": [
+              {
+                "kind": "assistant",
+                "id": "assessment",
+                "title": "Stability assessment",
+                "flow": "assess",
+                "input": {
+                  "excursionId": "$params.id"
+                },
+                "step": "assess",
+                "prompt": "Assess this excursion",
+                "when": {
+                  "eq": [
+                    "$excursion.status",
+                    "open"
+                  ]
+                }
+              },
+              {
+                "kind": "actions",
+                "id": "disposition-actions",
+                "when": {
+                  "eq": [
+                    "$excursion.status",
+                    "open"
+                  ]
+                },
+                "buttons": [
+                  {
+                    "label": "Request disposition",
+                    "tone": "primary",
+                    "do": [
+                      {
+                        "run": "disposition",
+                        "input": {
+                          "excursionId": "$params.id"
+                        },
+                        "into": "runId"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "run",
+                "id": "disposition-run",
+                "title": "Disposition",
+                "run": "$state.runId",
+                "flow": "disposition",
+                "when": {
+                  "exists": "$state.runId"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "chart",
+            "id": "excursion-chart",
+            "title": "Shipment temperature",
+            "span": 8,
+            "data": "readings",
+            "chart": "area",
+            "x": "at",
+            "y": [
+              "temperatureC"
+            ],
+            "band": {
+              "from": 2,
+              "to": 8,
+              "label": "2–8 °C"
+            },
+            "format": "temperature"
+          },
+          {
+            "kind": "provenance",
+            "id": "peak-provenance",
+            "title": "Where the peak came from",
+            "span": 4,
+            "data": "excursion",
+            "property": "peakC"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Lots",
+      "title": "Lots",
+      "path": "/lots",
+      "layout": {
+        "kind": "grid",
+        "children": [
+          {
+            "kind": "chart",
+            "id": "doses-by-status",
+            "title": "Doses by status",
+            "span": 4,
+            "data": "dosesByStatus",
+            "chart": "donut",
+            "x": "key.status",
+            "y": [
+              "values.doses"
+            ]
+          },
+          {
+            "kind": "metric",
+            "id": "lot-count",
+            "label": "Lots",
+            "span": 4,
+            "value": {
+              "count": "$lots"
+            },
+            "caption": {
+              "concat": [
+                {
+                  "sum": [
+                    "$lots",
+                    "doses"
+                  ]
+                },
+                " doses in all"
+              ]
+            }
+          },
+          {
+            "kind": "metric",
+            "id": "quarantined-count",
+            "label": "Quarantined",
+            "span": 4,
+            "value": {
+              "count": "$quarantined"
+            },
+            "tone": {
+              "if": [
+                {
+                  "gt": [
+                    {
+                      "count": "$quarantined"
+                    },
+                    0
+                  ]
+                },
+                "warn",
+                "good"
+              ]
+            },
+            "caption": {
+              "concat": [
+                {
+                  "sum": [
+                    "$quarantined",
+                    "doses"
+                  ]
+                },
+                " doses on hold"
+              ]
+            }
+          },
+          {
+            "kind": "table",
+            "id": "lots-table",
+            "title": "Every lot",
+            "span": 12,
+            "data": "lots",
+            "columns": [
+              {
+                "field": "$id",
+                "label": "Lot"
+              },
+              "product",
+              "manufacturer",
+              {
+                "field": "doses",
+                "format": "integer"
+              },
+              {
+                "field": "unitCost",
+                "label": "Unit cost",
+                "format": "currency"
+              },
+              {
+                "field": "status",
+                "format": "badge",
+                "tone": {
+                  "available": "good",
+                  "in-transit": "info",
+                  "quarantined": "warn",
+                  "destroyed": "bad"
+                }
+              },
+              {
+                "field": "siteId",
+                "label": "Site"
+              },
+              {
+                "field": "expiresOn",
+                "format": "date"
+              }
+            ],
+            "groupBy": "status",
+            "filters": [
+              "status",
+              "manufacturer",
+              "siteId"
+            ],
+            "search": true,
+            "rowActions": [
+              {
+                "label": "Quarantine",
+                "when": {
+                  "in": [
+                    "$row.status",
+                    {
+                      "literal": [
+                        "available",
+                        "in-transit"
+                      ]
+                    }
+                  ]
+                },
+                "do": [
+                  {
+                    "invoke": "QuarantineLot",
+                    "input": {
+                      "lotId": "$row.$id",
+                      "reason": "Held by quality assurance"
+                    },
+                    "confirm": true
+                  },
+                  {
+                    "refresh": [
+                      "lots"
+                    ]
+                  }
+                ]
+              },
+              {
+                "label": "Release",
+                "when": {
+                  "eq": [
+                    "$row.status",
+                    "quarantined"
+                  ]
+                },
+                "do": [
+                  {
+                    "invoke": "ReleaseLot",
+                    "input": {
+                      "lotId": "$row.$id"
+                    },
+                    "confirm": true
+                  },
+                  {
+                    "refresh": [
+                      "lots"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "data": {
+        "dosesByStatus": {
+          "kind": "aggregate",
+          "aggregate": {
+            "type": "coldchain.Lot",
+            "groupBy": [
+              "status"
+            ],
+            "aggregations": [
+              {
+                "name": "doses",
+                "op": "sum",
+                "property": "doses"
+              }
+            ]
+          }
+        },
+        "quarantined": {
+          "kind": "derive",
+          "value": {
+            "where": [
+              "$lots",
+              {
+                "eq": [
+                  "$item.status",
+                  "quarantined"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "qa-reads-unit-cost",
+      "kind": "reads",
+      "as": "qa",
+      "type": "coldchain.Lot",
+      "objectId": "L-7731",
+      "sees": [
+        "product",
+        "doses",
+        "unitCost"
+      ]
+    },
+    {
+      "id": "logistics-lacks-unit-cost",
+      "kind": "reads",
+      "as": "logistics",
+      "type": "coldchain.Lot",
+      "objectId": "L-7731",
+      "sees": [
+        "product",
+        "doses"
+      ],
+      "withheld": [
+        "unitCost"
+      ],
+      "because": "unit cost is CONFIDENTIAL and the coordinator is cleared INTERNAL"
+    },
+    {
+      "id": "carrier-sees-own-freight",
+      "kind": "query",
+      "as": "carrier",
+      "query": {
+        "type": "coldchain.Shipment"
+      },
+      "atLeast": 3,
+      "atMost": 3,
+      "because": "Northline carries SH-1040, SH-1042 and SH-1044"
+    },
+    {
+      "id": "carrier-refused-other-freight",
+      "kind": "refused",
+      "as": "carrier",
+      "type": "coldchain.Shipment",
+      "objectId": "SH-1046"
+    },
+    {
+      "id": "carrier-refused-telemetry",
+      "kind": "refused",
+      "as": "carrier",
+      "type": "coldchain.Excursion",
+      "objectId": "EX-301"
+    },
+    {
+      "id": "anonymous-refused",
+      "kind": "refused",
+      "as": "anonymous",
+      "type": "coldchain.Shipment",
+      "objectId": "SH-1042"
+    },
+    {
+      "id": "readings-pages-followed",
+      "kind": "query",
+      "as": "logistics",
+      "query": {
+        "type": "coldchain.Reading",
+        "filter": {
+          "property": "shipmentId",
+          "operator": "eq",
+          "value": "SH-1042"
+        }
+      },
+      "atLeast": 48,
+      "atMost": 48,
+      "because": "the sensor hub returns 24 readings a page"
+    },
+    {
+      "id": "auditor-not-offered-quarantine",
+      "kind": "offered",
+      "as": "auditor",
+      "type": "coldchain.Lot",
+      "objectId": "L-7731",
+      "action": "QuarantineLot",
+      "offered": false
+    },
+    {
+      "id": "qa-offered-quarantine",
+      "kind": "offered",
+      "as": "qa",
+      "type": "coldchain.Lot",
+      "objectId": "L-7731",
+      "action": "QuarantineLot",
+      "offered": true
+    },
+    {
+      "id": "logistics-requests-disposition",
+      "kind": "starts",
+      "as": "logistics",
+      "workflow": "coldchain.DispositionExcursion",
+      "input": {
+        "excursionId": "EX-301"
+      },
+      "status": "waiting-approval",
+      "waitingOn": "pharmacistSignoff"
+    },
+    {
+      "id": "closed-excursion-refused",
+      "kind": "starts",
+      "as": "logistics",
+      "workflow": "coldchain.DispositionExcursion",
+      "input": {
+        "excursionId": "EX-299"
+      },
+      "status": "failed",
+      "failsAt": "stillOpen"
+    },
+    {
+      "id": "auditor-cannot-request",
+      "kind": "starts",
+      "as": "auditor",
+      "workflow": "coldchain.DispositionExcursion",
+      "input": {
+        "excursionId": "EX-301"
+      },
+      "status": "refused"
+    },
+    {
+      "id": "qa-signs-off",
+      "kind": "approves",
+      "as": "qa",
+      "startedBy": "logistics",
+      "workflow": "coldchain.DispositionExcursion",
+      "input": {
+        "excursionId": "EX-301"
+      },
+      "step": "pharmacistSignoff",
+      "admitted": true,
+      "then": "completed"
+    },
+    {
+      "id": "logistics-cannot-sign-off",
+      "kind": "approves",
+      "as": "logistics",
+      "startedBy": "qa",
+      "workflow": "coldchain.DispositionExcursion",
+      "input": {
+        "excursionId": "EX-302"
+      },
+      "step": "pharmacistSignoff",
+      "admitted": false
+    },
+    {
+      "id": "qa-sees-command",
+      "kind": "screen",
+      "as": "qa",
+      "page": "Command",
+      "visible": [
+        "shipment-map",
+        "open-excursions",
+        "approvals",
+        "shipments-table",
+        "value-at-risk"
+      ],
+      "rows": {
+        "open-excursions": {
+          "atLeast": 3
+        },
+        "shipments-table": {
+          "atLeast": 8
+        }
+      }
+    },
+    {
+      "id": "carrier-sees-only-own",
+      "kind": "screen",
+      "as": "carrier",
+      "page": "Command",
+      "rows": {
+        "shipments-table": {
+          "atMost": 3
+        },
+        "open-excursions": {
+          "atMost": 0
+        }
+      },
+      "absentText": [
+        "SH-1046"
+      ]
+    },
+    {
+      "id": "shipment-page-joins-three-systems",
+      "kind": "screen",
+      "as": "qa",
+      "page": "Shipment",
+      "params": {
+        "id": "SH-1042"
+      },
+      "visible": [
+        "temperature-chart",
+        "shipment-lots",
+        "excursion-timeline"
+      ],
+      "rows": {
+        "shipment-lots": {
+          "atLeast": 2
+        }
+      },
+      "text": [
+        "Lakeshore Medical Center Pharmacy",
+        "EX-301"
+      ]
+    },
+    {
+      "id": "excursion-page-offers-assessment",
+      "kind": "screen",
+      "as": "logistics",
+      "page": "Excursion",
+      "params": {
+        "id": "EX-301"
+      },
+      "visible": [
+        "assessment",
+        "stability-gauge",
+        "excursion-chart"
+      ]
+    }
+  ]
+}

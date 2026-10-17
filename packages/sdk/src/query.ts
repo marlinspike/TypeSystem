@@ -72,6 +72,8 @@ export function toRow(object: ResolvedObject, includes: readonly QueryInclude[] 
     row[inc.relationship] = Array.isArray(related) ? related.map((r) => toRow(r as ResolvedObject, inc.include, false)) : [];
   }
   if (withProvenance) row.$provenance = object.provenance ?? [];
+  // A part left out because its source failed (ADR-0072) is said to be, so an interface shows it as unavailable, not empty.
+  if (object.unavailable?.length) row.$unavailable = object.unavailable;
   return row;
 }
 

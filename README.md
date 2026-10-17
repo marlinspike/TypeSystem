@@ -359,6 +359,7 @@ API never assumes an identity of its own.
 | Any HTTP client | `@typesys/http` | `GET /api/objects/:type/:id`, `POST /api/query`, `POST /api/actions/:name/invoke`, workflow routes, an OpenAPI document; errors as RFC 9457 problems |
 | An AI agent | `@typesys/mcp-server` | MCP tools `typesys_discover`, `typesys_get_object`, `typesys_query`, `typesys_get_provenance`, `typesys_list_actions`, `typesys_preview_action`, `typesys_invoke_action` and others, plus one tool per Action the caller may invoke |
 | A multi-step process with approvals | `@typesys/workflow` | Steps that read, compute, ask a model, wait for a person's approval and invoke Actions, each as the person who started it; the journal survives restarts |
+| A whole application, from a spec | `@typesys/compiler` | `typesys app check, compile, build, verify` and the same as `typesys_app_*` MCP tools: an `app.json` of reads, expressions, workflow steps, interface nodes and effects, type-checked against the model, compiled to TypeScript and React over the SDK, and verified through its API and in Chromium ([`docs/roadmap-4.md`](docs/roadmap-4.md)) |
 
 An agent connected over MCP is just another caller with an identity. It sees
 only what that identity may see and can change only what that identity may
@@ -420,8 +421,8 @@ squadron readiness app built with and without TypeSys).
 | Storage and sources | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, `registry-store-postgres`, `workflow-postgres`, `redis` |
 | Security | `auth-oidc` (JWT identity), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
-| Tooling | `cli` (YAML authoring, code generation), `devkit` (discovery, query validation, contract diff), `packs` (signed, versioned domain packages), `studio` (browser workbench), `engineer` (builds and verifies an application from a mission spec) |
-| Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `examples/services` (three independent services TypeSys reads over HTTP) |
+| Tooling | `cli` (YAML authoring, code generation), `devkit` (discovery, query validation, contract diff), `packs` (signed, versioned domain packages), `studio` (browser workbench), `engineer` (builds and verifies an application from a mission spec), `compiler` (compiles an application spec to TypeScript and React), `app` and `ui` (the runtime pieces compiled applications use: three-valued expressions and flow helpers, and React components with a separate design system) |
+| Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services), `examples/services` (six independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 
 ## Status
@@ -447,7 +448,7 @@ remains and [`docs/completeness.md`](docs/completeness.md) what is built.
   the storage and write paths in more depth.
 - [`docs/for-agents.md`](docs/for-agents.md) and [`llms.txt`](llms.txt): for
   building agents against the MCP server.
-- [`docs/adr/`](docs/adr/): 73 architecture decision records.
+- [`docs/adr/`](docs/adr/): 87 architecture decision records.
 
 Versioning uses [changesets](https://github.com/changesets/changesets); see
 [ADR-0020](docs/adr/0020-publish-infrastructure.md) for publishing.

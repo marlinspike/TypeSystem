@@ -1,11 +1,13 @@
 import type {
   ActionPreview,
   ActionSummary,
+  AggregateResult,
   ExecutionPlan,
   Identity,
   ProvenanceRef,
   QueryResult,
   ResolvedObject,
+  SemanticAggregateQuery,
   SemanticQuery,
   SemanticRuntime
 } from "@typesys/core";
@@ -26,11 +28,13 @@ export interface Transport {
   listActions(type: string, id?: string): Promise<ActionSummary[]>;
   previewAction(action: string, input: unknown): Promise<ActionPreview>;
   invokeAction(action: string, input: unknown): Promise<unknown>;
+  /** Grouped counts and sums (ADR-0027). Optional, so a transport written before it still compiles; each one shipped here has it. */
+  aggregate?(query: SemanticAggregateQuery): Promise<AggregateResult>;
 }
 
 type InProcessRuntime = Pick<
   SemanticRuntime,
-  "query" | "explainQuery" | "getObject" | "getRelationship" | "getProvenance" | "listActions" | "previewAction" | "invokeAction"
+  "query" | "explainQuery" | "getObject" | "getRelationship" | "getProvenance" | "listActions" | "previewAction" | "invokeAction" | "aggregate"
 >;
 
 /** Calls a runtime in this process as one caller. Errors are the runtime's own (`AuthorizationError`, `InvalidInputError`, ...). */
@@ -48,7 +52,8 @@ export function runtimeTransport(runtime: InProcessRuntime, identity: Identity):
       return (await runtime.listActions(type, identity, id === undefined ? {} : { objectId: id })).map(summarizeAction);
     },
     previewAction: (action, input) => runtime.previewAction(action, input, identity),
-    invokeAction: (action, input) => runtime.invokeAction(action, input, identity)
+    invokeAction: (action, input) => runtime.invokeAction(action, input, identity),
+    aggregate: (q) => runtime.aggregate(q, identity)
   };
 }
 
@@ -98,7 +103,8 @@ export function mcpTransport(client: ToolCaller, opts: { authToken?: string } = 
     getProvenance: async (type, id, property) => ((await call("typesys_get_provenance", { type, id, property })) as { provenance: ProvenanceRef[] }).provenance,
     listActions: async (type, id) => ((await call("typesys_list_actions", id === undefined ? { type } : { type, id })) as { actions: ActionSummary[] }).actions,
     previewAction: async (action, input) => (await call("typesys_preview_action", { action, input })) as ActionPreview,
-    invokeAction: (action, input) => call(action, { ...(input as Record<string, unknown>) })
+    invokeAction: (action, input) => call(action, { ...(input as Record<string, unknown>) }),
+    aggregate: async (q) => (await call("typesys_aggregate", { ...q })) as AggregateResult
   };
 }
 
@@ -179,6 +185,7 @@ export function httpTransport(opts: HttpTransportOptions): Transport {
     getProvenance: async (type, id, property) => (await call("GET", `/objects/${seg(type)}/${seg(id)}/provenance/${seg(property)}`)) as ProvenanceRef[],
     listActions: async (type, id) => (await call("GET", `/types/${seg(type)}/actions${id === undefined ? "" : `?objectId=${seg(id)}`}`)) as ActionSummary[],
     previewAction: async (action, input) => (await call("POST", `/actions/${seg(action)}/preview`, input)) as ActionPreview,
-    invokeAction: async (action, input) => ((await call("POST", `/actions/${seg(action)}/invoke`, input)) as { result: unknown }).result
+    invokeAction: async (action, input) => ((await call("POST", `/actions/${seg(action)}/invoke`, input)) as { result: unknown }).result,
+    aggregate: async (q) => (await call("POST", "/aggregate", q)) as AggregateResult
   };
 }

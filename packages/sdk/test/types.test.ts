@@ -49,7 +49,7 @@ describe("the typed model (ADR-0055)", () => {
       .include("maintenance", (m) => m.include("workOrder", (w) => w.select("status")))
       .withProvenance();
     type Row = RowOf<ReturnType<typeof _q.page>>;
-    expectTypeOf<keyof Row>().toEqualTypeOf<"$id" | "$type" | "tailNumber" | "needsAttention" | "components" | "maintenance" | "$provenance">();
+    expectTypeOf<keyof Row>().toEqualTypeOf<"$id" | "$type" | "tailNumber" | "needsAttention" | "components" | "maintenance" | "$provenance" | "$unavailable">();
     expectTypeOf<Row["components"][number]["condition"]>().toEqualTypeOf<"good" | "fair" | "poor" | undefined>();
     expectTypeOf<Row["components"][number]["$type"]>().toEqualTypeOf<"airforce.Component">();
     expectTypeOf<Row["maintenance"][number]["workOrder"][number]["status"]>().toEqualTypeOf<"open" | "in-progress" | "closed" | undefined>();

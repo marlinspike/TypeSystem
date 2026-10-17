@@ -1,4 +1,4 @@
-import type { ActionPreview, ActionSummary, ProvenanceRef } from "@typesys/core";
+import type { ActionPreview, ActionSummary, AggregateResult, ProvenanceRef, SemanticAggregateQuery } from "@typesys/core";
 import type { ActionName, ModelShape, RelationshipName, RelationshipTarget, Row, TypeName, ValueKey } from "./model.js";
 import { Query, toRow } from "./query.js";
 import type { Transport } from "./transport.js";
@@ -27,6 +27,8 @@ export interface Client<M extends ModelShape> {
   /** The Actions on a Type, or on one object of it, and whether this caller may invoke each (ADR-0053). */
   actions<N extends TypeName<M>>(type: N, id?: string): Promise<ListedActionOf<M, N>[]>;
   action<A extends ActionName<M>>(name: A): ActionHandle<M, A>;
+  /** Grouped counts and sums over the objects of a Type this caller may read, decided by the runtime (ADR-0027). */
+  aggregate<N extends TypeName<M>>(query: SemanticAggregateQuery & { readonly type: N }): Promise<AggregateResult>;
 }
 
 /**
@@ -48,6 +50,10 @@ export function createClient<M extends ModelShape>(transport: Transport): Client
     action: (name) => ({
       preview: (input) => transport.previewAction(name, input),
       invoke: (input) => transport.invokeAction(name, input)
-    })
+    }),
+    aggregate: async (query) => {
+      if (!transport.aggregate) throw new TypeError("This transport does not carry aggregates");
+      return transport.aggregate(query);
+    }
   };
 }

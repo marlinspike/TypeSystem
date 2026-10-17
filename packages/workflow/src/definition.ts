@@ -60,6 +60,8 @@ export interface ComputeStep<I> extends StepBase<I> {
  */
 export interface AiStep<I> extends StepBase<I> {
   readonly kind: "ai";
+  /** One of the engine's `models`, by name (ADR-0081); default the engine's `model`. */
+  readonly model?: string;
   /** The instruction, fixed in the definition so it is versioned and reviewable with it. */
   readonly prompt: string;
   /**

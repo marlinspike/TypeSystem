@@ -5,7 +5,8 @@ import globals from "globals";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts", "**/.changeset/**", "**/.work/**"]
+    // A compiled application is type-checked by its own tsc in `typesys app build` (its tests run it), and is mostly generated.
+    ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts", "**/.changeset/**", "**/.work/**", "examples/apps/**"]
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -28,8 +29,8 @@ export default tseslint.config(
     }
   },
   {
-    // Browser clients (the Studio, the mission applications): DOM and JSX, typed by their own project.
-    files: ["packages/*/src/**/client/**/*.{ts,tsx}"],
+    // Browser clients (the Studio, the mission applications, @typesys/ui): DOM and JSX, typed by their own project.
+    files: ["packages/*/src/**/client/**/*.{ts,tsx}", "packages/ui/src/**/*.{ts,tsx}", "packages/ui/test/**/*.ts"],
     languageOptions: {
       globals: { ...globals.browser },
       parserOptions: { project: "./tsconfig.client.json", tsconfigRootDir: import.meta.dirname }

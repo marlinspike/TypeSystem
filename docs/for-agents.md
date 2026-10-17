@@ -310,6 +310,29 @@ identity, a fresh `Server` per HTTP request). `npm run smoke:mcp-http`
 runs the same discover -> act script above end-to-end against a real
 `http.Server`.
 
+## If you are compiling an application (TypeSystem 4.0)
+
+`typesys-app-mcp [root]` (in `@typesys/compiler`) gives an agent the
+application compiler as eight tools, the same as `typesys app` on the
+command line (ADR-0085):
+
+| Tool | What it answers |
+|---|---|
+| `typesys_app_catalog` | every node, step, effect, operator and reference scope of `typesys.app/1`, with its fields |
+| `typesys_app_context` | the part of the model the application's requirement needs, as one of its callers is told of it (ADR-0078) |
+| `typesys_app_check` | every problem with `app.json` as `{code, severity, at, message, hint, because}`, `at` a JSON Pointer |
+| `typesys_app_explain` | what a diagnostic code means and how to resolve it |
+| `typesys_app_compile` | the files written, created once (yours) and removed; stops at a generated file edited by hand |
+| `typesys_app_build` | tsc over generated and handwritten code; a contract mismatch names the extension |
+| `typesys_app_verify` | each acceptance check against a fresh copy, API checks as each caller and screen checks in Chromium |
+| `typesys_app_diff` | what changed since an earlier `app.json`, what each change risks, the files and checks it reaches |
+| `typesys_app_migrate` | translate a `typesys.mission/1` spec into `app.json`, with every change it makes as a `mission-translation` note |
+
+The loop: `catalog` once, `context`, write `app.json`, `check` until it
+has no error, `compile`, implement the stubs in `src/extensions/` against
+`src/generated/contracts.ts`, `verify` until it passes. Never edit
+`src/generated/`: change `app.json` or an extension, and compile again.
+
 ## If you are building a *new* domain for agents to use
 
 The MCP layer (`packages/mcp-server`) is entirely generic over whatever

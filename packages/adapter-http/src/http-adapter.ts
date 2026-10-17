@@ -3,6 +3,7 @@ import {
   SourceRefusedError,
   UnsupportedResolutionError,
   applySort,
+  computeAggregations,
   matchesFilter,
   parseResolution,
   type ActionDefinition,
@@ -10,12 +11,14 @@ import {
   type Adapter,
   type AdapterCallOptions,
   type AdapterQueryResult,
+  type AggregateResult,
   type ProvenanceRef,
   type QueryFilter,
   type QueryOperator,
   type RelatedRef,
   type RelationshipDefinition,
   type ResolvedProperties,
+  type SemanticAggregateQuery,
   type SortKey
 } from "@typesys/core";
 
@@ -292,6 +295,17 @@ export class HttpAdapter implements Adapter {
     if (!Number.isInteger(start) || start < 0) throw new TypeError(`Invalid cursor "${cursor}"`);
     const end = limit === undefined ? sorted.length : start + limit;
     return { items: sorted.slice(start, end), ...(end < sorted.length ? { nextCursor: String(end) } : {}) };
+  }
+
+  /**
+   * Grouped counts and sums, computed here over every record the service
+   * lists (every page, up to `maxPages`, or refused), since a service rarely
+   * has an aggregate endpoint of its own. The runtime has already narrowed
+   * the filter to the rows the caller may read.
+   */
+  async aggregate(query: SemanticAggregateQuery, opts?: AdapterCallOptions): Promise<AggregateResult> {
+    const rows = (await this.list(query.type, query.filter, opts?.signal)).filter((o) => matchesFilter(o.values, query.filter)).map((o) => o.values);
+    return computeAggregations(rows, query);
   }
 
   /** Every condition is evaluated in `queryByType` with `matchesFilter` itself (ADR-0040). */

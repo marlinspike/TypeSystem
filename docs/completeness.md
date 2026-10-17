@@ -687,6 +687,69 @@ drafted a mission from this repository. Eight `context.*`, `draft.*` and
 this work (`docs/reviews/m3-adversarial-review.md`) found 17 defects,
 three High, and each is fixed with a test.
 
+## 4.0: applications compiled from a typed IR
+
+`@typesys/compiler` (ADR-0079 to ADR-0084) checks a `typesys.app/1`
+specification against the model and the host's own policy answers, then
+generates an ordinary TypeScript and React application over the existing
+runtime, workflow engine, SDK and HTTP layer: `defineWorkflow` flows,
+pages built from `@typesys/ui` components, and a server from
+`@typesys/app/server`. `packages/compiler/test/check.test.ts` covers the
+checker's diagnostics; `packages/compiler/test/compile.test.ts` shows the
+squadron fixture compiled, type-checked by tsc, bundled, and passing its
+four API checks and one screen check in Chromium, and in a browser a
+maintainer grounding an aircraft from a table and the lead approving it
+from their own queue while the maintainer's queue never shows their own
+run. It also shows a second compile writes nothing, a hand edit to a
+generated file stops the compile at that file, a removed page's file is
+removed, a handwritten function's stub is written once and never again,
+and a function that drifts from its generated contract fails the build at
+the contract check.
+
+Agents get the same compiler as `typesys app` and as nine
+`typesys_app_*` MCP tools (ADR-0085): the whole language as data
+(`catalog`), every diagnostic code explained, model context as a caller
+through the context compiler, and a semantic diff that names changed
+nodes and steps, warns when a flow's steps change without a new version,
+and lists the generated files and acceptance checks a change reaches
+(`packages/compiler/test/agent.test.ts`, which also shows the MCP tools
+refusing a path outside their root).
+
+A `typesys.mission/1` spec migrates with `typesys app migrate` (ADR-0086):
+`examples/missions/sortie-readiness` translates with its 15 checks
+unchanged and every step under the same name, and the result compiles,
+builds and passes all 15 plus two screen checks
+(`packages/compiler/test/migrate.test.ts`). Every change the translation
+makes is reported as a `mission-translation` note.
+
+The reference application, Cold Chain Command (ADR-0087), is compiled
+from `examples/apps/cold-chain/app.json` over three services TypeSystem did
+not write, with four handwritten extensions. `packages/cold-chain/test`
+shows the committed generated code is exactly what the compiler produces,
+all 18 acceptance checks pass (14 API, 4 in Chromium), and in a browser a
+coordinator's request becomes, after the model's assessment and a
+pharmacist's sign-off, a closed excursion in the sensor hub and
+quarantined lots in the inventory. Its model is a deterministic stand-in
+and its stability figures are illustrative.
+
+`scripts/measure-compiler.ts` measures the compiler against the 3.0
+engineering loop on the same mission
+([`evidence/compiler-productivity-2026-10-17.md`](evidence/compiler-productivity-2026-10-17.md)).
+Both reach 15 of 15 checks with no handwritten code and generated code
+of about the same size. Of ten seeded defects, the compiler's checker
+reports 5 before any code exists, each at its JSON pointer, where the
+loop's planner reports 4. It warns on 2 more, and 3 are found only by
+the acceptance checks in either pipeline. A hand edit to generated code
+is refused where the loop overwrote it. Cold Chain Command is 9.7% handwritten
+code by characters. Nothing measures a person or a cold agent building
+the same application.
+
+The 4.0 pressure test
+([`reviews/4-0-pressure-test.md`](reviews/4-0-pressure-test.md)) found 26
+defects. 21 are fixed, one in part, each with a test that failed first.
+Four are kept with their reasons, and one did not reproduce. Ten
+mutations guard the fixes.
+
 ## Real but narrow — the mechanism exists, exercised once
 
 - Property-level policy is exercised on several fields, not just the two

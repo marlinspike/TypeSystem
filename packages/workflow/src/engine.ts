@@ -60,8 +60,15 @@ export interface WorkflowEngineOptions {
   readonly host: WorkflowHost;
   /** Default: a fresh `InMemoryJournal`, which a restart loses. */
   readonly journal?: WorkflowJournal;
-  /** Required by any workflow with an AI step. */
+  /** The model an AI step asks when it names none. Required by any workflow with such a step. */
   readonly model?: AiModel;
+  /**
+   * Models an AI step may name (`model: "<name>"`), each with its own
+   * audience and fallbacks (ADR-0081): one application can send a triage to
+   * an enclave model and a summary to another. A step that names a model
+   * the engine lacks is refused when its workflow is registered.
+   */
+  readonly models?: Readonly<Record<string, AiModel>>;
   /**
    * Re-resolves the identity a run acts as each time it advances (ADR-0065),
    * from your directory or identity provider, so a run continues with what its
@@ -165,6 +172,11 @@ export class WorkflowEngine {
   register<M extends ModelShape, I>(workflow: WorkflowDefinition<M, I>): void {
     const w = workflow as unknown as AnyWorkflow;
     const diagnostics = validateWorkflow(w, this.model);
+    for (const step of w.steps) {
+      // A named model is part of the definition: one the engine lacks would fail every run at that step.
+      if (step.kind === "ai" && step.model !== undefined && !this.simulation && !this.options.models?.[step.model])
+        diagnostics.push({ code: "unknown-model", step: step.name, message: `AI step "${step.name}" asks model "${step.model}", which the engine was not given` });
+    }
     if (diagnostics.length) throw new WorkflowDefinitionError(`Workflow ${w.name}@${w.version} is not valid`, diagnostics);
     const versions = this.definitions.get(w.name) ?? new Map<string, AnyWorkflow>();
     if (versions.has(w.version)) throw new WorkflowDefinitionError(`Workflow ${w.name}@${w.version} is already registered`);
@@ -773,6 +785,12 @@ export class WorkflowEngine {
     return view(await this.compensate(w, workflow, identity));
   }
 
+  /** The model an AI step asks: the one it names, or the engine's. A simulation answers every step from its script. */
+  private modelFor(step: Extract<AnyStep, { kind: "ai" }>): AiModel | undefined {
+    if (step.model === undefined || this.simulation) return this.options.model;
+    return this.options.models?.[step.model];
+  }
+
   /** A failed Action step whose outcome is unknown: it is not idempotent, and its last error was retryable (a timeout after the write, say). */
   private indeterminate(step: AnyStep, state: RunState): step is Extract<AnyStep, { kind: "action" }> {
     const outcome = state.steps.get(step.name)?.outcome;
@@ -782,7 +800,8 @@ export class WorkflowEngine {
   /** Runs one step, retrying what may be retried. True when it completed; `"waiting"` when a retry backs off on a durable timer. */
   private async attempt(w: RunWriter, workflow: AnyWorkflow, step: AnyStep, ctx: StepContext, identity: Identity): Promise<boolean | "waiting"> {
     const maxAttempts = step.retry?.maxAttempts ?? 1;
-    const models = step.kind === "ai" && this.options.model ? [this.options.model, ...(this.options.model.fallbacks ?? [])] : [];
+    const primary = step.kind === "ai" ? this.modelFor(step) : undefined;
+    const models = primary ? [primary, ...(primary.fallbacks ?? [])] : [];
     const first = (w.state.steps.get(step.name)?.attempts ?? 0) + 1;
     for (let attempt = first; ; attempt++) {
       // A retry after an in-process backoff is checked again: credentials may have expired while it waited.
@@ -873,7 +892,7 @@ export class WorkflowEngine {
       case "compute":
         return { output: structuredClone(step.run(ctx)), source: "compute" };
       case "ai": {
-        const model = aiModel ?? this.options.model;
+        const model = aiModel ?? this.modelFor(step);
         if (!model) throw new WorkflowDefinitionError(`Workflow ${workflow.name} has AI step "${step.name}", and the engine has no model`);
         const answer = await model.complete({ workflow: workflow.name, step: step.name, prompt: step.prompt, input, outputSchema: step.outputSchema });
         const key = `${workflow.name}@${workflow.version}#${step.name}`;
@@ -995,14 +1014,21 @@ export class WorkflowEngine {
     const refused = (err: unknown) => err instanceof AuthorizationError || err instanceof NotFoundError;
     switch (s.kind) {
       case "read": {
-        if (redact) return redact(journaled);
-        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
-        try {
-          return structuredClone(await s.run(client, ctx));
-        } catch (err) {
-          if (refused(err)) return undefined;
-          throw err;
-        }
+        const again = async () => {
+          const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
+          try {
+            return structuredClone(await s.run(client, ctx));
+          } catch (err) {
+            if (refused(err)) return undefined;
+            throw err;
+          }
+        };
+        if (!redact) return again();
+        if (madeOfObjects(journaled)) return redact(journaled);
+        // A read that returned values no object carries (an aggregate's totals, a count) cannot be redacted field by
+        // field: the approver is shown it only if reading it as them gives the same, and otherwise nothing.
+        const theirs = await again().catch(() => undefined);
+        return theirs !== undefined && sameValue(theirs, journaled) ? redact(journaled) : undefined;
       }
       case "compute":
         try {
@@ -1106,4 +1132,20 @@ function covers(seen: unknown, given: unknown): boolean {
     return Object.entries(given as Record<string, unknown>).every(([k, g]) => Object.hasOwn(seen, k) && covers((seen as Record<string, unknown>)[k], g));
   }
   return canonical(seen) === canonical(given);
+}
+
+/** Whether every value in `v` sits in an object (a value with a string `$id` and `$type`), which an approver's view can redact field by field. */
+function madeOfObjects(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (Array.isArray(v)) return v.every(madeOfObjects);
+  if (typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  // An object is redacted as the approver reads it; a plain record (the reads of a parallel step, by name) is made of what it holds.
+  return (typeof o.$id === "string" && typeof o.$type === "string") || Object.values(o).every(madeOfObjects);
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 }

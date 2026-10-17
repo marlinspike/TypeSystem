@@ -1,0 +1,399 @@
+{
+  "format": "typesys.compiler-measurement/1",
+  "measuredAt": "2026-10-17T01:37:49.850Z",
+  "node": "v22.22.0",
+  "machine": "the cloud container this session runs in (shared CPU); timings are indicative, not benchmarks",
+  "sortie": {
+    "spec": {
+      "mission": {
+        "leaves": 171,
+        "bytes": 4677
+      },
+      "app": {
+        "leaves": 206,
+        "bytes": 5432,
+        "note": "translated by typesys app migrate, which adds a form and an approval queue"
+      }
+    },
+    "generated": {
+      "mission": {
+        "files": 7,
+        "lines": 354,
+        "nonWhitespaceChars": 9559,
+        "list": [
+          "acceptance.test.ts",
+          "index.html",
+          "model.ts",
+          "server.ts",
+          "tsconfig.json",
+          "views.tsx",
+          "workflow.ts"
+        ]
+      },
+      "app": {
+        "files": 9,
+        "lines": 285,
+        "nonWhitespaceChars": 10102,
+        "list": [
+          "server.ts",
+          "index.html",
+          "src/generated/model.ts",
+          "src/generated/contracts.ts",
+          "src/generated/contracts-check.ts",
+          "src/generated/flows/confirmSortie.ts",
+          "src/generated/pages/FleetBoard.tsx",
+          "src/generated/app.tsx",
+          "src/generated/acceptance.test.ts"
+        ]
+      }
+    },
+    "handwritten": {
+      "mission": 0,
+      "app": {
+        "files": 0,
+        "lines": 0,
+        "nonWhitespaceChars": 0
+      }
+    },
+    "checks": {
+      "mission": {
+        "passed": 15,
+        "total": 15,
+        "ok": true
+      },
+      "app": {
+        "passed": 15,
+        "total": 15,
+        "ok": true
+      }
+    },
+    "timingMs": {
+      "missionScaffold": 360,
+      "missionVerify": 3874,
+      "appVerify": 4235,
+      "appCompile": [
+        217,
+        172,
+        192
+      ],
+      "appBuild": [
+        404,
+        410,
+        360
+      ]
+    },
+    "regeneration": {
+      "mission": {
+        "filesChanged": [
+          "views.tsx"
+        ],
+        "handEditToGeneratedFile": "overwritten without notice"
+      },
+      "app": {
+        "filesChanged": [
+          "src/generated/pages/FleetBoard.tsx"
+        ],
+        "handEditToGeneratedFile": "refused: edited-generated-file at src/generated/pages/FleetBoard.tsx"
+      }
+    },
+    "seededDefects": [
+      {
+        "id": "type-typo",
+        "what": "a read names a Type that does not exist (ops.Aircraf)",
+        "mission": {
+          "stage": "plan",
+          "ms": 190,
+          "code": "unknown-type",
+          "at": "workflow/steps/0",
+          "inSpec": true,
+          "planErrors": 1
+        },
+        "app": {
+          "stage": "check",
+          "ms": 158,
+          "code": "unknown-type",
+          "at": "/flows/confirmSortie/steps/0/read/type",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "field-typo-in-check",
+        "what": "a check compares a field that does not exist ($pilot.assignedTial)",
+        "mission": {
+          "stage": "plan",
+          "ms": 213,
+          "code": "unknown-field",
+          "at": "workflow/steps/2",
+          "inSpec": true,
+          "planErrors": 1
+        },
+        "app": {
+          "stage": "check",
+          "ms": 157,
+          "code": "unknown-field",
+          "at": "/flows/confirmSortie/steps/2/assert/eq/0",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "type-mismatch",
+        "what": "a check compares a string field with a number",
+        "mission": {
+          "stage": "checks",
+          "ms": 4248,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "planErrors": 0
+        },
+        "app": {
+          "stage": "check",
+          "ms": 169,
+          "code": "not-comparable",
+          "at": "/flows/confirmSortie/steps/2/assert/eq",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "withheld-in-check",
+        "what": "a check compares a value the initiator is never returned ($pilot.name, withheld from maintainers)",
+        "mission": {
+          "stage": "checks",
+          "ms": 4413,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "planErrors": 0
+        },
+        "app": {
+          "stage": "acceptance",
+          "ms": 4284,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "approval-policy-typo",
+        "what": "the approval names a policy that does not exist",
+        "mission": {
+          "stage": "checks",
+          "ms": 4373,
+          "code": "check-failed",
+          "at": "acceptance/13",
+          "inSpec": true,
+          "planErrors": 0
+        },
+        "app": {
+          "stage": "acceptance",
+          "ms": 4094,
+          "code": "check-failed",
+          "at": "acceptance/13",
+          "inSpec": true,
+          "checkWarnings": [
+            {
+              "code": "no-caller-admitted",
+              "at": "/flows/confirmSortie/steps/3/policy"
+            }
+          ]
+        }
+      },
+      {
+        "id": "start-policy-typo",
+        "what": "the workflow's start policy does not exist",
+        "mission": {
+          "stage": "checks",
+          "ms": 3902,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "planErrors": 0
+        },
+        "app": {
+          "stage": "acceptance",
+          "ms": 4034,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "checkWarnings": [
+            {
+              "code": "no-caller-admitted",
+              "at": "/flows/confirmSortie/startPolicy"
+            }
+          ]
+        }
+      },
+      {
+        "id": "view-field-typo",
+        "what": "a table shows a field that does not exist (missionCapabilty)",
+        "mission": {
+          "stage": "plan",
+          "ms": 180,
+          "code": "unknown-field",
+          "at": "views/0",
+          "inSpec": true,
+          "planErrors": 1
+        },
+        "app": {
+          "stage": "check",
+          "ms": 148,
+          "code": "unknown-field",
+          "at": "/pages/0/data/fleetBoard/query/select/3",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "present-typo",
+        "what": "the approval presents a step that does not exist",
+        "mission": {
+          "stage": "plan",
+          "ms": 1,
+          "code": "invalid-mission",
+          "at": "workflow/steps/3",
+          "inSpec": true,
+          "planErrors": 1
+        },
+        "app": {
+          "stage": "check",
+          "ms": 153,
+          "code": "unknown-reference",
+          "at": "/flows/confirmSortie/steps/3/present/1",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "approval-admits-requester",
+        "what": "the approval admits the requester (allowSelfApproval), which the requirement forbids for maintainers asking planners",
+        "mission": {
+          "stage": "checks",
+          "ms": 4273,
+          "code": "check-failed",
+          "at": "acceptance/14",
+          "inSpec": true,
+          "planErrors": 0
+        },
+        "app": {
+          "stage": "acceptance",
+          "ms": 4373,
+          "code": "check-failed",
+          "at": "acceptance/14",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      },
+      {
+        "id": "check-names-wrong-step",
+        "what": "an acceptance check waits on a step name that does not exist",
+        "mission": {
+          "stage": "checks",
+          "ms": 4186,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "planErrors": 0
+        },
+        "app": {
+          "stage": "acceptance",
+          "ms": 4151,
+          "code": "check-failed",
+          "at": "acceptance/10",
+          "inSpec": true,
+          "checkWarnings": []
+        }
+      }
+    ]
+  },
+  "coldChain": {
+    "spec": {
+      "leaves": 831,
+      "bytes": 20660
+    },
+    "generated": {
+      "files": 13,
+      "lines": 725,
+      "nonWhitespaceChars": 36838
+    },
+    "handwritten": {
+      "files": 4,
+      "lines": 87,
+      "nonWhitespaceChars": 3963,
+      "list": [
+        "src/extensions/gauge.tsx",
+        "src/extensions/risk.ts",
+        "src/extensions/server.ts",
+        "src/extensions/stability.ts"
+      ]
+    },
+    "checks": {
+      "passed": 18,
+      "total": 18,
+      "ok": true
+    },
+    "verifyMs": 8166,
+    "clientBundleBytes": 970031,
+    "stepKinds": [
+      "read",
+      "parallel",
+      "compute",
+      "ai",
+      "check",
+      "approval",
+      "action"
+    ],
+    "stepKindsAMissionCannotExpress": [
+      "parallel",
+      "compute",
+      "ai"
+    ],
+    "nodeKinds": [
+      "grid",
+      "metric",
+      "map",
+      "section",
+      "text",
+      "detail",
+      "actions",
+      "table",
+      "approvals",
+      "chart",
+      "timeline",
+      "graph",
+      "custom",
+      "stack",
+      "assistant",
+      "run",
+      "provenance"
+    ],
+    "nodeKindsAMissionCannotExpress": [
+      "grid",
+      "metric",
+      "map",
+      "section",
+      "text",
+      "detail",
+      "actions",
+      "approvals",
+      "chart",
+      "timeline",
+      "graph",
+      "custom",
+      "stack",
+      "assistant",
+      "run",
+      "provenance"
+    ],
+    "existingPackagesTheGeneratedCodeUses": [
+      "@typesys/app",
+      "@typesys/cold-chain",
+      "@typesys/compiler",
+      "@typesys/ui",
+      "@typesys/workflow"
+    ]
+  }
+}

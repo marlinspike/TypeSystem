@@ -1681,6 +1681,116 @@
       "tests": [
         "packages/llm/test/release-binding.test.ts"
       ]
+    },
+    {
+      "id": "compiler.design-system-unchecked",
+      "adr": "0082",
+      "description": "design.system is emitted into the client without checking its shape (4.0 pressure test P4-01).",
+      "file": "packages/compiler/src/parse.ts",
+      "find": "if (!isStr(v.system) || !DESIGN_SYSTEM.test(v.system))",
+      "replace": "if (!isStr(v.system))",
+      "tests": [
+        "packages/compiler/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "compiler.lock-outside-root",
+      "adr": "0083",
+      "description": "A lock entry outside the application is read and removed (P4-02).",
+      "file": "packages/compiler/src/compile.ts",
+      "find": ".filter((file) => !ownedPath(file));",
+      "replace": ".filter(() => false);",
+      "tests": [
+        "packages/compiler/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "compiler.lockless-overwrite",
+      "adr": "0083",
+      "description": "Without a lock, a generated file that differs is overwritten (P4-03).",
+      "file": "packages/compiler/src/compile.ts",
+      "find": "if (!existsSync(f) || options.force || (await readFile(f, \"utf8\")) === content) continue;",
+      "replace": "continue;",
+      "tests": [
+        "packages/compiler/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "compiler.order-one-side-dated",
+      "adr": "0080",
+      "description": "A date may be ordered against any string (P4-05).",
+      "file": "packages/compiler/src/expr.ts",
+      "find": "!(dated(x) && dated(y))",
+      "replace": "!(dated(x) || dated(y))",
+      "tests": [
+        "packages/compiler/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "compiler.check-keys-unchecked",
+      "adr": "0080",
+      "description": "A misspelt assertion in an acceptance check is accepted (P4-13).",
+      "file": "packages/compiler/src/parse.ts",
+      "find": "if (fields) known(c,",
+      "replace": "if (fields && c.kind === \"never\") known(c,",
+      "tests": [
+        "packages/compiler/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "compiler.on-error-covered",
+      "adr": "0080",
+      "description": "A read that may fail and carry on counts as covered for a required input (P4-15).",
+      "file": "packages/compiler/src/check.ts",
+      "find": "skipped.every((s) => !failsOn.has(s) && implies(",
+      "replace": "skipped.every((s) => implies(",
+      "tests": [
+        "packages/compiler/test/pressure.test.ts"
+      ]
+    },
+    {
+      "id": "app.where-drops-unknown",
+      "adr": "0079",
+      "description": "where drops an element whose predicate is unknown, so a count over it understates (P4-06, P4-21).",
+      "file": "packages/app/src/expr.ts",
+      "find": "if (holds === undefined) return undefined;",
+      "replace": "if (holds === undefined) continue;",
+      "tests": [
+        "packages/app/test/expr.test.ts"
+      ]
+    },
+    {
+      "id": "app.order-parses-anything",
+      "adr": "0079",
+      "description": "Two strings are ordered by whatever Date.parse makes of them (P4-05).",
+      "file": "packages/app/src/expr.ts",
+      "find": "if (!ISO_DATE.test(a) || !ISO_DATE.test(b)) return undefined;",
+      "replace": "if (a === \"\" || b === \"\") return undefined;",
+      "tests": [
+        "packages/app/test/expr.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.approver-sees-aggregate",
+      "adr": "0057",
+      "description": "An approver is shown a total read as the initiator, which they may not read (P4-04).",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (madeOfObjects(journaled)) return redact(journaled);",
+      "replace": "if (madeOfObjects(journaled) || journaled !== undefined) return redact(journaled);",
+      "tests": [
+        "packages/cold-chain/test/approval-aggregate.test.ts"
+      ]
+    },
+    {
+      "id": "ui.derived-from-nothing",
+      "adr": "0082",
+      "description": "Data derived from a read with no value yet are shown as known (P4-06).",
+      "file": "packages/ui/src/data.ts",
+      "find": "from.some((d) => d.status !== \"ready\" && d.value === undefined)",
+      "replace": "false",
+      "tests": [
+        "packages/ui/test/pressure.test.ts"
+      ]
     }
   ]
 }

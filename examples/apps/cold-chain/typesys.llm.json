@@ -1,0 +1,14 @@
+{
+  "format": "typesys.llm/1",
+  "providers": {
+    "qa-enclave": { "kind": "custom", "environment": "private" }
+  },
+  "models": {
+    "stability": {
+      "provider": "qa-enclave",
+      "model": "stability-standin",
+      "uses": ["runtime"],
+      "audience": { "id": "model:coldchain-enclave/stability", "roles": ["coldchain-model"], "clearance": "INTERNAL" }
+    }
+  }
+}

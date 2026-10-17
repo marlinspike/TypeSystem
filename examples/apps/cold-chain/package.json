@@ -1,0 +1,10 @@
+{
+  "name": "cold-chain",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "typesys-app build .",
+    "start": "node dist/server.js",
+    "test": "vitest run"
+  }
+}
