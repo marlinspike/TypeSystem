@@ -47,6 +47,46 @@ npx typesys app build examples/apps/cold-chain && npx typesys app build examples
 npm run showcase        # guide at http://127.0.0.1:4300
 ```
 
+You need Node 22 and nothing else: no database, no Docker, no API key.
+If something is missing or a port is busy, `npm run showcase -- check`
+says what and what to run. Ctrl-C stops everything it started.
+
+**A five-minute tour.** Open http://127.0.0.1:4300 and read down the page.
+
+1. The cards at the top are the running surfaces; a green dot means it is
+   up. Click any card to open it in a new tab.
+2. Each of the ten questions has a short answer and **See it** links. A
+   link opens the surface already signed in as the person who shows the
+   answer (the coordinator, a pharmacist, the auditor). In any
+   application, the buttons at the top right switch person, so you can
+   reload the same page as someone else and watch what disappears.
+3. Under question 4, pick a record and press **Read as everyone**: one row
+   per person, with the fields they got or the reason they were refused.
+4. Under question 7, press **Run the recall response**. It plays the
+   whole approval workflow through the API, including the attempts that
+   are refused. A notice can be answered once, so press **Reset
+   everything** (under question 8) before running it again.
+5. Under question 8, press **Stop the pharmacy inventory**, then open
+   *A shipment with one system down*. Press **Start it again** when done.
+6. **From a terminal** and **Over MCP** under each question give the same
+   answer without a browser; run the commands from the repository root.
+
+To call an application's API yourself, send one of the demonstration
+tokens as `Authorization: Bearer <token>` (no token means not signed in):
+
+| Person | Token |
+| --- | --- |
+| Dana Whitfield, logistics coordinator | `demo-logistics-token` |
+| Dr. Priya Raman, quality assurance | `demo-qa-token` |
+| Dr. Tomasz Brandt, quality assurance | `demo-qa2-token` (Recall Response only) |
+| Sam Ortega, compliance auditor | `demo-auditor-token` |
+| Northline Cold Freight dispatch | `demo-carrier-token` |
+
+```bash
+curl -s -H 'Authorization: Bearer demo-logistics-token' \
+  http://127.0.0.1:4710/api/objects/coldchain.Recall/RCL-26-0388   # 403: embargoed, need-to-know for QA
+```
+
 One command starts four independent enterprise services (a shipment
 tracker, a sensor hub, a pharmacy inventory and an industry recall
 exchange, each with its own data and its own authentication), the runtime
