@@ -87,6 +87,8 @@ function TableBuiltIn<R extends object>(props: TableProps<R>) {
     onColumnFiltersChange: setColumnFilters,
     onGroupingChange: setGrouping,
     onExpandedChange: setExpanded,
+    // Groups open when the data arrive, and stay as the person left them when the data refresh.
+    autoResetExpanded: false,
     getRowId: (r, i) => keyOf(r, i),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),

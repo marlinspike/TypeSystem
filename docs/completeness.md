@@ -722,8 +722,18 @@ builds and passes all 15 plus two screen checks
 (`packages/compiler/test/migrate.test.ts`). Every change the translation
 makes is reported as a `mission-translation` note.
 
-The reference application and the productivity measurement are not built
-yet; this section is updated as each lands.
+The reference application, Cold Chain Command (ADR-0087), is compiled
+from `examples/apps/cold-chain/app.json` over three services TypeSystem did
+not write, with four handwritten extensions. `packages/cold-chain/test`
+shows the committed generated code is exactly what the compiler produces,
+all 18 acceptance checks pass (14 API, 4 in Chromium), and in a browser a
+coordinator's request becomes, after the model's assessment and a
+pharmacist's sign-off, a closed excursion in the sensor hub and
+quarantined lots in the inventory. Its model is a deterministic stand-in
+and its stability figures are illustrative.
+
+The productivity measurement is not built yet; this section is updated
+when it lands.
 
 ## Real but narrow — the mechanism exists, exercised once
 

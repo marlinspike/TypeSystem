@@ -76,7 +76,7 @@ function MapBuiltIn(props: MapProps) {
               <circle r={selected ? 9 : 7} />
               <title>{p.label ?? p.id}</title>
               {selected || tone === "bad" ? (
-                <text x={12} y={4}>
+                <text x={p.x > W - 160 ? -12 : 12} y={4} textAnchor={p.x > W - 160 ? "end" : "start"}>
                   {p.label ?? p.id}
                 </text>
               ) : null}
@@ -122,6 +122,8 @@ export interface GraphProps extends NodeProps {
 }
 
 const keyOf = (type: string, id: string) => `${type}/${id}`;
+/** A node's label as drawn, short enough not to run over its neighbours; the whole label is its title. */
+const clip = (s: string) => (s.length > 22 ? `${s.slice(0, 21)}…` : s);
 
 /** A small offset from a key, the same every time: a new node starts beside its parent, never at random. */
 function jitter(key: string, axis: number): number {
@@ -197,8 +199,9 @@ function GraphBuiltIn(props: GraphProps) {
             {nodes.map((n) => (
               <g key={n.key} transform={`translate(${(n.x ?? 0).toFixed(1)},${(n.y ?? 0).toFixed(1)})`} className="ts-graph-node" data-expanded={n.expanded} data-graph-node={n.key} tabIndex={0} role="button" aria-label={`${humanize(n.type.split(".").pop() ?? n.type)} ${n.label}${n.expanded ? "" : ", expand"}`} onClick={() => onNode(n)} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onNode(n))}>
                 <circle r={n.key === nodes[0]?.key ? 18 : 12} fill={color(n.type)} />
+                <title>{n.label}</title>
                 <text y={n.key === nodes[0]?.key ? 32 : 26} textAnchor="middle">
-                  {n.label}
+                  {clip(n.label)}
                 </text>
               </g>
             ))}

@@ -374,7 +374,8 @@ class Checker {
         onRef: (head, path) => {
           if (head === "state" && path[0]) used.state.add(path[0]);
           else if (head === "params" && path[0]) used.params.add(path[0]);
-          else if (head !== "me") used.data.add(head);
+          // A scope an operator binds ($item in a where) is not data the read depends on.
+          else if (names.includes(head) || Object.hasOwn(outer, head)) used.data.add(head);
         }
       };
       let typed: Typed;

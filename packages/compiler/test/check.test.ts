@@ -124,6 +124,13 @@ describe("the application checker (ADR-0080)", () => {
     expect(r.diagnostics.find((d) => d.at === "/flows/ground/steps/0/read/id")!.hint).toBe('did you mean "aircraftId"?');
   });
 
+  it("lists only data as what derived data depend on, never a scope an operator binds", async () => {
+    const app = squadronApp() as unknown as { data: Record<string, unknown> };
+    app.data.degraded = { kind: "derive", value: { where: ["$attention", { ne: ["$item.maintenanceStatus", "operational"] }] } };
+    const r = await checkApp(app, await airforceEnv());
+    expect(r.data.degraded!.deps.data).toEqual(["attention"]);
+  });
+
   it("does not report a skipped value used by a step with the same condition", async () => {
     const app = squadronApp();
     const when = { gt: ["$poorParts", 0] };

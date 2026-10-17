@@ -681,6 +681,8 @@ body {
 }
 .ts-map-point {
   cursor: pointer;
+}
+.ts-map-point:not([data-tone]) {
   --tone: var(--ts-info);
 }
 .ts-map-point circle:not(.ts-map-pulse) {

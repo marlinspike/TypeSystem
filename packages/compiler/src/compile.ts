@@ -229,7 +229,9 @@ export async function compileApp(dir: string, options: CompileOptions = {}): Pro
   }
   const next: AppLock = { format: LOCK_FORMAT, spec: sha(canonical(analysis.app)), files: Object.fromEntries([...owned].map(([f, c]) => [f, sha(c)])) };
   await writeFile(path.join(abs, LOCK_FILE), `${JSON.stringify(next, null, 2)}\n`);
-  return { ok: true, diagnostics: checked.diagnostics, written, unchanged, created, removed, analysis };
+  // A missing extension this compile just wrote a stub for is no longer missing.
+  const stubbed = (d: AppDiagnostic) => d.code === "extension-missing" && created.some((f) => d.message.startsWith(`${f} `));
+  return { ok: true, diagnostics: checked.diagnostics.filter((d) => !stubbed(d)), written, unchanged, created, removed, analysis };
 }
 
 export async function readLock(dir: string): Promise<AppLock | undefined> {

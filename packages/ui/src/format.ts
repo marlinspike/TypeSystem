@@ -9,6 +9,7 @@ const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const integer = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const percent = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
 const currency = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const cents = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
@@ -39,7 +40,8 @@ export function formatValue(v: unknown, format: ValueFormat | undefined): string
       case "percent":
         return percent.format(v);
       case "currency":
-        return currency.format(v);
+        // Whole amounts as whole dollars; a price with cents keeps them, never rounded to a different price.
+        return (Number.isInteger(v) ? currency : cents).format(v);
       case "temperature":
         return `${number.format(v)} °C`;
       case "duration-minutes":

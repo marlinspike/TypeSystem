@@ -1,0 +1,22 @@
+{
+  "name": "@typesys/cold-chain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pharmaceutical cold chain composed across three independently written services (a shipment tracker, a temperature sensor hub and a pharmacy inventory), each with its own data model and its own authorization, behind one governed TypeSystem model with Actions that write back to two of them.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@typesys/adapter-http": "0.1.0",
+    "@typesys/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/compiler": "0.1.0",
+    "@typesys/engineer": "0.1.0",
+    "playwright-core": "1.56.1"
+  }
+}

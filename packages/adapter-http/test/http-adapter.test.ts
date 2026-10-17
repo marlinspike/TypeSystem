@@ -77,6 +77,15 @@ describe("HttpAdapter", () => {
     expect((await adapter.queryByType("t.Aircraft", undefined, 2, page.nextCursor)).items.map((i) => i.objectId)).toEqual(["A3"]);
   });
 
+  it("aggregates over every page, deciding the filter itself, on translated values", async () => {
+    const { fetchStub } = stub(fleet);
+    const adapter = new HttpAdapter(config(fetchStub));
+    const byMds = await adapter.aggregate({ type: "t.Aircraft", groupBy: ["mds"], aggregations: [{ name: "n", op: "count" }] });
+    expect(byMds.groups).toEqual(expect.arrayContaining([{ key: { mds: "F-16C" }, values: { n: 2 } }, { key: { mds: "F-35A" }, values: { n: 1 } }]));
+    const capable = await adapter.aggregate({ type: "t.Aircraft", filter: { property: "missionCapability", operator: "ne", value: "none" }, aggregations: [{ name: "n", op: "count" }] });
+    expect(capable.groups).toEqual([{ key: {}, values: { n: 2 } }]);
+  });
+
   it("refuses to answer from a truncated list", async () => {
     const { fetchStub } = stub(fleet);
     await expect(new HttpAdapter(config(fetchStub, { maxPages: 1 })).queryByType("t.Aircraft")).rejects.toThrow(AdapterUnavailableError);
