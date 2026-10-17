@@ -23,6 +23,348 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
+On top of that runtime, TypeSystem compiles whole applications. Describe one
+in an `app.json` (its data, workflows with AI steps and approvals, and
+screens), and `typesys app` checks it against the model as each caller would
+see it, generates an ordinary TypeScript and React application, and verifies
+it through its API and in a browser. The section
+[Build an application from one document](#build-an-application-from-one-document)
+shows it end to end on Cold Chain Command.
+
+## Build an application from one document
+
+TypeSystem 4.0 adds a semantic application compiler. You, or a coding
+agent, describe a whole governed application in one `app.json`: the data
+each page reads, the expressions computed from it, the workflows with their
+AI steps and approvals, the screens, and the effects buttons have. The
+compiler checks that document against the model as each caller would see it,
+before any code exists. It then generates an ordinary TypeScript and React
+application over the runtime, the workflow engine, the SDK and the HTTP
+layer, and verifies it as each caller, through its API and in Chromium.
+
+![Cold Chain Command as the quality assurance pharmacist: four metrics, a live shipment map, the open excursions and a sign-off waiting with the model's recommendation](docs/images/4.0/cold-chain-command-qa.png)
+
+*Cold Chain Command ([`examples/apps/cold-chain`](examples/apps/cold-chain)),
+compiled from one `app.json` over three services TypeSystem did not write,
+signed in as the quality assurance pharmacist.*
+
+```mermaid
+flowchart LR
+    spec["app.json<br/>typesys.app/1"] --> check["check<br/>types, references,<br/>policy per caller"]
+    check --> compile["compile<br/>src/generated/"]
+    ext["src/extensions/<br/>your code"] --> build
+    compile --> build["build<br/>tsc + esbuild"]
+    build --> verify["verify<br/>API and Chromium,<br/>as each caller"]
+```
+
+### One document, five primitives
+
+An application is built from **reads** (an object, a query, an aggregate,
+related objects), **expressions** (three-valued: `eq`, `where`, `sum`,
+`if`, `hoursSince` and 22 more), **workflow steps** (`read`, `compute`,
+`check`, `ai`, `approval`, `action`, `parallel`, `forEach`), **interface
+nodes** (`grid`, `metric`, `chart`, `table`, `detail`, `timeline`, `graph`,
+`map`, `form`, `approvals`, `run`, `assistant`, `provenance`, `custom` and
+more, 19 in all) and
+**effects** (`set`, `run`, `invoke`, `navigate`, `refresh`). `typesys app
+catalog` prints all of them. This is the Cold Chain workflow that closes a
+temperature excursion, abridged:
+
+```json
+{
+  "name": "coldchain.DispositionExcursion",
+  "startPolicy": "coldchain.dispose",
+  "input": { "excursionId": { "schema": { "type": "string" }, "objectOf": "coldchain.Excursion" } },
+  "steps": [
+    { "kind": "read", "name": "excursion", "read": { "kind": "object", "type": "coldchain.Excursion", "id": "$input.excursionId" } },
+    { "kind": "compute", "name": "budget", "value": { "fn": "stability#budgetMinutes", "args": { "peakC": "$excursion.peakC" }, "returns": { "type": "number" } } },
+    { "kind": "ai", "name": "assess", "model": "stability", "release": "redact",
+      "prompt": "Recommend release, quarantine or destroy, how confident you are, and why.",
+      "input": { "peakC": "$excursion.peakC", "minutesOut": "$excursion.minutesOut", "budgetMinutes": "$budget", "lots": "$lots" },
+      "output": { "type": "object", "properties": { "disposition": { "type": "string", "enum": ["release", "quarantine", "destroy"] } } } },
+    { "kind": "approval", "name": "pharmacistSignoff", "policy": "coldchain.qa-release", "present": ["excursion", "assess", "budget", "doses"] },
+    { "kind": "action", "name": "close", "action": "CloseExcursion",
+      "input": { "excursionId": "$input.excursionId", "disposition": "$assess.disposition" },
+      "compensate": { "action": "ReopenExcursion", "input": { "excursionId": "$input.excursionId" } } },
+    { "kind": "action", "name": "hold", "when": { "ne": ["$assess.disposition", "release"] },
+      "action": "QuarantineShipmentLots", "input": { "shipmentId": "$shipment.$id" } }
+  ]
+}
+```
+
+And a metric on the command page, whose value is computed from two reads:
+
+```json
+{ "kind": "metric", "id": "doses-at-risk", "label": "Doses at risk", "format": "integer",
+  "value": { "sum": ["$atRisk", "doses"] }, "tone": "warn" }
+```
+
+### What the checker catches before any code exists
+
+`typesys app check` types every reference against the model, checks every
+policy a step names against the callers that could reach it, and checks the
+workflows with the workflow engine's own validator. Every diagnostic points
+at the exact JSON field. These are real outputs on Cold Chain with one
+mistake seeded in each:
+
+```text
+$ typesys app check examples/apps/cold-chain      # a field name misspelt in an AI step's input
+  error   unknown-field at /flows/assess/steps/5/input/peakC: $excursion (coldchain.Excursion)
+          has no field "peakCelsius" (its fields are $id, shipmentId, logger, startedAt, endedAt,
+          peakC, minutesOut, severity, status, disposition, note)
+
+$ typesys app check examples/apps/cold-chain      # a severity compared with a number
+  error   not-comparable at /flows/disposition/steps/9/when/gt: one of "minor", "major",
+          "critical" cannot be compared with an integer (nothing is converted: compare values
+          of one type)
+
+$ typesys app explain not-comparable
+not-comparable: Two values of different types are compared, or ordered values are not numbers or dates.
+  resolve: Compare values of one type; order only numbers and date-time strings.
+```
+
+Nothing is converted silently. A value the caller may be withheld, or that
+a skipped step never produced, stays *unknown* through every operator
+(Kleene logic), so `count`, `sum` and comparisons never turn a hidden value
+into 0 or `false`. On the screen it shows as **Unavailable**, which is what a
+carrier's dispatcher sees for the three metrics computed from data they may
+not read:
+
+![The same page as a carrier's dispatcher: their own three shipments, three metrics shown as Unavailable, and the open excursions refused](docs/images/4.0/cold-chain-command-carrier.png)
+
+### What is generated, and what you write
+
+`typesys app compile` writes ordinary, readable TypeScript and React into
+`src/generated/`: one module per flow (registered with the workflow
+engine), one per page, the router, a typed model, typed contracts for your
+extensions, and the acceptance tests. The pages are built on
+**`@typesys/ui`**: tables (TanStack Table) with sorting, search and filters,
+detail panels with a per-value *source* link, charts (Recharts), timelines,
+relationship graphs and maps (d3 with offline atlases), forms derived from
+the workflow's input schema, approval queues, live run views, an assistant
+and provenance. Every component has the loading, empty, error, withheld and
+partial states built in, and the design system is separate from the
+components, so a deployment can bring its own.
+
+Your code lives in `src/extensions/`, which the compiler writes once and
+never again. A `fn` or `custom` node in the spec names an export there, and
+the compiler generates its contract, so tsc rejects an extension whose
+signature does not match what the spec expects of it:
+
+```ts
+// examples/apps/cold-chain/src/extensions/stability.ts
+import type { StabilityBudgetMinutes } from "../generated/contracts.js";
+
+export const budgetMinutes: StabilityBudgetMinutes = ({ peakC }) => {
+  if (peakC === undefined) return undefined;   // unknown stays unknown
+  if (peakC < 0) return 0;                     // frozen spends the whole budget
+  ...
+};
+```
+
+### Safe, incremental regeneration
+
+Generation is deterministic: the same spec and model always produce the
+same bytes, and a change rewrites only the files it reaches. A lock file
+(`typesys.lock.json`) records the hash of every generated file, so a hand
+edit in the wrong place is never lost:
+
+```text
+$ typesys app compile examples/apps/cold-chain
+  error   edited-generated-file at src/generated/pages/Lots.tsx: src/generated/pages/Lots.tsx
+          was edited since it was generated (move the change to app.json or src/extensions/,
+          or compile with --force to discard it)
+```
+
+### Semantic diff and impact
+
+`typesys app diff` compares two versions of a spec by meaning, not by
+text, and says which generated files and which acceptance checks the change
+reaches, so an agent can run the right checks first. Here the approval's
+policy was changed:
+
+```text
+$ typesys app diff examples/apps/cold-chain --against previous/app.json
+2 changes
+  ~ flow coldchain.DispositionExcursion (steps): its steps changed and its version did not:
+    runs in flight resume on the new steps as 1.0.0. Give it a new version
+  ~ step disposition/pharmacistSignoff (approval: policy)
+Files:
+  src/generated/flows/disposition.ts
+Checks to run first: logistics-requests-disposition, closed-excursion-refused, auditor-cannot-request,
+  qa-signs-off, logistics-cannot-sign-off, qa-sees-command, carrier-sees-only-own,
+  excursion-page-offers-assessment
+```
+
+### AI steps that only see what their audience may
+
+An `ai` step names a configured model (`typesys.llm.json`, below), and that
+model is an *audience* the runtime decides for. The step's input is read
+again as the model's audience, so the model is sent only what it may
+receive, whoever started the run. In Cold Chain the model never receives a
+lot's contract price. Its answer is validated against the step's output
+schema, and it is a proposal: the `approval` step that follows shows the
+pharmacist the assessment, the budget and the doses, re-read as the
+approver so an approver is never shown a value they could not read
+themselves, and nothing is written until they approve. If the quarantine
+fails after the excursion was closed, the `compensate` Action reopens it.
+
+![Excursion review as the logistics coordinator: the excursion with source links, the stability budget spent, the model's assessment, the disposition waiting on a pharmacist, and the temperature trace](docs/images/4.0/cold-chain-excursion-assessed.png)
+
+### Verified as every caller
+
+Acceptance checks are part of the spec. `reads`, `query` and `refused`
+checks say what a caller sees, is withheld or is refused. `offered` checks
+say which Actions a caller is offered. `starts` and `approves` checks run a
+workflow as one caller and approve it as another. `screen` checks open a page in Chromium as a caller and assert what is
+shown, hidden and how many rows a table has. `typesys app
+verify` compiles, builds, starts the application with its services and runs
+them all:
+
+```json
+{ "id": "logistics-lacks-unit-cost", "kind": "reads", "as": "logistics", "type": "coldchain.Lot",
+  "objectId": "L-7731", "sees": ["product", "doses"], "withheld": ["unitCost"],
+  "because": "unit cost is CONFIDENTIAL and the coordinator is cleared INTERNAL" }
+```
+
+### For coding agents
+
+Every stage is a CLI command and the same MCP tool, with the same JSON
+diagnostics, so an agent drives the compiler exactly as a person does:
+
+| CLI | MCP tool | What it does |
+|---|---|---|
+| `typesys app catalog` | `typesys_app_catalog` | Every primitive, operator and scope, and with `--model` the model's Types |
+| `typesys app context <dir> --as <caller>` | `typesys_app_context` | The model as that caller may see it, within a token budget |
+| `typesys app check <dir>` | `typesys_app_check` | Type and policy check, no code written |
+| `typesys app compile <dir>` | `typesys_app_compile` | Generate `src/generated/` |
+| `typesys app build <dir>` | `typesys_app_build` | tsc and esbuild |
+| `typesys app verify <dir>` | `typesys_app_verify` | Run every acceptance check |
+| `typesys app explain <code>` | `typesys_app_explain` | What a diagnostic means and how to resolve it |
+| `typesys app diff <dir> --against <app.json>` | `typesys_app_diff` | Semantic diff and impact |
+| `typesys app migrate <mission.json> --out <dir>` | `typesys_app_migrate` | Translate a 3.0 mission |
+
+### Migrating a mission
+
+`typesys app migrate` translates a 3.0 mission (`typesys.mission/1`) into
+an application and reports what changed. The migrated sortie-readiness
+mission passes its 15 original checks unchanged, plus two screen checks,
+and gains a form to start its workflow and an approval queue it did not
+have:
+
+![The migrated Sortie Readiness app as a planner: fleet and crew tables with a withheld name, the Confirm Sortie form and the approval queue](docs/images/4.0/sortie-migrated-planner.png)
+
+### Cold Chain Command
+
+The reference application ([`examples/apps/cold-chain`](examples/apps/cold-chain),
+[ADR-0087](docs/adr/0087-the-reference-application-is-compiled-over-three-services-typesystem-did-not-write.md))
+runs over a shipment tracker, a temperature sensor hub and a pharmacy
+inventory: three independent services, each with its own data model and
+credentials. A logistics coordinator asks for an assessment of a
+temperature excursion, a model inside the quality enclave recommends a
+disposition, a pharmacist signs it off, and only then is the excursion closed
+in the sensor hub and the shipment's lots quarantined in the inventory. Only
+quality assurance sees contract prices or the value at risk, an auditor
+reads everything else and changes nothing, and a carrier's dispatcher sees
+only their own freight.
+
+![A shipment as the pharmacist: details with source links, the temperature trace, the excursion timeline, the relationship graph and the lots on board with unit cost](docs/images/4.0/cold-chain-shipment.png)
+
+It is compiled from one `app.json` (four pages, two workflows) and four
+handwritten extensions: the stability rule, the value at risk, a gauge
+component and the stand-in model. Those 87 lines are 9.7% of the
+application's code by characters. It passes 18 of 18 acceptance checks, 14
+through the API and 4 in Chromium, and its browser test drives the whole
+path from assessment to quarantine. The model in the example is a
+deterministic stand-in, so the example runs without a provider; pointing
+`typesys.llm.json` at a real model is a configuration change.
+
+```bash
+npx typesys app verify examples/apps/cold-chain   # compile, build, run all 18 checks
+cd examples/apps/cold-chain && node dist/server.js # http://127.0.0.1:4700, sign in with demo-qa-token
+```
+
+### Measured
+
+[`docs/evidence/compiler-productivity-2026-10-17.md`](docs/evidence/compiler-productivity-2026-10-17.md)
+compares the compiler with the 3.0 engineering loop on the same mission,
+and every figure there was measured by a script in the repository.
+
+| | 3.0 engineering loop | 4.0 compiler |
+|---|---|---|
+| Acceptance checks on sortie-readiness | 15 of 15 | 15 of 15 (plus 2 screen checks after migration) |
+| Generated code, non-whitespace characters | 9,559 | 10,102 |
+| Seeded defects reported before any code exists | 4 of 10, at the step | **5 of 10, at the exact field, in under 200 ms** |
+| Further defects warned about before running | 0 | 2 (misspelt policies) |
+| A string compared with a number | found by an acceptance check after a 4.2 s build and run | refused by the checker in 169 ms |
+| A hand edit to a generated file | overwritten | refused |
+| Step kinds available | 4 | 8, including `ai`, `compute` and `parallel` |
+| Interface node kinds | tables | 19 |
+
+On a mission both can express, the compiler is about the same size and not
+faster to write. It moves type and reference errors in front of the build,
+protects work, and expresses applications a mission cannot, such as Cold
+Chain. Three of the ten defects (a withheld value, a self-approval and a
+mistake in a check itself) are found only by acceptance checks in either
+pipeline, which is why checks stay part of the spec.
+
+[ADR-0079](docs/adr/0079-an-application-is-compiled-from-a-typed-ir-of-five-primitives.md)
+to [ADR-0087](docs/adr/0087-the-reference-application-is-compiled-over-three-services-typesystem-did-not-write.md)
+record the design, [`docs/roadmap-4.md`](docs/roadmap-4.md) the slices, and
+[`docs/reviews/4-0-pressure-test.md`](docs/reviews/4-0-pressure-test.md)
+the adversarial review (26 findings, all four High fixed, each fix with a
+test that failed first and a mutation that proves the test catches it).
+
+## Models, onboarding and drafting
+
+TypeSystem talks to language models through **`@typesys/llm`**, which is
+provider-agnostic. Models are configured capabilities behind two protocols:
+Anthropic Messages, and OpenAI Chat Completions for OpenAI, OpenRouter,
+Ollama, LM Studio, vLLM and any compatible server
+([ADR-0074](docs/adr/0074-models-are-configured-capabilities-behind-two-protocols.md)).
+A request says what it needs (structured output, tools, streaming, a context
+size), and a model that cannot meet it is refused before anything is sent.
+Structured answers are validated against their JSON Schema whatever the
+provider claims. Configuration is one versioned file with credentials named
+by environment variable, never stored:
+
+```json
+{
+  "format": "typesys.llm/1",
+  "providers": { "qa-enclave": { "kind": "custom", "environment": "private" } },
+  "models": {
+    "stability": { "provider": "qa-enclave", "model": "stability-standin", "uses": ["runtime"],
+                   "audience": { "id": "model:coldchain-enclave/stability", "roles": ["coldchain-model"], "clearance": "INTERNAL" } }
+  }
+}
+```
+
+Each model is an **audience**: the runtime decides what it may receive as it
+decides for a person, and a fallback to another model is a new release
+decision, never a silent reroute. A local model failing never sends
+unlabeled content to a hosted provider
+([ADR-0075](docs/adr/0075-a-model-receives-only-what-its-audience-may.md)).
+
+Three tools are built on it. **Onboarding** (`typesys onboard`,
+[ADR-0076](docs/adr/0076-onboarding-proposes-from-evidence-and-an-expert-approves.md))
+reads the metadata of existing sources (PostgreSQL catalogs, OpenAPI
+documents, JSON Schemas, never a row), proposes a governed model in which
+every item cites the evidence it rests on, lets a model refine it under
+checks, and leaves the policy rules for an expert to write. **Drafting**
+(`typesys engineer draft`,
+[ADR-0077](docs/adr/0077-a-mission-is-drafted-from-words-and-typesystem-decides.md))
+turns a person's brief into a mission spec, with the brief owning
+everything that grants authority and every answer checked by the same
+planner as a hand-written spec. In agent mode, with the coding agent as the
+drafting model, the three evaluation tasks were drafted in one round each and
+passed 43 of 43 hidden checks
+([evidence](docs/evidence/llm-drafting-2026-10-16.md)). The **context
+compiler** (`compileContext`, MCP `typesys_compile_context`,
+[ADR-0078](docs/adr/0078-a-coding-agent-is-given-the-model-its-caller-may-see.md))
+gives a coding agent the model as its caller may see it, ranked by the task
+and within a token budget, marking values the caller is not returned.
+
+
 ## Where it sits in a system
 
 ```mermaid
@@ -359,57 +701,15 @@ API never assumes an identity of its own.
 | Any HTTP client | `@typesys/http` | `GET /api/objects/:type/:id`, `POST /api/query`, `POST /api/actions/:name/invoke`, workflow routes, an OpenAPI document; errors as RFC 9457 problems |
 | An AI agent | `@typesys/mcp-server` | MCP tools `typesys_discover`, `typesys_get_object`, `typesys_query`, `typesys_get_provenance`, `typesys_list_actions`, `typesys_preview_action`, `typesys_invoke_action` and others, plus one tool per Action the caller may invoke |
 | A multi-step process with approvals | `@typesys/workflow` | Steps that read, compute, ask a model, wait for a person's approval and invoke Actions, each as the person who started it; the journal survives restarts |
-| A whole application, from a spec | `@typesys/compiler` | `typesys app check, compile, build, verify` and the same as `typesys_app_*` MCP tools: an `app.json` of reads, expressions, workflow steps, interface nodes and effects, type-checked against the model, compiled to TypeScript and React over the SDK, and verified through its API and in Chromium ([`docs/roadmap-4.md`](docs/roadmap-4.md)) |
+| A whole application, from a spec | `@typesys/compiler`, `@typesys/ui`, `@typesys/app` | `typesys app check, compile, build, verify, diff, migrate` and the same nine `typesys_app_*` MCP tools: an `app.json` type-checked against the model, compiled to TypeScript and React, and verified as each caller ([above](#build-an-application-from-one-document)) |
+| A language model | `@typesys/llm` | Anthropic Messages or OpenAI-compatible models (OpenAI, OpenRouter, Ollama, LM Studio, vLLM) as configured capabilities, each an audience the runtime decides for ([above](#models-onboarding-and-drafting)) |
+| A coding agent | `@typesys/mcp-server`, `@typesys/compiler` | `typesys_compile_context` (the model as its caller may see it, within a token budget), the `typesys_app_*` tools, `typesys onboard` and `typesys engineer draft` |
 
 An agent connected over MCP is just another caller with an identity. It sees
 only what that identity may see and can change only what that identity may
 change. A model can also be given an *audience* of its own, so policy can
 decide what may be sent to that model regardless of who is asking
 ([ADR-0067](docs/adr/0067-release-to-models-is-decided-for-the-model.md)).
-
-## Compiling an application
-
-An application can also be written as one document instead of code. An
-`app.json` (`typesys.app/1`) is built from five primitives: governed reads,
-expressions, workflow steps, interface nodes and effects
-([ADR-0079](docs/adr/0079-an-application-is-compiled-from-a-typed-ir-of-five-primitives.md)).
-The pipeline runs each stage separately, and every stage reports
-diagnostics with a JSON pointer into the spec.
-
-- **`typesys app check`** types every reference against the model and the
-  policy answers for each caller, before any code exists. A value the caller
-  may be withheld stays unknown through every operator, and a figure
-  computed from it shows as unavailable, never as 0.
-- **`compile`** generates ordinary TypeScript and React into
-  `src/generated/`. The pages use `@typesys/ui` (tables, detail, charts,
-  timeline, graph, map, forms, approvals, an assistant and provenance) and
-  the flows run on `@typesys/workflow`. Generation is deterministic and
-  incremental. A hand edit to a generated file stops the compile instead of
-  being lost. Handwritten code lives in `src/extensions/`, and tsc checks it
-  against the contracts the spec declares.
-- **`build`** and **`verify`** build the application and run its
-  acceptance checks as each caller, through its API and in Chromium.
-- **`diff`** reports the semantic change between two specs and which flows,
-  pages and checks it reaches. **`migrate`** turns a 3.0 mission into an
-  application. `catalog`, `explain` and `context` give an agent what it
-  needs, and all of it is also available as nine `typesys_app_*` MCP tools.
-
-[`examples/apps/cold-chain`](examples/apps/cold-chain) is the reference
-application. It runs over three services TypeSystem did not write: a
-shipment tracker, a temperature sensor hub and a pharmacy inventory. A model
-assesses a temperature excursion, a pharmacist approves the disposition, and
-the result is written to two of the systems. It is compiled from one
-`app.json` and four handwritten extensions, which make up 9.7% of its code
-by characters, and it passes 18 of 18 acceptance checks.
-
-[`docs/evidence/compiler-productivity-2026-10-17.md`](docs/evidence/compiler-productivity-2026-10-17.md)
-measures the compiler against the 3.0 engineering loop on the same mission.
-Both pass the same 15 checks with generated code of about the same size, so
-the compiler is not smaller or faster to write there. The differences show
-up in where mistakes are caught. Of ten seeded defects, the checker reported
-5 before any code existed, each in under 200 ms at the exact field, while
-the loop's planner reported 4. The checker warned on 2 more, and the other 3
-were found only by acceptance checks in either pipeline.
 
 ## Why use it
 
@@ -424,6 +724,10 @@ were found only by acceptance checks in either pipeline.
   a person or a model audience, and everything it does is audited under that.
 - **Every value can be traced.** Provenance says which system and record a
   value came from, which matters when a decision is questioned later.
+- **Applications are checked before they exist.** An application compiled
+  from an `app.json` is type-checked against the model and the policies of
+  each caller before any code is written, and verified as every caller
+  afterwards.
 - **Writes are explicit.** The only changes possible are the Actions in the
   model, each with a permission check, input validation and preconditions.
 
@@ -442,6 +746,7 @@ npm run demo          # http://localhost:4000: two domains, switch identity and 
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
 npm run studio        # http://localhost:4400: browse the model, compose and check queries
 npx typesys app verify examples/apps/cold-chain   # compile, build and run Cold Chain's 18 checks
+npm run draft:demo    # draft a mission from a brief and verify it (10 checks)
 ```
 
 With PostgreSQL available:
@@ -450,6 +755,7 @@ With PostgreSQL available:
 export DATABASE_URL=postgresql://user:pass@localhost:5432/typesys
 npm run migrate:postgres     # registry tables, audit_events, objects
 npm test                     # Postgres-backed tests run only when DATABASE_URL is set
+npm run onboard:demo         # propose a governed model from a database's catalog
 ```
 
 Other commands: `npm run lint`, `npm run typecheck`,
@@ -466,7 +772,9 @@ squadron readiness app built with and without TypeSys).
 | Storage and sources | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, `registry-store-postgres`, `workflow-postgres`, `redis` |
 | Security | `auth-oidc` (JWT identity), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
-| Tooling | `cli` (YAML authoring, code generation), `devkit` (discovery, query validation, contract diff), `packs` (signed, versioned domain packages), `studio` (browser workbench), `engineer` (builds and verifies an application from a mission spec), `compiler` (compiles an application spec to TypeScript and React), `app` and `ui` (the runtime pieces compiled applications use: three-valued expressions and flow helpers, and React components with a separate design system) |
+| Applications | `compiler` (the `typesys.app/1` checker, code generator, verifier, semantic diff and mission migration), `ui` (React components for tables, detail, charts, timelines, graphs, maps, forms, approvals, runs, an assistant and provenance, with a separate design system), `app` (three-valued expressions, flow helpers and the server compiled applications run on) |
+| Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata), `engineer` (missions drafted, scaffolded and verified) |
+| Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff), `packs` (signed, versioned domain packages), `studio` (browser workbench) |
 | Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services), `examples/services` (six independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 
@@ -474,7 +782,11 @@ squadron readiness app built with and without TypeSys).
 
 The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
-adversarial reviews (in [`docs/reviews/`](docs/reviews/)). It has not had an
+adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
+request runs the full suite and a catalog of 158 deliberate mutations, each
+of which a test must catch. Among them are a compile that overwrites a hand
+edit, a lock entry outside the application, and a figure computed from a
+failed read shown as known. It has not had an
 external security review, validation against a real KMS, or production-scale
 load and high-availability testing. No package is published to npm yet.
 [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) lists what
@@ -493,6 +805,8 @@ remains and [`docs/completeness.md`](docs/completeness.md) what is built.
   the storage and write paths in more depth.
 - [`docs/for-agents.md`](docs/for-agents.md) and [`llms.txt`](llms.txt): for
   building agents against the MCP server.
+- [`docs/roadmap-4.md`](docs/roadmap-4.md): the application compiler, slice by
+  slice, and [`docs/evidence/`](docs/evidence/): every measurement.
 - [`docs/adr/`](docs/adr/): 87 architecture decision records.
 
 Versioning uses [changesets](https://github.com/changesets/changesets); see
