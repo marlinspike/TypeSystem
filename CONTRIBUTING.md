@@ -66,7 +66,8 @@ npm run smoke:mcp-http   # the same over the HTTP transport
 
 If you touched a security mechanism the mutation catalog names, rerun its
 mutations (ADR-0070); a catalog entry whose code moved goes stale and fails
-the run until you update it:
+the run until you update it. Mutation testing runs only on your machine,
+never on GitHub, so this is the only place it happens:
 
 ```bash
 npm run mutation -- --only <id,...> --allow-dirty

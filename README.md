@@ -1013,8 +1013,9 @@ squadron readiness app built with and without TypeSys).
 The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
-request runs the full suite and a catalog of 219 deliberate mutations, each
-of which a test must catch. Among them are a compile that overwrites a hand
+request runs the full suite. A catalog of 219 deliberate mutations, each
+of which a test must catch, runs locally with `npm run mutation`, never
+on GitHub. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a
 failed read shown as known. It has not had an
 external security review, validation against a real KMS, or production-scale
