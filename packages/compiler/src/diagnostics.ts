@@ -97,5 +97,12 @@ export const DIAGNOSTIC_CODES: Readonly<Record<string, { readonly meaning: strin
   "edited-generated-file": { meaning: "A generated file was changed by hand since it was generated, and regenerating would discard the change.", resolve: "Move the change into src/extensions/ (or the spec), or compile with --force to discard it." },
   "extension-missing": { meaning: "The spec names an extension function or component whose module does not exist.", resolve: "Compile once to write a typed stub in src/extensions/, then implement it." },
   "compile-error": { meaning: "TypeScript refused the application: generated code no longer matches an extension, or an extension does not satisfy its contract.", resolve: "Fix the file at `at`: the generated contract in src/generated/contracts.ts says what the extension must provide." },
+  "invalid-caller": { meaning: "The host's identity resolver does not accept a caller's token.", resolve: "Use a token the host resolves, or \"\" for an anonymous caller." },
+  "invalid-llm-config": { meaning: "The application's LLM configuration (ADR-0074) cannot be read or has an error.", resolve: "Correct the file `llm` names; the message gives the field." },
+  "host-unavailable": { meaning: "The host module cannot be loaded, or does not export what `host` names.", resolve: "Install the host's package, or correct host.module, host.build and host.identities." },
+  "no-application": { meaning: "The build produced no dist/server.js.", resolve: "Compile the application first; server.ts is generated at the top of its directory." },
+  "bundle-error": { meaning: "esbuild could not bundle the client from src/generated/app.tsx.", resolve: "The message names the file and line; usually an extension component that does not compile for the browser." },
+  "startup-failed": { meaning: "The built application did not start and print its ready line.", resolve: "Run node dist/server.js yourself to see the whole error." },
+  "check-failed": { meaning: "An acceptance check did not pass against the running application.", resolve: "`observed` says what the API or the screen showed; fix the spec, an extension or the check." },
   "mission-translation": { meaning: "Something in a typesys.mission/1 spec has no exact typesys.app/1 equivalent.", resolve: "Review the translated spec at `at`." }
 };

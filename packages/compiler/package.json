@@ -8,6 +8,10 @@
   "exports": {
     ".": "./dist/index.js"
   },
+  "bin": {
+    "typesys-app": "./dist/bin.js",
+    "typesys-app-mcp": "./dist/mcp-bin.js"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,6 +25,7 @@
     "dist"
   ],
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@typesys/core": "0.1.0",
     "@typesys/devkit": "0.1.0",
     "@typesys/engineer": "0.1.0",

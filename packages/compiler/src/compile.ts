@@ -106,9 +106,18 @@ export async function checkAppDir(dir: string, options: LoadHostOptions = {}): P
   }
   const loaded = await tryLoadHost(spec, abs, options);
   if ("diagnostic" in loaded) return { diagnostics: [loaded.diagnostic] };
-  const { env, diagnostics } = await environmentFor(spec, loaded, abs);
-  const analysis = await checkApp(read.doc, env);
-  return { analysis, diagnostics: [...diagnostics, ...analysis.diagnostics] };
+  try {
+    const { env, diagnostics } = await environmentFor(spec, loaded, abs);
+    const analysis = await checkApp(read.doc, env);
+    return { analysis, diagnostics: [...diagnostics, ...analysis.diagnostics] };
+  } finally {
+    await stopHost(loaded);
+  }
+}
+
+/** A host may start services of its own (the sortie host starts three); they stop when the compiler is done asking. */
+export async function stopHost(loaded: LoadedHost): Promise<void> {
+  await (loaded.host as { services?: { stop(): Promise<void> } }).services?.stop().catch(() => undefined);
 }
 
 /** Everything the compiler writes for a checked application: the files it owns, and the files it writes once. */
