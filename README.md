@@ -367,6 +367,50 @@ change. A model can also be given an *audience* of its own, so policy can
 decide what may be sent to that model regardless of who is asking
 ([ADR-0067](docs/adr/0067-release-to-models-is-decided-for-the-model.md)).
 
+## Compiling an application
+
+An application can also be written as one document instead of code. An
+`app.json` (`typesys.app/1`) is built from five primitives: governed reads,
+expressions, workflow steps, interface nodes and effects
+([ADR-0079](docs/adr/0079-an-application-is-compiled-from-a-typed-ir-of-five-primitives.md)).
+The pipeline runs each stage separately, and every stage reports
+diagnostics with a JSON pointer into the spec.
+
+- **`typesys app check`** types every reference against the model and the
+  policy answers for each caller, before any code exists. A value the caller
+  may be withheld stays unknown through every operator, and a figure
+  computed from it shows as unavailable, never as 0.
+- **`compile`** generates ordinary TypeScript and React into
+  `src/generated/`. The pages use `@typesys/ui` (tables, detail, charts,
+  timeline, graph, map, forms, approvals, an assistant and provenance) and
+  the flows run on `@typesys/workflow`. Generation is deterministic and
+  incremental. A hand edit to a generated file stops the compile instead of
+  being lost. Handwritten code lives in `src/extensions/`, and tsc checks it
+  against the contracts the spec declares.
+- **`build`** and **`verify`** build the application and run its
+  acceptance checks as each caller, through its API and in Chromium.
+- **`diff`** reports the semantic change between two specs and which flows,
+  pages and checks it reaches. **`migrate`** turns a 3.0 mission into an
+  application. `catalog`, `explain` and `context` give an agent what it
+  needs, and all of it is also available as nine `typesys_app_*` MCP tools.
+
+[`examples/apps/cold-chain`](examples/apps/cold-chain) is the reference
+application. It runs over three services TypeSystem did not write: a
+shipment tracker, a temperature sensor hub and a pharmacy inventory. A model
+assesses a temperature excursion, a pharmacist approves the disposition, and
+the result is written to two of the systems. It is compiled from one
+`app.json` and four handwritten extensions, which make up 9.7% of its code
+by characters, and it passes 18 of 18 acceptance checks.
+
+[`docs/evidence/compiler-productivity-2026-10-17.md`](docs/evidence/compiler-productivity-2026-10-17.md)
+measures the compiler against the 3.0 engineering loop on the same mission.
+Both pass the same 15 checks with generated code of about the same size, so
+the compiler is not smaller or faster to write there. The differences show
+up in where mistakes are caught. Of ten seeded defects, the checker reported
+5 before any code existed, each in under 200 ms at the exact field, while
+the loop's planner reported 4. The checker warned on 2 more, and the other 3
+were found only by acceptance checks in either pipeline.
+
 ## Why use it
 
 - **The rules are written once.** Without it, every application and every
@@ -397,6 +441,7 @@ npm run build
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
 npm run studio        # http://localhost:4400: browse the model, compose and check queries
+npx typesys app verify examples/apps/cold-chain   # compile, build and run Cold Chain's 18 checks
 ```
 
 With PostgreSQL available:

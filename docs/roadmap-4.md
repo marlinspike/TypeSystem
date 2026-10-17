@@ -77,7 +77,7 @@ The 3.0 principles still hold. Three more are added.
 ## Delivery
 
 The work lands as one commit per slice on `claude/typesystem-4-compiler-03fhfh`,
-in draft pull request #21. Nothing is merged without the owner.
+in pull request #21, merged to main on 2026-10-17.
 
 ## Continuation state
 
