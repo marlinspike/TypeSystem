@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { compileContext } from "@typesys/devkit";
 import { tryLoadHost } from "@typesys/engineer";
@@ -8,6 +9,7 @@ import { checkApp } from "./check.js";
 import { checkAppDir, compileApp, environmentFor, generate, readAppSpec, stopHost } from "./compile.js";
 import { DIAGNOSTIC_CODES, type AppDiagnostic } from "./diagnostics.js";
 import { diffApps } from "./diff.js";
+import { missionToApp } from "./migrate.js";
 import type { AppSpec } from "./ir.js";
 import { verifyApp } from "./verify.js";
 
@@ -22,6 +24,7 @@ Usage:
   typesys app build <dir> [--json]
   typesys app verify <dir> [--json]
   typesys app diff <dir> --against <app.json> [--json]
+  typesys app migrate <mission.json> --out <dir> [--force] [--json]
 
   catalog   Every primitive (nodes, steps, effects, operators, scopes) and
             its fields: the whole language, as data.
@@ -43,6 +46,10 @@ Usage:
   diff      What changed between <app.json> and <dir>/app.json, what each
             change risks, the generated files it changes and the checks
             that exercise it.
+  migrate   Translate a typesys.mission/1 spec into <dir>/app.json: the
+            same host, callers and checks, the workflow step for step, the
+            views as tables. Every change it makes is a mission-translation
+            note. Then compile <dir>.
 
 --json prints one JSON object for an agent.`;
 
@@ -149,6 +156,8 @@ export async function appCommand(argv: readonly string[], out: (s: string) => vo
       return diffCommand(target, arg(rest, "--against"), print, host);
     case "context":
       return contextCommand(target, rest, print, host);
+    case "migrate":
+      return migrateCommand(target, arg(rest, "--out"), rest.includes("--force"), print, options.within);
     default:
       out(APP_USAGE);
       return 1;
@@ -207,3 +216,32 @@ async function contextCommand(dir: string, rest: readonly string[], print: Print
     await stopHost(loaded);
   }
 }
+
+async function migrateCommand(file: string, out: string | undefined, force: boolean, print: Print, within: string | undefined): Promise<number> {
+  if (!out) return print(false, { ok: false, error: "--out <dir> is required" }, ["migrate needs --out <dir>: where app.json is written"]);
+  const inside = (p: string) => within === undefined || !path.relative(within, path.resolve(within, p)).startsWith("..");
+  if (!inside(file) || !inside(out)) return print(false, { ok: false, error: "a path is outside the root" }, ["a path is outside the root"]);
+  const source = within === undefined ? path.resolve(file) : path.resolve(within, file);
+  const dir = within === undefined ? path.resolve(out) : path.resolve(within, out);
+  let doc: unknown;
+  try {
+    doc = JSON.parse(await readFile(source, "utf8"));
+  } catch {
+    return print(false, { ok: false, error: `cannot read ${file}` }, [`cannot read ${file} as JSON`]);
+  }
+  const r = missionToApp(doc);
+  if (!r.spec) return print(false, { ok: false, diagnostics: r.diagnostics }, ["NOT MIGRATED", ...r.diagnostics.map(line)]);
+  const target = path.join(dir, "app.json");
+  if (existsSync(target) && !force) return print(false, { ok: false, error: `${target} exists` }, [`${target} exists: pass --force to replace it`]);
+  // A host module given as a path is relative to the mission; keep it pointing at the same file from the application.
+  const mod = r.spec.host.module;
+  const spec = mod.startsWith(".") ? { ...r.spec, host: { ...r.spec.host, module: rel(dir, path.resolve(path.dirname(source), mod)) } } : r.spec;
+  await mkdir(dir, { recursive: true });
+  await writeFile(target, `${JSON.stringify(spec, null, 2)}\n`);
+  return print(true, { ok: true, app: target, diagnostics: r.diagnostics }, [`OK — wrote ${target}`, ...r.diagnostics.map(line), `next: typesys app verify ${out}`]);
+}
+
+const rel = (from: string, to: string) => {
+  const r = path.relative(from, to).split(path.sep).join("/");
+  return r.startsWith(".") ? r : `./${r}`;
+};

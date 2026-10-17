@@ -326,6 +326,7 @@ command line (ADR-0085):
 | `typesys_app_build` | tsc over generated and handwritten code; a contract mismatch names the extension |
 | `typesys_app_verify` | each acceptance check against a fresh copy, API checks as each caller and screen checks in Chromium |
 | `typesys_app_diff` | what changed since an earlier `app.json`, what each change risks, the files and checks it reaches |
+| `typesys_app_migrate` | translate a `typesys.mission/1` spec into `app.json`, with every change it makes as a `mission-translation` note |
 
 The loop: `catalog` once, `context`, write `app.json`, `check` until it
 has no error, `compile`, implement the stubs in `src/extensions/` against

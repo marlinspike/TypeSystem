@@ -39,6 +39,7 @@
   "devDependencies": {
     "@typesys/app": "0.1.0",
     "@typesys/domain-airforce": "0.1.0",
+    "@typesys/sortie-readiness": "0.1.0",
     "@typesys/ui": "0.1.0"
   }
 }

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { appCommand, callAppTool, diffApps, type AppSpec } from "../src/index.js";
@@ -112,5 +112,9 @@ describe("the MCP tools", () => {
     expect(outside.ok).toBe(false);
     expect(String(outside.error)).toMatch(/outside|root/);
     expect((await callAppTool(root, "typesys_app_nonsense", { dir: "app" })).ok).toBe(false);
+    await writeFile(path.join(root, "mission.json"), await readFile(path.resolve(WORK, "../../../examples/missions/sortie-readiness/mission.json"), "utf8"));
+    const migrated = await callAppTool(root, "typesys_app_migrate", { mission: "mission.json", dir: "migrated", force: true });
+    expect(migrated.ok).toBe(true);
+    expect((await callAppTool(root, "typesys_app_migrate", { mission: "../outside.json", dir: "migrated" })).ok).toBe(false);
   });
 });

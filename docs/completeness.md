@@ -704,9 +704,26 @@ run. It also shows a second compile writes nothing, a hand edit to a
 generated file stops the compile at that file, a removed page's file is
 removed, a handwritten function's stub is written once and never again,
 and a function that drifts from its generated contract fails the build at
-the contract check. The reference application, the mission migration, the
-agent surface (CLI, MCP, context compiler) and the productivity
-measurement are not built yet; this section is updated as each lands.
+the contract check.
+
+Agents get the same compiler as `typesys app` and as nine
+`typesys_app_*` MCP tools (ADR-0085): the whole language as data
+(`catalog`), every diagnostic code explained, model context as a caller
+through the context compiler, and a semantic diff that names changed
+nodes and steps, warns when a flow's steps change without a new version,
+and lists the generated files and acceptance checks a change reaches
+(`packages/compiler/test/agent.test.ts`, which also shows the MCP tools
+refusing a path outside their root).
+
+A `typesys.mission/1` spec migrates with `typesys app migrate` (ADR-0086):
+`examples/missions/sortie-readiness` translates with its 15 checks
+unchanged and every step under the same name, and the result compiles,
+builds and passes all 15 plus two screen checks
+(`packages/compiler/test/migrate.test.ts`). Every change the translation
+makes is reported as a `mission-translation` note.
+
+The reference application and the productivity measurement are not built
+yet; this section is updated as each lands.
 
 ## Real but narrow — the mechanism exists, exercised once
 

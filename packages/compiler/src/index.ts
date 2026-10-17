@@ -12,5 +12,6 @@ export * from "./verify.js";
 export { pageSource, appSource } from "./emit/pages.js";
 export { flowSource } from "./emit/flows.js";
 export * from "./diff.js";
+export * from "./migrate.js";
 export * from "./cli.js";
 export * from "./mcp.js";

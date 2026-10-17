@@ -61,6 +61,12 @@ export const APP_TOOLS: readonly Tool[] = [
     description: "What changed between an earlier app.json and the one in dir, in the IR's own terms (pages, nodes, flows, steps, data, checks), what each change risks (a flow whose steps changed without a new version), the generated files it changes, and the acceptance checks that exercise it.",
     inputSchema: { type: "object", properties: { dir, against: { type: "string", description: "The earlier app.json, relative to the root" } }, required: ["dir", "against"], additionalProperties: false },
     annotations: { readOnlyHint: true }
+  },
+  {
+    name: "typesys_app_migrate",
+    description: "Translate a typesys.mission/1 spec into dir/app.json (ADR-0086): the same host, callers and acceptance checks, the workflow step for step under the same names, the views as tables, plus a form and an approval queue for the workflow. Returns {ok, app, diagnostics}; every change is a mission-translation note at its place in the mission. Refuses to replace an app.json unless force.",
+    inputSchema: { type: "object", properties: { mission: { type: "string", description: "The mission.json, relative to the root" }, dir, force: { type: "boolean" } }, required: ["mission", "dir"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
   }
 ];
 
@@ -73,7 +79,9 @@ export async function callAppTool(root: string, name: string, args: Record<strin
       if (typeof args.code === "string") argv.push(args.code);
     } else if (sub !== "catalog") {
       if (!APP_TOOLS.some((t) => t.name === name)) return { ok: false, error: `Unknown tool ${name}` };
+      if (sub === "migrate") argv.push(insideRoot(root, args.mission), "--out");
       argv.push(insideRoot(root, args.dir));
+      if (sub === "migrate" && args.force === true) argv.push("--force");
       if (sub === "diff") argv.push("--against", insideRoot(root, args.against));
       if (sub === "compile" && args.force === true) argv.push("--force");
       if (sub === "context" && typeof args.as === "string") argv.push("--as", args.as);
