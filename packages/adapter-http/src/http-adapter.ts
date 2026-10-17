@@ -315,7 +315,14 @@ export class HttpAdapter implements Adapter {
 
   async resolveRelationship(relationship: RelationshipDefinition, sourceObjectId: string, opts?: AdapterCallOptions): Promise<RelatedRef[]> {
     const strategy = parseResolution(relationship.resolution.operation);
-    if (strategy.kind !== "byForeignKey") throw new UnsupportedResolutionError(`HttpAdapter supports byForeignKey relationships, not "${strategy.kind}"`);
+    if (strategy.kind === "byOwnField") {
+      // The source object names its targets in one of its own values: a facility code on a shipment.
+      // The targets may live in another system: the runtime reads each from its own source (ADR-0094).
+      const own = (await this.resolveProperties(relationship.sourceType, sourceObjectId, [strategy.field], opts)).values[strategy.field];
+      const ids = Array.isArray(own) ? own : own === undefined || own === null || own === "" ? [] : [own];
+      return ids.filter((id): id is string | number => typeof id === "string" || typeof id === "number").map((id) => ({ objectId: String(id) }));
+    }
+    if (strategy.kind !== "byForeignKey") throw new UnsupportedResolutionError(`HttpAdapter supports byForeignKey and byOwnField relationships, not "${strategy.kind}"`);
     const filter: QueryFilter = { property: strategy.field, operator: "eq", value: sourceObjectId };
     const related = (await this.list(relationship.targetType, filter, opts?.signal)).filter((o) => matchesFilter(o.values, filter));
     return related.map((o) => ({ objectId: o.objectId }));

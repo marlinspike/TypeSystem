@@ -85,6 +85,13 @@ export interface UnavailablePart {
   message: string;
 }
 
+/**
+ * The source whose adapter call raised a failure, set where every adapter
+ * call passes (`getAdapter`) by the innermost one: a relationship resolved
+ * through one source can fail reading its targets from another (ADR-0094).
+ */
+const FAILED_SOURCE = new WeakMap<object, string>();
+
 /** A source failing to answer, as opposed to the caller being refused or the request being wrong. */
 function sourceFailure(err: unknown): UnavailablePart["reason"] | undefined {
   if (err instanceof SourceRefusedError) return "refused-by-source";
@@ -615,13 +622,14 @@ export class SemanticRuntime {
       return budget ? budget.run(() => requests.exit(invoke)) : invoke();
     };
     const explanation = this.currentRequest()?.explanation;
-    // A source that fails while an explanation runs is a finding of its own (ADR-0089), timeouts and open breakers included.
+    // A source that fails is named on the failure, and while an explanation runs is a finding of its own (ADR-0089), timeouts and open breakers included.
     const traced = (call: Promise<unknown>): Promise<unknown> =>
-      !explanation || typeof (call as { catch?: unknown } | undefined)?.catch !== "function"
+      typeof (call as { catch?: unknown } | undefined)?.catch !== "function"
         ? call
         : call.catch((err: unknown) => {
             const failure = sourceFailure(err);
-            if (failure) explanation.trace.push({ subjectId: "", action: "read", typeName: "", allow: false, control: "source", reason: failure, policy: dataSourceId });
+            if (failure && typeof err === "object" && err !== null && !FAILED_SOURCE.has(err)) FAILED_SOURCE.set(err, dataSourceId);
+            if (failure && explanation) explanation.trace.push({ subjectId: "", action: "read", typeName: "", allow: false, control: "source", reason: failure, policy: dataSourceId });
             throw err;
           });
 
@@ -2042,7 +2050,8 @@ export class SemanticRuntime {
         const nestedFailure = err !== null && typeof err === "object" && NESTED_FAILURES.has(err);
         const reason = rel?.optional && !nestedFailure ? sourceFailure(err) : undefined;
         if (!rel || !reason) throw err;
-        return { missing: { path: inc.relationship, dataSourceId: rel.resolution.dataSourceId, reason, message: err instanceof Error ? err.message : String(err) } };
+        const failed = typeof err === "object" && err !== null ? FAILED_SOURCE.get(err) : undefined;
+        return { missing: { path: inc.relationship, dataSourceId: failed ?? rel.resolution.dataSourceId, reason, message: err instanceof Error ? err.message : String(err) } };
       }
     });
     const unavailable: UnavailablePart[] = [];
@@ -2495,7 +2504,7 @@ export class SemanticRuntime {
           } else throw err;
         }
         if (returned) {
-          findings.push({ about: at, member: question.relationship, outcome: "returned", basis: "evaluated", reason: `${returned.size} related object${returned.size === 1 ? "" : "s"} returned` });
+          findings.push({ about: at, member: question.relationship, outcome: "returned", basis: "evaluated", count: returned.size, reason: `${returned.size} related object${returned.size === 1 ? "" : "s"} returned` });
           if (!self) {
             // Each related object the investigator may read and the subject was not returned, and why. Objects the investigator may not read are not counted.
             const refs = await asInvestigator(() => this.resolveRelationship(this.getAdapter(relDef.resolution.dataSourceId), typeDef, relDef, question.id));

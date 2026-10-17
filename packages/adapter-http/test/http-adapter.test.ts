@@ -135,6 +135,16 @@ describe("HttpAdapter", () => {
     expect((await new HttpAdapter(config(fetchStub)).resolveRelationship(rel, "F-35A")).map((r) => r.objectId)).toEqual(["A3"]);
   });
 
+  it("resolves an own-field relationship from the source object's mapped value, a missing value to nothing (ADR-0094)", async () => {
+    const { fetchStub } = stub(fleet);
+    const adapter = new HttpAdapter(config(fetchStub));
+    const rel = { name: "variant", sourceType: "t.Aircraft", targetType: "t.Variant", resolution: { dataSourceId: "fleet", operation: "byOwnField:mds" } } as RelationshipDefinition;
+    expect(await adapter.resolveRelationship(rel, "A3")).toEqual([{ objectId: "F-35A" }]);
+    expect(await adapter.resolveRelationship(rel, "nope")).toEqual([]);
+    const joined = { ...rel, resolution: { dataSourceId: "fleet", operation: "byJoinTable:j/a/b" } };
+    await expect(adapter.resolveRelationship(joined, "A3")).rejects.toThrow(/byForeignKey and byOwnField/);
+  });
+
   it("rejects a mapping that is not JSON Pointers, and reads pointers as RFC 6901 says", () => {
     const { fetchStub } = stub(fleet);
     expect(() => new HttpAdapter(config(fetchStub, { types: { t: { get: "/x/{id}", list: { path: "/x", items: "/i" }, id: "id", fields: {} } } }))).toThrow(/JSON Pointer/);

@@ -4,7 +4,7 @@
   "files": {
     "server.ts": "857593b98aa00ae9f50b263d7313a9213b89677c2a818f580f54acd243b56355",
     "index.html": "02692be9e62493179d693f806ea6a0feb458822caa9ead924085f64c8084535a",
-    "src/generated/model.ts": "b295ceeebc26da9156efb083c8107d7a077609d151287831d9d72ce85fc7a9b4",
+    "src/generated/model.ts": "6127b259e015ebc6d45140445c6b193c2f03aae3b1e8a7eb6e018d07fa1740b5",
     "src/generated/contracts.ts": "3713ed746d1e08ad78737728d2e7eead527831951af5d2d6d0ba31ba1374a544",
     "src/generated/contracts-check.ts": "a749d05168d9d61b66f7604d7aec5451a1508cd9a2125af050dfa15d958236ed",
     "src/generated/flows/assess.ts": "e975c61d68421ed490f0b2e23b5da1e5f273fbdbd92fe12df836022ada00df56",

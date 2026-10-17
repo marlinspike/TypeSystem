@@ -110,11 +110,11 @@ targets it.
 | 4 | Studio as a semantic workbench, and the same questions over HTTP, MCP and the CLI (Milestone A) | [0091](adr/0091-studio-is-a-semantic-engineering-workbench.md) | `packages/studio/test/workbench.test.ts` (Chromium), `packages/http/test/workbench.test.ts`, `packages/mcp-server/test/workbench-tools.test.ts` |
 | 5 | Task-aware context for coding agents (Milestone B) | [0092](adr/0092-task-aware-context-says-how-each-statement-is-known.md) | `packages/devkit/test/context-v2.test.ts`, the context cases in `packages/mcp-server/test/workbench-tools.test.ts` and `packages/compiler/test/uses.test.ts` |
 | 6 | Change impact, predicted and observed (Milestone C) | [0093](adr/0093-change-impact-is-predicted-from-definitions-and-observed-on-decisions.md) | `packages/devkit/test/impact.test.ts`, `packages/studio/test/impact.test.ts` (Chromium), the impact cases in `packages/compiler/test/uses.test.ts`, `packages/http/test/workbench.test.ts` and `packages/mcp-server/test/workbench-tools.test.ts`; `npm run impact:demo` |
-| 7 | Cross-source link probing | 0094 | `packages/cold-chain/test/links.test.ts` |
+| 7 | Links across systems, resolved in place and probed | [0094](adr/0094-links-across-systems-are-resolved-in-place-and-probed.md) | `packages/cold-chain/test/links.test.ts`, `packages/devkit/test/links.test.ts`, `packages/adapter-http/test/http-adapter.test.ts` |
 | 8 | Productivity and architectural evaluation (Milestone D) | none | `docs/evidence/semantic-workbench-2026-10-17.md` |
 | 9 | Pressure test and its fixes | none | `docs/reviews/5-0-pressure-test.md` |
 
 ## Continuation state
 
-- **Done:** slices 1 and 2 (one commit: they share the runtime's decision trace), 3, 4, 5 and 6. Milestones A (exploration and explanation), B (context) and C (impact) are complete.
-- **In progress:** slice 7.
+- **Done:** slices 1 and 2 (one commit: they share the runtime's decision trace), 3, 4, 5, 6 and 7. Milestones A (exploration and explanation), B (context) and C (impact) are complete.
+- **In progress:** slice 8 (evaluation).

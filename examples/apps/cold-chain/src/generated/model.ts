@@ -72,6 +72,8 @@ export interface AppModel {
         readings: { target: "coldchain.Reading"; many: true };
         excursions: { target: "coldchain.Excursion"; many: true };
         lots: { target: "coldchain.Lot"; many: true };
+        originSite: { target: "coldchain.Site"; many: false };
+        destinationSite: { target: "coldchain.Site"; many: false };
       };
       actions: "QuarantineShipmentLots" | "ReleaseShipmentLots";
     };

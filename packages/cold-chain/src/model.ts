@@ -53,7 +53,10 @@ export const coldChainManifest: DomainManifest = {
       "x-relationships": {
         readings: { target: "coldchain.Reading", cardinality: "one-to-many", description: "Its logger's temperature readings, from the sensor hub.", resolution: { dataSourceId: SENSORS, operation: "byForeignKey:shipmentId" }, optional: true },
         excursions: { target: "coldchain.Excursion", cardinality: "one-to-many", description: "Times its temperature left the permitted range, from the sensor hub.", resolution: { dataSourceId: SENSORS, operation: "byForeignKey:shipmentId" }, optional: true },
-        lots: { target: "coldchain.Lot", cardinality: "one-to-many", description: "The lots it carries, from the pharmacy inventory.", resolution: { dataSourceId: INVENTORY, operation: "byForeignKey:shipmentId" }, optional: true }
+        lots: { target: "coldchain.Lot", cardinality: "one-to-many", description: "The lots it carries, from the pharmacy inventory.", resolution: { dataSourceId: INVENTORY, operation: "byForeignKey:shipmentId" }, optional: true },
+        // The tracker names each end by the inventory's facility code; the Site itself is the inventory's (ADR-0094).
+        originSite: { target: "coldchain.Site", cardinality: "one-to-one", description: "The site it left, from the pharmacy inventory.", resolution: { dataSourceId: TRACKER, operation: "byOwnField:origin" }, optional: true },
+        destinationSite: { target: "coldchain.Site", cardinality: "one-to-one", description: "The site it is bound for, from the pharmacy inventory.", resolution: { dataSourceId: TRACKER, operation: "byOwnField:destination" }, optional: true }
       },
       "x-actions": { actions: ["QuarantineShipmentLots", "ReleaseShipmentLots"] },
       "x-policy": { objectPolicy: "coldchain.read-shipment" }

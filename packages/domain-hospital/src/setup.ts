@@ -10,7 +10,8 @@ import {
   type PolicyEngine,
   type PolicyRule,
   type SemanticRegistry,
-  type SemanticRuntime
+  type SemanticRuntime,
+  type SemanticRuntimeOptions
 } from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 import { hospitalManifest } from "./manifest.js";
@@ -53,7 +54,7 @@ export const hospitalPolicyRules: Record<string, PolicyRule> = {
   "hospital.staff-only": requireRole("clinician", "admin")
 };
 
-export async function buildHospitalTestbed(): Promise<HospitalTestbed> {
+export async function buildHospitalTestbed(opts: { runtimeOptions?: SemanticRuntimeOptions } = {}): Promise<HospitalTestbed> {
   const adapter = new InMemoryRepositoryAdapter(HOSPITAL_DATA_SOURCE_ID, "hospital-repo");
   adapter.seed("hospital.Patient", samplePatients);
   adapter.seed("hospital.Provider", sampleProviders);
@@ -62,7 +63,8 @@ export async function buildHospitalTestbed(): Promise<HospitalTestbed> {
   const { registry, runtime, policyEngine } = await buildRuntime({
     manifests: [coreManifest, hospitalManifest],
     adapters: [adapter],
-    policyRules: hospitalPolicyRules
+    policyRules: hospitalPolicyRules,
+    ...(opts.runtimeOptions ? { runtimeOptions: opts.runtimeOptions } : {})
   });
 
   return { registry, runtime, policyEngine, adapter };

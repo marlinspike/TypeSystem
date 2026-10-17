@@ -71,6 +71,8 @@ export interface Finding {
   readonly source?: string;
   /** Inspectors only: what would change the outcome, from the definitions. A suggestion, never a promise. */
   readonly remedy?: string;
+  /** For a relationship's `returned` finding: how many related objects the subject was returned. */
+  readonly count?: number;
 }
 
 /** An earlier decision about the same subject and resource, from the audit log. */

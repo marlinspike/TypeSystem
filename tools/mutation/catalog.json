@@ -1163,8 +1163,8 @@
       "adr": "0072",
       "description": "An optional include whose source failed is returned as an empty list, claiming there is nothing related.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "if (!rel || !reason) throw err;\n        return { missing:",
-      "replace": "if (!rel || !reason) throw err;\n        if (reason) return { values: { [inc.relationship]: [] } };\n        return { missing:",
+      "find": "if (!rel || !reason) throw err;\n        const failed =",
+      "replace": "if (!rel || !reason) throw err;\n        if (reason) return { values: { [inc.relationship]: [] } };\n        const failed =",
       "tests": [
         "packages/core/test/optional-relationships.test.ts",
         "packages/sortie-readiness/test/interop.test.ts"
@@ -2111,6 +2111,51 @@
       "replace": "node.parent !== undefined",
       "tests": [
         "packages/compiler/test/uses.test.ts"
+      ]
+    },
+    {
+      "id": "links.dangling-told-to-caller",
+      "adr": "0094",
+      "description": "Dangling and refused references are counted for a caller explaining their own access, naming what their read leaves out.",
+      "file": "packages/devkit/src/links.ts",
+      "find": "const told = disclosure === \"inspector\" && opts.as !== undefined && opts.as.subjectId !== investigator.subjectId;",
+      "replace": "const told = true;",
+      "tests": [
+        "packages/devkit/test/links.test.ts"
+      ]
+    },
+    {
+      "id": "links.target-crossing-ignored",
+      "adr": "0094",
+      "description": "A link whose target lives in another system is not reported as crossing systems when it is resolved through the Type's own source.",
+      "file": "packages/devkit/src/links.ts",
+      "find": "(ri.crossSource || (targetSource !== undefined && targetSource !== own))",
+      "replace": "ri.crossSource",
+      "tests": [
+        "packages/cold-chain/test/links.test.ts"
+      ]
+    },
+    {
+      "id": "runtime.unavailable-blames-resolver",
+      "adr": "0094",
+      "description": "A partial answer names the source a relationship is resolved through, not the one that failed.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "dataSourceId: failed ?? rel.resolution.dataSourceId",
+      "replace": "dataSourceId: rel.resolution.dataSourceId",
+      "tests": [
+        "packages/cold-chain/test/links.test.ts"
+      ]
+    },
+    {
+      "id": "http.own-field-unsupported",
+      "adr": "0094",
+      "description": "The HTTP adapter resolves an own-field relationship to nothing, whatever the source object names.",
+      "file": "packages/adapter-http/src/http-adapter.ts",
+      "find": "const own = (await this.resolveProperties(relationship.sourceType, sourceObjectId, [strategy.field], opts)).values[strategy.field];",
+      "replace": "const own: unknown = strategy.field && undefined;",
+      "tests": [
+        "packages/adapter-http/test/http-adapter.test.ts",
+        "packages/cold-chain/test/links.test.ts"
       ]
     }
   ]

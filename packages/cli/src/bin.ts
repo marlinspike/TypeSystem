@@ -28,7 +28,7 @@ Usage:
   typesys pack check-upgrade <next.json> --installed <pack.json>... [--json]
   typesys engineer plan|scaffold|verify ...   (with @typesys/engineer installed)
   typesys onboard collect|request|propose|review|check ...   (with @typesys/onboard installed)
-  typesys app catalog|explain|context|check|compile|build|verify|diff|migrate|inspect|why|graph|impact ...   (with @typesys/compiler installed)
+  typesys app catalog|explain|context|check|compile|build|verify|diff|migrate|inspect|why|graph|impact|links ...   (with @typesys/compiler installed)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).

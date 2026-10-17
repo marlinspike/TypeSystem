@@ -114,6 +114,17 @@ describe("typesys app inspect, why and graph", () => {
     expect((await run(["impact", dir, "--as", "lead"])).out.error).toMatch(/--record or --against/);
   });
 
+  it("probes the links that cross systems, and counts dangling ones only for an inspector explaining a caller (ADR-0094)", async () => {
+    const dir = await workbench();
+    const r = await run(["links", dir, "--as", "lead", "--for", "viewer", "--cross-source"]);
+    expect(r.code).toBe(0);
+    const maintenance = (r.out.relationships as { relationship: string; crossSource?: { through: string }; dangling?: number }[]).find((x) => x.relationship === "maintenance")!;
+    expect(maintenance.crossSource?.through).toBe("mock-remis-rest");
+    expect(maintenance.dangling).toBe(0);
+    const own = await run(["links", dir, "--as", "viewer"]);
+    expect((own.out.relationships as { dangling?: number }[]).every((x) => x.dangling === undefined)).toBe(true);
+  });
+
   it("gives a context that lists the application's own parts and checks with each Type, and its guards to the lead only (ADR-0092)", async () => {
     const dir = await workbench();
     const lead = (await run(["context", dir, "--as", "lead"])).out as unknown as { governance: string; checks: { consumer: string }[]; types: { name: string; usedBy: { consumer: string }[] }[]; text: string };
