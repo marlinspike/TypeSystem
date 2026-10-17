@@ -23,13 +23,221 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
-On top of that runtime, TypeSystem compiles whole applications. Describe one
-in an `app.json` (its data, workflows with AI steps and approvals, and
-screens), and `typesys app` checks it against the model as each caller would
-see it, generates an ordinary TypeScript and React application, and verifies
-it through its API and in a browser. The section
+TypeSystem 5.0 makes the systems behind the model easy to understand. A
+developer, or a coding agent working for one, can ask why a caller sees
+what they see, where each value comes from, what is built on a Type, and
+what a proposed change does to who sees what, and get the runtime's own
+answer without reading the source. The section
+[Understand an unfamiliar system](#understand-an-unfamiliar-system) shows
+it on the Air Force and Cold Chain examples.
+
+TypeSystem also compiles whole applications. Describe one in an `app.json`
+(its data, workflows with AI steps and approvals, and screens), and
+`typesys app` checks it against the model as each caller would see it,
+generates an ordinary TypeScript and React application, and verifies it
+through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
+
+## Understand an unfamiliar system
+
+TypeSystem 5.0 answers the questions an engineer asks first about systems
+they did not write, from the runtime that enforces the answers. Nothing
+here is a second implementation of the rules. An explanation is the
+runtime's own decision, replayed as the subject with every value
+discarded (ADR-0089). Every surface asks the runtime, so an explanation
+can't disagree with what the caller is actually returned.
+
+| Question | CLI | MCP | HTTP | Studio |
+|---|---|---|---|---|
+| Where does each value come from, and what guards it? | `typesys app inspect` | `typesys_inspect` | `GET /api/inspection` | Model |
+| Why is this caller allowed, refused or returned less? | `typesys app why` | `typesys_explain` | `POST /api/explain` | Explain |
+| What depends on this, and what does it depend on? | `typesys app graph` | `typesys_graph` | `GET /api/graph` | Graph |
+| What does an agent need to know to build this requirement? | `typesys app context` | `typesys_compile_context` | | |
+| What does this change do, and which checks must run? | `typesys app impact` | `typesys_impact` | `GET /api/impact/baseline`, `POST /api/impact` | Impact |
+| Do the links between systems resolve? | `typesys app links` | | | |
+
+The enforcement structure (sources, policies with their rules, markings)
+is itself governed. Only a developer the deployment's inspection policy
+admits may see it, and only for what they could already learn of
+(ADR-0088). With no inspection policy configured, nobody may inspect.
+Anyone else's explanation names the kind of control that decided
+(`member-policy`, `classification`, `derivation`) and never the policy
+or marking.
+
+![The semantic workbench in Studio: the Aircraft Type selected, its values with where each comes from and what guards it, its relationships, the Actions on it and the parts of the application built on it](docs/images/5.0/workbench-overview.png)
+
+*Studio as a semantic workbench (ADR-0091), signed in as the maintenance
+lead, who may inspect. It is a view onto the runtime, not an editor.*
+
+### Why a caller sees what they see
+
+The lead asks why the viewer is not returned three of the aircraft's
+values, on the squadron maintenance application
+([`packages/compiler/test/fixtures.ts`](packages/compiler/test/fixtures.ts)).
+Each finding is evaluated by the runtime now, as the viewer:
+
+```text
+$ typesys app why squadron --as lead --for viewer --read airforce.Aircraft/AF86-0147
+PARTIAL: user-viewer-1 is allowed this, with 3 values withheld: maintenanceStatus, deploymentLocation, readinessStatus.
+  withheld  maintenanceStatus            evaluated, member-policy airforce.maintainer-only: Requires one of roles [maintainer, ai-enclave], subject has [viewer] (to change: allowed when role in [maintainer, ai-enclave])
+  withheld  deploymentLocation           evaluated, classification: Requires a higher clearance (to change: the subject's clearance must dominate SECRET)
+  withheld  readinessStatus              evaluated, derivation: Derived from a property the caller may not read (to change: readable only where maintenanceStatus is; or the domain releases it in x-computed, a reviewable assertion that the value does not disclose it (ADR-0052))
+  returned  needsAttention               evaluated, release
+This explains the decision as it is made now. The runtime decides every call again, and a later call can be decided differently.
+```
+
+*Abridged: the eight values returned with no control are left out.*
+
+![Explaining a read in Studio: the viewer's read of AF86-0147 with each withheld value, the control that withheld it and how it could change](docs/images/5.0/workbench-explain.png)
+
+The same question works for a relationship (`--related`), an Action with
+its input (`--invoke`, nothing is executed) and a query (`--query`). A
+refusal names the rule an inspector may be told. In Cold Chain, a
+carrier's dispatcher asking for someone else's freight gets this:
+
+```text
+$ typesys app why examples/apps/cold-chain --as qa --for carrier --read coldchain.Shipment/SH-1046
+REFUSED: user-carrier-1 is refused by object-policy: No alternative allowed: Requires one of roles
+  [logistics, qa, auditor, coldchain-model], subject has [carrier]; Requires resource.carrier to match subject.carrier.
+```
+
+### What is built on what
+
+The dependency graph joins the model, its governance and what is built on
+it: the Types, values and relationships, the sources and policies, the
+workflows and their steps, and every part of an application with its
+acceptance checks (ADR-0090). Each edge reads "depends on". Studio shows
+one neighborhood at a time, so a large model stays readable.
+
+![The dependents of maintenanceStatus in Studio: the computed values derived from it, then the application's data, page and checks and the workflow steps that use them](docs/images/5.0/workbench-dependents.png)
+
+One query names everything that rests on `maintenanceStatus`, directly or
+through a value computed from it. No 4.0 tool could answer this.
+
+### Context for a coding agent
+
+`compileContext` gives an agent the part of the model a requirement
+needs, as its caller is told of it, within a token budget (ADR-0092).
+Every value says how it is known: no mark means the runtime returned it
+to this caller, `[withheld: ...]` that the runtime decided they may not
+read it, `[inferred: ...]` that it was concluded from a sample, and
+`[unavailable: ...]` that it could not be determined. An Action is never
+included without the Types it needs. The context also lists the parts of
+the application and the workflows that already use each Type, and the
+acceptance checks a change must keep passing. For the carrier on Cold
+Chain:
+
+```text
+$ typesys app context examples/apps/cold-chain --as carrier
+As user-carrier-1. Only what this caller is told of and returned is shown.
+Model 5adda67e72395c7a. Sources, policies and markings are withheld from this caller.
+
+TYPES
+coldchain.Excursion — A time a shipment's temperature left 2–8 °C, in the sensor hub.
+  [withheld: reading it was refused, for every value]
+  ...
+coldchain.Shipment — A refrigerated consignment, in the shipment tracker.
+  origin: string — The site it left.
+  destination: string — The site it is bound for.
+  carrier?: string
+  ...
+  → originSite: coldchain.Site
+  → destinationSite: coldchain.Site
+  used by app cold-chain: check.anonymous-refused, check.carrier-refused-other-freight, check.carrier-sees-own-freight, data.shipments, page.Command.data.selectedShipment, page.Shipment.data.shipment and 6 more
+  used by workflow coldchain.AssessExcursion: shipment, lots, readings
+  used by workflow coldchain.DispositionExcursion: shipment, lots, readings
+```
+
+### What a change does before it ships
+
+A contract diff does not see governance. Releasing `readinessStatus` to
+every reader looks like a small convenience, but it maps the
+maintainer-only `maintenanceStatus` one to one. No contract changes, so
+no diff catches it. Change impact compares a baseline of the model and
+each caller's decided reads (never their values) with the model after the
+change, and maps every difference onto the graph (ADR-0093):
+
+```text
+$ typesys app impact squadron --as lead --record baseline.json            # before the change
+Recorded baseline.json: 10 Types, 12 reads by 4 callers, with the inspection
+$ typesys app impact squadron-proposal --as lead --against baseline.json  # after it
+Change b95ad78235e8 → 152e3e9f7e65: risky, 1 new exposure
+  observed widens      airforce.Aircraft.readinessStatus on airforce.Aircraft/AF86-0147: now returned to viewer, was withheld
+                       reaches app:squadron-maintenance, workflow:airforce.GroundAircraft
+  governance widens    airforce.Aircraft.readinessStatus: now released from maintenanceStatus: readers who may not read it are returned this value
+                       reaches app:squadron-maintenance, workflow:airforce.GroundAircraft
+Checks to run: part:app:squadron-maintenance/check.board-shows-attention
+```
+
+It exits 1 on an exposure, a breaking change or an under-versioned one,
+so a pipeline can stop on it. `npm run impact:demo` runs this example.
+
+![Change impact in Studio: a baseline loaded from a file, compared with the proposal, the viewer's new exposure listed first, then the release that causes it, and the check to run](docs/images/5.0/workbench-impact.png)
+
+### Links across systems
+
+Systems refer to each other by their own codes. Cold Chain's shipment
+tracker names each end of a shipment by the pharmacy inventory's facility
+code, and the runtime now reads that Site from the inventory where it
+lives, with nothing copied (`byOwnField`, ADR-0094). A link probe says how
+every cross-system link resolves for a caller. Dangling and refused
+references are counted only when an inspector explains someone else, since
+telling a caller would name what their own read leaves out:
+
+```text
+$ typesys app links examples/apps/cold-chain --as qa --for carrier --cross-source
+Links as user-carrier-1, explained to user-qa-1:
+  coldchain.Shipment.readings → coldchain.Reading          [shipment-tracker → sensor-hub] 3 probed, 1 not readable by user-carrier-1, 0 returned, 0 dangling, 144 refused
+  coldchain.Shipment.lots → coldchain.Lot                  [shipment-tracker → pharmacy-inventory] 3 probed, 1 not readable by user-carrier-1, 0 returned, 0 dangling, 4 refused
+  coldchain.Shipment.destinationSite → coldchain.Site      [shipment-tracker → pharmacy-inventory] 3 probed, 1 not readable by user-carrier-1, 3 returned, 0 dangling, 0 refused
+```
+
+*Abridged.* The carrier may read their own freight's destination Site, and
+none of its telemetry or lots. A shipment the carrier may not read at all
+is skipped, not counted. It exits 1 on a dangling reference. When the inventory stops
+answering, a shipment is still read from the tracker, and its partial
+answer names `pharmacy-inventory` as the system that failed.
+
+### Measured
+
+[`docs/evidence/semantic-workbench-2026-10-17.md`](docs/evidence/semantic-workbench-2026-10-17.md)
+compares three arms on the same questions, with no model calls: reading
+the source, the 4.0 runtime (with the 4.0 context compiler run unchanged),
+and the 5.0 tools. Ground truth comes from the definitions or plain reads,
+never from the tools measured.
+
+| Question | Read the source | 4.0 runtime | 5.0 tools |
+|---|---|---|---|
+| Why is the viewer not returned `maintenanceStatus`? | 4 files, 5,109 tokens | partly, 3 calls, 621 tokens | 1 call, 840 tokens |
+| What in the application and workflows rests on `maintenanceStatus`? | 2 files, 3,585 tokens | no answer | 1 call, 1,683 tokens, all 5 found |
+| A shipment's destination Site: which system, and does it resolve? | 1 file, 3,221 tokens | 3 calls per object | 1 call for every link, 390 tokens |
+| An appointment shows no patient: missing, refused or never linked? | no answer | no answer | 1 call, 212 tokens |
+
+Of six changes to the Air Force model, the contract diff found the two
+that change the contract and none of the four that change who may read
+what. Two of those four hand the viewer a value a policy or marking was
+written to withhold. Change impact reported all six correctly, with no
+false positive on a version bump that changes nothing.
+
+The results are not all positive. Context selection was no better than
+4.0's: both compilers chose the same Types for four new requirements,
+including one worded to share no vocabulary with the model, and both
+include Types a correct implementation does not need. The 5.0 context is
+1.5 times the size of 4.0's, about 370 tokens more on these requirements,
+for the marks, the checks, the consumers and the SDK rules. For a caller
+asking about their own access, the 4.0 query plan already says which
+values a member policy redacts. The policy itself, its rule and the
+remedy come only from an inspector's explanation.
+
+The measurement found a defect, now fixed (ADR-0095). A wildcard mapping
+passed every column a source returned straight through, so a value the
+model did not declare reached every reader of the object and could be
+filtered on. A read now returns only what the model declares.
+
+Time to a correct implementation, human intervention, and whether an
+agent uses what the context gives it all need a person or a paid model
+run. Neither was done.
 
 ## Build an application from one document
 
@@ -703,7 +911,7 @@ API never assumes an identity of its own.
 | A multi-step process with approvals | `@typesys/workflow` | Steps that read, compute, ask a model, wait for a person's approval and invoke Actions, each as the person who started it; the journal survives restarts |
 | A whole application, from a spec | `@typesys/compiler`, `@typesys/ui`, `@typesys/app` | `typesys app check, compile, build, verify, diff, migrate` and the same nine `typesys_app_*` MCP tools: an `app.json` type-checked against the model, compiled to TypeScript and React, and verified as each caller ([above](#build-an-application-from-one-document)) |
 | A language model | `@typesys/llm` | Anthropic Messages or OpenAI-compatible models (OpenAI, OpenRouter, Ollama, LM Studio, vLLM) as configured capabilities, each an audience the runtime decides for ([above](#models-onboarding-and-drafting)) |
-| A coding agent | `@typesys/mcp-server`, `@typesys/compiler` | `typesys_compile_context` (the model as its caller may see it, within a token budget), the `typesys_app_*` tools, `typesys onboard` and `typesys engineer draft` |
+| A coding agent | `@typesys/mcp-server`, `@typesys/compiler` | `typesys_compile_context` (the part of the model a requirement needs, each value marked verified, withheld, inferred or unavailable, with the checks to keep passing), `typesys_explain`, `typesys_inspect`, `typesys_graph`, `typesys_impact`, the `typesys_app_*` tools, `typesys onboard` and `typesys engineer draft` ([above](#understand-an-unfamiliar-system)) |
 
 An agent connected over MCP is just another caller with an identity. It sees
 only what that identity may see and can change only what that identity may
@@ -724,6 +932,11 @@ decide what may be sent to that model regardless of who is asking
   a person or a model audience, and everything it does is audited under that.
 - **Every value can be traced.** Provenance says which system and record a
   value came from, which matters when a decision is questioned later.
+- **Every decision can be explained, and every change weighed first.** A
+  developer the deployment admits can ask why someone was refused or
+  returned less, and get the runtime's own answer with the rule and the
+  remedy. Before a change ships, they can see who would newly read what,
+  and which checks to run.
 - **Applications are checked before they exist.** An application compiled
   from an `app.json` is type-checked against the model and the policies of
   each caller before any code is written, and verified as every caller
@@ -744,7 +957,8 @@ npm install
 npm run build
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
-npm run studio        # http://localhost:4400: browse the model, compose and check queries
+npm run studio        # http://localhost:4400: the semantic workbench: model, explain, graph, impact
+npm run impact:demo   # what releasing readinessStatus to viewers would expose
 npx typesys app verify examples/apps/cold-chain   # compile, build and run Cold Chain's 18 checks
 npm run draft:demo    # draft a mission from a brief and verify it (10 checks)
 ```
@@ -758,7 +972,7 @@ npm test                     # Postgres-backed tests run only when DATABASE_URL 
 npm run onboard:demo         # propose a governed model from a database's catalog
 ```
 
-Other commands: `npm run lint`, `npm run typecheck`,
+Other commands: `npx tsx scripts/measure-workbench.ts` (the 5.0 measurement), `npm run lint`, `npm run typecheck`,
 `npm run check:terminology`, `npm run smoke:mcp`, `npm run benchmark`,
 `npm run load-test`, `npm run mutation` (deliberately breaks security checks
 and confirms a test fails for each), and `npm run mission` (the same
@@ -774,7 +988,7 @@ squadron readiness app built with and without TypeSys).
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
 | Applications | `compiler` (the `typesys.app/1` checker, code generator, verifier, semantic diff and mission migration), `ui` (React components for tables, detail, charts, timelines, graphs, maps, forms, approvals, runs, an assistant and provenance, with a separate design system), `app` (three-valued expressions, flow helpers and the server compiled applications run on) |
 | Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata), `engineer` (missions drafted, scaffolded and verified) |
-| Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff), `packs` (signed, versioned domain packages), `studio` (browser workbench) |
+| Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
 | Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services), `examples/services` (six independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 
@@ -783,7 +997,7 @@ squadron readiness app built with and without TypeSys).
 The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
-request runs the full suite and a catalog of 158 deliberate mutations, each
+request runs the full suite and a catalog of 193 deliberate mutations, each
 of which a test must catch. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a
 failed read shown as known. It has not had an
@@ -805,9 +1019,10 @@ remains and [`docs/completeness.md`](docs/completeness.md) what is built.
   the storage and write paths in more depth.
 - [`docs/for-agents.md`](docs/for-agents.md) and [`llms.txt`](llms.txt): for
   building agents against the MCP server.
-- [`docs/roadmap-4.md`](docs/roadmap-4.md): the application compiler, slice by
-  slice, and [`docs/evidence/`](docs/evidence/): every measurement.
-- [`docs/adr/`](docs/adr/): 87 architecture decision records.
+- [`docs/roadmap-5.md`](docs/roadmap-5.md): the semantic workbench, slice by
+  slice; [`docs/roadmap-4.md`](docs/roadmap-4.md): the application compiler;
+  and [`docs/evidence/`](docs/evidence/): every measurement.
+- [`docs/adr/`](docs/adr/): 95 architecture decision records.
 
 Versioning uses [changesets](https://github.com/changesets/changesets); see
 [ADR-0020](docs/adr/0020-publish-infrastructure.md) for publishing.
