@@ -6,6 +6,6 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx"
   },
-  "include": ["../../packages/*/src/**/client/**/*.ts", "../../packages/*/src/**/client/**/*.tsx", "../../packages/ui/src/**/*.ts", "../../packages/ui/src/**/*.tsx"],
+  "include": ["../../packages/*/src/**/client/**/*.ts", "../../packages/*/src/**/client/**/*.tsx", "../../packages/ui/src/**/*.ts", "../../packages/ui/src/**/*.tsx", "../../packages/ui/test/**/*.ts"],
   "exclude": []
 }

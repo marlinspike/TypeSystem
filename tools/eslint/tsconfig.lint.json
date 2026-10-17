@@ -19,5 +19,5 @@
     "../../vitest.config.ts"
   ],
   // Browser clients have their own: tsconfig.client.json.
-  "exclude": ["../../packages/*/src/**/client/**", "../../packages/ui/src/**"]
+  "exclude": ["../../packages/*/src/**/client/**", "../../packages/ui/src/**", "../../packages/ui/test/**"]
 }
