@@ -452,9 +452,11 @@ document that gap rather than close it in this pass.
   that puts row-level access, classification, encryption at rest, and the
   two policy engines side by side, and a header switch that routes the whole
   app through either engine.
-- CI (`.github/workflows/ci.yml`) lints, builds and runs the full suite
-  once on every pull request, against Postgres, Redis and a KMS emulator,
-  in about four minutes. Mutation testing and releases are not hooked up:
+- CI (`.github/workflows/ci.yml`) is one lean job on every pull request:
+  lint, typecheck, build and the suite, with the database-backed tests
+  skipping. Those tests, the demos, the MCP smoke and conformance runs
+  and the load test run locally with `npm run check:full` against
+  Postgres and Redis. Mutation testing and releases are not hooked up:
   they run locally or are started by hand.
 - A latency/throughput benchmark (`npm run benchmark`) for
   `SemanticRuntime` operations against both the in-memory and

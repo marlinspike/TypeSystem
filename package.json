@@ -41,7 +41,8 @@
     "version-packages": "changeset version",
     "release": "npm run build && changeset publish",
     "mutation": "node --import tsx scripts/mutation.ts",
-    "evaluate": "node packages/evaluation/dist/bin.js"
+    "evaluate": "node packages/evaluation/dist/bin.js",
+    "check:full": "npm run lint && npm run check:terminology && npm run typecheck && npm run build && npm run build:postgres && npm test && npm run draft:demo && npm run smoke:mcp && npm run smoke:mcp-http && npm run conformance:mcp && npm run onboard:demo && npm run load-test"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

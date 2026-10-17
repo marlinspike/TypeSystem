@@ -49,9 +49,11 @@ conflict. If you add a new top-level TypeScript folder, add it to
 
 ## The check gate (run before opening a PR)
 
-CI (`.github/workflows/ci.yml`) runs all of this on every pull request, in
-one job of about four minutes, so save yourself a round trip. Nothing
-longer runs on GitHub: mutation testing is local only.
+CI (`.github/workflows/ci.yml`) is deliberately lean: one job of lint,
+typecheck, build and the suite, with no databases. Before opening a PR,
+run `npm run check:full` with `DATABASE_URL` and `REDIS_URL` set: it adds
+the database-backed tests, the demos, the MCP smoke and conformance runs
+and the load test, none of which run on GitHub. The quick gate:
 
 ```bash
 npm run build && npm test && npm run lint && npm run typecheck
