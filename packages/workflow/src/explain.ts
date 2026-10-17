@@ -46,6 +46,8 @@ export async function explainWorkflow(ctx: WorkflowExplainContext, workflow: Any
   const inspector = await ctx.runtime.canInspect(investigator);
   if (opts.as !== undefined && !inspector) throw new AuthorizationError("Not authorized: explain another subject's access", "Explaining another subject's access needs the inspection policy");
   const findings: Finding[] = [];
+  // Why a refusal happened, as the runtime would tell the subject (ADR-0067, ADR-0068); an inspector is told the engine's reason.
+  const told = (reason: string): string => (inspector ? reason : subject.audience ? `Refused while reading for ${subject.audience.id}` : ctx.runtime.discovery === "open" ? reason : "Not authorized");
   const decided = async (about: string, policy: string, actionName: string, control: Finding["control"]): Promise<boolean> => {
     const d = await decideForIdentity(ctx.policyEngine, { subject, action: "invoke", policyName: policy, resource: { typeName: workflow.name, actionName } });
     const rule = inspector ? await ruleOf(ctx.policyEngine, policy) : undefined;
@@ -56,7 +58,7 @@ export async function explainWorkflow(ctx: WorkflowExplainContext, workflow: Any
       control,
       ...(inspector ? { policy } : {}),
       ...(rule ? { rule } : {}),
-      ...(!d.allow && d.reason ? { reason: inspector ? d.reason : subject.audience ? `Refused while reading for ${subject.audience.id}` : d.reason } : {}),
+      ...(!d.allow && d.reason ? { reason: told(d.reason) } : {}),
       ...(!d.allow && rule ? { remedy: `allowed when ${rule}` } : {})
     });
     return d.allow;
@@ -71,7 +73,8 @@ export async function explainWorkflow(ctx: WorkflowExplainContext, workflow: Any
     } else if (step.kind === "action") {
       const action = (await ctx.runtime.describeModel(subject).catch(() => undefined))?.actions.find((a) => a.name === step.action);
       if (!action) {
-        findings.push({ about, outcome: "refused", basis: "evaluated", control: "discovery", reason: `${step.action} is not described to the subject` });
+        // Only an inspector is told which Action: anyone else learns no name their own description does not give them.
+        findings.push({ about, outcome: "refused", basis: "evaluated", control: "discovery", reason: inspector ? `${step.action} is not described to the subject` : "the Action this step invokes is not described to you" });
         continue;
       }
       const type = action.target?.type ?? action.applicableTypes[0]!;

@@ -122,6 +122,25 @@ describe("semantic graph (ADR-0090)", () => {
     expect(capped.nodes.length).toBeLessThanOrEqual(10);
   });
 
+  it("leaves out an edge to a value the model does not describe, so every view still opens (5.0 pressure test)", async () => {
+    const tb = await buildAirforceTestbed({ mockRestLatencyMs: 0 });
+    const model = structuredClone(await describeModel(tb.registry, { prefixes: ["airforce."] }));
+    const aircraft = model.types.find((t) => t.name === "airforce.Aircraft")!;
+    aircraft.computed.push({ name: "odd", dependsOn: ["notDescribed"] });
+    const g = semanticGraph(model, [workflowUses(groundForRepair)]);
+    expect(g.edges.some((e) => e.to === nodeId.member("airforce.Aircraft", "notDescribed"))).toBe(false);
+    expect(() => overview(g)).not.toThrow();
+    expect(() => dependencies(g, nodeId.member("airforce.Aircraft", "odd"))).not.toThrow();
+    expect(() => neighborhood(g, nodeId.member("airforce.Aircraft", "odd"), { depth: 2 })).not.toThrow();
+  });
+
+  it("relates a step that reads two related Types to the relationship between them, so a change to either reaches it (5.0 pressure test)", () => {
+    const g = semanticGraph(inspection, [workflowUses(groundForRepair)]);
+    const history = "part:workflow:airforce.GroundForRepair/history";
+    expect(dependents(g, nodeId.relationship("airforce.Aircraft", "maintenance")).reached.map((r) => r.id)).toContain(history);
+    expect(dependents(g, nodeId.member("airforce.MaintenanceEvent", "eventType")).reached.map((r) => r.id)).toContain(history);
+  });
+
   it("refuses a node it does not have", () => {
     expect(() => dependents(semanticGraph(inspection), "type:nope.Nothing")).toThrow(/no node/);
   });

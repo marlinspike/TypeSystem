@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { parseResolution } from "./resolution.js";
 import { ReadCoalescer } from "./read-coalescer.js";
 import { createHmac } from "node:crypto";
 import { ulid } from "ulid";
@@ -92,6 +93,17 @@ export interface UnavailablePart {
  */
 const FAILED_SOURCE = new WeakMap<object, string>();
 /** What a plan says in place of a source's id to a caller who may not inspect (ADR-0088). */
+/** The source object's own values a relationship's resolution names its target by: `byOwnField` and `byCompositeKey`. */
+function ownKeyFields(operation: string): string[] {
+  let strategy: ReturnType<typeof parseResolution>;
+  try {
+    strategy = parseResolution(operation);
+  } catch {
+    return [];
+  }
+  return strategy.kind === "byOwnField" ? [strategy.field] : strategy.kind === "byCompositeKey" ? strategy.keys.map((k) => k.sourceField) : [];
+}
+
 export const SOURCE_WITHHELD = "(withheld)";
 
 /** A plan as a caller who may not inspect is told it: every step's source withheld. */
@@ -1527,6 +1539,9 @@ export class SemanticRuntime {
 
         const attributes = sourceAttributes ?? (await this.authorizeRead(typeDef, objectId, identity)).attributes;
         await this.requireMemberReadable(typeDef, relDef.name, objectId, attributes, identity);
+        // A relationship resolved from the source's own values tells whoever follows it what they are, since the
+        // target is the object they name: it is decided as those values are (ADR-0094).
+        for (const field of ownKeyFields(relDef.resolution.operation)) await this.requireMemberReadable(typeDef, field, objectId, attributes, identity);
 
         const adapter = this.getAdapter(relDef.resolution.dataSourceId);
         const relatedRefs = await this.resolveRelationship(adapter, typeDef, relDef, objectId);

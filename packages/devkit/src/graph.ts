@@ -168,6 +168,23 @@ class Builder {
   }
 }
 
+/**
+ * A part that reads two whole Types, one related to the other, may follow
+ * the relationship between them: a read step's declared reads must name
+ * the Types it follows a relationship to (ADR-0090), so this is how it
+ * says so. The edge is inferred, since it may read both without following.
+ */
+function inferFollowed(b: Builder): void {
+  const whole = new Map<string, Set<string>>();
+  for (const e of b.edges.values()) if (e.whole && e.kind === "uses") (whole.get(e.from) ?? whole.set(e.from, new Set()).get(e.from)!).add(e.to);
+  const relationships = [...b.edges.values()].filter((e) => e.kind === "targets" && e.whole && b.nodes.get(e.from)?.kind === "relationship");
+  for (const [part, types] of whole)
+    for (const r of relationships) {
+      const parent = b.nodes.get(r.from)!.parent;
+      if (parent && types.has(parent) && types.has(r.to)) b.edge({ from: part, to: r.from, kind: "uses", basis: "inferred", how: "follows" });
+    }
+}
+
 /** Removes the placeholder mark from nodes a later definition made real, and drops placeholders for Types a member placeholder implied when the member was real. */
 function settle(b: Builder): void {
   for (const n of b.nodes.values()) if (n.unresolved && n.parent && !b.nodes.has(n.parent)) b.node({ id: n.parent, kind: "type", label: n.parent.slice(5), unresolved: true });
@@ -299,10 +316,12 @@ export function semanticGraph(model: ModelInspection | ModelDescription, consume
       addUses(b, pid, cid, p.uses, isInspection(model));
     }
   }
+  inferFollowed(b);
   settle(b);
   const dropped = new Set(opts.unresolved === "drop" ? [...b.nodes.values()].filter((n) => n.unresolved && n.kind !== "part" && n.kind !== "workflow" && n.kind !== "app").map((n) => n.id) : []);
   const nodes = [...b.nodes.values()].filter((n) => !dropped.has(n.id)).sort((x, y) => x.id.localeCompare(y.id));
-  const edges = [...b.edges.values()].filter((e) => !dropped.has(e.from) && !dropped.has(e.to)).sort((x, y) => `${x.from}|${x.kind}|${x.to}|${x.how ?? ""}`.localeCompare(`${y.from}|${y.kind}|${y.to}|${y.how ?? ""}`));
+  // An edge to something the model does not describe (a value a computation names but the caller is not told of, a Type withheld) goes nowhere, and is left out.
+  const edges = [...b.edges.values()].filter((e) => !dropped.has(e.from) && !dropped.has(e.to) && b.nodes.has(e.from) && b.nodes.has(e.to)).sort((x, y) => `${x.from}|${x.kind}|${x.to}|${x.how ?? ""}`.localeCompare(`${y.from}|${y.kind}|${y.to}|${y.how ?? ""}`));
   return {
     format: GRAPH_FORMAT,
     structure: isInspection(model) ? "inspection" : "description",

@@ -12,6 +12,7 @@ import {
   type Identity,
   type ModelDescription,
   type PolicyEngine,
+  type QueryInclude,
   type SemanticAggregateQuery,
   type SemanticRegistry,
   type SemanticRuntime
@@ -151,6 +152,9 @@ export class WorkflowEngine {
   private readonly actions: Map<string, ActionDescription>;
   readonly journal: WorkflowJournal;
   protected readonly simulation: boolean = false;
+  /** Where a relationship leads, so a read step that follows one is held to its declared reads (ADR-0090). */
+  private readonly targetOf = async (type: string, relationship: string): Promise<string | undefined> =>
+    (await this.options.host.registry.getType(type))?.relationships.find((r) => r.name === relationship)?.targetType;
 
   protected constructor(
     protected readonly options: WorkflowEngineOptions,
@@ -258,7 +262,16 @@ export class WorkflowEngine {
     const versions = this.definitions.get(name);
     if (!versions) throw new WorkflowStateError(`Unknown workflow "${name}"`);
     const workflow = [...versions.values()].reduce((a, b) => (newer(b.version, a.version) ? b : a));
-    return explainWorkflow({ runtime: this.options.host.runtime, policyEngine: this.options.host.policyEngine, ...(this.options.models ? { models: this.options.models } : {}), ...(this.options.model ? { model: this.options.model } : {}) }, workflow, investigator, opts);
+    const subject = (opts.as ?? investigator).subjectId;
+    try {
+      const e = await explainWorkflow({ runtime: this.options.host.runtime, policyEngine: this.options.host.policyEngine, ...(this.options.models ? { models: this.options.models } : {}), ...(this.options.model ? { model: this.options.model } : {}) }, workflow, investigator, opts);
+      // Like a read's explanation, every attempt is on the record with the subject it was about.
+      await this.audit(investigator, "workflow.explain", workflow, undefined, "allow", { subject, outcome: "success" });
+      return e;
+    } catch (err) {
+      await this.audit(investigator, "workflow.explain", workflow, undefined, "deny", { subject, reason: err instanceof Error ? err.message : "failed" }).catch(() => undefined);
+      throw err;
+    }
   }
 
   /** The newest version of each registered workflow: what a dependency graph or an explanation describes. */
@@ -693,9 +706,9 @@ export class WorkflowEngine {
     who: Identity,
     action: string,
     workflow: AnyWorkflow,
-    runId: string,
+    runId: string | undefined,
     decision: "allow" | "deny",
-    extra: { step?: string; reason?: string | undefined; outcome?: "success" | "failure"; status?: string; audience?: string; withheld?: readonly string[] }
+    extra: { subject?: string; step?: string; reason?: string | undefined; outcome?: "success" | "failure"; status?: string; audience?: string; withheld?: readonly string[] }
   ): Promise<void> {
     await this.options.host.registry.appendAuditEvent({
       id: randomUUID(),
@@ -703,12 +716,13 @@ export class WorkflowEngine {
       subjectId: who.subjectId,
       operation: "workflow",
       action,
-      resource: { typeName: workflow.name, objectId: runId },
+      resource: { typeName: workflow.name, ...(runId !== undefined ? { objectId: runId } : {}) },
       decision,
       ...(extra.reason !== undefined ? { reason: extra.reason } : {}),
       ...(extra.outcome ? { outcome: extra.outcome } : {}),
       details: {
         version: workflow.version,
+        ...(extra.subject ? { subject: extra.subject } : {}),
         ...(extra.step ? { step: extra.step } : {}),
         ...(extra.status ? { status: extra.status } : {}),
         // The audience a row's subject reads for (ADR-0067); a release names the model's, and what it withheld.
@@ -906,7 +920,7 @@ export class WorkflowEngine {
       case "read": {
         // A read step reads: it gets no way to invoke an Action, which would bypass the AI-review rule, the
         // journal's no-replay guarantee for non-idempotent Actions, and a simulation's promise to change nothing.
-        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name, step.reads));
+        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name, step.reads, this.targetOf));
         return { output: structuredClone(await step.run(client, ctx)), source: "read" };
       }
       case "compute":
@@ -1035,7 +1049,7 @@ export class WorkflowEngine {
     switch (s.kind) {
       case "read": {
         const again = async () => {
-          const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name, s.reads));
+          const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name, s.reads, this.targetOf));
           try {
             return structuredClone(await s.run(client, ctx));
           } catch (err) {
@@ -1129,19 +1143,33 @@ export class WorkflowEngine {
   }
 }
 
+/** The Type a relationship of `type` leads to, as the registry defines it. */
+type TargetOf = (type: string, relationship: string) => Promise<string | undefined>;
+
 /** A transport for read steps: everything reads, and invoking an Action is refused. */
-function readOnlyTransport(inner: Transport, step: string, reads?: readonly string[]): Transport {
-  // A declared read is a promise the dependency graph relies on (ADR-0090), so a read of any other Type is refused.
-  const declared = <T>(type: string, read: () => Promise<T>): Promise<T> =>
-    reads && !reads.includes(type)
-      ? Promise.reject(new WorkflowDefinitionError(`Read step "${step}" read Type "${type}", which it does not declare in reads (${reads.join(", ")})`))
-      : read();
+function readOnlyTransport(inner: Transport, step: string, reads?: readonly string[], targetOf?: TargetOf): Transport {
+  // A declared read is a promise the dependency graph relies on (ADR-0090), so a read of any other Type is refused,
+  // and so is following a relationship to one: the objects it leads to are read too.
+  const refuse = (type: string) => new WorkflowDefinitionError(`Read step "${step}" read Type "${type}", which it does not declare in reads (${reads!.join(", ")})`);
+  const declared = <T>(type: string, read: () => Promise<T>): Promise<T> => (reads && !reads.includes(type) ? Promise.reject(refuse(type)) : read());
+  const followed = async (type: string, relationship: string): Promise<void> => {
+    if (!reads || !targetOf) return;
+    const target = await targetOf(type, relationship);
+    if (target !== undefined && !reads.includes(target)) throw refuse(target);
+  };
+  const included = async (type: string, includes: readonly QueryInclude[] | undefined): Promise<void> => {
+    for (const inc of includes ?? []) {
+      await followed(type, inc.relationship);
+      const target = targetOf ? await targetOf(type, inc.relationship) : undefined;
+      if (target !== undefined) await included(target, inc.include);
+    }
+  };
   return {
     ...inner,
-    query: (q) => declared(q.type, () => inner.query(q)),
+    query: (q) => declared(q.type, async () => (await included(q.type, q.include), inner.query(q))),
     explain: (q) => declared(q.type, () => inner.explain(q)),
     getObject: (type, id, opts) => declared(type, () => inner.getObject(type, id, opts)),
-    getRelationship: (type, id, rel) => declared(type, () => inner.getRelationship(type, id, rel)),
+    getRelationship: (type, id, rel) => declared(type, async () => (await followed(type, rel), inner.getRelationship(type, id, rel))),
     getProvenance: (type, id, property) => declared(type, () => inner.getProvenance(type, id, property)),
     listActions: (type, id) => declared(type, () => inner.listActions(type, id)),
     ...(inner.aggregate ? { aggregate: (q: SemanticAggregateQuery) => declared(q.type, () => inner.aggregate!(q)) } : {}),

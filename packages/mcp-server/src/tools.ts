@@ -18,7 +18,7 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { GRAPH_VIEWS, analyzeChange, compileContext, discover, governedBaseline, governedGraph, isBaseline, queryGraph, validateQuery, type GraphViewName } from "@typesys/devkit";
+import { GRAPH_VIEWS, compileContext, discover, governedBaseline, governedGraph, governedImpact, isBaseline, queryGraph, validateQuery, type GraphViewName } from "@typesys/devkit";
 import type { McpBackend } from "./backend.js";
 import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, CONTEXT_OUTPUT, DISCOVER_OUTPUT, EXPLAIN_OUTPUT, VALIDATE_QUERY_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
@@ -350,8 +350,7 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime, extr
       outputSchema: OPEN_OBJECT,
       run: async (args, identity) => {
         if (args.baseline !== undefined && !isBaseline(args.baseline)) throw new Error(`${p}impact: "baseline" is not a typesys.baseline/1 from an earlier call`);
-        const now = await governedBaseline(runtime, identity, extras.subjects);
-        return args.baseline === undefined ? { ...now } : { ...analyzeChange(args.baseline, now, extras.consumers ?? []) };
+        return args.baseline === undefined ? { ...(await governedBaseline(runtime, identity, extras.subjects)) } : { ...(await governedImpact(runtime, identity, args.baseline, extras.consumers ?? [], extras.subjects)) };
       }
     },
     [`${p}aggregate`]: {

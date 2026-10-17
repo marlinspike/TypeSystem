@@ -71,6 +71,18 @@ describe("a baseline", () => {
     expect(isBaseline({ format: "typesys.baseline/1" })).toBe(false);
     expect(isBaseline({ ...before, probes: [{ as: 1 }] })).toBe(false);
     expect(isBaseline(null)).toBe(false);
+    // To the depth a comparison reads it (5.0 pressure test): a malformed entry is refused, not crashed on.
+    expect(isBaseline(before)).toBe(true);
+    expect(isBaseline({ ...before, description: { ...before.description, types: [null] } })).toBe(false);
+    expect(isBaseline({ ...before, description: { ...before.description, types: [{}] } })).toBe(false);
+    expect(isBaseline({ ...before, inspection: { ...before.inspection!, types: [null] } })).toBe(false);
+    expect(isBaseline({ ...before, probes: [{ as: "viewer", type: "t", id: "1", outcome: "allowed", values: { x: 1 } }] })).toBe(false);
+  });
+
+  it("compares only the values a probe records, never one found on the prototype (5.0 pressure test)", () => {
+    const probe = before.probes.find((p) => p.as === "viewer")!;
+    const forged = { ...before, probes: before.probes.map((p) => (p === probe ? { ...p, values: { ...p.values, constructor: "returned", toString: "returned" } } : p)) };
+    expect(analyzeChange(forged as unknown as Baseline, before).items.map((i) => i.change).join("\n")).not.toMatch(/function|native code/);
   });
 });
 
@@ -86,6 +98,18 @@ describe("analyzing a change", () => {
     // The maintainer read it before and after: no change for them.
     expect(i.items.some((x) => x.as === "maintainer")).toBe(false);
     expect(renderImpact(i)[0]).toMatch(/risky, 1 new exposure$/);
+  });
+
+  it("compares no read a source could not answer, and records a failed explanation as unavailable, not refused (5.0 pressure test)", async () => {
+    const outage = structuredClone(before) as unknown as { probes: { as: string; values: Record<string, string> }[] };
+    for (const p of outage.probes) if (p.as === "viewer") for (const k of Object.keys(p.values)) p.values[k] = "unavailable";
+    const i = analyzeChange(outage as unknown as Baseline, before, consumers);
+    expect(i.exposures).toEqual([]);
+    expect(i.items.filter((x) => x.as === "viewer").every((x) => x.change.startsWith("not compared: a source was unavailable"))).toBe(true);
+    const { runtime } = await buildAirforceWorkbench({ mockRestLatencyMs: 0 });
+    const failing = { describeModel: runtime.describeModel.bind(runtime), query: runtime.query.bind(runtime), explain: async () => Promise.reject(new Error("source down")) };
+    const b = await recordBaseline(failing, demoIdentities.lead, { callers: { viewer: demoIdentities.viewer }, types: ["airforce.Aircraft"] });
+    expect(b.probes.map((p) => p.outcome)).toEqual(["unavailable"]);
   });
 
   it("finds nothing between a baseline and itself", () => {
@@ -136,6 +160,28 @@ describe("governance differences", () => {
         { subject: "airforce.Aircraft.deploymentLocation", change: "no longer marked SECRET", effect: "widens" },
         { subject: "airforce.Aircraft.tailNumber", change: "its read now guarded by airforce.maintainer-only", effect: "narrows" },
         expect.objectContaining({ subject: "policy:airforce.read-aircraft", effect: "changes" })
+      ])
+    );
+  });
+
+  it("an input added to a computed value narrows it, a marking on a relationship counts, and so do markings the recorder is not told of (5.0 pressure test)", () => {
+    const aircraft = (i: ModelInspection) => i.types.find((t) => t.name === "airforce.Aircraft")! as unknown as { relationships: { name: string; markings: string[] }[]; withheldMarkings?: number };
+    const computed = before.inspection!.types.find((t) => t.name === "airforce.Aircraft")!.members.find((m) => m.computed)!;
+    const g = diffGovernance(
+      before.inspection!,
+      tweak((i) => {
+        const c = member(i, computed.name) as unknown as { computed: { dependsOn: string[] } };
+        c.computed.dependsOn = [...c.computed.dependsOn, "tailNumber"];
+        aircraft(i).relationships[0]!.markings = ["SECRET"];
+        aircraft(i).withheldMarkings = 1;
+      })
+    );
+    const relationship = aircraft(before.inspection!).relationships[0]!.name;
+    expect(g).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subject: `airforce.Aircraft.${computed.name}`, effect: "narrows", change: expect.stringContaining("now computed from tailNumber") as unknown }),
+        { subject: `airforce.Aircraft.${relationship}`, change: "now marked SECRET", effect: "narrows" },
+        { subject: "airforce.Aircraft", change: "1 marking you may not learn of, was 0", effect: "narrows" }
       ])
     );
   });

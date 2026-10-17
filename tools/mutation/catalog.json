@@ -363,7 +363,7 @@
       "adr": "0057",
       "description": "A read step's client can invoke an Action, bypassing review.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name, step.reads))",
+      "find": "createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name, step.reads, this.targetOf))",
       "replace": "createClient<ModelShape>(runtimeTransport(this.options.host.runtime, identity))",
       "tests": [
         "packages/workflow/test/pressure-workflow.test.ts"
@@ -2096,8 +2096,8 @@
       "adr": "0093",
       "description": "A baseline whose probes are malformed is accepted for comparison.",
       "file": "packages/devkit/src/impact.ts",
-      "find": "(b.probes as unknown[]).every((x) =>",
-      "replace": "([] as unknown[]).every((x) =>",
+      "find": "if (!allOf(value.probes, probe)) return false;",
+      "replace": "if (!allOf([], probe)) return false;",
       "tests": [
         "packages/devkit/test/impact.test.ts"
       ]
@@ -2200,6 +2200,270 @@
       "replace": "count === 0",
       "tests": [
         "packages/cold-chain/test/links.test.ts"
+      ]
+    },
+    {
+      "id": "impact.forged-baseline-graph",
+      "adr": "0093",
+      "description": "A change in a baseline a non-inspector sent is related to what uses it in a graph built from that baseline, telling them what uses names they are not told of.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "return analyzeChange(before, now, consumers, { graph: await governedGraph(runtime, identity, consumers) });",
+      "replace": "return analyzeChange(before, now, consumers);",
+      "tests": [
+        "packages/http/test/workbench.test.ts"
+      ]
+    },
+    {
+      "id": "explain.counts-not-intersected",
+      "adr": "0089",
+      "description": "An inspector explaining someone else's related objects is told how many the subject is returned, including ones the inspector may not read.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "const count = [...returned].filter((id) => readable.has(id)).length;",
+      "replace": "const count = returned.size;",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.not-told-dropped",
+      "adr": "0089",
+      "description": "An inspector explaining someone else's read is told how a value they may not read themselves is decided for the subject.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "            if (deniedToMe(member)) {\n              findings.push(notTold(at, member));\n              continue;\n            }",
+      "replace": "            if (deniedToMe(member) && false) {\n              findings.push(notTold(at, member));\n              continue;\n            }",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.withheld-presence",
+      "adr": "0089",
+      "description": "A caller's own explanation decides a withheld value only when the object holds one, telling them whether it does.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "const classified = await this.classifiedOut(typeDef, objectId, identity, values, resolved.provenance, explaining ? declared : undefined);",
+      "replace": "const classified = await this.classifiedOut(typeDef, objectId, identity, values, resolved.provenance, undefined);",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.observed-unfiltered",
+      "adr": "0089",
+      "description": "An explanation lists recorded decisions about values the investigator is not told of.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": ".filter((r) => (r.resource.propertyPath === undefined || observedMembers === undefined || observedMembers.has(r.resource.propertyPath))",
+      "replace": ".filter((r) => (r.resource.propertyPath === undefined || observedMembers === undefined || true)",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.refusal-unaudited",
+      "adr": "0089",
+      "description": "A refused explanation is not audited with the subject it was about.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "question: kind, subject: subjectId, outcome: err instanceof AuthorizationError",
+      "replace": "question: kind, subject: undefined, outcome: err instanceof AuthorizationError",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.charged-twice",
+      "adr": "0089",
+      "description": "An explanation's own reads as the investigator are charged to their rate limit again.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (request?.explanation || request?.charged) return;",
+      "replace": "if (request?.explanation) return;",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.malformed-question",
+      "adr": "0089",
+      "description": "A malformed explain question is run instead of refused as invalid input.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "const shape = explainShapeError(question, opts);",
+      "replace": "const shape = undefined as InvalidInputError | undefined;",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "explain.plan-sources-named",
+      "adr": "0088",
+      "description": "A query plan names its data sources to a caller who may not inspect.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "const execution = (await this.mayInspect(identity)) ? described : withheldSources(described);",
+      "replace": "const execution = described;",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "runtime.own-field-link-undecided",
+      "adr": "0094",
+      "description": "Following a relationship resolved from the object's own value is allowed to a reader that value is withheld from.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "for (const field of ownKeyFields(relDef.resolution.operation)) await this.requireMemberReadable(",
+      "replace": "for (const field of ownKeyFields(relDef.resolution.operation).slice(0, 0)) await this.requireMemberReadable(",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.explain-names-action",
+      "adr": "0089",
+      "description": "A caller's workflow explanation names an Action they are not told of.",
+      "file": "packages/workflow/src/explain.ts",
+      "find": "reason: inspector ? `${step.action} is not described to the subject` : \"the Action this step invokes is not described to you\"",
+      "replace": "reason: `${step.action} is not described to the subject`",
+      "tests": [
+        "packages/workflow/test/explain.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.explain-raw-reason",
+      "adr": "0089",
+      "description": "A caller's workflow explanation gives the policy engine's reason under need-to-know discovery.",
+      "file": "packages/workflow/src/explain.ts",
+      "find": "ctx.runtime.discovery === \"open\" ? reason : \"Not authorized\"",
+      "replace": "reason",
+      "tests": [
+        "packages/workflow/test/explain.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.explain-unaudited",
+      "adr": "0089",
+      "description": "A workflow explanation is not audited.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "await this.audit(investigator, \"workflow.explain\", workflow, undefined, \"allow\", { subject, outcome: \"success\" });",
+      "replace": "",
+      "tests": [
+        "packages/workflow/test/explain.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.followed-undeclared",
+      "adr": "0090",
+      "description": "A read step follows a relationship to a Type it does not declare in reads.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "if (target !== undefined && !reads.includes(target)) throw refuse(target);",
+      "replace": "if (target === \"\") throw refuse(target);",
+      "tests": [
+        "packages/workflow/test/explain.test.ts"
+      ]
+    },
+    {
+      "id": "graph.followed-relationship-unrelated",
+      "adr": "0090",
+      "description": "A part that reads two related Types is not related to the relationship between them.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "if (parent && types.has(parent) && types.has(r.to)) b.edge(",
+      "replace": "if (parent && types.has(parent) && types.has(r.to) && false) b.edge(",
+      "tests": [
+        "packages/devkit/test/graph.test.ts"
+      ]
+    },
+    {
+      "id": "graph.edge-to-nothing",
+      "adr": "0090",
+      "description": "An edge to a value the model does not describe is kept, and a view that walks it crashes.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "&& b.nodes.has(e.from) && b.nodes.has(e.to))",
+      "replace": "&& b.nodes.has(e.from))",
+      "tests": [
+        "packages/devkit/test/graph.test.ts"
+      ]
+    },
+    {
+      "id": "registry.undeclared-dependency",
+      "adr": "0052",
+      "description": "A computed value that depends on a value its Type does not declare is registered.",
+      "file": "packages/core/src/registry/registry.ts",
+      "find": "if (unknown.length > 0) throw new Error(`Computed property",
+      "replace": "if (unknown.length < 0) throw new Error(`Computed property",
+      "tests": [
+        "packages/core/test/declared-values.test.ts"
+      ]
+    },
+    {
+      "id": "impact.dependency-uncompared",
+      "adr": "0093",
+      "description": "An input added to a computed value is not reported.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "if (bm.computed && am.computed && dependsNow.length) out.push(",
+      "replace": "if (bm.computed && am.computed && dependsNow.length < 0) out.push(",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.withheld-markings-uncompared",
+      "adr": "0093",
+      "description": "A change in the markings an inspector is not told of is not reported.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "if (was !== now) out.push({ subject, change: `${now} marking",
+      "replace": "if (was !== now && false) out.push({ subject, change: `${now} marking",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.relationship-markings-uncompared",
+      "adr": "0093",
+      "description": "A marking added to a relationship is not reported.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "      marks(`${a.name}.${ar.name}`, br, ar, out);\n",
+      "replace": "",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.outage-compared",
+      "adr": "0093",
+      "description": "A read a source could not answer is compared as a decision, reporting false exposures.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "    if (unavailable.length) {",
+      "replace": "    if (unavailable.length < 0) {",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.prototype-values",
+      "adr": "0093",
+      "description": "A probe's values are looked up through the prototype chain.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "[Object.hasOwn(b.values, member) ? b.values[member] : undefined, Object.hasOwn(a.values, member) ? a.values[member] : undefined]",
+      "replace": "[b.values[member], a.values[member]]",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.malformed-inspection-accepted",
+      "adr": "0093",
+      "description": "A baseline whose inspection is malformed is accepted for comparison.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "return allOf(i.types, type) && allOf(i.actions, action)",
+      "replace": "return allOf(i.types, () => true) && allOf(i.actions, action)",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "explain.policy-withheld-presence",
+      "adr": "0089",
+      "description": "A caller's own explanation decides a value's member policy only when the object holds a value, telling them whether it does.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!(propName in values) && !explaining) continue;",
+      "replace": "if (!(propName in values)) continue;",
+      "tests": [
+        "packages/domain-hospital/test/explain-disclosure.test.ts"
       ]
     }
   ]

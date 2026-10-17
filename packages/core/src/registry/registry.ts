@@ -13,6 +13,7 @@ import type { DataSource, Mapping } from "../model/data-source.js";
 import type { QueryResult } from "../model/query.js";
 import type { AuditEvent } from "../audit/audit-log.js";
 import { latestFirst } from "./version-resolution.js";
+import { composedProperties } from "./model-description.js";
 
 export interface RegisterTypeOptions {
   name: string;
@@ -277,6 +278,16 @@ export class SemanticRegistry {
       deprecated: opts.deprecated,
       aliases: opts.aliases
     };
+
+    // A computed value depends on values of its own object: one it names that the Type does not declare
+    // has no policy or marking to derive from, and nothing it could be computed from (ADR-0052).
+    if (typeDef.computedProperties.length > 0) {
+      const declared = new Set([...Object.keys((await composedProperties(this, typeDef)).properties), ...typeDef.computedProperties.map((c) => c.name)]);
+      for (const c of typeDef.computedProperties) {
+        const unknown = c.dependsOn.filter((d) => !declared.has(d));
+        if (unknown.length > 0) throw new Error(`Computed property "${c.name}" on type "${opts.name}" depends on ${unknown.map((d) => `"${d}"`).join(", ")}, which the Type does not declare (ADR-0052)`);
+      }
+    }
 
     // Subtypes already registered against this Type keep its protections as they change (ADR-0060). Derived,
     // and any conflict refused, before anything is stored.

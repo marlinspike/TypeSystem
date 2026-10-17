@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AbacPolicyEngine, DEMO_LINEAR_CLASSIFICATION, InMemoryRegistryStore, InvalidInputError, SOURCE_WITHHELD, SemanticRegistry, SemanticRuntime, anyOf, requireAttributeMatch, requireRole, type Adapter, type Identity, type SemanticTypeSchema } from "@typesys/core";
+import { AbacPolicyEngine, DEMO_LINEAR_CLASSIFICATION, InMemoryRegistryStore, InvalidInputError, SOURCE_WITHHELD, SemanticRegistry, SemanticRuntime, anyOf, requireAttributeMatch, requireRole, type Identity, type SemanticTypeSchema } from "@typesys/core";
 import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
 
 /**
@@ -10,13 +10,13 @@ import { InMemoryRepositoryAdapter } from "@typesys/adapter-in-memory";
  * once. A ward's staff read its patients; only an administrator reads a
  * patient's SSN, and only someone cleared SECRET their location.
  */
-async function setup(options: Record<string, unknown> = {}) {
+async function setup(options: Record<string, unknown> = {}, guardBed = false) {
   const registry = new SemanticRegistry(new InMemoryRegistryStore());
   const type = async (name: string, schema: Omit<SemanticTypeSchema, "$id" | "title" | "type">) =>
-    registry.registerType({ $id: `https://typesys.dev/types/t/${name}/1.0.0`, title: name, type: "object", ...schema } as SemanticTypeSchema, { name: `t.${name}`, version: "1.0.0" });
+    registry.registerType({ $id: `https://typesys.dev/types/t/${name}/1.0.0`, title: name, type: "object", ...schema }, { name: `t.${name}`, version: "1.0.0" });
   await type("Patient", {
     properties: { id: { type: "string" }, name: { type: "string" }, ward: { type: "string" }, ssn: { type: "string" }, location: { type: "string" }, bedId: { type: "string" } },
-    "x-policy": { objectPolicy: "ward-staff", propertyPolicies: { ssn: "admins" } },
+    "x-policy": { objectPolicy: "ward-staff", propertyPolicies: { ssn: "admins", ...(guardBed ? { bedId: "admins" } : {}) } },
     "x-provenance": { properties: { location: { classification: "SECRET" } } },
     "x-relationships": { bed: { target: "t.Bed", cardinality: "many-to-one", resolution: { dataSourceId: "db", operation: "byOwnField:bedId" } } }
   });
@@ -30,7 +30,7 @@ async function setup(options: Record<string, unknown> = {}) {
   db.seed("t.Patient", [
     { objectId: "P1", values: { id: "P1", name: "A", ward: "W1", ssn: "111", location: "X", bedId: "B1" } },
     { objectId: "P2", values: { id: "P2", name: "B", ward: "W2", bedId: "B1" } },
-    { objectId: "P3", values: { id: "P3", name: "C", ward: "W2", ssn: "333", bedId: "B1" } },
+    { objectId: "P3", values: { id: "P3", name: "C", ward: "W2", ssn: "333", location: "Y", bedId: "B1" } },
     // A bed no source holds.
     { objectId: "P4", values: { id: "P4", name: "D", ward: "W1", bedId: "B9" } }
   ]);
@@ -39,7 +39,7 @@ async function setup(options: Record<string, unknown> = {}) {
   policy.registerRule("ward-staff", anyOf(requireRole("admin"), requireAttributeMatch("ward", "ward")));
   policy.registerRule("admins", requireRole("admin"));
   policy.registerRule("inspect", requireRole("auditor"));
-  const runtime = new SemanticRuntime(registry, [db as unknown as Adapter], policy, { classification: DEMO_LINEAR_CLASSIFICATION, inspection: { policy: "inspect" }, ...options });
+  const runtime = new SemanticRuntime(registry, [db], policy, { classification: DEMO_LINEAR_CLASSIFICATION, inspection: { policy: "inspect" }, ...options });
   return { registry, runtime };
 }
 const admin: Identity = { subjectId: "admin", roles: ["admin"], attributes: {}, clearance: "SECRET" };
@@ -82,8 +82,10 @@ describe("an inspector explaining someone else is told only what they may read t
 describe("a caller's own explanation", () => {
   it("explains a withheld value as withheld whether or not the object holds one", async () => {
     const { runtime } = await setup();
-    const ssn = async (id: string) => (await runtime.explain({ kind: "read", type: "t.Patient", id }, nurse)).findings.find((f) => f.member === "ssn")?.outcome;
-    expect([await ssn("P2"), await ssn("P3")]).toEqual(["withheld", "withheld"]);
+    // ssn by a member policy, location by a marking above the nurse's clearance; only P3 holds either.
+    const outcome = async (id: string, m: string) => (await runtime.explain({ kind: "read", type: "t.Patient", id }, nurse)).findings.find((f) => f.member === m)?.outcome;
+    expect([await outcome("P2", "ssn"), await outcome("P3", "ssn")]).toEqual(["withheld", "withheld"]);
+    expect([await outcome("P2", "location"), await outcome("P3", "location")]).toEqual(["withheld", "withheld"]);
   });
 });
 
@@ -105,6 +107,16 @@ describe("every explanation", () => {
   it("refuses a malformed question as invalid input", async () => {
     const { runtime } = await setup();
     for (const q of [null, {}, { kind: "bogus" }, { kind: "read", type: "t.Patient" }, { kind: "relationship", type: "t.Bed", id: "B1" }]) await expect(runtime.explain(q as never, auditor)).rejects.toBeInstanceOf(InvalidInputError);
+  });
+});
+
+describe("a relationship resolved from the object's own value (ADR-0094)", () => {
+  it("is refused to a reader the value is withheld from, since its target names the value", async () => {
+    const { runtime } = await setup({}, true);
+    expect((await runtime.getObject("t.Patient", "P1", nurseW1)).values.bedId).toBeUndefined();
+    await expect(runtime.getRelationship("t.Patient", "P1", "bed", nurseW1)).rejects.toThrow(/Not authorized/);
+    await expect(runtime.query({ type: "t.Patient", include: [{ relationship: "bed" }] }, nurseW1)).rejects.toThrow(/Not authorized/);
+    expect((await runtime.getRelationship("t.Patient", "P1", "bed", admin)).map((o) => o.objectId)).toEqual(["B1"]);
   });
 });
 

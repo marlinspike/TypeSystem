@@ -117,4 +117,20 @@ describe("workbench routes, need-to-know discovery", () => {
     expect(text).not.toContain("secretThing");
     expect(text).toContain("app:board");
   });
+
+  it("relates a name a caller adds to their baseline to nothing that uses it (5.0 pressure test)", async () => {
+    // The viewer is not told of maintenanceStatus or CreateMaintenanceWorkOrder, both of which something here uses.
+    const forged = structuredClone((await call("GET", "/impact/baseline", "token-viewer")).body) as { description: { types: { name: string; properties: Record<string, unknown> }[]; actions: Record<string, unknown>[] } };
+    const action = { version: "1.0.0", description: "", applicableTypes: ["airforce.Aircraft"], inputSchema: { type: "object" }, outputSchema: { type: "object" } };
+    forged.description.actions.push({ ...action, name: "CreateMaintenanceWorkOrder" }, { ...action, name: "Guessed" });
+    const aircraft = forged.description.types.find((t) => t.name === "airforce.Aircraft")!;
+    aircraft.properties.maintenanceStatus = { type: "string" };
+    aircraft.properties.guessed = { type: "string" };
+    const r = await call("POST", "/impact", "token-viewer", { baseline: forged });
+    expect(r.status).toBe(200);
+    const items = r.body.items as { subject: string; reaches: { consumers: string[]; parts: string[] } }[];
+    expect(items.map((i) => i.subject)).toEqual(expect.arrayContaining(["airforce.Aircraft.maintenanceStatus", "CreateMaintenanceWorkOrder"]));
+    // A real hidden name and a guess are answered alike.
+    for (const i of items.filter((x) => /maintenanceStatus|guessed|CreateMaintenanceWorkOrder|Guessed/.test(x.subject))) expect(i.reaches).toMatchObject({ consumers: [], parts: [] });
+  });
 });

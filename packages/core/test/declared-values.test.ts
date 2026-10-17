@@ -61,3 +61,16 @@ describe("a read returns only what the model declares (ADR-0095)", () => {
     await expect(runtime.query({ type: "test.Patient", sort: [{ property: "ssn", direction: "asc" }] }, staff)).rejects.toThrow();
   });
 });
+
+describe("a computed value depends only on values its Type declares (ADR-0052, 5.0 pressure test)", () => {
+  it("is refused at registration when it names another", async () => {
+    const registry = new SemanticRegistry(new InMemoryRegistryStore());
+    const register = (dependsOn: string[]) =>
+      registry.registerType(
+        { $id: `https://typesys.dev/types/test/C${dependsOn.length}/1.0.0`, title: "C", type: "object", properties: { id: { type: "string" }, a: { type: "number" } }, "x-computed": { twice: { dependsOn, binding: "twice" } } },
+        { name: `test.C${dependsOn.length}`, version: "1.0.0", computedImplementations: { twice: (v: Record<string, unknown>) => Number(v.a) * 2 } as never }
+      );
+    await expect(register(["a", "missing"])).rejects.toThrow(/depends on "missing", which the Type does not declare/);
+    await expect(register(["a"])).resolves.toBeDefined();
+  });
+});

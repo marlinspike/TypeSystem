@@ -55,7 +55,7 @@ export const groundForRepair = defineWorkflow<AirforceModel, GroundForRepairInpu
     {
       kind: "read",
       name: "history",
-      reads: ["airforce.Aircraft"],
+      reads: ["airforce.Aircraft", "airforce.MaintenanceEvent"],
       needs: ["flagged"],
       when: flagged,
       retry: { maxAttempts: 3, backoffMs: 25 },

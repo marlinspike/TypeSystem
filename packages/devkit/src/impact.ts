@@ -1,6 +1,6 @@
-import type { FindingOutcome, Identity, ModelDescription, ModelInspection, SemanticRuntime } from "@typesys/core";
+import { AuthorizationError, NotFoundError, type FindingOutcome, type Identity, type ModelDescription, type ModelInspection, type SemanticRuntime } from "@typesys/core";
 import { diffModels, type ContractChange, type Impact, type VersionFinding } from "./diff.js";
-import { dependents, indexGraph, isAcceptanceCheck, nodeId, semanticGraph, type GraphConsumer, type SemanticGraph } from "./graph.js";
+import { dependents, governedGraph, indexGraph, isAcceptanceCheck, nodeId, semanticGraph, type GraphConsumer, type SemanticGraph } from "./graph.js";
 
 export const BASELINE_FORMAT = "typesys.baseline/1";
 export const IMPACT_FORMAT = "typesys.impact/1";
@@ -82,8 +82,9 @@ export async function recordBaseline(runtime: BaselineRuntime, recorder: Identit
               ? await runtime.explain({ kind: "read", type: t.name, id }, recorder, { as: identity })
               : await runtime.explain({ kind: "read", type: t.name, id }, identity);
           probes.push({ as, type: t.name, id, outcome: e.outcome, values: Object.fromEntries(e.findings.flatMap((f) => (f.member ? [[f.member, f.outcome]] : []))) });
-        } catch {
-          probes.push({ as, type: t.name, id, outcome: "refused", values: {} });
+        } catch (err) {
+          // Only a refusal is a decision; a failure decided nothing, and is compared as nothing (ADR-0093).
+          probes.push({ as, type: t.name, id, outcome: err instanceof AuthorizationError ? "refused" : err instanceof NotFoundError ? "not-found" : "unavailable", values: {} });
         }
       }
   }
@@ -108,23 +109,48 @@ export async function governedBaseline(
   return recordBaseline(runtime, identity, { callers, explainedBy: "recorder" });
 }
 
-/** Whether `value` has the shape of a baseline: what a server checks before comparing one a caller sent. */
+/**
+ * Compares a baseline a caller of a server sent with the model as they
+ * may learn it now, the same for every host (HTTP, MCP). The baseline is
+ * the caller's to write, so unless they may inspect, what a change reaches
+ * is found only in their own governed graph: a name they add to it is
+ * compared, and echoed back, but never related to what uses it.
+ */
+export async function governedImpact(
+  runtime: BaselineRuntime & Pick<SemanticRuntime, "canInspect" | "inspectModel" | "discovery">,
+  identity: Identity,
+  before: Baseline,
+  consumers: readonly GraphConsumer[] = [],
+  subjects?: Parameters<typeof governedBaseline>[2]
+): Promise<ChangeImpact> {
+  const now = await governedBaseline(runtime, identity, subjects);
+  if (await runtime.canInspect(identity)) return analyzeChange(before, now, consumers);
+  return analyzeChange(before, now, consumers, { graph: await governedGraph(runtime, identity, consumers) });
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isStrings = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === "string");
+const named = (v: unknown): v is Record<string, unknown> & { name: string } => isObject(v) && typeof v.name === "string";
+const allOf = (v: unknown, ok: (x: unknown) => boolean): boolean => Array.isArray(v) && v.every(ok);
+const marked = (v: Record<string, unknown>): boolean => isStrings(v.markings) && (v.withheldMarkings === undefined || typeof v.withheldMarkings === "number");
+
+/** Whether `value` has the shape of a baseline, to the depth a comparison reads it: what a server checks before comparing one a caller sent. */
 export function isBaseline(value: unknown): value is Baseline {
-  if (typeof value !== "object" || value === null) return false;
-  const b = value as Partial<Baseline>;
-  return (
-    b.format === BASELINE_FORMAT &&
-    typeof b.description === "object" &&
-    b.description !== null &&
-    Array.isArray(b.description.types) &&
-    Array.isArray(b.description.actions) &&
-    Array.isArray(b.probes) &&
-    (b.probes as unknown[]).every((x) => {
-      const p = x as Partial<ProbeRecord> | null;
-      return typeof p === "object" && p !== null && typeof p.as === "string" && typeof p.type === "string" && typeof p.id === "string" && typeof p.values === "object" && p.values !== null;
-    }) &&
-    (b.inspection === undefined || (typeof b.inspection === "object" && Array.isArray(b.inspection.types) && Array.isArray(b.inspection.actions) && Array.isArray(b.inspection.policies) && Array.isArray(b.inspection.sources)))
-  );
+  if (!isObject(value) || value.format !== BASELINE_FORMAT || !isObject(value.description)) return false;
+  const d = value.description;
+  const describedType = (t: unknown) =>
+    named(t) && isObject(t.properties) && isStrings(t.required) && allOf(t.computed, (c) => named(c) && isStrings(c.dependsOn)) && allOf(t.relationships, (r) => named(r) && typeof r.target === "string");
+  if (!allOf(d.types, describedType) || !allOf(d.actions, (a) => named(a) && isStrings(a.applicableTypes))) return false;
+  const probe = (p: unknown) => isObject(p) && typeof p.as === "string" && typeof p.type === "string" && typeof p.id === "string" && typeof p.outcome === "string" && isObject(p.values) && Object.values(p.values).every((o) => typeof o === "string");
+  if (!allOf(value.probes, probe)) return false;
+  if (value.inspection === undefined) return true;
+  const i = value.inspection;
+  if (!isObject(i) || typeof i.modelDigest !== "string") return false;
+  const member = (m: unknown) => named(m) && marked(m) && (m.computed === undefined || (isObject(m.computed) && isStrings(m.computed.dependsOn) && isStrings(m.computed.releases)));
+  const relationship = (r: unknown) => named(r) && marked(r) && isObject(r.source) && typeof r.source.dataSourceId === "string";
+  const type = (t: unknown) => named(t) && marked(t) && typeof t.objectPolicy === "string" && allOf(t.members, member) && allOf(t.relationships, relationship);
+  const action = (a: unknown) => named(a) && marked(a) && typeof a.policy === "string" && isObject(a.implementation) && allOf(a.preconditions, (p) => isObject(p) && typeof p.description === "string");
+  return allOf(i.types, type) && allOf(i.actions, action) && allOf(i.policies, named) && allOf(i.sources, (x) => isObject(x) && typeof x.id === "string");
 }
 
 /** `narrows`: fewer callers may read or invoke it. `widens`: more may. `changes`: neither plainly. */
@@ -186,16 +212,30 @@ export interface ChangeImpact {
 export const IMPACT_CAVEAT =
   "Predicted changes come from the definitions and the consumers given; a part that declares nothing may depend on more. Observed changes are the runtime's decisions on the objects probed, so another object can be decided differently.";
 
+export interface AnalyzeOptions {
+  /**
+   * The only graph a change's reach is found in. A server passes the
+   * caller's own governed graph (`governedGraph`) when they may not
+   * inspect: a baseline they send is theirs to write, so a graph built
+   * from it, or from consumers' uses of names it adds, would tell them
+   * what uses a value they are not told of. Default: graphs of both
+   * baselines, keeping uses of names neither declares, for a host that
+   * trusts both, as the CLI over an application's own files does.
+   */
+  readonly graph?: SemanticGraph;
+}
+
 /** What changed between two baselines, and what each change reaches among `consumers` (`workflowUses`, `appUses`). */
-export function analyzeChange(before: Baseline, after: Baseline, consumers: readonly GraphConsumer[] = []): ChangeImpact {
-  const graphs = [after, before].map((b) => semanticGraph(b.inspection ?? b.description, consumers, { unresolved: "keep" }));
+export function analyzeChange(before: Baseline, after: Baseline, consumers: readonly GraphConsumer[] = [], opts: AnalyzeOptions = {}): ChangeImpact {
+  const graphs = opts.graph ? [opts.graph] : [after, before].map((b) => semanticGraph(b.inspection ?? b.description, consumers, { unresolved: "keep" }));
+  const models = opts.graph ? [after.description] : [after.description, before.description];
   const items: ImpactItem[] = [];
   const contract = diffModels(before.description, after.description);
-  for (const c of contract.changes) items.push(item(graphs, [after.description, before.description], { kind: "contract", basis: "predicted", subject: c.subject, change: c.change, impact: c.impact }));
+  for (const c of contract.changes) items.push(item(graphs, models, { kind: "contract", basis: "predicted", subject: c.subject, change: c.change, impact: c.impact }));
   const governance = before.inspection && after.inspection ? "compared" : "unavailable";
-  if (before.inspection && after.inspection) for (const g of diffGovernance(before.inspection, after.inspection)) items.push(item(graphs, [after.description, before.description], { kind: "governance", basis: "predicted", ...g }));
+  if (before.inspection && after.inspection) for (const g of diffGovernance(before.inspection, after.inspection)) items.push(item(graphs, models, { kind: "governance", basis: "predicted", ...g }));
   const observed = before.probes.length + after.probes.length > 0 ? "compared" : "unavailable";
-  for (const o of diffProbes(before.probes, after.probes)) items.push(item(graphs, [after.description, before.description], { kind: "observed", basis: "observed", ...o }));
+  for (const o of diffProbes(before.probes, after.probes)) items.push(item(graphs, models, { kind: "observed", basis: "observed", ...o }));
   const rank: Record<Impact, number> = { compatible: 0, risky: 1, breaking: 2 };
   const verdict = items.reduce<Impact>((worst, i) => {
     const level: Impact = i.impact ?? "risky";
@@ -203,8 +243,8 @@ export function analyzeChange(before: Baseline, after: Baseline, consumers: read
   }, contract.underVersioned.length ? "risky" : "compatible");
   return {
     format: IMPACT_FORMAT,
-    before: (before.inspection?.modelDigest ?? graphs[1]!.modelDigest),
-    after: (after.inspection?.modelDigest ?? graphs[0]!.modelDigest),
+    before: before.inspection?.modelDigest ?? (graphs[1] ?? semanticGraph(before.description)).modelDigest,
+    after: after.inspection?.modelDigest ?? (opts.graph ? semanticGraph(after.description) : graphs[0]!).modelDigest,
     verdict,
     exposures: items.filter((i) => i.kind === "observed" && i.effect === "widens"),
     items,
@@ -253,11 +293,19 @@ function reachesOf(graph: SemanticGraph, id: string): Reaches {
 
 const sameList = (a: readonly string[] = [], b: readonly string[] = []) => a.length === b.length && a.every((x) => b.includes(x));
 
-function marks(subject: string, before: readonly string[], after: readonly string[], out: Omit<Draft, "kind" | "basis">[]): void {
-  const added = after.filter((m) => !before.includes(m));
-  const removed = before.filter((m) => !after.includes(m));
+interface Marked {
+  readonly markings: readonly string[];
+  readonly withheldMarkings?: number;
+}
+
+function marks(subject: string, before: Marked, after: Marked, out: Omit<Draft, "kind" | "basis">[]): void {
+  const added = after.markings.filter((m) => !before.markings.includes(m));
+  const removed = before.markings.filter((m) => !after.markings.includes(m));
   if (added.length) out.push({ subject, change: `now marked ${added.join(", ")}`, effect: "narrows" });
   if (removed.length) out.push({ subject, change: `no longer marked ${removed.join(", ")}`, effect: "widens" });
+  // Markings the recorder may not learn of are counted, not named (ADR-0088): a change in the count is still a change.
+  const [was, now] = [before.withheldMarkings ?? 0, after.withheldMarkings ?? 0];
+  if (was !== now) out.push({ subject, change: `${now} marking${now === 1 ? "" : "s"} you may not learn of, was ${was}`, effect: now > was ? "narrows" : "widens" });
 }
 
 function policy(subject: string, what: string, before: string | undefined, after: string | undefined, out: Omit<Draft, "kind" | "basis">[]): void {
@@ -275,7 +323,7 @@ export function diffGovernance(before: ModelInspection, after: ModelInspection):
     const b = beforeTypes.get(a.name);
     if (!b) continue;
     policy(a.name, "every read", b.objectPolicy, a.objectPolicy, out);
-    marks(a.name, b.markings, a.markings, out);
+    marks(a.name, b, a, out);
     if (b.source?.dataSourceId !== a.source?.dataSourceId) out.push({ subject: a.name, change: `read from ${a.source?.dataSourceId ?? "no source"}, was ${b.source?.dataSourceId ?? "no source"}`, effect: "changes" });
     const members = new Map(b.members.map((m) => [m.name, m]));
     for (const am of a.members) {
@@ -283,13 +331,19 @@ export function diffGovernance(before: ModelInspection, after: ModelInspection):
       if (!bm) continue;
       const subject = `${a.name}.${am.name}`;
       policy(subject, "its read", bm.policy, am.policy, out);
-      marks(subject, bm.markings, am.markings, out);
+      marks(subject, bm, am, out);
       if (bm.source?.dataSourceId !== am.source?.dataSourceId) out.push({ subject, change: `read from ${am.source?.dataSourceId ?? "no source"}, was ${bm.source?.dataSourceId ?? "no source"}`, effect: "changes" });
       const [br, ar] = [bm.computed?.releases ?? [], am.computed?.releases ?? []];
       const released = ar.filter((x) => !br.includes(x));
       const unreleased = br.filter((x) => !ar.includes(x));
       if (released.length) out.push({ subject, change: `now released from ${released.join(", ")}: readers who may not read ${released.length === 1 ? "it" : "them"} are returned this value`, effect: "widens" });
       if (unreleased.length) out.push({ subject, change: `no longer released from ${unreleased.join(", ")}`, effect: "narrows" });
+      const [bDeps, aDeps] = [bm.computed?.dependsOn ?? [], am.computed?.dependsOn ?? []];
+      const dependsNow = aDeps.filter((x) => !bDeps.includes(x));
+      const dependsNoLonger = bDeps.filter((x) => !aDeps.includes(x));
+      // A computed value is withheld from a reader withheld one of its inputs (ADR-0052), so an input added narrows and one removed widens.
+      if (bm.computed && am.computed && dependsNow.length) out.push({ subject, change: `now computed from ${dependsNow.join(", ")} too: readers withheld ${dependsNow.length === 1 ? "it" : "any of them"} are withheld this value`, effect: "narrows" });
+      if (bm.computed && am.computed && dependsNoLonger.length) out.push({ subject, change: `no longer computed from ${dependsNoLonger.join(", ")}: readers withheld only ${dependsNoLonger.length === 1 ? "it" : "them"} are now returned this value`, effect: "widens" });
       const [bReads, aReads] = [bm.computed?.reads, am.computed?.reads];
       if (bm.computed && am.computed && JSON.stringify(bReads) !== JSON.stringify(aReads)) out.push({ subject, change: `reads ${aReads === "undeclared" ? "any source (undeclared)" : (aReads ?? []).join(", ") || "no source"}, was ${bReads === "undeclared" ? "any source (undeclared)" : (bReads ?? []).join(", ") || "no source"}`, effect: aReads === "undeclared" ? "widens" : "changes" });
     }
@@ -298,6 +352,7 @@ export function diffGovernance(before: ModelInspection, after: ModelInspection):
       const br = rels.get(ar.name);
       if (!br) continue;
       policy(`${a.name}.${ar.name}`, "traversing it", br.policy, ar.policy, out);
+      marks(`${a.name}.${ar.name}`, br, ar, out);
       if (br.source.dataSourceId !== ar.source.dataSourceId) out.push({ subject: `${a.name}.${ar.name}`, change: `resolved through ${ar.source.dataSourceId}, was ${br.source.dataSourceId}`, effect: "changes" });
     }
   }
@@ -306,7 +361,7 @@ export function diffGovernance(before: ModelInspection, after: ModelInspection):
     const b = beforeActions.get(a.name);
     if (!b) continue;
     policy(a.name, "invoking it", b.policy, a.policy, out);
-    marks(a.name, b.markings, a.markings, out);
+    marks(a.name, b, a, out);
     if (b.implementation.dataSourceId !== a.implementation.dataSourceId) out.push({ subject: a.name, change: `writes to ${a.implementation.dataSourceId}, was ${b.implementation.dataSourceId}`, effect: "changes" });
     if (b.auditRequired !== a.auditRequired) out.push({ subject: a.name, change: a.auditRequired ? "now audited" : "no longer audited", effect: "changes" });
     if (!sameList(b.preconditions.map((p) => p.description), a.preconditions.map((p) => p.description))) out.push({ subject: a.name, change: "its preconditions changed", effect: "changes" });
@@ -338,10 +393,17 @@ function diffProbes(before: readonly ProbeRecord[], after: readonly ProbeRecord[
       out.push({ subject: b.type, as: b.as, object, change: "not probed after the change: the object or the Type is no longer read", effect: "changes" });
       continue;
     }
+    // A read a source could not answer decided nothing about who sees what, so it is not compared, and says so.
+    const unavailable = [b, a].filter((p) => p.outcome === "unavailable" || Object.values(p.values).includes("unavailable"));
+    if (unavailable.length) {
+      out.push({ subject: b.type, as: b.as, object, change: `not compared: a source was unavailable ${unavailable.length === 2 ? "both times" : unavailable[0] === b ? "when the baseline was recorded" : "now"}`, effect: "changes" });
+      continue;
+    }
     if (b.outcome !== a.outcome && (b.outcome === "refused" || a.outcome === "refused" || b.outcome === "not-found" || a.outcome === "not-found"))
       out.push({ subject: b.type, as: b.as, object, change: `the read is ${a.outcome}, was ${b.outcome}`, effect: readable(a.outcome === "partial" ? "returned" : a.outcome === "allowed" ? "returned" : a.outcome) ? "widens" : "narrows" });
     for (const member of [...new Set([...Object.keys(b.values), ...Object.keys(a.values)])].sort()) {
-      const [was, now] = [b.values[member], a.values[member]];
+      // Own keys only: a member named like `constructor` is not found on the prototype.
+      const [was, now] = [Object.hasOwn(b.values, member) ? b.values[member] : undefined, Object.hasOwn(a.values, member) ? a.values[member] : undefined];
       if (readable(was) === readable(now)) continue;
       out.push({ subject: `${b.type}.${member}`, as: b.as, object, change: readable(now) ? `now returned to ${b.as}, was ${was ?? "not described"}` : `now ${now ?? "not described"} for ${b.as}, was returned`, effect: readable(now) ? "widens" : "narrows" });
     }

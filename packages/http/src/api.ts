@@ -12,7 +12,7 @@ import {
   type SemanticRegistry,
   type SemanticRuntime
 } from "@typesys/core";
-import { GRAPH_VIEWS, analyzeChange, discover, governedBaseline, governedGraph, isBaseline, queryGraph, validateQuery, type GraphConsumer, type GraphViewName, type SemanticGraph } from "@typesys/devkit";
+import { GRAPH_VIEWS, discover, governedBaseline, governedGraph, governedImpact, isBaseline, queryGraph, validateQuery, type GraphConsumer, type GraphViewName, type SemanticGraph } from "@typesys/devkit";
 import { workflowUses, type WorkflowEngine } from "@typesys/workflow";
 import { LOCAL_HOSTS, bearerToken, originGuard } from "./guard.js";
 import { openApiDocument } from "./openapi.js";
@@ -205,7 +205,7 @@ export function createApiRouter(opts: ApiOptions): Router {
     route(200, async (req, who) => {
       const { baseline } = body<{ baseline?: unknown }>(req);
       if (!isBaseline(baseline)) throw new InvalidInputError("`baseline` must be a typesys.baseline/1 from GET /impact/baseline");
-      return analyzeChange(baseline, await governedBaseline(runtime, who, opts.subjects), consumers());
+      return governedImpact(runtime, who, baseline, consumers(), opts.subjects);
     })
   );
 
