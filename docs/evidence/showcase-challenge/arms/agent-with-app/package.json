@@ -1,0 +1,11 @@
+{
+  "name": "recall-response",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Governed recall response over the cold chain host and the recall exchange. Uses @typesys/core, @typesys/adapter-http, @typesys/cold-chain, @typesys/http and @typesys/workflow, resolved from the repository.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node test/acceptance.mjs && node test/compensation.mjs"
+  }
+}

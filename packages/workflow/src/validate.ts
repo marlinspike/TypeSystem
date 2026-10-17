@@ -45,7 +45,7 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
   compiles(workflow.inputSchema, undefined, "inputSchema");
   if (workflow.about) {
     if (!model.types.some((t) => t.name === workflow.about!.type)) add({ code: "unknown-type", message: `the workflow is about unknown Type "${workflow.about.type}"` });
-    if (!Object.hasOwn((workflow.inputSchema.properties ?? {}) as object, workflow.about.idFrom)) add({ code: "unknown-need", message: `the workflow is about the input "${workflow.about.idFrom}", which its inputSchema does not declare` });
+    if (!Object.hasOwn((workflow.inputSchema.properties ?? {}), workflow.about.idFrom)) add({ code: "unknown-need", message: `the workflow is about the input "${workflow.about.idFrom}", which its inputSchema does not declare` });
   }
 
   const earlier = new Set<string>();

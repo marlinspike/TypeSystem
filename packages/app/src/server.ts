@@ -29,10 +29,16 @@ export interface AppServerOptions {
   readonly title?: string;
 }
 
-/** Reads `typesys.llm.json`; a missing file is a clear error rather than a model that silently does not exist. */
+/**
+ * Reads `typesys.llm.json`, or the file `TYPESYS_LLM_CONFIG` names, as
+ * @typesys/llm's `loadLlmConfig` does: an operator points a built
+ * application at other models without rebuilding it. A missing file is a
+ * clear error rather than a model that silently does not exist.
+ */
 export function readLlmConfig(file: string): LlmConfig {
-  if (!existsSync(file)) throw new Error(`The application's LLM configuration ${file} does not exist`);
-  return JSON.parse(readFileSync(file, "utf8")) as LlmConfig;
+  const chosen = process.env.TYPESYS_LLM_CONFIG || file;
+  if (!existsSync(chosen)) throw new Error(`The application's LLM configuration ${chosen} does not exist`);
+  return JSON.parse(readFileSync(chosen, "utf8")) as LlmConfig;
 }
 
 /**

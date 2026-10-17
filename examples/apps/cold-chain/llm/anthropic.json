@@ -1,0 +1,25 @@
+{
+  "format": "typesys.llm/1",
+  "providers": {
+    "anthropic": {
+      "kind": "anthropic",
+      "apiKeyEnv": "ANTHROPIC_API_KEY"
+    }
+  },
+  "models": {
+    "stability": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "uses": [
+        "runtime"
+      ],
+      "audience": {
+        "id": "model:coldchain-enclave/stability",
+        "roles": [
+          "coldchain-model"
+        ],
+        "clearance": "INTERNAL"
+      }
+    }
+  }
+}

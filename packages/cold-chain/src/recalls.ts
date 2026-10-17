@@ -57,7 +57,7 @@ export const recallManifest: DomainManifest = {
         "x-policy": { objectPolicy: "coldchain.read-recall", propertyPolicies: { healthHazard: "coldchain.qa" } },
         // Enforced beside the policy: only a subject cleared CONFIDENTIAL reads it, whatever a policy admits (ADR-0032).
         "x-provenance": { properties: { healthHazard: { classification: "CONFIDENTIAL" } } }
-      } as DomainManifest["types"][number]["schema"],
+      },
       options: { name: "coldchain.Recall", version: "1.0.0" }
     }
   ],
@@ -235,7 +235,7 @@ export async function buildRecallHost(options: RecallHostOptions = {}): Promise<
     extend: { manifests: [recallManifest], policyRules: recallPolicyRules, adapters: (base) => [recallExchangeAdapter(url), withRecallHolds(base[INVENTORY]!)] }
   });
   if (!exchange) return host;
-  const stopOthers = host.services?.stop;
+  const others = host.services;
   return {
     ...host,
     exchange,
@@ -244,7 +244,7 @@ export async function buildRecallHost(options: RecallHostOptions = {}): Promise<
       ...(host.services ?? ({} as NonNullable<ColdChainHost["services"]>)),
       stop: async () => {
         process.off("exit", kill);
-        await Promise.all([stopOthers?.(), exchange.stop()]);
+        await Promise.all([others?.stop(), exchange.stop()]);
       }
     }
   };

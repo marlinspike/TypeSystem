@@ -10,6 +10,8 @@ export const SERVICES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.
 export interface ServiceOptions {
   /** Added to every response, to model a slow system. */
   readonly latencyMs?: number;
+  /** A fixed port, so a restarted service is found where it was (the showcase's outage and reset). Default: a free one. */
+  readonly port?: number;
 }
 
 export interface RunningService {
@@ -19,10 +21,10 @@ export interface RunningService {
   stop(): Promise<void>;
 }
 
-/** Starts one service in its own process on a free port, and waits for it to say where. */
+/** Starts one service in its own process, on a free port unless given one, and waits for it to say where. */
 export function startService(name: ServiceName, options: ServiceOptions = {}): Promise<RunningService> {
   const child = spawn(process.execPath, [path.join(SERVICES_DIR, name, "server.mjs")], {
-    env: { ...process.env, PORT: "0", LATENCY_MS: String(options.latencyMs ?? 0), EXIT_WITH_PARENT: "1" },
+    env: { ...process.env, PORT: String(options.port ?? 0), LATENCY_MS: String(options.latencyMs ?? 0), EXIT_WITH_PARENT: "1" },
     // The service exits when its stdin closes: when this process ends, however it ends.
     stdio: ["pipe", "pipe", "pipe"]
   });

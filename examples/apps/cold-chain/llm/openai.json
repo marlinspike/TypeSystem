@@ -1,0 +1,25 @@
+{
+  "format": "typesys.llm/1",
+  "providers": {
+    "openai": {
+      "kind": "openai",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    }
+  },
+  "models": {
+    "stability": {
+      "provider": "openai",
+      "model": "REPLACE-WITH-AN-OPENAI-MODEL-ID",
+      "uses": [
+        "runtime"
+      ],
+      "audience": {
+        "id": "model:coldchain-enclave/stability",
+        "roles": [
+          "coldchain-model"
+        ],
+        "clearance": "INTERNAL"
+      }
+    }
+  }
+}

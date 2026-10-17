@@ -6,9 +6,11 @@ import { scriptedAdapter, type LlmOptions } from "@typesys/llm";
  * so a run reaches its sign-off without a model server. A deployment points
  * the `qa-enclave` provider in typesys.llm.json at its own model and returns
  * {} here. Nothing about it is special to the compiler: it is an ordinary
- * `llmOptions()`.
+ * `llmOptions()`. With TYPESYS_LLM_CONFIG naming another configuration
+ * (examples/apps/cold-chain/llm/), the stand-in is not used at all.
  */
 export async function llmOptions(): Promise<LlmOptions> {
+  if (process.env.TYPESYS_LLM_CONFIG) return {};
   return {
     adapters: {
       "qa-enclave": scriptedAdapter((request) => {

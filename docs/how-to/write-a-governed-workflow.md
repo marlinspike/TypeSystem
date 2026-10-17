@@ -163,3 +163,37 @@ Over HTTP, `POST /workflow-runs/:id/reauthorize` uses the caller's own
 bearer identity, and `POST /workflow-runs/:id/cancel` takes a `reason`.
 An approval may declare `deadline: { afterMs }`: undecided by then, it
 expires and the run compensates as on a rejection.
+
+## Actions only an approved run may take
+
+Some Actions should never run on one person's say-so: quarantining lots for
+a recall, releasing a payment. Mark the Action `requiresApproval: true` in
+its domain manifest (ADR-0096). The runtime then refuses it outside a
+workflow step that follows a granted approval, and refuses it when the
+approver is the caller, whoever calls it and through whichever surface:
+
+```ts
+actions: [{ name: "HoldLotsForRecall", policy: "coldchain.respond-recall", requiresApproval: true, /* … */ }]
+```
+
+The workflow validator reports `unapproved-action` for a step (or a
+compensation) that invokes such an Action with no approval before it whose
+`when` covers it, and the compiler reports `approval-required` for a page
+that would invoke one directly. A direct call is refused with 403 and an
+audited reason; `typesys app why --invoke HoldLotsForRecall` shows it.
+
+## A run about one object
+
+A run that answers for one object (a recall notice, an excursion) can say
+so, and the engine then refuses a start by anyone who may not read that
+object (ADR-0097):
+
+```ts
+about: { type: "coldchain.Recall", idFrom: "recallId" }   // in app.json: "about": "recallId"
+```
+
+The refusal is audited and answered 403 before any step runs, so a
+coordinator cannot learn what an embargoed notice holds by starting a run
+on it. The approval-decided journal event also records the approver's
+display name (`approverName`), so a step after the approval can file who
+signed it off.

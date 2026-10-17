@@ -6,7 +6,7 @@ import globals from "globals";
 export default tseslint.config(
   {
     // A compiled application is type-checked by its own tsc in `typesys app build` (its tests run it), and is mostly generated.
-    ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts", "**/.changeset/**", "**/.work/**", "examples/apps/**"]
+    ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts", "**/.changeset/**", "**/.work/**", "examples/apps/**", "docs/evidence/**"]
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

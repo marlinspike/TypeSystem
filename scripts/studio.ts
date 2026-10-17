@@ -14,11 +14,14 @@
  * the graph. `TYPESYS_DISCOVERY=need-to-know npm run studio` shows each
  * caller only the part of the model they could use (ADR-0068).
  *
- * Cold Chain: quality assurance and the auditor may inspect. The graph
- * reaches Cold Chain Command's pages, data and checks and its two workflows,
- * which need the application built (`npx typesys app build
- * examples/apps/cold-chain`). With TYPESYS_COLDCHAIN_*_URL set (the showcase
- * sets them), Studio reads the same running services as the application.
+ * Cold Chain: the cold chain and the recall exchange, four systems on one
+ * runtime (`buildRecallHost`). Quality assurance and the auditor may inspect.
+ * The graph reaches the pages, data, checks and workflows of Cold Chain
+ * Command and the Recall Response, which need the applications built
+ * (`npx typesys app build examples/apps/cold-chain`, and the same for
+ * examples/apps/recall-response). With TYPESYS_COLDCHAIN_*_URL set (the
+ * showcase sets them), Studio reads the same running services as the
+ * applications.
  */
 import { describeModel, type Discovery } from "@typesys/core";
 import { appUses, type AppSpec } from "@typesys/compiler";
@@ -31,7 +34,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const COLD_CHAIN_APP = path.join(ROOT, "examples/apps/cold-chain");
+const COLD_CHAIN_APPS = [
+  { dir: path.join(ROOT, "examples/apps/cold-chain"), flows: ["assess", "disposition"] },
+  { dir: path.join(ROOT, "examples/apps/recall-response"), flows: ["respond"] }
+];
 
 async function airforceStudio(): Promise<StudioOptions> {
   const discovery = (process.env.TYPESYS_DISCOVERY ?? "open") as Discovery;
@@ -52,28 +58,34 @@ async function airforceStudio(): Promise<StudioOptions> {
 }
 
 async function coldChainStudio(): Promise<StudioOptions> {
-  const { buildColdChainHost, coldChainIdentities, resolveColdChainIdentity } = await import("@typesys/cold-chain");
-  const host = await buildColdChainHost();
-  const spec = JSON.parse(await readFile(path.join(COLD_CHAIN_APP, "app.json"), "utf8")) as AppSpec;
-  // The application's own compiled flows, so Studio explains and graphs the workflows the application runs.
-  const flowsDir = path.join(COLD_CHAIN_APP, "dist/src/generated/flows");
+  const { buildRecallHost, recallPeople, resolveRecallIdentity } = await import("@typesys/cold-chain");
+  const host = await buildRecallHost();
+  // Each application's own compiled flows, so Studio explains and graphs the workflows the applications run.
   const flows: AnyWorkflow[] = [];
-  if (existsSync(flowsDir)) {
-    for (const name of ["assess", "disposition"]) flows.push((await import(pathToFileURL(path.join(flowsDir, `${name}.js`)).href))[name] as AnyWorkflow);
-  } else console.warn(`Cold Chain Command is not built (${flowsDir} is missing): Studio shows the model without its workflows. Run: npx typesys app build examples/apps/cold-chain`);
+  const consumers = [];
+  const model = await describeModel(host.registry);
+  for (const app of COLD_CHAIN_APPS) {
+    consumers.push(...appUses(JSON.parse(await readFile(path.join(app.dir, "app.json"), "utf8")) as AppSpec, model));
+    const flowsDir = path.join(app.dir, "dist/src/generated/flows");
+    if (!existsSync(flowsDir)) {
+      console.warn(`${path.basename(app.dir)} is not built (${flowsDir} is missing): Studio shows the model without its workflows. Run: npx typesys app build ${path.relative(ROOT, app.dir)}`);
+      continue;
+    }
+    for (const name of app.flows) flows.push((await import(pathToFileURL(path.join(flowsDir, `${name}.js`)).href))[name] as AnyWorkflow);
+  }
   // Studio explains and graphs workflows; it never runs their AI steps, so the model here only names the audience.
   const stability = scriptedModel({}, "scripted", { id: "model:coldchain-enclave/stability", kind: "model", roles: ["coldchain-model"], attributes: {}, clearance: "INTERNAL" });
   const workflows = await WorkflowEngine.create({ host, models: { stability } });
   for (const flow of flows) workflows.register(flow);
-  const { anonymous: _anonymous, ...people } = coldChainIdentities;
+  const { anonymous: _anonymous, ...people } = recallPeople;
   return {
     backend: host,
-    identityResolver: resolveColdChainIdentity,
+    identityResolver: resolveRecallIdentity,
     workflows,
-    consumers: appUses(spec, await describeModel(host.registry)),
+    consumers,
     subjects: { list: async () => Object.values(people).map((p) => ({ subjectId: p.subjectId })), resolve: async (id) => Object.values(people).find((p) => p.subjectId === id) },
     title: "TypeSys Studio · Cold Chain",
-    demoTokens: { QA: "demo-qa-token", Auditor: "demo-auditor-token", Logistics: "demo-logistics-token", Carrier: "demo-carrier-token" }
+    demoTokens: { QA: "demo-qa-token", "QA 2": "demo-qa2-token", Auditor: "demo-auditor-token", Logistics: "demo-logistics-token", Carrier: "demo-carrier-token" }
   };
 }
 
