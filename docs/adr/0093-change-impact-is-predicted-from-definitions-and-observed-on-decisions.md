@@ -77,9 +77,11 @@ under-versioned one, or an exposure, so a pipeline can stop on it.
   every subject in the host's directory, explained by the caller as that
   subject (`explain` with `as`). The runtime gates and audits each of
   those. The directory is not asked for a caller who may not inspect.
-- A baseline sent to a server is checked for its shape before it is
-  compared. Comparing reads the model now as the caller and nothing
-  else, so a forged baseline can only mislead its own sender.
+- A baseline sent to a server is checked for its shape, to the depth a
+  comparison reads it, before it is compared. It is the caller's to
+  write, so unless they may inspect, what a change reaches is found only
+  in their own governed graph (`governedImpact`): a name they add is
+  compared and echoed back, never related to what uses it.
 
 **One demonstration is shipped.** `releaseReadinessToViewers` and
 `buildAirforceProposal` in `@typesys/domain-airforce` build the proposal.
@@ -108,3 +110,21 @@ GroundForRepair. The analysis reports:
   callers is about 25 kB.
 - Recording explains one read per caller per Type. Each is an audited
   call: a baseline is not free to take on a large deployment.
+
+## Amendment (5.0 pressure test, 2026-10-17)
+
+The first version built the reach of each change from graphs of both
+baselines, including the one the caller sent, keeping consumers' uses of
+names neither declared. A viewer under need-to-know could add a guessed
+Action or value to their baseline and learn from `reaches` whether
+anything used it. `governedImpact` (HTTP `POST /impact`, MCP
+`typesys_impact`) now uses only the caller's governed graph, the one
+`GET /graph` serves them; the CLI over an application's own files keeps
+both graphs.
+
+The governance comparison also covers a computed value's inputs (one
+added narrows, one removed widens, ADR-0052), a relationship's markings,
+and the count of markings the recorder may not learn of. A read a source
+could not answer, before or after, is reported as not compared rather
+than as a change in who sees what, and an explanation that failed is
+recorded as `unavailable`, not `refused`.

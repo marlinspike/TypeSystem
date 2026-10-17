@@ -55,9 +55,12 @@ of each Type on a few objects (three by default), through the runtime
 - objects whose relationship a source did not answer;
 - relationships cut at `maxRelatedPerObject`.
 
-It shows up to three findings that were not `returned`. A relationship is
-empty only when nothing is related: one whose related objects were all
-refused counts as refused. Explaining another subject, an object that
+It shows up to three findings that were not `returned`. When an
+inspector probes for another subject, a relationship is empty only when
+nothing is related: one whose related objects were all refused counts as
+refused. In a subject's own probe, empty means nothing was returned to
+them, since telling them a related object was refused would say that it
+exists. Explaining another subject, an object that
 subject may not read at all is skipped and counted as not readable,
 since its links say nothing about theirs. Up to ten times the sample is
 tried to find enough objects the subject may read.
@@ -98,3 +101,14 @@ reported the source the link is resolved through, which for
 - Filtering by a linked object's value (shipments whose destination is a
   hospital) is still two queries. TypeSystem resolves links. It does not
   plan joins across systems, which would be a query engine.
+
+## Amendment (5.0 pressure test, 2026-10-17)
+
+A `byOwnField` relationship's target is the object the source's own
+field names, so following it tells whoever follows it that field's
+value. Following a `byOwnField` or `byCompositeKey` relationship is now
+decided as each source field it names is: a reader the field is withheld
+from is refused the relationship, in a read and in an include. A probe
+skips objects its subject may not read, and, for an inspector probing
+another subject, a relationship whose related objects were all refused
+is reported as refused, not empty.

@@ -239,6 +239,22 @@ Time to a correct implementation, human intervention, and whether an
 agent uses what the context gives it all need a person or a paid model
 run. Neither was done.
 
+### Pressure-tested
+
+An independent adversarial review of the 5.0 work found 17 defects
+([`docs/reviews/5-0-pressure-test.md`](docs/reviews/5-0-pressure-test.md)).
+The three High ones were all summaries saying more than the decisions
+behind them. An impact analysis related a baseline the caller wrote to
+the real consumers, so a viewer could ask whether a hidden Action is used.
+An inspector explaining someone else was told counts and values they may
+not read themselves. A caller's own explanation told a withheld value
+from an absent one. All three are fixed, with 12 Medium and Low findings,
+one Medium in part and one Low kept with its reason. Explaining someone
+else now says, for instance, "2 of the 2 objects you are returned on this
+page are returned to the subject", and `not-told` for a value the
+inspector may not read. Each fix has a test that failed first and a
+mutation that proves the test catches it: 24 new mutations, all killed.
+
 ## Build an application from one document
 
 TypeSystem 4.0 adds a semantic application compiler. You, or a coding
@@ -997,7 +1013,7 @@ squadron readiness app built with and without TypeSys).
 The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
-request runs the full suite and a catalog of 193 deliberate mutations, each
+request runs the full suite and a catalog of 219 deliberate mutations, each
 of which a test must catch. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a
 failed read shown as known. It has not had an

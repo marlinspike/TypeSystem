@@ -112,10 +112,10 @@ targets it.
 | 6 | Change impact, predicted and observed (Milestone C) | [0093](adr/0093-change-impact-is-predicted-from-definitions-and-observed-on-decisions.md) | `packages/devkit/test/impact.test.ts`, `packages/studio/test/impact.test.ts` (Chromium), the impact cases in `packages/compiler/test/uses.test.ts`, `packages/http/test/workbench.test.ts` and `packages/mcp-server/test/workbench-tools.test.ts`; `npm run impact:demo` |
 | 7 | Links across systems, resolved in place and probed | [0094](adr/0094-links-across-systems-are-resolved-in-place-and-probed.md) | `packages/cold-chain/test/links.test.ts`, `packages/devkit/test/links.test.ts`, `packages/adapter-http/test/http-adapter.test.ts` |
 | 8 | Productivity and architectural evaluation (Milestone D), and the defect it found | [0095](adr/0095-a-read-returns-only-what-the-model-declares.md) | [`docs/evidence/semantic-workbench-2026-10-17.md`](evidence/semantic-workbench-2026-10-17.md), `scripts/measure-workbench.ts`, `packages/core/test/declared-values.test.ts` |
-| 9 | Pressure test and its fixes | none | `docs/reviews/5-0-pressure-test.md` |
+| 9 | Pressure test and its fixes | amendments to [0089](adr/0089-an-explanation-is-the-runtimes-own-decision-replayed.md), [0090](adr/0090-one-dependency-graph-over-model-governance-and-consumers.md), [0093](adr/0093-change-impact-is-predicted-from-definitions-and-observed-on-decisions.md), [0094](adr/0094-links-across-systems-are-resolved-in-place-and-probed.md), [0095](adr/0095-a-read-returns-only-what-the-model-declares.md) | [`docs/reviews/5-0-pressure-test.md`](reviews/5-0-pressure-test.md), `packages/domain-hospital/test/explain-disclosure.test.ts` |
 
 ## Continuation state
 
-- **Done:** slices 1 and 2 (one commit: they share the runtime's decision trace), 3, 4, 5, 6, 7 and 8. Milestones A (exploration and explanation), B (context), C (impact) and D (evaluation) are complete.
-- **In progress:** slice 9 (pressure test).
+- **Done:** slices 1 and 2 (one commit: they share the runtime's decision trace), 3, 4, 5, 6, 7, 8 and 9. Milestones A (exploration and explanation), B (context), C (impact) and D (evaluation) are complete, and the pressure test's findings are fixed except one in part (M2) and one kept (L3).
+- **Open:** the subject's own decisions read to answer a workflow explanation are audited without `explainedBy` (M2).
 - **What the evaluation says to do next:** dependents and change impact answer questions 4.0 could not, and are where further work pays. Context selection was no better than 4.0's on four requirements; improve it only against a harder benchmark with a tight budget.

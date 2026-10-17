@@ -24,7 +24,12 @@ export interface LinkReport {
   readonly unreadable: number;
   /** Related objects returned to the subject, across the objects probed. */
   readonly returned: number;
-  /** Objects with nothing related: none returned, and none refused or dangling. */
+  /**
+   * Objects with nothing returned to the subject. When an inspector explains
+   * another subject, these have none refused or dangling either; in a
+   * subject's own probe, related objects they are refused cannot be told
+   * apart from none (ADR-0094).
+   */
   readonly empty: number;
   /**
    * References to objects no source holds, and related objects the subject

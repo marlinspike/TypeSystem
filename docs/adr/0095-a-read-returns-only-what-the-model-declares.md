@@ -60,3 +60,10 @@ read pays no extra registry lookups after the first.
 - If a base Type is registered again with different properties, a
   subtype registered earlier keeps the composition it had until it is
   registered again too.
+
+## Amendment (5.0 pressure test, 2026-10-17)
+
+A computed value whose `dependsOn` named an undeclared value was
+registered, and after this ADR silently computed from nothing. The
+registry now refuses a computed value that depends on anything other
+than a value its Type declares or another computed value.

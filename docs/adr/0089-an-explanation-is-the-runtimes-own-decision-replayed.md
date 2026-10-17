@@ -86,3 +86,32 @@ the maintainer.
 - The audit log is read only to its newest 500 rows for `observed`, since
   `listAuditEvents` filters by action only. A deployment that needs
   deeper history queries its audit store.
+
+## Amendment (5.0 pressure test, 2026-10-17)
+
+The pressure test found the first version told an inspector more than
+their own reads would. Each of these is now held by
+`packages/domain-hospital/test/explain-disclosure.test.ts` and a
+mutation:
+
+- Explaining someone else counts related objects and rows only among
+  those the investigator is returned themselves, and says so ("2 of the
+  2 objects you are returned").
+- A value the investigator may not read themselves is reported as
+  `not-told`, never as returned or withheld to the subject. Dangling
+  references are named only for a Type the investigator is told of, and
+  whether the object exists is asked of its source before any policy
+  that decides on its values.
+- Every declared value's policy and marking is decided while
+  explaining, whether or not the object holds a value, so a caller's own
+  explanation never tells a withheld value from an absent one.
+- Recorded decisions (`observed`) are listed only for values and objects
+  the investigator is told of.
+- A refused or failed explanation is audited with its subject, as an
+  answered one is; the investigator's own reads during it are charged
+  once; a malformed question is invalid input.
+- A workflow explanation names an Action the caller is not told of only
+  to an inspector, gives a caller the runtime's own masked reason under
+  need-to-know, and is audited as `workflow.explain` with its subject.
+  The subject's description and Actions it reads to answer are still
+  recorded as that subject's own decisions.

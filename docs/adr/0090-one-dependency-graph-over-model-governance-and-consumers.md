@@ -65,10 +65,13 @@ relationships that Type could go on to follow. Without this rule every
 dependency walk would cover the whole connected model.
 
 **Read steps may declare their reads, and the engine holds them to it.**
-`ReadStep.reads` names the Types a step reads, and it may follow those
-Types' relationships. With a declaration, the read-only transport refuses
-a read of any other Type, and the definition check refuses an unknown
-one. A step without one is shown as `opaque`. Nothing is guessed for it,
+`ReadStep.reads` names the Types a step reads, including every Type it
+follows a relationship to. With a declaration, the read-only transport
+refuses a read of any other Type, and following a relationship (`related`,
+or a query's `include`) to one; the definition check refuses an unknown
+one. A part that reads two whole Types is related, by an inferred edge, to
+each relationship between them, so a change to the relationship or to
+the target's values reaches it. A step without one is shown as `opaque`. Nothing is guessed for it,
 and a dependency walk that reaches it says so.
 
 **Queries for a workbench, not a query language.**
@@ -99,3 +102,13 @@ and a dependency walk that reaches it says so.
   (ADR-0089) say why.
 - An application's flows are compiled from the IR, so `appUses` reads
   their steps from the IR directly. The generated code is unchanged.
+
+## Amendment (5.0 pressure test, 2026-10-17)
+
+`GroundForRepair`'s `history` step followed `maintenance` to
+MaintenanceEvent while declaring only Aircraft, so a change to a
+maintenance event's values reached nothing. Read steps now declare the
+Types they follow relationships to, as above, and the step declares both.
+An edge whose end the model does not describe, such as a computation's
+input the caller is not told of, is left out of the graph; before, the
+overview and dependency views crashed on it.

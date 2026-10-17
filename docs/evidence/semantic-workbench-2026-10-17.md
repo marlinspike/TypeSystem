@@ -85,11 +85,18 @@ files, at five to ten times the tokens. Q6 is answerable in B by
 following the link and reading the Site's provenance, one object at a
 time. C answers for every cross-system link of the Type at once.
 
-**Leaks.** Nothing in C's caller-facing output named a policy, marking
-or source the caller may not learn of. B did: the 4.0 query plan names
-the Aircraft's data source (`in-memory-airforce-repo`) to the viewer,
-which the inspection treats as enforcement structure (ADR-0088). This is
-listed as a finding in the 5.0 pressure test.
+**Leaks.** On these seven questions, nothing in C's caller-facing
+output named a policy, marking or source the caller may not learn of. B
+did: the 4.0 query plan names the Aircraft's data source
+(`in-memory-airforce-repo`) to the viewer, which the inspection treats
+as enforcement structure (ADR-0088). These questions did not find
+everything. The 5.0 pressure test
+([`reviews/5-0-pressure-test.md`](../reviews/5-0-pressure-test.md))
+found that C's first version could disclose through paths this
+evaluation did not exercise: a baseline the caller forged for change
+impact, an inspector explaining someone else, the observed decisions in
+an explanation, and a workflow explanation under need-to-know. All of
+them, and the query plan's source ids, are fixed.
 
 ## Context for a new requirement
 
@@ -178,6 +185,5 @@ C's clearest advantage is on questions B has no answer to: what depends
 on a value, and whether a change alters who sees what. Those are where
 further work should go. The context compiler's selection is no better
 than 4.0's on these requirements, so improving relevance needs a harder
-benchmark with a tight budget before it gets more work. The 4.0 query
-plan's disclosure of source ids to callers is fixed in the pressure
-test.
+benchmark with a tight budget before it gets more work. The query plan
+now shows its source ids only to an inspector.
