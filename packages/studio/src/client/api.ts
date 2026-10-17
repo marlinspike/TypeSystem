@@ -4,7 +4,7 @@
  * holds no authority of its own.
  */
 import type { ExplainQuestion, Explanation, ModelDescription, ModelInspection } from "@typesys/core";
-import type { GraphEdge, GraphNode, Reach, SemanticGraph } from "@typesys/devkit";
+import type { Baseline, ChangeImpact, GraphEdge, GraphNode, Reach, SemanticGraph } from "@typesys/devkit";
 import { httpCall, httpTransport, type Transport } from "@typesys/sdk";
 import type { QueryDiagnostic } from "./logic.js";
 
@@ -60,6 +60,10 @@ export interface StudioApi extends Transport {
   graph(view: "overview" | "full"): Promise<GraphView>;
   graph(view: "neighborhood", node: string, opts?: { depth?: number; limit?: number }): Promise<GraphView>;
   graph(view: "dependents" | "dependencies", node: string, opts?: { depth?: number }): Promise<GraphReach>;
+  /** A baseline of the model as it is now (ADR-0093). */
+  impactBaseline(): Promise<Baseline>;
+  /** What changed since `baseline`. */
+  impact(baseline: Baseline): Promise<ChangeImpact>;
 }
 
 export function studioApi(token: string | undefined, baseUrl = "/api"): StudioApi {
@@ -78,7 +82,9 @@ export function studioApi(token: string | undefined, baseUrl = "/api"): StudioAp
     graph: (async (view: string, node?: string, opts: { depth?: number; limit?: number } = {}) => {
       const q = new URLSearchParams({ view, ...(node ? { node } : {}), ...(opts.depth ? { depth: String(opts.depth) } : {}), ...(opts.limit ? { limit: String(opts.limit) } : {}) });
       return call("GET", `/graph?${q.toString()}`);
-    }) as StudioApi["graph"]
+    }) as StudioApi["graph"],
+    impactBaseline: async () => (await call("GET", "/impact/baseline")) as Baseline,
+    impact: async (baseline) => (await call("POST", "/impact", { baseline })) as ChangeImpact
   };
 }
 

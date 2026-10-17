@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { canonical, type ActionDescription, type Explanation, type Identity, type ModelDescription, type SemanticRuntime, type TypeDescription, type TypeInspection } from "@typesys/core";
 import { compactType } from "./catalog.js";
 import { discover } from "./discover.js";
-import { dependents, indexGraph, nodeId, semanticGraph, type GraphConsumer, type SemanticGraph } from "./graph.js";
+import { dependents, indexGraph, isAcceptanceCheck, nodeId, semanticGraph, type GraphConsumer, type SemanticGraph } from "./graph.js";
 
 export const CONTEXT_FORMAT = "typesys.context/1";
 
@@ -63,6 +63,8 @@ export interface ContextUse {
   readonly part?: string;
   /** `read`, `page`, `check`... */
   readonly partKind?: string;
+  /** An application's acceptance check, not a workflow's own `check` step. */
+  readonly acceptance?: true;
   /** The member it uses, absent for the whole Type. */
   readonly member?: string;
   readonly how?: string;
@@ -339,7 +341,7 @@ function usage(types: readonly ContextType[], actions: readonly ContextAction[])
 
 function uniqueChecks(types: readonly ContextType[]): ContextCheck[] {
   const out = new Map<string, ContextCheck>();
-  for (const t of types) for (const u of t.usedBy) if (u.partKind === "check" && u.part) out.set(`${u.consumer}|${u.part}`, { consumer: u.consumer, check: u.part });
+  for (const t of types) for (const u of t.usedBy) if (u.acceptance && u.part) out.set(`${u.consumer}|${u.part}`, { consumer: u.consumer, check: u.part });
   return [...out.values()].sort((a, b) => `${a.consumer}|${a.check}`.localeCompare(`${b.consumer}|${b.check}`));
 }
 
@@ -443,7 +445,8 @@ function usesOf(graph: SemanticGraph, type: string): ContextUse[] {
     const owner = node.kind === "part" ? ix.node(node.parent!) : node;
     const use: ContextUse = {
       consumer: `${owner?.kind ?? "consumer"} ${owner?.label ?? ""}`.trim(),
-      ...(node.kind === "part" ? { part: node.label, partKind: String(node.detail?.part ?? "part") } : {}),
+      ...(node.kind === "part" ? { part: isAcceptanceCheck(graph, user) ? node.id.slice(node.id.lastIndexOf("/") + 1) : node.label, partKind: String(node.detail?.part ?? "part") } : {}),
+      ...(isAcceptanceCheck(graph, user) ? { acceptance: true as const } : {}),
       ...(member ? { member } : {}),
       ...(how ? { how } : {})
     };
@@ -454,7 +457,7 @@ function usesOf(graph: SemanticGraph, type: string): ContextUse[] {
   for (const c of ix.children(id)) for (const e of ix.in(c.id)) add(e.from, e.how, c.kind === "member" ? c.label : undefined);
   // And every acceptance check however far it is: a check usually reaches a Type through a page.
   for (const r of dependents(graph, id).reached) {
-    if (r.distance > 1 && r.kind === "part" && ix.node(r.id)?.detail?.part === "check") add(r.id, `through ${r.path.slice(1, -1).map((p) => ix.node(p)?.label ?? p).join(", ")}`);
+    if (r.distance > 1 && isAcceptanceCheck(graph, r.id)) add(r.id, `through ${r.path.slice(1, -1).map((p) => ix.node(p)?.label ?? p).join(", ")}`);
   }
   return [...out.values()];
 }

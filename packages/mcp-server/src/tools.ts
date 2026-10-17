@@ -18,7 +18,7 @@ import {
 } from "@typesys/core";
 import type { IdentityResolver } from "./auth.js";
 import { readObject, readProvenance, readRelationship, readType, readTypes } from "./reads.js";
-import { GRAPH_VIEWS, compileContext, discover, governedGraph, queryGraph, validateQuery, type GraphViewName } from "@typesys/devkit";
+import { GRAPH_VIEWS, analyzeChange, compileContext, discover, governedBaseline, governedGraph, isBaseline, queryGraph, validateQuery, type GraphViewName } from "@typesys/devkit";
 import type { McpBackend } from "./backend.js";
 import { ACTION_PREVIEW_OUTPUT, ACTIONS_OUTPUT, AGGREGATE_OUTPUT, CONTEXT_OUTPUT, DISCOVER_OUTPUT, EXPLAIN_OUTPUT, VALIDATE_QUERY_OUTPUT, OBJECT_OUTPUT, PROVENANCE_OUTPUT, QUERY_OUTPUT, RELATIONSHIP_OUTPUT, TYPE_OUTPUT, TYPES_OUTPUT } from "./output-schemas.js";
 
@@ -341,6 +341,17 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime, extr
         const node = typeof args.node === "string" ? args.node : undefined;
         if (view !== "overview" && view !== "full" && !graph.nodes.some((n) => n.id === node)) throw new Error(`${p}graph: no node "${node ?? ""}" in the graph you may see; start from view "overview"`);
         return queryGraph(graph, { view: view as GraphViewName, ...(node ? { node } : {}), ...(args.depth !== undefined ? { depth: args.depth as number } : {}), ...(args.limit !== undefined ? { limit: args.limit as number } : {}) });
+      }
+    },
+    [`${p}impact`]: {
+      description:
+        "What a change to the model does. Without `baseline`: records one now, as you may learn the model (the description, the inspection if you may inspect, and how each caller's read of a few objects is decided, never a value). Keep it. With `baseline`: records the model as it is now and compares: contract changes, governance changes (policies, markings, releases, sources), every read whose decision changed for a caller, and the workflows and checks each change reaches. `exposures` lists reads a caller is newly returned.",
+      inputSchema: { type: "object", properties: { baseline: { type: "object", description: "A typesys.baseline/1 from an earlier call." } } },
+      outputSchema: OPEN_OBJECT,
+      run: async (args, identity) => {
+        if (args.baseline !== undefined && !isBaseline(args.baseline)) throw new Error(`${p}impact: "baseline" is not a typesys.baseline/1 from an earlier call`);
+        const now = await governedBaseline(runtime, identity, extras.subjects);
+        return args.baseline === undefined ? { ...now } : { ...analyzeChange(args.baseline, now, extras.consumers ?? []) };
       }
     },
     [`${p}aggregate`]: {

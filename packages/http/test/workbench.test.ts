@@ -83,6 +83,29 @@ describe("workbench routes, open discovery", () => {
   });
 });
 
+describe("impact routes (ADR-0093)", () => {
+  beforeAll(() => start());
+  afterAll(stop);
+
+  it("records a baseline as the caller may learn the model, and compares one with the model now", async () => {
+    const lead = await call("GET", "/impact/baseline", "token-lead");
+    const probes = lead.body.probes as { as: string; type: string; values: Record<string, string> }[];
+    expect(new Set(probes.map((p) => p.as))).toEqual(new Set(Object.values(PEOPLE).map((p) => p.subjectId)));
+    expect(lead.body.inspection).toBeDefined();
+    const viewer = await call("GET", "/impact/baseline", "token-viewer");
+    expect(new Set((viewer.body.probes as { as: string }[]).map((p) => p.as))).toEqual(new Set([demoIdentities.viewer.subjectId]));
+    expect(viewer.body.inspection).toBeUndefined();
+    expect((await call("POST", "/impact", "token-lead", { baseline: lead.body })).body).toMatchObject({ verdict: "compatible", items: [] });
+    // A baseline in which the viewer was withheld needsAttention: now they are returned it, which is an exposure.
+    const earlier = structuredClone(lead.body);
+    for (const p of earlier.probes as typeof probes) if (p.as === demoIdentities.viewer.subjectId && p.type === "airforce.Aircraft") p.values.needsAttention = "withheld";
+    const changed = await call("POST", "/impact", "token-lead", { baseline: earlier });
+    expect((changed.body.exposures as { subject: string }[]).map((e) => e.subject)).toEqual(["airforce.Aircraft.needsAttention"]);
+    expect((changed.body.exposures as { reaches: { consumers: string[] } }[])[0]!.reaches.consumers).toContain("workflow:airforce.GroundForRepair");
+    expect((await call("POST", "/impact", "token-lead", { baseline: { format: "typesys.baseline/1" } })).status).toBe(400);
+  });
+});
+
 describe("workbench routes, need-to-know discovery", () => {
   beforeAll(() => start("need-to-know"));
   afterAll(stop);

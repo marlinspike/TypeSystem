@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { describeModel, requireRole } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
@@ -94,6 +95,25 @@ describe("typesys app inspect, why and graph", () => {
     expect(r.out.consumers).toEqual([APP, FLOW]);
     expect((await run(["graph", dir, "--as", "viewer"])).out.structure).toBe("description");
   });
+  it("records a baseline, then names what a proposed release exposes, to whom, and the application's checks it reaches (ADR-0093)", async () => {
+    const dir = await workbench();
+    const baseline = path.join(dir, "..", "workbench-cli.baseline.json");
+    const recorded = await run(["impact", dir, "--as", "lead", "--record", baseline]);
+    expect(recorded.out).toMatchObject({ ok: true, inspected: true });
+    expect((await run(["impact", dir, "--as", "lead", "--against", baseline])).out).toMatchObject({ ok: true, verdict: "compatible", items: [] });
+    const app = squadronApp();
+    const proposed = await squadronDir("workbench-cli-proposal", { ...app, host: { ...app.host, build: "buildAirforceProposal" } });
+    const r = await run(["impact", proposed, "--as", "lead", "--against", baseline]);
+    expect(r.code).toBe(1);
+    const exposures = r.out.exposures as { subject: string; as: string; reaches: { consumers: string[] } }[];
+    expect(exposures.map((e) => [e.subject, e.as])).toContainEqual(["airforce.Aircraft.readinessStatus", "viewer"]);
+    expect(exposures[0]!.reaches.consumers).toContain(APP);
+    // Only the application's acceptance checks: a flow's own check step runs inside the flow.
+    expect((r.out.checks as string[]).length).toBeGreaterThan(0);
+    for (const c of r.out.checks as string[]) expect(c.startsWith(`part:${APP}/check.`)).toBe(true);
+    expect((await run(["impact", dir, "--as", "lead"])).out.error).toMatch(/--record or --against/);
+  });
+
   it("gives a context that lists the application's own parts and checks with each Type, and its guards to the lead only (ADR-0092)", async () => {
     const dir = await workbench();
     const lead = (await run(["context", dir, "--as", "lead"])).out as unknown as { governance: string; checks: { consumer: string }[]; types: { name: string; usedBy: { consumer: string }[] }[]; text: string };

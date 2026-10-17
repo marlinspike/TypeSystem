@@ -2,7 +2,8 @@ import type {
   SemanticRegistry,
   SemanticRuntime,
   SemanticRuntimeOptions,
-  PolicyRule
+  PolicyRule,
+  DomainManifest
 } from "@typesys/core";
 import {
   allOf,
@@ -69,7 +70,12 @@ export const airforcePolicyRules: Record<string, PolicyRule> = {
  * default would hide the field from everyone (ADR-0034).
  */
 export async function buildAirforceTestbed(
-  opts: { runtimeOptions?: SemanticRuntimeOptions; mockRestLatencyMs?: number } = {}
+  opts: {
+    runtimeOptions?: SemanticRuntimeOptions;
+    mockRestLatencyMs?: number;
+    /** The domain to register in place of `airforceManifest`: a proposed change, built beside the current one (ADR-0093). */
+    manifest?: DomainManifest;
+  } = {}
 ): Promise<AirforceTestbed> {
   const inMemoryAdapter = new InMemoryRepositoryAdapter(AIRCRAFT_DATA_SOURCE_ID, "airforce-repo");
   inMemoryAdapter.seed("airforce.Aircraft", sampleAircraft);
@@ -84,7 +90,7 @@ export async function buildAirforceTestbed(
   });
 
   const { registry, runtime, policyEngine } = await buildRuntime({
-    manifests: [coreManifest, airforceManifest],
+    manifests: [coreManifest, opts.manifest ?? airforceManifest],
     adapters: [inMemoryAdapter, mockRestAdapter],
     policyRules: airforcePolicyRules,
     runtimeOptions: { classification: DEMO_LINEAR_CLASSIFICATION, ...opts.runtimeOptions }
@@ -100,6 +106,33 @@ export async function buildAirforceTestbed(
  */
 export function buildAirforceWorkbench(opts: Parameters<typeof buildAirforceTestbed>[0] = {}): Promise<AirforceTestbed> {
   return buildAirforceTestbed({ ...opts, runtimeOptions: { inspection: { policy: "airforce.inspect" }, ...opts.runtimeOptions } });
+}
+
+/**
+ * The change the change-impact demonstration proposes (ADR-0093): release
+ * `readinessStatus` to every reader of an Aircraft, as `needsAttention` is.
+ * It reads like a small convenience. But `readinessStatus` maps the
+ * maintainer-only `maintenanceStatus` one to one, so releasing it shows
+ * every viewer what that policy withholds from them.
+ */
+export function releaseReadinessToViewers(manifest: DomainManifest = airforceManifest): DomainManifest {
+  return {
+    ...manifest,
+    types: manifest.types.map((entry) => {
+      if (entry.options.name !== "airforce.Aircraft") return entry;
+      const computed = entry.schema["x-computed"]!;
+      return {
+        ...entry,
+        schema: { ...entry.schema, "x-computed": { ...computed, readinessStatus: { ...computed.readinessStatus!, releases: ["maintenanceStatus"] } } },
+        options: { ...entry.options, version: "1.1.0" }
+      };
+    })
+  };
+}
+
+/** The workbench with `releaseReadinessToViewers` applied: the proposal the change-impact demonstration analyzes. */
+export function buildAirforceProposal(opts: Parameters<typeof buildAirforceTestbed>[0] = {}): Promise<AirforceTestbed> {
+  return buildAirforceWorkbench({ ...opts, manifest: releaseReadinessToViewers(opts.manifest) });
 }
 
 /**

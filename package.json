@@ -35,6 +35,7 @@
     "mission": "tsx scripts/mission.ts",
     "onboard:demo": "tsx scripts/onboard-demo.ts",
     "draft:demo": "tsx scripts/draft-demo.ts",
+    "impact:demo": "tsx scripts/impact-demo.ts",
     "clean": "tsc -b --clean",
     "changeset": "changeset",
     "version-packages": "changeset version",

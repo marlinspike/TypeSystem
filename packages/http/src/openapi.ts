@@ -124,6 +124,14 @@ export function openApiDocument(
         ]
       })
     },
+    "/impact/baseline": {
+      get: op("impactBaseline", "A baseline of the model as it is now: its description, its inspection for an inspector, and how each caller's read of a few objects is decided, without values (ADR-0093)", { type: "object" })
+    },
+    "/impact": {
+      post: op("impact", "What changed since a baseline: contract, governance and observed changes, and the consumers and checks each reaches (ADR-0093)", { type: "object" }, {
+        requestBody: { required: true, ...json({ type: "object", properties: { baseline: { type: "object" } }, required: ["baseline"] }) }
+      })
+    },
     "/types/{type}/actions": {
       get: op("listActions", "The Actions on a Type or one object, and whether this caller may invoke each", { type: "array", items: ref("ActionSummary") }, {
         parameters: [pathParam("type"), { name: "objectId", in: "query", required: false, schema: { type: "string" } }]

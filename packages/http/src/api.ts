@@ -12,7 +12,7 @@ import {
   type SemanticRegistry,
   type SemanticRuntime
 } from "@typesys/core";
-import { GRAPH_VIEWS, discover, governedGraph, queryGraph, validateQuery, type GraphConsumer, type GraphViewName, type SemanticGraph } from "@typesys/devkit";
+import { GRAPH_VIEWS, analyzeChange, discover, governedBaseline, governedGraph, isBaseline, queryGraph, validateQuery, type GraphConsumer, type GraphViewName, type SemanticGraph } from "@typesys/devkit";
 import { workflowUses, type WorkflowEngine } from "@typesys/workflow";
 import { LOCAL_HOSTS, bearerToken, originGuard } from "./guard.js";
 import { openApiDocument } from "./openapi.js";
@@ -110,7 +110,8 @@ export function createApiRouter(opts: ApiOptions): Router {
     return opts.subjects;
   };
   /** The graph as this caller may learn it: from an inspection when they may inspect, else from their description. */
-  const graphFor = (who: Identity): Promise<SemanticGraph> => governedGraph(runtime, who, [...(opts.consumers ?? []), ...(opts.workflows?.definitionsList().map((w) => workflowUses(w)) ?? [])]);
+  const consumers = (): GraphConsumer[] => [...(opts.consumers ?? []), ...(opts.workflows?.definitionsList().map((w) => workflowUses(w)) ?? [])];
+  const graphFor = (who: Identity): Promise<SemanticGraph> => governedGraph(runtime, who, consumers());
   const intQuery = (req: Request, name: string, min: number, max: number, fallback: number): number => {
     const raw = req.query[name];
     if (raw === undefined) return fallback;
@@ -192,6 +193,19 @@ export function createApiRouter(opts: ApiOptions): Router {
         depth: neighborhoodView ? intQuery(req, "depth", 1, 4, 1) : intQuery(req, "depth", 1, 50, 50),
         limit: intQuery(req, "limit", 5, 400, 60)
       });
+    })
+  );
+
+  router.get(
+    "/impact/baseline",
+    route(200, (_req, who) => governedBaseline(runtime, who, opts.subjects))
+  );
+  router.post(
+    "/impact",
+    route(200, async (req, who) => {
+      const { baseline } = body<{ baseline?: unknown }>(req);
+      if (!isBaseline(baseline)) throw new InvalidInputError("`baseline` must be a typesys.baseline/1 from GET /impact/baseline");
+      return analyzeChange(baseline, await governedBaseline(runtime, who, opts.subjects), consumers());
     })
   );
 

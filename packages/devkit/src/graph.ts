@@ -382,6 +382,17 @@ function consumersOf(ix: GraphIndex, id: string): string[] {
   return out;
 }
 
+/**
+ * Whether a node is an application's acceptance check (`appUses`' `check.<id>`
+ * parts), not a workflow's own `check` step, which runs inside the workflow
+ * and is not something to run after a change.
+ */
+export function isAcceptanceCheck(graph: SemanticGraph, id: string): boolean {
+  const ix = indexGraph(graph);
+  const node = ix.node(id);
+  return node?.kind === "part" && node.detail?.part === "check" && node.parent !== undefined && ix.node(node.parent)?.kind === "app";
+}
+
 export interface Reached {
   readonly id: string;
   readonly kind: GraphNodeKind;

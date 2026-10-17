@@ -2030,8 +2030,8 @@
       "adr": "0092",
       "description": "Only checks that use a Type directly are listed, not those that reach it through a page.",
       "file": "packages/devkit/src/context.ts",
-      "find": "if (r.distance > 1 && r.kind === \"part\"",
-      "replace": "if (r.distance > 99 && r.kind === \"part\"",
+      "find": "if (r.distance > 1 && isAcceptanceCheck(graph, r.id)) add(",
+      "replace": "if (r.distance > 99 && isAcceptanceCheck(graph, r.id)) add(",
       "tests": [
         "packages/devkit/test/context-v2.test.ts"
       ]
@@ -2045,6 +2045,72 @@
       "replace": "sortable: [...stored, ...t.computed.map((c) => c.name)], searchable",
       "tests": [
         "packages/devkit/test/context-v2.test.ts"
+      ]
+    },
+    {
+      "id": "impact.exposure-unreported",
+      "adr": "0093",
+      "description": "An observed read a caller is newly returned is not reported as an exposure.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "exposures: items.filter((i) => i.kind === \"observed\" && i.effect === \"widens\")",
+      "replace": "exposures: items.filter((i) => i.kind === \"observed\" && i.effect === \"narrows\")",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.release-not-compared",
+      "adr": "0093",
+      "description": "A computed value newly released from its inputs' read policy is not found.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "if (released.length) out.push({ subject, change: `now released",
+      "replace": "if (released.length < 0) out.push({ subject, change: `now released",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.policy-removal-narrows",
+      "adr": "0093",
+      "description": "A policy taken off a value is reported as narrowing who may read it.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "change: `${what} no longer guarded by ${before}`, effect: \"widens\"",
+      "replace": "change: `${what} no longer guarded by ${before}`, effect: \"narrows\"",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.directory-asked-for-anyone",
+      "adr": "0093",
+      "description": "A server's subject directory is listed for a caller who may not inspect.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "const listed = subjects && (await runtime.canInspect(identity)) ? await subjects.list() : [];",
+      "replace": "const listed = subjects ? await subjects.list() : [];",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "impact.malformed-probes-accepted",
+      "adr": "0093",
+      "description": "A baseline whose probes are malformed is accepted for comparison.",
+      "file": "packages/devkit/src/impact.ts",
+      "find": "(b.probes as unknown[]).every((x) =>",
+      "replace": "([] as unknown[]).every((x) =>",
+      "tests": [
+        "packages/devkit/test/impact.test.ts"
+      ]
+    },
+    {
+      "id": "graph.workflow-check-is-acceptance",
+      "adr": "0093",
+      "description": "A workflow's own check step is reported as an acceptance check to run after a change.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "node.parent !== undefined && ix.node(node.parent)?.kind === \"app\"",
+      "replace": "node.parent !== undefined",
+      "tests": [
+        "packages/compiler/test/uses.test.ts"
       ]
     }
   ]

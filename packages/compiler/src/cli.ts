@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { compileContext, governedGraph, queryGraph, GRAPH_VIEWS, type GraphViewName } from "@typesys/devkit";
+import { BASELINE_FORMAT, analyzeChange, compileContext, governedGraph, isBaseline, queryGraph, recordBaseline, renderImpact, GRAPH_VIEWS, type GraphViewName } from "@typesys/devkit";
 import { describeModel, type ExplainQuestion, type Identity } from "@typesys/core";
 import { tryLoadHost } from "@typesys/engineer";
 import { buildApp } from "./build.js";
@@ -30,6 +30,7 @@ Usage:
   typesys app inspect <dir> [--as <caller>] [--type <Type>]... [--json]
   typesys app why <dir> [--as <caller>] [--for <caller>] (--read <Type>/<id> | --related <Type>/<id>/<relationship> | --invoke <Action> [--input <json>] | --query <json>) [--json]
   typesys app graph <dir> [--as <caller>] [--view overview|neighborhood|dependents|dependencies|full] [--node <id>] [--depth <n>] [--json]
+  typesys app impact <dir> [--as <caller>] (--record <baseline.json> | --against <baseline.json>) [--json]
 
   catalog   Every primitive (nodes, steps, effects, operators, scopes) and
             its fields: the whole language, as data.
@@ -60,6 +61,14 @@ Usage:
   graph     The dependency graph of the model and this application, as
             --as may learn it (ADR-0090): what a change to --node reaches
             (dependents) or what it rests on (dependencies).
+  impact    What a change to the model does (ADR-0093). --record writes a
+            baseline: the model, its inspection when --as may inspect, and
+            how each caller's read of a few objects is decided, with no
+            values. --against records the host as it is now and compares:
+            contract and governance changes, every read whose decision
+            changed, and the consumers and checks each change reaches.
+            Exits 1 on a breaking change, an under-versioned one, or a read
+            a caller is newly returned.
   migrate   Translate a typesys.mission/1 spec into <dir>/app.json: the
             same host, callers and checks, the workflow step for step, the
             views as tables. Every change it makes is a mission-translation
@@ -175,6 +184,7 @@ export async function appCommand(argv: readonly string[], out: (s: string) => vo
     case "inspect":
     case "why":
     case "graph":
+    case "impact":
       return workbenchCommand(sub, target, rest, print, host);
     default:
       out(APP_USAGE);
@@ -267,8 +277,8 @@ function question(rest: readonly string[]): ExplainQuestion | string {
   return "why needs one of --read, --related, --invoke, --query";
 }
 
-/** inspect, why and graph: each a question one of the application's callers asks the host's runtime, which decides it. */
-async function workbenchCommand(sub: "inspect" | "why" | "graph", dir: string, rest: readonly string[], print: Print, host: { within?: string }): Promise<number> {
+/** inspect, why, graph and impact: each a question one of the application's callers asks the host's runtime, which decides it. */
+async function workbenchCommand(sub: "inspect" | "why" | "graph" | "impact", dir: string, rest: readonly string[], print: Print, host: { within?: string }): Promise<number> {
   const read = await readAppSpec(path.resolve(dir));
   if (read.doc === undefined) return print(false, { ok: false, diagnostics: read.diagnostics }, read.diagnostics.map(line));
   const spec = read.doc as AppSpec;
@@ -310,6 +320,23 @@ async function workbenchCommand(sub: "inspect" | "why" | "graph", dir: string, r
         ...e.findings.map((f) => `  ${f.outcome.padEnd(9)} ${(f.member ?? f.about).padEnd(28)} ${f.basis}${f.control ? `, ${f.control}` : ""}${f.policy ? ` ${f.policy}` : ""}${f.reason ? `: ${f.reason}` : ""}${f.remedy ? ` (to change: ${f.remedy})` : ""}`),
         e.caveat
       ]);
+    }
+    if (sub === "impact") {
+      const [record, against] = [arg(rest, "--record"), arg(rest, "--against")];
+      if (!record === !against) return print(false, { ok: false, error: "impact needs one of --record or --against" }, ["impact needs one of --record <baseline.json> or --against <baseline.json>"]);
+      const callers = Object.fromEntries(await Promise.all(Object.keys(spec.callers ?? {}).map(async (name) => [name, await identityOf(name)] as const)));
+      const now = await recordBaseline(runtime, identity, { callers });
+      if (record) {
+        await writeFile(path.resolve(record), `${JSON.stringify(now, null, 2)}\n`);
+        return print(true, { ok: true, baseline: record, probes: now.probes.length, inspected: now.inspection !== undefined }, [
+          `Recorded ${record}: ${now.description.types.length} Types, ${now.probes.length} reads by ${Object.keys(callers).length} callers${now.inspection ? ", with the inspection" : `; ${as} may not inspect, so governance will not be compared`}`
+        ]);
+      }
+      const before: unknown = JSON.parse(await readFile(path.resolve(against!), "utf8"));
+      if (!isBaseline(before)) return print(false, { ok: false, error: `${against} is not a ${BASELINE_FORMAT}` }, [`${against} is not a ${BASELINE_FORMAT}`]);
+      const impact = analyzeChange(before, now, appUses(spec, await describeModel(loaded.host.registry)));
+      const ok = impact.verdict !== "breaking" && impact.exposures.length === 0 && impact.underVersioned.length === 0;
+      return print(ok, { ok, ...impact }, renderImpact(impact));
     }
     const view = arg(rest, "--view") ?? "overview";
     if (!(GRAPH_VIEWS as readonly string[]).includes(view)) return print(false, { ok: false, error: `--view is one of ${GRAPH_VIEWS.join(", ")}` }, [`--view is one of ${GRAPH_VIEWS.join(", ")}`]);

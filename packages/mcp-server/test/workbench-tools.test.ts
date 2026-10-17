@@ -67,4 +67,15 @@ describe("workbench tools over MCP", () => {
     expect(lead.governance).toBe("shown");
     expect(lead.text).toContain("airforce.maintainer-only");
   });
+
+  it("typesys_impact records a baseline and compares one, as the caller may learn the model (ADR-0093)", async () => {
+    const baseline = await ok("typesys_impact", { authToken: "demo-lead-token" });
+    expect(baseline.format).toBe("typesys.baseline/1");
+    expect(new Set((baseline.probes as { as: string }[]).map((p) => p.as)).size).toBe(3);
+    const same = await ok("typesys_impact", { baseline, authToken: "demo-lead-token" });
+    expect(same).toMatchObject({ verdict: "compatible", items: [] });
+    const viewer = await ok("typesys_impact", { authToken: "demo-viewer-token" });
+    expect(new Set((viewer.probes as { as: string }[]).map((p) => p.as))).toEqual(new Set([demoIdentities.viewer.subjectId]));
+    expect((await call("typesys_impact", { baseline: { format: "nope" }, authToken: "demo-lead-token" })).isError).toBe(true);
+  });
 });
