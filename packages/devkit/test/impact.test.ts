@@ -42,6 +42,14 @@ describe("a baseline", () => {
     for (const value of ["FOB ALPHA", "Home station", "Block 50 F-16C assigned"]) expect(json).not.toContain(value);
   });
 
+  it("probes, beside the first object of each Type, the objects it is given, once each", async () => {
+    const { runtime } = await buildAirforceWorkbench({ mockRestLatencyMs: 0 });
+    const first = before.probes.find((p) => p.type === "airforce.Aircraft")!.id;
+    const other = (await runtime.query({ type: "airforce.Aircraft", limit: 5 }, demoIdentities.lead)).items.map((o) => o.objectId).find((id) => id !== first)!;
+    const b = await recordBaseline(runtime, demoIdentities.lead, { callers, types: ["airforce.Aircraft"], objects: [{ type: "airforce.Aircraft", id: other }, { type: "airforce.Aircraft", id: first }] });
+    expect(b.probes.filter((p) => p.as === "viewer").map((p) => p.id)).toEqual([first, other]);
+  });
+
   it("without inspection, still records the reads, and says governance cannot be compared", async () => {
     const { runtime } = await buildAirforceWorkbench({ mockRestLatencyMs: 0 });
     const b = await recordBaseline(runtime, demoIdentities.maintainer, { callers });

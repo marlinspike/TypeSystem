@@ -1,0 +1,3638 @@
+{
+  "format": "typesys.baseline/1",
+  "by": "user-qa-1",
+  "description": {
+    "format": "typesys.model/1",
+    "types": [
+      {
+        "name": "coldchain.Excursion",
+        "version": "1.0.0",
+        "description": "A time a shipment's temperature left 2–8 °C, in the sensor hub.",
+        "traits": [],
+        "properties": {
+          "shipmentId": {
+            "type": "string"
+          },
+          "logger": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "peakC": {
+            "type": "number",
+            "description": "The reading furthest from the range."
+          },
+          "minutesOut": {
+            "type": "integer"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major",
+              "critical"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "disposition": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "release",
+              "quarantine",
+              "destroy",
+              null
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "severity",
+          "shipmentId",
+          "status"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": [
+          "CloseExcursion",
+          "ReopenExcursion"
+        ]
+      },
+      {
+        "name": "coldchain.Lot",
+        "version": "1.0.0",
+        "description": "A manufacturer's lot of a cold-chain product, in the pharmacy inventory.",
+        "traits": [],
+        "properties": {
+          "product": {
+            "type": "string"
+          },
+          "ndc": {
+            "type": "string",
+            "description": "National Drug Code."
+          },
+          "manufacturer": {
+            "type": "string"
+          },
+          "doses": {
+            "type": "integer"
+          },
+          "unitCost": {
+            "type": "number",
+            "description": "Contract price per dose, USD. CONFIDENTIAL."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "in-transit",
+              "quarantined",
+              "destroyed"
+            ]
+          },
+          "expiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "siteId": {
+            "type": "string"
+          },
+          "shipmentId": {
+            "type": "string"
+          },
+          "minTempC": {
+            "type": "number"
+          },
+          "maxTempC": {
+            "type": "number"
+          },
+          "holdReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "product",
+          "status"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": [
+          "HoldLotsForRecall",
+          "QuarantineLot",
+          "ReleaseLot",
+          "ReleaseRecallHolds"
+        ]
+      },
+      {
+        "name": "coldchain.Reading",
+        "version": "1.0.0",
+        "description": "One temperature reading from a shipment's logger, in the sensor hub.",
+        "traits": [],
+        "properties": {
+          "shipmentId": {
+            "type": "string"
+          },
+          "logger": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "temperatureC": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "at",
+          "shipmentId",
+          "temperatureC"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": []
+      },
+      {
+        "name": "coldchain.Recall",
+        "version": "1.0.0",
+        "description": "A manufacturer's recall notice, in the recall exchange, and the response on file against it.",
+        "traits": [],
+        "properties": {
+          "firm": {
+            "type": "string",
+            "description": "The issuing manufacturer."
+          },
+          "product": {
+            "type": "string"
+          },
+          "ndc": {
+            "type": "string",
+            "pattern": "^[0-9]{11}$",
+            "description": "National Drug Code, eleven digits, as the exchange writes it."
+          },
+          "recallClass": {
+            "type": "string",
+            "enum": [
+              "I",
+              "II",
+              "III"
+            ]
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "active",
+              "terminated"
+            ]
+          },
+          "embargoed": {
+            "type": "boolean",
+            "description": "True while the manufacturer has not made the notice public: need-to-know for quality assurance."
+          },
+          "healthHazard": {
+            "type": "string",
+            "description": "The manufacturer's health hazard evaluation. CONFIDENTIAL; quality assurance only."
+          },
+          "issuedOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "affectedLots": {
+            "type": "array",
+            "description": "Every lot the manufacturer recalled, including lots we never held.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lotCode": {
+                  "type": "string"
+                },
+                "expiry": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "lotCode"
+              ]
+            }
+          },
+          "responseStatus": {
+            "type": "string",
+            "enum": [
+              "awaiting",
+              "responded"
+            ]
+          },
+          "lotsHeld": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "From the response on file: the lots quarantined."
+          },
+          "dosesHeld": {
+            "type": "integer",
+            "description": "From the response on file: the doses in those lots."
+          },
+          "shipmentsInTransit": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "From the response on file: shipments reported in transit."
+          },
+          "signedOffBy": {
+            "type": "string",
+            "description": "From the response on file: who signed it off."
+          }
+        },
+        "required": [
+          "embargoed",
+          "firm",
+          "lifecycle",
+          "ndc",
+          "product",
+          "recallClass",
+          "responseStatus"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": [
+          "FileRecallResponse"
+        ]
+      },
+      {
+        "name": "coldchain.Shipment",
+        "version": "1.0.0",
+        "description": "A refrigerated consignment, in the shipment tracker.",
+        "traits": [],
+        "properties": {
+          "origin": {
+            "type": "string",
+            "description": "The site it left."
+          },
+          "destination": {
+            "type": "string",
+            "description": "The site it is bound for."
+          },
+          "carrier": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in-transit",
+              "delivered",
+              "held"
+            ]
+          },
+          "lat": {
+            "type": "number",
+            "description": "Its last GPS fix."
+          },
+          "lon": {
+            "type": "number"
+          },
+          "departedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "eta": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "destination",
+          "origin",
+          "status"
+        ],
+        "computed": [],
+        "relationships": [
+          {
+            "name": "readings",
+            "target": "coldchain.Reading",
+            "cardinality": "one-to-many",
+            "optional": true
+          },
+          {
+            "name": "excursions",
+            "target": "coldchain.Excursion",
+            "cardinality": "one-to-many",
+            "optional": true
+          },
+          {
+            "name": "lots",
+            "target": "coldchain.Lot",
+            "cardinality": "one-to-many",
+            "optional": true
+          },
+          {
+            "name": "originSite",
+            "target": "coldchain.Site",
+            "cardinality": "one-to-one",
+            "optional": true
+          },
+          {
+            "name": "destinationSite",
+            "target": "coldchain.Site",
+            "cardinality": "one-to-one",
+            "optional": true
+          }
+        ],
+        "actions": [
+          "QuarantineShipmentLots",
+          "ReleaseShipmentLots"
+        ]
+      },
+      {
+        "name": "coldchain.Site",
+        "version": "1.0.0",
+        "description": "A distribution center, hospital pharmacy or clinic, in the pharmacy inventory.",
+        "traits": [],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "distribution",
+              "hospital",
+              "clinic"
+            ]
+          },
+          "city": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "computed": [],
+        "relationships": [
+          {
+            "name": "lots",
+            "target": "coldchain.Lot",
+            "cardinality": "one-to-many",
+            "optional": true
+          }
+        ],
+        "actions": []
+      },
+      {
+        "name": "core.Asset",
+        "version": "1.0.0",
+        "description": "A physical or logical item of value an enterprise tracks, such as an aircraft, vehicle, or facility.",
+        "traits": [],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": []
+      },
+      {
+        "name": "core.Event",
+        "version": "1.0.0",
+        "description": "Something that happened at a point in time, tracked by the enterprise (e.g. a maintenance event).",
+        "traits": [],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "occurredAt"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": []
+      },
+      {
+        "name": "core.Location",
+        "version": "1.0.0",
+        "description": "A physical place, such as a base, facility, or site.",
+        "traits": [],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": []
+      },
+      {
+        "name": "core.Organization",
+        "version": "1.0.0",
+        "description": "A group party such as a unit, company, or agency.",
+        "extends": "core.Party",
+        "traits": [],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "orgType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "id"
+        ],
+        "computed": [],
+        "relationships": [
+          {
+            "name": "members",
+            "target": "core.Person",
+            "cardinality": "many-to-many"
+          }
+        ],
+        "actions": []
+      },
+      {
+        "name": "core.Party",
+        "version": "1.0.0",
+        "description": "A person or organization capable of holding responsibility, ownership, or a role.",
+        "traits": [],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "id"
+        ],
+        "computed": [],
+        "relationships": [],
+        "actions": []
+      },
+      {
+        "name": "core.Person",
+        "version": "1.0.0",
+        "description": "An individual human party.",
+        "extends": "core.Party",
+        "traits": [],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "roleTitle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "id"
+        ],
+        "computed": [],
+        "relationships": [
+          {
+            "name": "affiliations",
+            "target": "core.Organization",
+            "cardinality": "many-to-many"
+          }
+        ],
+        "actions": []
+      }
+    ],
+    "actions": [
+      {
+        "name": "CloseExcursion",
+        "version": "1.0.0",
+        "description": "Records the disposition of a temperature excursion in the sensor hub, closing it.",
+        "applicableTypes": [
+          "coldchain.Excursion"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "excursionId": {
+              "type": "string"
+            },
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "release",
+                "quarantine",
+                "destroy"
+              ]
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "excursionId",
+            "disposition"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Excursion",
+          "idFrom": "excursionId"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "none"
+      },
+      {
+        "name": "FileRecallResponse",
+        "version": "1.0.0",
+        "description": "Files the distributor's effectiveness response to a recall with the exchange. The exchange refuses a terminated notice, one already answered, and a lot not on the notice.",
+        "applicableTypes": [
+          "coldchain.Recall"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "recallNumber": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lotsQuarantined": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dosesQuarantined": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "shipmentsInTransit": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "signedOffBy": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "recallNumber",
+            "lotsQuarantined",
+            "dosesQuarantined",
+            "shipmentsInTransit",
+            "signedOffBy"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Recall",
+          "idFrom": "recallNumber"
+        },
+        "sideEffects": "external",
+        "idempotency": "none",
+        "requiresApproval": true
+      },
+      {
+        "name": "HoldLotsForRecall",
+        "version": "1.0.0",
+        "description": "Quarantines each listed lot in the pharmacy inventory with a hold reason naming the recall. All or none: a lot that cannot be held releases those already held.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "recallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lotIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "recallId",
+            "lotIds"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "recallId": {
+              "type": "string"
+            },
+            "held": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "recallId",
+            "held"
+          ]
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "requiresApproval": true
+      },
+      {
+        "name": "QuarantineLot",
+        "version": "1.0.0",
+        "description": "Holds one lot in the pharmacy inventory.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "lotId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Lot",
+          "idFrom": "lotId"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural"
+      },
+      {
+        "name": "QuarantineShipmentLots",
+        "version": "1.0.0",
+        "description": "Holds every lot a shipment carries in the pharmacy inventory, so none is dispensed.",
+        "applicableTypes": [
+          "coldchain.Shipment"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "shipmentId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Shipment",
+          "idFrom": "shipmentId"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural"
+      },
+      {
+        "name": "ReleaseLot",
+        "version": "1.0.0",
+        "description": "Releases one quarantined lot.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "lotId"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Lot",
+          "idFrom": "lotId"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural"
+      },
+      {
+        "name": "ReleaseRecallHolds",
+        "version": "1.0.0",
+        "description": "Releases lots a recall hold quarantined: undoes HoldLotsForRecall.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "lotIds"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "released": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "released"
+          ]
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "requiresApproval": true
+      },
+      {
+        "name": "ReleaseShipmentLots",
+        "version": "1.0.0",
+        "description": "Releases a shipment's quarantined lots to the status they had before.",
+        "applicableTypes": [
+          "coldchain.Shipment"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "shipmentId"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Shipment",
+          "idFrom": "shipmentId"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural"
+      },
+      {
+        "name": "ReopenExcursion",
+        "version": "1.0.0",
+        "description": "Reopens a closed excursion: undoes a disposition recorded in error.",
+        "applicableTypes": [
+          "coldchain.Excursion"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "excursionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "excursionId"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "target": {
+          "type": "coldchain.Excursion",
+          "idFrom": "excursionId"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural"
+      }
+    ]
+  },
+  "inspection": {
+    "format": "typesys.inspection/1",
+    "modelDigest": "sha256:49ee161f57ad3bd2fe96b52ce6de336b68b759d2e0aa25d4f91a3f5d6d477a52",
+    "classificationScheme": "coldchain-commercial",
+    "types": [
+      {
+        "name": "coldchain.Excursion",
+        "version": "1.0.0",
+        "description": "A time a shipment's temperature left 2–8 °C, in the sensor hub.",
+        "traits": [],
+        "objectPolicy": "coldchain.telemetry",
+        "source": {
+          "dataSourceId": "sensor-hub",
+          "operation": "get",
+          "resolutionMode": "live"
+        },
+        "members": [
+          {
+            "name": "shipmentId",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "logger",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "startedAt",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "endedAt",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "peakC",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number",
+              "description": "The reading furthest from the range."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "minutesOut",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "integer"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "severity",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "minor",
+                "major",
+                "critical"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "status",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "closed"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "disposition",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "release",
+                "quarantine",
+                "destroy",
+                null
+              ]
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "note",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [
+          "CloseExcursion",
+          "ReopenExcursion"
+        ],
+        "markings": []
+      },
+      {
+        "name": "coldchain.Lot",
+        "version": "1.0.0",
+        "description": "A manufacturer's lot of a cold-chain product, in the pharmacy inventory.",
+        "traits": [],
+        "objectPolicy": "coldchain.inventory",
+        "source": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "get",
+          "resolutionMode": "live"
+        },
+        "members": [
+          {
+            "name": "product",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "ndc",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "description": "National Drug Code."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "manufacturer",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "doses",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "integer"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "unitCost",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number",
+              "description": "Contract price per dose, USD. CONFIDENTIAL."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": [
+              "CONFIDENTIAL"
+            ]
+          },
+          {
+            "name": "status",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "available",
+                "in-transit",
+                "quarantined",
+                "destroyed"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "expiresOn",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "siteId",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "shipmentId",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "minTempC",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "maxTempC",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "holdReason",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [
+          "HoldLotsForRecall",
+          "QuarantineLot",
+          "ReleaseLot",
+          "ReleaseRecallHolds"
+        ],
+        "markings": []
+      },
+      {
+        "name": "coldchain.Reading",
+        "version": "1.0.0",
+        "description": "One temperature reading from a shipment's logger, in the sensor hub.",
+        "traits": [],
+        "objectPolicy": "coldchain.telemetry",
+        "source": {
+          "dataSourceId": "sensor-hub",
+          "operation": "get",
+          "resolutionMode": "live"
+        },
+        "members": [
+          {
+            "name": "shipmentId",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "logger",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "at",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "temperatureC",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "coldchain.Recall",
+        "version": "1.0.0",
+        "description": "A manufacturer's recall notice, in the recall exchange, and the response on file against it.",
+        "traits": [],
+        "objectPolicy": "coldchain.read-recall",
+        "source": {
+          "dataSourceId": "recall-exchange",
+          "operation": "get",
+          "resolutionMode": "live"
+        },
+        "members": [
+          {
+            "name": "firm",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "description": "The issuing manufacturer."
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "product",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "ndc",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{11}$",
+              "description": "National Drug Code, eleven digits, as the exchange writes it."
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "recallClass",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "I",
+                "II",
+                "III"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "lifecycle",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "terminated"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "embargoed",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "boolean",
+              "description": "True while the manufacturer has not made the notice public: need-to-know for quality assurance."
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "healthHazard",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "description": "The manufacturer's health hazard evaluation. CONFIDENTIAL; quality assurance only."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "policy": "coldchain.qa",
+            "markings": [
+              "CONFIDENTIAL"
+            ]
+          },
+          {
+            "name": "issuedOn",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "affectedLots",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "array",
+              "description": "Every lot the manufacturer recalled, including lots we never held.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "lotCode": {
+                    "type": "string"
+                  },
+                  "expiry": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                },
+                "required": [
+                  "lotCode"
+                ]
+              }
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "responseStatus",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "awaiting",
+                "responded"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "lotsHeld",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "From the response on file: the lots quarantined."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "dosesHeld",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "integer",
+              "description": "From the response on file: the doses in those lots."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "shipmentsInTransit",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "From the response on file: shipments reported in transit."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "signedOffBy",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "description": "From the response on file: who signed it off."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "recall-exchange",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [
+          "FileRecallResponse"
+        ],
+        "markings": []
+      },
+      {
+        "name": "coldchain.Shipment",
+        "version": "1.0.0",
+        "description": "A refrigerated consignment, in the shipment tracker.",
+        "traits": [],
+        "objectPolicy": "coldchain.read-shipment",
+        "source": {
+          "dataSourceId": "shipment-tracker",
+          "operation": "get",
+          "resolutionMode": "live"
+        },
+        "members": [
+          {
+            "name": "origin",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "description": "The site it left."
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "destination",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "description": "The site it is bound for."
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "carrier",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "status",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "in-transit",
+                "delivered",
+                "held"
+              ]
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "lat",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number",
+              "description": "Its last GPS fix."
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "lon",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "departedAt",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "eta",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          }
+        ],
+        "relationships": [
+          {
+            "name": "readings",
+            "target": "coldchain.Reading",
+            "cardinality": "one-to-many",
+            "optional": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "byForeignKey:shipmentId",
+              "resolutionMode": "live"
+            },
+            "crossSource": true,
+            "markings": []
+          },
+          {
+            "name": "excursions",
+            "target": "coldchain.Excursion",
+            "cardinality": "one-to-many",
+            "optional": true,
+            "source": {
+              "dataSourceId": "sensor-hub",
+              "operation": "byForeignKey:shipmentId",
+              "resolutionMode": "live"
+            },
+            "crossSource": true,
+            "markings": []
+          },
+          {
+            "name": "lots",
+            "target": "coldchain.Lot",
+            "cardinality": "one-to-many",
+            "optional": true,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "byForeignKey:shipmentId",
+              "resolutionMode": "live"
+            },
+            "crossSource": true,
+            "markings": []
+          },
+          {
+            "name": "originSite",
+            "target": "coldchain.Site",
+            "cardinality": "one-to-one",
+            "optional": true,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "byOwnField:origin",
+              "resolutionMode": "live"
+            },
+            "crossSource": false,
+            "markings": []
+          },
+          {
+            "name": "destinationSite",
+            "target": "coldchain.Site",
+            "cardinality": "one-to-one",
+            "optional": true,
+            "source": {
+              "dataSourceId": "shipment-tracker",
+              "operation": "byOwnField:destination",
+              "resolutionMode": "live"
+            },
+            "crossSource": false,
+            "markings": []
+          }
+        ],
+        "actions": [
+          "QuarantineShipmentLots",
+          "ReleaseShipmentLots"
+        ],
+        "markings": []
+      },
+      {
+        "name": "coldchain.Site",
+        "version": "1.0.0",
+        "description": "A distribution center, hospital pharmacy or clinic, in the pharmacy inventory.",
+        "traits": [],
+        "objectPolicy": "coldchain.read-site",
+        "source": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "get",
+          "resolutionMode": "live"
+        },
+        "members": [
+          {
+            "name": "name",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "kind",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "enum": [
+                "distribution",
+                "hospital",
+                "clinic"
+              ]
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "city",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "lat",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          },
+          {
+            "name": "lon",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number"
+            },
+            "required": false,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "get",
+              "resolutionMode": "live",
+              "override": false
+            },
+            "markings": []
+          }
+        ],
+        "relationships": [
+          {
+            "name": "lots",
+            "target": "coldchain.Lot",
+            "cardinality": "one-to-many",
+            "optional": true,
+            "source": {
+              "dataSourceId": "pharmacy-inventory",
+              "operation": "byForeignKey:siteId",
+              "resolutionMode": "live"
+            },
+            "crossSource": false,
+            "markings": []
+          }
+        ],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "core.Asset",
+        "version": "1.0.0",
+        "description": "A physical or logical item of value an enterprise tracks, such as an aircraft, vehicle, or facility.",
+        "traits": [],
+        "objectPolicy": "default-deny",
+        "members": [
+          {
+            "name": "id",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "name",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "description",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "core.Event",
+        "version": "1.0.0",
+        "description": "Something that happened at a point in time, tracked by the enterprise (e.g. a maintenance event).",
+        "traits": [],
+        "objectPolicy": "default-deny",
+        "members": [
+          {
+            "name": "id",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "occurredAt",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "description",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "core.Location",
+        "version": "1.0.0",
+        "description": "A physical place, such as a base, facility, or site.",
+        "traits": [],
+        "objectPolicy": "default-deny",
+        "members": [
+          {
+            "name": "id",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "name",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "latitude",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "required": false,
+            "markings": []
+          },
+          {
+            "name": "longitude",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "required": false,
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "core.Organization",
+        "version": "1.0.0",
+        "description": "A group party such as a unit, company, or agency.",
+        "extends": "core.Party",
+        "traits": [],
+        "objectPolicy": "default-deny",
+        "members": [
+          {
+            "name": "id",
+            "kind": "stored",
+            "origin": {
+              "from": "base",
+              "type": "core.Party"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "displayName",
+            "kind": "stored",
+            "origin": {
+              "from": "base",
+              "type": "core.Party"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "orgType",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "markings": []
+          }
+        ],
+        "relationships": [
+          {
+            "name": "members",
+            "target": "core.Person",
+            "cardinality": "many-to-many",
+            "optional": false,
+            "source": {
+              "dataSourceId": "unresolved",
+              "operation": "unresolved",
+              "resolutionMode": "live"
+            },
+            "crossSource": false,
+            "markings": []
+          }
+        ],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "core.Party",
+        "version": "1.0.0",
+        "description": "A person or organization capable of holding responsibility, ownership, or a role.",
+        "traits": [],
+        "objectPolicy": "default-deny",
+        "members": [
+          {
+            "name": "id",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "displayName",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          }
+        ],
+        "relationships": [],
+        "actions": [],
+        "markings": []
+      },
+      {
+        "name": "core.Person",
+        "version": "1.0.0",
+        "description": "An individual human party.",
+        "extends": "core.Party",
+        "traits": [],
+        "objectPolicy": "default-deny",
+        "members": [
+          {
+            "name": "id",
+            "kind": "stored",
+            "origin": {
+              "from": "base",
+              "type": "core.Party"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "displayName",
+            "kind": "stored",
+            "origin": {
+              "from": "base",
+              "type": "core.Party"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "markings": []
+          },
+          {
+            "name": "email",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string",
+              "format": "email"
+            },
+            "required": false,
+            "markings": []
+          },
+          {
+            "name": "roleTitle",
+            "kind": "stored",
+            "origin": {
+              "from": "own"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "markings": []
+          }
+        ],
+        "relationships": [
+          {
+            "name": "affiliations",
+            "target": "core.Organization",
+            "cardinality": "many-to-many",
+            "optional": false,
+            "source": {
+              "dataSourceId": "unresolved",
+              "operation": "unresolved",
+              "resolutionMode": "live"
+            },
+            "crossSource": false,
+            "markings": []
+          }
+        ],
+        "actions": [],
+        "markings": []
+      }
+    ],
+    "actions": [
+      {
+        "name": "CloseExcursion",
+        "version": "1.0.0",
+        "description": "Records the disposition of a temperature excursion in the sensor hub, closing it.",
+        "applicableTypes": [
+          "coldchain.Excursion"
+        ],
+        "target": {
+          "type": "coldchain.Excursion",
+          "idFrom": "excursionId"
+        },
+        "outputType": "coldchain.Excursion",
+        "policy": "coldchain.dispose",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "sensor-hub",
+          "operation": "POST /v1/excursions/{excursionId}/disposition"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "none",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "excursionId": {
+              "type": "string"
+            },
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "release",
+                "quarantine",
+                "destroy"
+              ]
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "excursionId",
+            "disposition"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      },
+      {
+        "name": "FileRecallResponse",
+        "version": "1.0.0",
+        "description": "Files the distributor's effectiveness response to a recall with the exchange. The exchange refuses a terminated notice, one already answered, and a lot not on the notice.",
+        "applicableTypes": [
+          "coldchain.Recall"
+        ],
+        "target": {
+          "type": "coldchain.Recall",
+          "idFrom": "recallNumber"
+        },
+        "policy": "coldchain.respond-recall",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "recall-exchange",
+          "operation": "POST /exchange/v1/notices/{recallNumber}/responses"
+        },
+        "sideEffects": "external",
+        "idempotency": "none",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "recallNumber": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lotsQuarantined": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dosesQuarantined": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "shipmentsInTransit": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "signedOffBy": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "recallNumber",
+            "lotsQuarantined",
+            "dosesQuarantined",
+            "shipmentsInTransit",
+            "signedOffBy"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      },
+      {
+        "name": "HoldLotsForRecall",
+        "version": "1.0.0",
+        "description": "Quarantines each listed lot in the pharmacy inventory with a hold reason naming the recall. All or none: a lot that cannot be held releases those already held.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "policy": "coldchain.respond-recall",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/quarantine, per lot"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "recallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lotIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "recallId",
+            "lotIds"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "recallId": {
+              "type": "string"
+            },
+            "held": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "recallId",
+            "held"
+          ]
+        },
+        "markings": []
+      },
+      {
+        "name": "QuarantineLot",
+        "version": "1.0.0",
+        "description": "Holds one lot in the pharmacy inventory.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "target": {
+          "type": "coldchain.Lot",
+          "idFrom": "lotId"
+        },
+        "outputType": "coldchain.Lot",
+        "policy": "coldchain.qa",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/quarantine"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "lotId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      },
+      {
+        "name": "QuarantineShipmentLots",
+        "version": "1.0.0",
+        "description": "Holds every lot a shipment carries in the pharmacy inventory, so none is dispensed.",
+        "applicableTypes": [
+          "coldchain.Shipment"
+        ],
+        "target": {
+          "type": "coldchain.Shipment",
+          "idFrom": "shipmentId"
+        },
+        "policy": "coldchain.dispose",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/shipments/{shipmentId}/quarantine"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "shipmentId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      },
+      {
+        "name": "ReleaseLot",
+        "version": "1.0.0",
+        "description": "Releases one quarantined lot.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "target": {
+          "type": "coldchain.Lot",
+          "idFrom": "lotId"
+        },
+        "outputType": "coldchain.Lot",
+        "policy": "coldchain.qa",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/release"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "lotId"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      },
+      {
+        "name": "ReleaseRecallHolds",
+        "version": "1.0.0",
+        "description": "Releases lots a recall hold quarantined: undoes HoldLotsForRecall.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "policy": "coldchain.respond-recall",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/release, per lot"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "lotIds"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "released": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "released"
+          ]
+        },
+        "markings": []
+      },
+      {
+        "name": "ReleaseShipmentLots",
+        "version": "1.0.0",
+        "description": "Releases a shipment's quarantined lots to the status they had before.",
+        "applicableTypes": [
+          "coldchain.Shipment"
+        ],
+        "target": {
+          "type": "coldchain.Shipment",
+          "idFrom": "shipmentId"
+        },
+        "policy": "coldchain.dispose",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/shipments/{shipmentId}/release"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "shipmentId"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      },
+      {
+        "name": "ReopenExcursion",
+        "version": "1.0.0",
+        "description": "Reopens a closed excursion: undoes a disposition recorded in error.",
+        "applicableTypes": [
+          "coldchain.Excursion"
+        ],
+        "target": {
+          "type": "coldchain.Excursion",
+          "idFrom": "excursionId"
+        },
+        "outputType": "coldchain.Excursion",
+        "policy": "coldchain.dispose",
+        "preconditions": [],
+        "implementation": {
+          "dataSourceId": "sensor-hub",
+          "operation": "POST /v1/excursions/{excursionId}/reopen"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "auditRequired": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "excursionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "excursionId"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "markings": []
+      }
+    ],
+    "sources": [
+      {
+        "id": "pharmacy-inventory",
+        "name": "Pharmacy inventory (independent service)",
+        "kind": "http",
+        "connected": true
+      },
+      {
+        "id": "recall-exchange",
+        "name": "Recall exchange (industry service)",
+        "kind": "http",
+        "connected": true
+      },
+      {
+        "id": "sensor-hub",
+        "name": "Sensor hub (independent service)",
+        "kind": "http",
+        "connected": true
+      },
+      {
+        "id": "shipment-tracker",
+        "name": "Shipment tracker (independent service)",
+        "kind": "http",
+        "connected": true
+      },
+      {
+        "id": "unresolved",
+        "connected": false
+      }
+    ],
+    "policies": [
+      {
+        "name": "coldchain.dispose",
+        "rule": "role in [logistics, qa]",
+        "opaque": false,
+        "decides": [
+          "CloseExcursion",
+          "QuarantineShipmentLots",
+          "ReleaseShipmentLots",
+          "ReopenExcursion"
+        ]
+      },
+      {
+        "name": "coldchain.inventory",
+        "rule": "role in [logistics, qa, auditor, coldchain-model]",
+        "opaque": false,
+        "decides": [
+          "coldchain.Lot"
+        ]
+      },
+      {
+        "name": "coldchain.qa",
+        "rule": "role in [qa]",
+        "opaque": false,
+        "decides": [
+          "QuarantineLot",
+          "ReleaseLot",
+          "coldchain.Recall.healthHazard"
+        ]
+      },
+      {
+        "name": "coldchain.read-recall",
+        "rule": "any of (role in [qa]; all of (role in [logistics, auditor, coldchain-model]; opaque rule (a function)))",
+        "opaque": false,
+        "decides": [
+          "coldchain.Recall"
+        ]
+      },
+      {
+        "name": "coldchain.read-shipment",
+        "rule": "any of (role in [logistics, qa, auditor, coldchain-model]; all of (role in [carrier]; resource.carrier = subject.carrier))",
+        "opaque": false,
+        "decides": [
+          "coldchain.Shipment"
+        ]
+      },
+      {
+        "name": "coldchain.read-site",
+        "rule": "role in [logistics, qa, auditor, carrier, coldchain-model]",
+        "opaque": false,
+        "decides": [
+          "coldchain.Site"
+        ]
+      },
+      {
+        "name": "coldchain.respond-recall",
+        "rule": "role in [logistics, qa]",
+        "opaque": false,
+        "decides": [
+          "FileRecallResponse",
+          "HoldLotsForRecall",
+          "ReleaseRecallHolds"
+        ]
+      },
+      {
+        "name": "coldchain.telemetry",
+        "rule": "role in [logistics, qa, auditor, coldchain-model]",
+        "opaque": false,
+        "decides": [
+          "coldchain.Excursion",
+          "coldchain.Reading"
+        ]
+      },
+      {
+        "name": "default-deny",
+        "rule": "not registered: denies every request",
+        "opaque": false,
+        "decides": [
+          "core.Asset",
+          "core.Event",
+          "core.Location",
+          "core.Organization",
+          "core.Party",
+          "core.Person"
+        ]
+      }
+    ],
+    "narrowed": false
+  },
+  "probes": [
+    {
+      "as": "logistics",
+      "type": "coldchain.Excursion",
+      "id": "EX-299",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "startedAt": "returned",
+        "endedAt": "returned",
+        "peakC": "returned",
+        "minutesOut": "returned",
+        "severity": "returned",
+        "status": "returned",
+        "disposition": "returned",
+        "note": "returned"
+      }
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Excursion",
+      "id": "EX-299",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "startedAt": "returned",
+        "endedAt": "returned",
+        "peakC": "returned",
+        "minutesOut": "returned",
+        "severity": "returned",
+        "status": "returned",
+        "disposition": "returned",
+        "note": "returned"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Excursion",
+      "id": "EX-299",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "startedAt": "returned",
+        "endedAt": "returned",
+        "peakC": "returned",
+        "minutesOut": "returned",
+        "severity": "returned",
+        "status": "returned",
+        "disposition": "returned",
+        "note": "returned"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Excursion",
+      "id": "EX-299",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "startedAt": "returned",
+        "endedAt": "returned",
+        "peakC": "returned",
+        "minutesOut": "returned",
+        "severity": "returned",
+        "status": "returned",
+        "disposition": "returned",
+        "note": "returned"
+      }
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Excursion",
+      "id": "EX-299",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Excursion",
+      "id": "EX-299",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "logistics",
+      "type": "coldchain.Lot",
+      "id": "L-7701",
+      "outcome": "partial",
+      "values": {
+        "product": "returned",
+        "ndc": "returned",
+        "manufacturer": "returned",
+        "doses": "returned",
+        "unitCost": "withheld",
+        "status": "returned",
+        "expiresOn": "returned",
+        "siteId": "returned",
+        "shipmentId": "returned",
+        "minTempC": "returned",
+        "maxTempC": "returned",
+        "holdReason": "no-value"
+      }
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Lot",
+      "id": "L-7701",
+      "outcome": "allowed",
+      "values": {
+        "product": "returned",
+        "ndc": "returned",
+        "manufacturer": "returned",
+        "doses": "returned",
+        "unitCost": "returned",
+        "status": "returned",
+        "expiresOn": "returned",
+        "siteId": "returned",
+        "shipmentId": "returned",
+        "minTempC": "returned",
+        "maxTempC": "returned",
+        "holdReason": "no-value"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Lot",
+      "id": "L-7701",
+      "outcome": "allowed",
+      "values": {
+        "product": "returned",
+        "ndc": "returned",
+        "manufacturer": "returned",
+        "doses": "returned",
+        "unitCost": "returned",
+        "status": "returned",
+        "expiresOn": "returned",
+        "siteId": "returned",
+        "shipmentId": "returned",
+        "minTempC": "returned",
+        "maxTempC": "returned",
+        "holdReason": "no-value"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Lot",
+      "id": "L-7701",
+      "outcome": "partial",
+      "values": {
+        "product": "returned",
+        "ndc": "returned",
+        "manufacturer": "returned",
+        "doses": "returned",
+        "unitCost": "withheld",
+        "status": "returned",
+        "expiresOn": "returned",
+        "siteId": "returned",
+        "shipmentId": "returned",
+        "minTempC": "returned",
+        "maxTempC": "returned",
+        "holdReason": "no-value"
+      }
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Lot",
+      "id": "L-7701",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Lot",
+      "id": "L-7701",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "logistics",
+      "type": "coldchain.Reading",
+      "id": "SH-1040-00",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "at": "returned",
+        "temperatureC": "returned"
+      }
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Reading",
+      "id": "SH-1040-00",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "at": "returned",
+        "temperatureC": "returned"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Reading",
+      "id": "SH-1040-00",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "at": "returned",
+        "temperatureC": "returned"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Reading",
+      "id": "SH-1040-00",
+      "outcome": "allowed",
+      "values": {
+        "shipmentId": "returned",
+        "logger": "returned",
+        "at": "returned",
+        "temperatureC": "returned"
+      }
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Reading",
+      "id": "SH-1040-00",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Reading",
+      "id": "SH-1040-00",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "logistics",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0412",
+      "outcome": "partial",
+      "values": {
+        "firm": "returned",
+        "product": "returned",
+        "ndc": "returned",
+        "recallClass": "returned",
+        "lifecycle": "returned",
+        "embargoed": "returned",
+        "healthHazard": "withheld",
+        "issuedOn": "returned",
+        "affectedLots": "returned",
+        "responseStatus": "returned",
+        "lotsHeld": "no-value",
+        "dosesHeld": "no-value",
+        "shipmentsInTransit": "no-value",
+        "signedOffBy": "no-value"
+      }
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0412",
+      "outcome": "allowed",
+      "values": {
+        "firm": "returned",
+        "product": "returned",
+        "ndc": "returned",
+        "recallClass": "returned",
+        "lifecycle": "returned",
+        "embargoed": "returned",
+        "healthHazard": "returned",
+        "issuedOn": "returned",
+        "affectedLots": "returned",
+        "responseStatus": "returned",
+        "lotsHeld": "no-value",
+        "dosesHeld": "no-value",
+        "shipmentsInTransit": "no-value",
+        "signedOffBy": "no-value"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0412",
+      "outcome": "allowed",
+      "values": {
+        "firm": "returned",
+        "product": "returned",
+        "ndc": "returned",
+        "recallClass": "returned",
+        "lifecycle": "returned",
+        "embargoed": "returned",
+        "healthHazard": "returned",
+        "issuedOn": "returned",
+        "affectedLots": "returned",
+        "responseStatus": "returned",
+        "lotsHeld": "no-value",
+        "dosesHeld": "no-value",
+        "shipmentsInTransit": "no-value",
+        "signedOffBy": "no-value"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0412",
+      "outcome": "partial",
+      "values": {
+        "firm": "returned",
+        "product": "returned",
+        "ndc": "returned",
+        "recallClass": "returned",
+        "lifecycle": "returned",
+        "embargoed": "returned",
+        "healthHazard": "withheld",
+        "issuedOn": "returned",
+        "affectedLots": "returned",
+        "responseStatus": "returned",
+        "lotsHeld": "no-value",
+        "dosesHeld": "no-value",
+        "shipmentsInTransit": "no-value",
+        "signedOffBy": "no-value"
+      }
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0412",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0412",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "logistics",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0388",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0388",
+      "outcome": "allowed",
+      "values": {
+        "firm": "returned",
+        "product": "returned",
+        "ndc": "returned",
+        "recallClass": "returned",
+        "lifecycle": "returned",
+        "embargoed": "returned",
+        "healthHazard": "returned",
+        "issuedOn": "returned",
+        "affectedLots": "returned",
+        "responseStatus": "returned",
+        "lotsHeld": "no-value",
+        "dosesHeld": "no-value",
+        "shipmentsInTransit": "no-value",
+        "signedOffBy": "no-value"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0388",
+      "outcome": "allowed",
+      "values": {
+        "firm": "returned",
+        "product": "returned",
+        "ndc": "returned",
+        "recallClass": "returned",
+        "lifecycle": "returned",
+        "embargoed": "returned",
+        "healthHazard": "returned",
+        "issuedOn": "returned",
+        "affectedLots": "returned",
+        "responseStatus": "returned",
+        "lotsHeld": "no-value",
+        "dosesHeld": "no-value",
+        "shipmentsInTransit": "no-value",
+        "signedOffBy": "no-value"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0388",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0388",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Recall",
+      "id": "RCL-26-0388",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "logistics",
+      "type": "coldchain.Shipment",
+      "id": "SH-1040",
+      "outcome": "allowed",
+      "values": {
+        "origin": "returned",
+        "destination": "returned",
+        "carrier": "returned",
+        "status": "returned",
+        "lat": "returned",
+        "lon": "returned",
+        "departedAt": "returned",
+        "eta": "returned"
+      }
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Shipment",
+      "id": "SH-1040",
+      "outcome": "allowed",
+      "values": {
+        "origin": "returned",
+        "destination": "returned",
+        "carrier": "returned",
+        "status": "returned",
+        "lat": "returned",
+        "lon": "returned",
+        "departedAt": "returned",
+        "eta": "returned"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Shipment",
+      "id": "SH-1040",
+      "outcome": "allowed",
+      "values": {
+        "origin": "returned",
+        "destination": "returned",
+        "carrier": "returned",
+        "status": "returned",
+        "lat": "returned",
+        "lon": "returned",
+        "departedAt": "returned",
+        "eta": "returned"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Shipment",
+      "id": "SH-1040",
+      "outcome": "allowed",
+      "values": {
+        "origin": "returned",
+        "destination": "returned",
+        "carrier": "returned",
+        "status": "returned",
+        "lat": "returned",
+        "lon": "returned",
+        "departedAt": "returned",
+        "eta": "returned"
+      }
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Shipment",
+      "id": "SH-1040",
+      "outcome": "allowed",
+      "values": {
+        "origin": "returned",
+        "destination": "returned",
+        "carrier": "returned",
+        "status": "returned",
+        "lat": "returned",
+        "lon": "returned",
+        "departedAt": "returned",
+        "eta": "returned"
+      }
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Shipment",
+      "id": "SH-1040",
+      "outcome": "refused",
+      "values": {}
+    },
+    {
+      "as": "logistics",
+      "type": "coldchain.Site",
+      "id": "MEM",
+      "outcome": "allowed",
+      "values": {
+        "name": "returned",
+        "kind": "returned",
+        "city": "returned",
+        "lat": "returned",
+        "lon": "returned"
+      }
+    },
+    {
+      "as": "qa",
+      "type": "coldchain.Site",
+      "id": "MEM",
+      "outcome": "allowed",
+      "values": {
+        "name": "returned",
+        "kind": "returned",
+        "city": "returned",
+        "lat": "returned",
+        "lon": "returned"
+      }
+    },
+    {
+      "as": "qa2",
+      "type": "coldchain.Site",
+      "id": "MEM",
+      "outcome": "allowed",
+      "values": {
+        "name": "returned",
+        "kind": "returned",
+        "city": "returned",
+        "lat": "returned",
+        "lon": "returned"
+      }
+    },
+    {
+      "as": "auditor",
+      "type": "coldchain.Site",
+      "id": "MEM",
+      "outcome": "allowed",
+      "values": {
+        "name": "returned",
+        "kind": "returned",
+        "city": "returned",
+        "lat": "returned",
+        "lon": "returned"
+      }
+    },
+    {
+      "as": "carrier",
+      "type": "coldchain.Site",
+      "id": "MEM",
+      "outcome": "allowed",
+      "values": {
+        "name": "returned",
+        "kind": "returned",
+        "city": "returned",
+        "lat": "returned",
+        "lon": "returned"
+      }
+    },
+    {
+      "as": "anonymous",
+      "type": "coldchain.Site",
+      "id": "MEM",
+      "outcome": "refused",
+      "values": {}
+    }
+  ]
+}

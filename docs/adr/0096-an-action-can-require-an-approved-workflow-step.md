@@ -3,8 +3,9 @@
 ## Status
 
 Accepted (2026-10-17). Found by the developer showcase's recall challenge
-(`docs/evidence/showcase-challenge/`). Builds on ADR-0055 (workflows),
-ADR-0057 (the checker and simulation) and ADR-0065 (continuing authority).
+(`docs/evidence/showcase-challenge/`). Builds on ADR-0057 (governed
+workflows, their checker and simulation) and ADR-0065 (continuing
+authority).
 Implemented in `packages/core/src/runtime/runtime.ts` (`invokeAction`,
 `previewAction`, `listActions`, `explain`), `packages/workflow/src/engine.ts`
 (`grantedApproval`), `packages/workflow/src/validate.ts`

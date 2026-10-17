@@ -45,6 +45,13 @@ export interface BaselineOptions {
   /** Objects of each Type to probe. Default 1. */
   readonly probe?: number;
   /**
+   * Objects probed beside those: the ones that matter to a consumer, such as
+   * every object an application's acceptance checks name. The first object
+   * of a Type is rarely the one a policy treats differently (an embargoed
+   * notice, another carrier's freight).
+   */
+  readonly objects?: readonly { readonly type: string; readonly id: string }[];
+  /**
    * Who explains each caller's read. `self` (the default): each caller
    * explains their own, for a host that holds the callers' identities, as a
    * CLI over an application's callers does. `recorder`: the recorder
@@ -74,6 +81,7 @@ export async function recordBaseline(runtime: BaselineRuntime, recorder: Identit
     } catch {
       // Not readable by the recorder, or the source is down: nothing of it is probed, which the comparison says.
     }
+    for (const o of opts.objects ?? []) if (o.type === t.name && !ids.includes(o.id)) ids.push(o.id);
     for (const id of ids)
       for (const [as, identity] of Object.entries(opts.callers ?? {})) {
         try {

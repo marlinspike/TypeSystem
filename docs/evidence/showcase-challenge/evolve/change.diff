@@ -1,0 +1,13 @@
+diff --git a/packages/cold-chain/src/recalls.ts b/packages/cold-chain/src/recalls.ts
+index d012f27..ee66a3c 100644
+--- a/packages/cold-chain/src/recalls.ts
++++ b/packages/cold-chain/src/recalls.ts
+@@ -126,7 +126,7 @@ const MODEL = "coldchain-model";
+ const publicNotice: PolicyRule = ({ resource }: PolicyRequest) =>
+   // Asked about the Type rather than one notice: some notices are public.
+   !resource.attributes || resource.attributes.embargoed === false ? { allow: true } : { allow: false, reason: "A notice under embargo is need-to-know for quality assurance alone" };
+-const readRecall = anyOf(requireRole("qa"), allOf(requireRole("logistics", "auditor", MODEL), publicNotice));
++const readRecall = requireRole("qa", "logistics", "auditor", MODEL);
+ 
+ export const recallPolicyRules: Record<string, PolicyRule> = {
+   "coldchain.read-recall": readRecall,
