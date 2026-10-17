@@ -2157,6 +2157,28 @@
         "packages/adapter-http/test/http-adapter.test.ts",
         "packages/cold-chain/test/links.test.ts"
       ]
+    },
+    {
+      "id": "runtime.undeclared-returned",
+      "adr": "0095",
+      "description": "A column the model does not declare is returned to every reader of the object.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "Object.entries(resolved.values).filter(([name]) => declared.has(name))",
+      "replace": "Object.entries(resolved.values).filter(([name]) => declared.has(name) || name.length > 0)",
+      "tests": [
+        "packages/core/test/declared-values.test.ts"
+      ]
+    },
+    {
+      "id": "runtime.undeclared-filterable",
+      "adr": "0095",
+      "description": "A query filters or sorts on a column the model does not declare, which discloses it one object at a time.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (!declared.has(property) && !typeDef.computedProperties.some((cp) => cp.name === property)) throw",
+      "replace": "if (!declared.has(property) && !typeDef.computedProperties.some((cp) => cp.name === property) && declared.size < 0) throw",
+      "tests": [
+        "packages/core/test/declared-values.test.ts"
+      ]
     }
   ]
 }

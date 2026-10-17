@@ -13,7 +13,7 @@ describe("hospital domain: authorization boundaries", () => {
   it("a patient identity can read their own record but not the staff-only medicalRecordNumber field", async () => {
     const { runtime } = await buildHospitalTestbed();
     const asPatient = await runtime.getObject("hospital.Patient", "PT-1001", hospitalDemoIdentities.patient);
-    expect("name" in asPatient.values).toBe(true);
+    expect("displayName" in asPatient.values).toBe(true);
     expect("medicalRecordNumber" in asPatient.values).toBe(false);
   });
 

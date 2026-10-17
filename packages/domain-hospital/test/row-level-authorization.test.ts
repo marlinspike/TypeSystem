@@ -54,7 +54,7 @@ describe("hospital domain: per-instance Patient authorization (ADR-0030)", () =>
   it("a patient reads only their own record, still without the staff-only MRN", async () => {
     const { runtime } = await buildHospitalTestbed();
     const own = await runtime.getObject("hospital.Patient", "PT-1001", patient);
-    expect(own.values.name).toBe("Jordan Lee");
+    expect(own.values.displayName).toBe("Jordan Lee");
     expect(own.values).not.toHaveProperty("medicalRecordNumber");
     await expect(runtime.getObject("hospital.Patient", "PT-1002", patient)).rejects.toBeInstanceOf(AuthorizationError);
     expect(ids((await runtime.query({ type: "hospital.Patient" }, patient)).items)).toEqual(["PT-1001"]);
@@ -95,11 +95,11 @@ describe("attack: clinician B reading clinician A's patient (PT-1001)", () => {
     const queries = [
       { type: "hospital.Patient" },
       { type: "hospital.Patient", filter: { property: "id", operator: "eq" as const, value: "PT-1001" } },
-      { type: "hospital.Patient", filter: { property: "name", operator: "eq" as const, value: "Jordan Lee" } },
+      { type: "hospital.Patient", filter: { property: "displayName", operator: "eq" as const, value: "Jordan Lee" } },
       { type: "hospital.Patient", filter: { property: "assignedClinicianId", operator: "eq" as const, value: "PR-2001" } },
       { type: "hospital.Patient", filter: { property: "medicalRecordNumber", operator: "eq" as const, value: "MRN-1001" } },
       { type: "hospital.Patient", search: { text: "jordan" } },
-      { type: "hospital.Patient", sort: [{ property: "name", direction: "asc" as const }] }
+      { type: "hospital.Patient", sort: [{ property: "displayName", direction: "asc" as const }] }
     ];
     for (const q of queries) {
       expect(ids((await runtime.query(q, clinicianB)).items)).not.toContain("PT-1001");
@@ -129,7 +129,7 @@ describe("attack: clinician B reading clinician A's patient (PT-1001)", () => {
     const { runtime } = await buildHospitalTestbed();
     await expect(runtime.getRelationship("hospital.Patient", "PT-1001", "appointments", clinicianB)).rejects.toBeInstanceOf(AuthorizationError);
     await expect(runtime.getRelationship("hospital.Patient", "PT-1001", "providers", clinicianB)).rejects.toBeInstanceOf(AuthorizationError);
-    for (const property of ["name", "dateOfBirth", "medicalRecordNumber", "assignedClinicianId"]) {
+    for (const property of ["displayName", "dateOfBirth", "medicalRecordNumber", "assignedClinicianId"]) {
       await expect(runtime.getProvenance("hospital.Patient", "PT-1001", property, clinicianB)).rejects.toBeInstanceOf(AuthorizationError);
     }
   });

@@ -330,8 +330,8 @@ describe("Cedar planning in the runtime (ADR-0039)", () => {
   };
   const QUERIES: SemanticQuery[] = [
     { type: "hospital.Patient" },
-    { type: "hospital.Patient", sort: [{ property: "name" }], limit: 1 },
-    { type: "hospital.Patient", filter: { property: "name", operator: "icontains", value: "e" } },
+    { type: "hospital.Patient", sort: [{ property: "displayName" }], limit: 1 },
+    { type: "hospital.Patient", filter: { property: "displayName", operator: "icontains", value: "e" } },
     { type: "hospital.Provider", include: [{ relationship: "patients" }] },
     { type: "hospital.Appointment", include: [{ relationship: "patient" }] }
   ];

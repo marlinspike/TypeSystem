@@ -22,7 +22,7 @@ import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAs
 import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery, type DiscoveryGate, type Withheld } from "./discovery.js";
 import { buildInspection, type InspectionGate, type InspectionOptions, type ModelInspection } from "./inspection.js";
 import { EXPLANATION_CAVEAT, EXPLANATION_FORMAT, summarize, type ExplainOptions, type ExplainQuestion, type Explanation, type ExplanationOutcome, type Finding, type ObservedDecision, type TraceEntry } from "./explain.js";
-import { describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
+import { composedProperties, describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
 import { filterProperties, matchesFilter } from "./filter.js";
@@ -91,6 +91,8 @@ export interface UnavailablePart {
  * through one source can fail reading its targets from another (ADR-0094).
  */
 const FAILED_SOURCE = new WeakMap<object, string>();
+/** Each Type definition's declared stored properties (ADR-0095), composed once per definition object. */
+const DECLARED = new WeakMap<TypeDefinition, ReadonlySet<string>>();
 
 /** A source failing to answer, as opposed to the caller being refused or the request being wrong. */
 function sourceFailure(err: unknown): UnavailablePart["reason"] | undefined {
@@ -905,6 +907,16 @@ export class SemanticRuntime {
     }
   }
 
+  /** The stored properties a Type declares, inherited and from traits included, kept per definition. */
+  private async declaredProperties(typeDef: TypeDefinition): Promise<ReadonlySet<string>> {
+    let declared = DECLARED.get(typeDef);
+    if (!declared) {
+      declared = new Set(Object.keys((await composedProperties(this.registry, typeDef)).properties));
+      DECLARED.set(typeDef, declared);
+    }
+    return declared;
+  }
+
   private async requireType(typeName: string): Promise<TypeDefinition> {
     const typeDef = await this.registry.getType(typeName);
     if (!typeDef) throw new NotFoundError(`Unknown type "${typeName}"`);
@@ -1326,7 +1338,10 @@ export class SemanticRuntime {
     resolved: ResolvedProperties,
     attributes: Attributes
   ): Promise<{ values: Record<string, unknown>; provenance: ProvenanceRef[]; classified: ReadonlySet<string> }> {
-    const values: Record<string, unknown> = { ...resolved.values };
+    // Only what the model declares is read (ADR-0095): a column a source adds, or one the model drops, has no
+    // policy, marking or contract, so returning it would hand every reader of the object what nobody governed.
+    const declared = await this.declaredProperties(typeDef);
+    const values: Record<string, unknown> = Object.fromEntries(Object.entries(resolved.values).filter(([name]) => declared.has(name)));
     const computedResults: Record<string, unknown> = {};
 
     const request = this.currentRequest();
@@ -1980,7 +1995,11 @@ export class SemanticRuntime {
    * the caller's clearance is refused the same way (ADR-0032).
    */
   private async requireReadableProperties(typeDef: TypeDefinition, propertyNames: Iterable<string>, identity: Identity): Promise<void> {
+    const declared = await this.declaredProperties(typeDef);
     for (const property of propertyNames) {
+      // A value the model does not declare is never read (ADR-0095), so it can't select or order objects either:
+      // filtering on a column a source holds but nobody governed would disclose it one object at a time.
+      if (!declared.has(property) && !typeDef.computedProperties.some((cp) => cp.name === property)) throw new InvalidInputError(`Invalid query: "${property}" is not a value of ${typeDef.name}`);
       await this.requireCleared(identity, memberMarkings(typeDef, property), { typeName: typeDef.name, propertyPath: property });
       const policyName = memberPolicyOf(typeDef, property);
       if (!policyName) continue;

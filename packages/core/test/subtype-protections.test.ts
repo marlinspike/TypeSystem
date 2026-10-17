@@ -54,7 +54,7 @@ async function setup(jetSchema: SemanticTypeSchema) {
       $id: "https://typesys.dev/types/test/Craft/1.0.0",
       title: "Craft",
       type: "object",
-      properties: { tail: { type: "string" }, status: { type: "string" }, location: { type: "string" } },
+      properties: { id: { type: "string" }, tail: { type: "string" }, status: { type: "string" }, location: { type: "string" } },
       "x-computed": { readiness: { dependsOn: ["status"], binding: "readiness" } },
       "x-policy": { objectPolicy: "read", propertyPolicies: { status: "officers" } },
       "x-provenance": { properties: { location: { classification: "SECRET" } } }
