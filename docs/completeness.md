@@ -687,7 +687,7 @@ drafted a mission from this repository. Eight `context.*`, `draft.*` and
 this work (`docs/reviews/m3-adversarial-review.md`) found 17 defects,
 three High, and each is fixed with a test.
 
-## 4.0: applications compiled from a typed IR (in progress)
+## 4.0: applications compiled from a typed IR
 
 `@typesys/compiler` (ADR-0079 to ADR-0084) checks a `typesys.app/1`
 specification against the model and the host's own policy answers, then
@@ -732,8 +732,23 @@ pharmacist's sign-off, a closed excursion in the sensor hub and
 quarantined lots in the inventory. Its model is a deterministic stand-in
 and its stability figures are illustrative.
 
-The productivity measurement is not built yet; this section is updated
-when it lands.
+`scripts/measure-compiler.ts` measures the compiler against the 3.0
+engineering loop on the same mission
+([`evidence/compiler-productivity-2026-10-17.md`](evidence/compiler-productivity-2026-10-17.md)).
+Both reach 15 of 15 checks with no handwritten code and generated code
+of about the same size. Of ten seeded defects, the compiler's checker
+reports 5 before any code exists, each at its JSON pointer, where the
+loop's planner reports 4. It warns on 2 more, and 3 are found only by
+the acceptance checks in either pipeline. A hand edit to generated code
+is refused where the loop overwrote it. Cold Chain Command is 9.7% handwritten
+code by characters. Nothing measures a person or a cold agent building
+the same application.
+
+The 4.0 pressure test
+([`reviews/4-0-pressure-test.md`](reviews/4-0-pressure-test.md)) found 26
+defects. 21 are fixed, one in part, each with a test that failed first.
+Four are kept with their reasons, and one did not reproduce. Ten
+mutations guard the fixes.
 
 ## Real but narrow — the mechanism exists, exercised once
 
