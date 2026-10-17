@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { SemanticRegistry } from "../src/registry/registry.js";
 import { InMemoryRegistryStore } from "../src/registry/in-memory-registry-store.js";
-import { SemanticRuntime } from "../src/runtime/runtime.js";
+import { SOURCE_WITHHELD, SemanticRuntime } from "../src/runtime/runtime.js";
 import { matchesFilter } from "../src/runtime/filter.js";
 import { applySort } from "../src/runtime/query-ops.js";
 import { splitFilter } from "../src/runtime/execution-plan.js";
@@ -194,7 +194,8 @@ describe("Filtering on computed properties (ADR-0054)", () => {
     await runtime.query({ type: "t.Row", filter }, reader);
     const scan = report.execution.steps.find((s) => s.op === "scan");
     const residual = report.execution.steps.find((s) => s.op === "residual-filter");
-    expect(scan).toMatchObject({ op: "scan", dataSourceId: "ds", pushdownFilter: adapter.filtersSeen[0] });
+    // Which source is scanned is told only to an inspector (ADR-0088), and nobody inspects this runtime.
+    expect(scan).toMatchObject({ op: "scan", dataSourceId: SOURCE_WITHHELD, pushdownFilter: adapter.filtersSeen[0] });
     expect(residual).toEqual({ op: "residual-filter", filter: splitFilter(filter, (p) => p === "parity" || p === "bucket").residual, maxScanned: 1000 });
     expect(report.execution.steps.map((s) => s.op)).toEqual(["classification-gate", "scan", "authorize-rows", "compute", "redact", "residual-filter", "project"]);
     expect(report.execution.notes.join(" ")).toMatch(/runs after each object is read/);

@@ -46,7 +46,11 @@ export type Control =
   | "row-plan"
   | "relationship";
 
-export type FindingOutcome = "returned" | "withheld" | "no-value" | "allowed" | "refused" | "not-found" | "unavailable" | "invalid" | "dangling" | "truncated";
+/**
+ * `not-told`: the investigator may not read this themselves, so how it is
+ * decided for the subject is not said (ADR-0089).
+ */
+export type FindingOutcome = "returned" | "withheld" | "no-value" | "allowed" | "refused" | "not-found" | "unavailable" | "invalid" | "dangling" | "truncated" | "not-told";
 
 export interface Finding {
   /** What it is about: `airforce.Aircraft/AF86-0147`, `airforce.Aircraft/AF86-0147.maintenanceStatus`, an Action's name. */
@@ -154,4 +158,20 @@ export function summarize(outcome: ExplanationOutcome, findings: readonly Findin
     case "invalid":
       return `The request itself is invalid: ${findings.find((f) => f.outcome === "invalid")?.reason ?? ""}.`;
   }
+}
+
+const QUESTION_KINDS = new Set(["read", "relationship", "invoke", "query"]);
+const isText = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 512;
+
+/** What is wrong with an explain question's shape, or undefined: checked before anything is decided. */
+export function explainShapeError(question: unknown, opts: { as?: unknown } = {}): string | undefined {
+  if (opts.as !== undefined && (typeof opts.as !== "object" || opts.as === null || !isText((opts.as as { subjectId?: unknown }).subjectId))) return "as must be an identity with a subjectId";
+  if (typeof question !== "object" || question === null || Array.isArray(question)) return "it must be an object";
+  const q = question as Record<string, unknown>;
+  if (typeof q.kind !== "string" || !QUESTION_KINDS.has(q.kind)) return "kind must be read, relationship, invoke or query";
+  if ((q.kind === "read" || q.kind === "relationship") && (!isText(q.type) || !isText(q.id))) return `${q.kind} needs a type and an id`;
+  if (q.kind === "relationship" && !isText(q.relationship)) return "relationship needs a relationship";
+  if (q.kind === "invoke" && !isText(q.action)) return "invoke needs an action";
+  if (q.kind === "query" && (typeof q.query !== "object" || q.query === null)) return "query needs a query";
+  return undefined;
 }

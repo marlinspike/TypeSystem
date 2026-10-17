@@ -1864,8 +1864,8 @@
       "adr": "0089",
       "description": "An inspector learns about an object they may not read.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "if (!self) await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));",
-      "replace": "if (!self && question.id === \"\") await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));",
+      "find": "mineValues = (await asInvestigatorTraced(() => this.readObject(question.type, question.id, investigator))).object.values;",
+      "replace": "mineValues = question.id === \"\" ? (await asInvestigatorTraced(() => this.readObject(question.type, question.id, investigator))).object.values : {};",
       "tests": [
         "packages/domain-airforce/test/inspect-explain.test.ts"
       ]

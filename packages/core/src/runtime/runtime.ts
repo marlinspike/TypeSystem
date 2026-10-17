@@ -21,7 +21,7 @@ import { type Cache, NoopCache } from "./cache.js";
 import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
 import { DISCOVERY_MODES, isAnonymous, narrowModel, type Discovery, type DiscoveryGate, type Withheld } from "./discovery.js";
 import { buildInspection, type InspectionGate, type InspectionOptions, type ModelInspection } from "./inspection.js";
-import { EXPLANATION_CAVEAT, EXPLANATION_FORMAT, summarize, type ExplainOptions, type ExplainQuestion, type Explanation, type ExplanationOutcome, type Finding, type ObservedDecision, type TraceEntry } from "./explain.js";
+import { EXPLANATION_CAVEAT, EXPLANATION_FORMAT, explainShapeError, summarize, type ExplainOptions, type ExplainQuestion, type Explanation, type ExplanationOutcome, type Finding, type ObservedDecision, type TraceEntry } from "./explain.js";
 import { composedProperties, describeModel, type DescribeModelOptions, type ModelDescription } from "../registry/model-description.js";
 import { type RateLimiter, NoopRateLimiter } from "./rate-limiter.js";
 import { mapWithConcurrency, mapWithConcurrencySettled, Semaphore } from "./concurrency.js";
@@ -91,6 +91,17 @@ export interface UnavailablePart {
  * through one source can fail reading its targets from another (ADR-0094).
  */
 const FAILED_SOURCE = new WeakMap<object, string>();
+/** What a plan says in place of a source's id to a caller who may not inspect (ADR-0088). */
+export const SOURCE_WITHHELD = "(withheld)";
+
+/** A plan as a caller who may not inspect is told it: every step's source withheld. */
+function withheldSources(plan: ExecutionPlan): ExecutionPlan {
+  return {
+    ...plan,
+    steps: plan.steps.map((step) => (step.op === "scan" || step.op === "include" ? { ...step, dataSourceId: SOURCE_WITHHELD } : step.op === "merge-overrides" ? { ...step, dataSourceIds: step.dataSourceIds.map(() => SOURCE_WITHHELD) } : step))
+  };
+}
+
 /** Each Type definition's declared stored properties (ADR-0095), composed once per definition object. */
 const DECLARED = new WeakMap<TypeDefinition, ReadonlySet<string>>();
 
@@ -325,6 +336,8 @@ interface RequestContext {
    * is not charged for an investigation of them.
    */
   explanation?: { readonly investigator: string; readonly trace: TraceEntry[] };
+  /** Set on the investigator's own reads during an explanation, which was charged to them once when it started (ADR-0089). */
+  charged?: true;
 }
 
 /**
@@ -682,7 +695,8 @@ export class SemanticRuntime {
 
   private async checkRateLimit(identity: Identity): Promise<void> {
     // An investigation is charged to the investigator once, when it starts (ADR-0089), never to the subject it replays.
-    if (this.currentRequest()?.explanation) return;
+    const request = this.currentRequest();
+    if (request?.explanation || request?.charged) return;
     if (!(await this.rateLimiter.tryAcquire(identity.subjectId))) {
       throw new RateLimitExceededError(`Rate limit exceeded for subject "${identity.subjectId}"`);
     }
@@ -1306,10 +1320,12 @@ export class SemanticRuntime {
     objectId: string,
     identity: Identity,
     values: Record<string, unknown>,
-    provenance: ProvenanceRef[]
+    provenance: ProvenanceRef[],
+    /** Decide these too, whether or not the object holds a value for them: an explanation's every declared value. */
+    alsoDecide?: ReadonlySet<string>
   ): Promise<Set<string>> {
     const own = (name: string) => new Set([...memberMarkings(typeDef, name), ...valueMarkings(provenance.filter((p) => p.propertyPath === name))]);
-    const effective = new Map(Object.keys(values).map((name) => [name, own(name)]));
+    const effective = new Map([...new Set([...Object.keys(values), ...(alsoDecide ?? [])])].map((name) => [name, own(name)]));
     // Declaration order: a computed property's computed dependencies are already known.
     for (const cp of typeDef.computedProperties) {
       const markings = own(cp.name);
@@ -1319,7 +1335,7 @@ export class SemanticRuntime {
 
     const hidden = new Set<string>();
     for (const [name, markings] of effective) {
-      if (!(name in values)) continue;
+      if (!(name in values) && !alsoDecide) continue;
       if (!(await this.clearedFor(identity, [...markings], { typeName: typeDef.name, objectId, propertyPath: name }))) hidden.add(name);
     }
     return hidden;
@@ -1373,7 +1389,10 @@ export class SemanticRuntime {
     Object.assign(values, computedResults);
 
     // Classification first, over every value, before policies remove any (ADR-0032).
-    const classified = await this.classifiedOut(typeDef, objectId, identity, values, resolved.provenance);
+    // While an explanation runs, every declared value is decided whether or not this object holds one, so a
+    // withheld value is explained as withheld either way: otherwise the explanation would say which objects have it.
+    const explaining = this.currentRequest()?.explanation !== undefined;
+    const classified = await this.classifiedOut(typeDef, objectId, identity, values, resolved.provenance, explaining ? declared : undefined);
     for (const name of classified) delete values[name];
 
     // Each member policy is decided at most once per object read, whether for its own value or for a derivation.
@@ -1391,7 +1410,7 @@ export class SemanticRuntime {
 
     const unreadable = new Set<string>();
     for (const propName of Object.keys(typeDef.schema["x-policy"]?.propertyPolicies ?? {})) {
-      if (!(propName in values)) continue;
+      if (!(propName in values) && !explaining) continue;
       if (!(await memberReadable(propName))) {
         delete values[propName];
         unreadable.add(propName);
@@ -1795,7 +1814,9 @@ export class SemanticRuntime {
         const searched = q.search ? (q.search.properties ?? Object.keys(typeDef.schema.properties ?? {}).filter((p) => !computed.has(p))) : [];
         const probes = [...new Set([...(q.filter ? filterProperties(q.filter) : []), ...(q.sort ?? []).map((s) => s.property), ...searched])];
         const exact = isExact(plan);
-        const execution = await this.describeExecution(typeDef, q, plan, identity, needToKnow ? await this.describedMembers(typeDef, identity) : undefined);
+        const described = await this.describeExecution(typeDef, q, plan, identity, needToKnow ? await this.describedMembers(typeDef, identity) : undefined);
+        // Which source holds a Type is enforcement structure, shown only to an inspector (ADR-0088).
+        const execution = (await this.mayInspect(identity)) ? described : withheldSources(described);
         await this.audit(identity, "read", { typeName: q.type }, { allow: true }, { control: "row-plan", operation: "explainQuery", ...planSummary(plan) });
         return {
           typeName: q.type,
@@ -2378,6 +2399,22 @@ export class SemanticRuntime {
    * not read themselves is refused to them as their own read would be.
    */
   async explain(question: ExplainQuestion, investigator: Identity, opts: ExplainOptions = {}): Promise<Explanation> {
+    try {
+      return await this.explainOnce(question, investigator, opts);
+    } catch (err) {
+      // Every attempt is on the record with the subject it was about, refused or failed as much as answered.
+      const subjectId = typeof opts.as?.subjectId === "string" ? opts.as.subjectId : investigator.subjectId;
+      const kind = typeof (question as { kind?: unknown } | null)?.kind === "string" ? (question as { kind: string }).kind : "invalid";
+      await this.withRequest("explain", () =>
+        this.audit(investigator, "read", { typeName: "*", actionName: "explain" }, { allow: false, reason: err instanceof Error ? err.message : "failed" }, { control: "explain", question: kind, subject: subjectId, outcome: err instanceof AuthorizationError ? "refused" : err instanceof NotFoundError ? "not-found" : err instanceof InvalidInputError ? "invalid" : "error" })
+      ).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  private async explainOnce(question: ExplainQuestion, investigator: Identity, opts: ExplainOptions): Promise<Explanation> {
+    const shape = explainShapeError(question, opts);
+    if (shape) throw new InvalidInputError(`Invalid explain question: ${shape}`);
     await this.checkRateLimit(investigator);
     const subject = opts.as ?? investigator;
     const self = opts.as === undefined;
@@ -2397,7 +2434,14 @@ export class SemanticRuntime {
     const trace: TraceEntry[] = [];
     const replay = <T>(fn: () => Promise<T>): Promise<T> =>
       requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain", explanation: { investigator: investigator.subjectId, trace } }, fn);
-    const asInvestigator = <T>(fn: () => Promise<T>): Promise<T> => requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain" }, fn);
+    const asInvestigator = <T>(fn: () => Promise<T>): Promise<T> => requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain", charged: true }, fn);
+    // The investigator's own read, with its decisions kept: what they may not read themselves, they are not told of for the subject either.
+    const mine: TraceEntry[] = [];
+    const asInvestigatorTraced = <T>(fn: () => Promise<T>): Promise<T> =>
+      requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain", explanation: { investigator: investigator.subjectId, trace: mine }, charged: true }, fn);
+    const notTold = (about: string, member: string | undefined): Finding => ({ about, ...(member ? { member } : {}), outcome: "not-told", basis: "evaluated", reason: "you may not read this yourself, so how it is decided for the subject is not told" });
+    let observedMembers: ReadonlySet<string> | undefined;
+    let observedObjects: ReadonlySet<string> | undefined;
 
     const told = (reason: string | undefined) => (inspector ? reason : this.toldReason(reason, subject));
     const controlShown = inspector || this.discovery === "open";
@@ -2459,7 +2503,23 @@ export class SemanticRuntime {
       const typeDef = await this.requireType(question.type);
       const about = `${question.type}/${question.id}`;
       observedFor = { typeName: question.type, objectId: question.id };
-      if (!self) await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));
+      observedMembers = new Set([...Object.keys(tDesc.properties), ...tDesc.computed.map((c) => c.name), ...tDesc.relationships.map((r) => r.name)]);
+      let mineValues: Record<string, unknown> | undefined;
+      let mineUndecided = false;
+      if (!self) {
+        try {
+          mineValues = (await asInvestigatorTraced(() => this.readObject(question.type, question.id, investigator))).object.values;
+        } catch (err) {
+          // A source failing the investigator's own read leaves their access to each value undecided: they may still read the
+          // object, and are then told nothing about a value that has a policy, a marking or inputs of its own.
+          if (!sourceFailure(err)) throw err;
+          await asInvestigator(() => this.authorizeRead(typeDef, question.id, investigator));
+          mineUndecided = true;
+        }
+      }
+      const guarded = (member: string) => memberPolicyOf(typeDef, member) !== undefined || memberMarkings(typeDef, member).length > 0 || typeDef.computedProperties.some((c) => c.name === member);
+      const deniedToMe = (member: string) =>
+        (mineUndecided && guarded(member)) || (mineValues !== undefined && !(member in mineValues) && mine.some((x) => x.subjectId === investigator.subjectId && !x.allow && x.objectId === question.id && x.propertyPath === member));
       const subjectType = subjectModel.types.find((t) => t.name === question.type);
       if (!subjectType) {
         findings.push({ about: question.type, outcome: "refused", basis: "evaluated", ...(controlShown ? { control: "discovery" } : {}), ...(inspector ? { remedy: "need-to-know discovery does not describe this Type to the subject: they may read no object of it (ADR-0068)" } : {}) });
@@ -2486,6 +2546,10 @@ export class SemanticRuntime {
           const subjectMembers = new Set([...Object.keys(subjectType.properties), ...subjectType.computed.map((c) => c.name)]);
           for (const member of members) {
             const at = `${about}.${member}`;
+            if (deniedToMe(member)) {
+              findings.push(notTold(at, member));
+              continue;
+            }
             if (member in values) {
               const release = trace.find((x) => x.subjectId === subject.subjectId && x.allow && x.control === "derivation" && x.objectId === question.id && x.propertyPath === member);
               findings.push(release ? await fromEntry(at, member, "returned", release, "release") : { about: at, member, outcome: "returned", basis: "evaluated" });
@@ -2522,9 +2586,22 @@ export class SemanticRuntime {
             outcome = "unavailable";
           } else throw err;
         }
-        if (returned) {
-          findings.push({ about: at, member: question.relationship, outcome: "returned", basis: "evaluated", count: returned.size, reason: `${returned.size} related object${returned.size === 1 ? "" : "s"} returned` });
-          if (!self) {
+        // Another subject's related objects are counted only among those the investigator is returned themselves.
+        let readable: ReadonlySet<string> | undefined = returned;
+        if (returned && !self) {
+          readable = deniedToMe(question.relationship)
+            ? undefined
+            : await asInvestigator(() => this.readRelationship(question.type, question.id, question.relationship, investigator)).then(
+                (rs) => new Set(rs.map((r) => r.object.objectId)),
+                () => undefined
+              );
+          if (!readable) findings.push(notTold(at, question.relationship));
+        }
+        if (returned && readable) {
+          const count = [...returned].filter((id) => readable.has(id)).length;
+          findings.push({ about: at, member: question.relationship, outcome: "returned", basis: "evaluated", count, reason: self ? `${count} related object${count === 1 ? "" : "s"} returned` : `${count} of the ${readable.size} related object${readable.size === 1 ? "" : "s"} you are returned ${count === 1 ? "is" : "are"} returned to the subject` });
+          // Dangling references are named only to an investigator who may learn of the Type they would be.
+          if (!self && seen.types.some((t) => t.name === relDef.targetType)) {
             // Each related object the investigator may read and the subject was not returned, and why. Objects the investigator may not read are not counted.
             const refs = await asInvestigator(() => this.resolveRelationship(this.getAdapter(relDef.resolution.dataSourceId), typeDef, relDef, question.id));
             if (refs.length > this.queryLimits.maxRelatedPerObject) findings.push({ about: at, member: question.relationship, outcome: "truncated", basis: "structural", control: "relationship", reason: `only the first ${this.queryLimits.maxRelatedPerObject} related objects are read (maxRelatedPerObject, ADR-0028)` });
@@ -2532,10 +2609,19 @@ export class SemanticRuntime {
             for (const ref of refs.slice(0, Math.min(this.queryLimits.maxRelatedPerObject, 50))) {
               if (returned.has(ref.objectId)) continue;
               const target = `${relDef.targetType}/${ref.objectId}`;
+              // Whether the object exists is asked of its source before any policy: a policy that decides on the object's
+              // values would otherwise deny a missing one, and the reference would go uncounted for that investigator.
+              const held = await asInvestigator(() => this.resolveObjectProperties(targetDef, ref.objectId)).then(
+                (r) => Object.keys(r.values).length > 0,
+                (err: unknown) => (err instanceof ObjectNotFoundError ? false : undefined)
+              );
+              if (held === false) {
+                findings.push({ about: target, outcome: "dangling", basis: "evaluated", control: "relationship", reason: `${question.relationship} names ${ref.objectId}, which its source does not hold (ADR-0048): the reference is left out` });
+                continue;
+              }
               try {
                 await asInvestigator(() => this.authorizeRead(targetDef, ref.objectId, investigator));
-              } catch (err) {
-                if (err instanceof ObjectNotFoundError) findings.push({ about: target, outcome: "dangling", basis: "evaluated", control: "relationship", reason: `${question.relationship} names ${ref.objectId}, which its source does not hold (ADR-0048): the reference is left out` });
+              } catch {
                 continue;
               }
               const e = denies((x) => x.typeName === relDef.targetType && x.objectId === ref.objectId && x.propertyPath === undefined)[0];
@@ -2614,8 +2700,10 @@ export class SemanticRuntime {
       const tDesc = seen.types.find((t) => t.name === q.type);
       if (!tDesc) throw unknown(`Unknown type "${q.type}"`);
       observedFor = { typeName: q.type };
+      observedMembers = new Set([...Object.keys(tDesc.properties), ...tDesc.computed.map((c) => c.name), ...tDesc.relationships.map((r) => r.name)]);
       const typeDef = await this.requireType(q.type);
-      const mine = self ? undefined : await asInvestigator(() => this.query(question.query, investigator));
+      const myPage = self ? undefined : await asInvestigator(() => this.query(question.query, investigator));
+      if (myPage) observedObjects = new Set(myPage.items.map((o) => o.objectId));
       let theirs: Set<string> | undefined;
       try {
         theirs = new Set((await replay(() => this.query(question.query, subject))).items.map((o) => o.objectId));
@@ -2630,9 +2718,10 @@ export class SemanticRuntime {
         } else throw err;
       }
       if (theirs) {
-        findings.push({ about: q.type, outcome: "returned", basis: "evaluated", reason: `${theirs.size} object${theirs.size === 1 ? "" : "s"} returned on this page` });
-        // Only rows the investigator is returned are explained, so nothing is said about objects they may not read.
-        for (const o of (mine?.items ?? []).slice(0, 50)) {
+        // Another subject's rows are counted, and explained, only among those the investigator is returned themselves.
+        const shown = observedObjects ? [...theirs].filter((id) => observedObjects!.has(id)).length : theirs.size;
+        findings.push({ about: q.type, outcome: "returned", basis: "evaluated", reason: observedObjects ? `${shown} of the ${observedObjects.size} object${observedObjects.size === 1 ? "" : "s"} you are returned on this page ${shown === 1 ? "is" : "are"} returned to the subject` : `${shown} object${shown === 1 ? "" : "s"} returned on this page` });
+        for (const o of (myPage?.items ?? []).slice(0, 50)) {
           const at = `${q.type}/${o.objectId}`;
           if (!theirs.has(o.objectId)) {
             let refused = denies((x) => x.typeName === q.type && x.objectId === o.objectId && x.propertyPath === undefined)[0];
@@ -2653,6 +2742,8 @@ export class SemanticRuntime {
       const rows = (await this.registry.listAuditEvents({ limit: 500 })).items;
       observed = rows
         .filter((r) => r.subjectId === subject.subjectId && r.operation !== "explain" && r.resource.typeName === observedFor.typeName && (observedFor.objectId === undefined || r.resource.objectId === observedFor.objectId) && (observedFor.actionName === undefined || r.action === observedFor.actionName))
+        // Never a value the investigator's discovery withholds, nor an object their own page leaves out.
+        .filter((r) => (r.resource.propertyPath === undefined || observedMembers === undefined || observedMembers.has(r.resource.propertyPath)) && (r.resource.objectId === undefined || observedObjects === undefined || observedObjects.has(r.resource.objectId)))
         .slice(0, 20)
         .map((r) => ({ at: r.timestamp, ...(r.operation ? { operation: r.operation } : {}), action: r.action, ...(r.resource.propertyPath ? { member: r.resource.propertyPath } : {}), decision: r.decision, ...(r.reason ? { reason: r.reason } : {}) }));
     }
