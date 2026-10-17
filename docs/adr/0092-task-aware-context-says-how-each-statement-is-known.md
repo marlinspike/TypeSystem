@@ -47,9 +47,13 @@ that does not read the additions loses nothing it had.
   consumer step that reads through code that declares nothing.
 
 **Selection is dependency-complete.** An Action is kept only with the
-Types it acts on, applies to and returns. If the budget forces one out,
-both go, and `omitted` names each with its reason. A computed value's
-inputs are values of the same Type, so they are always present with it.
+Types it acts on and applies to, and, for an inspector, the Type it
+returns (a description does not name it). Those Types are placed before
+the Action, so the budget meets them first. If the budget forces one out,
+the Action goes too. `omitted` still lists the names, and the new
+`leftOut` gives each one's reason: `budget`, or `needs <Type>`. A
+computed value's inputs are values of the same Type, so they are always
+present with it.
 
 **What is built on the model, from the graph.** The caller passes
 `consumers` (`workflowUses`, `appUses`). Every workflow and application
@@ -70,7 +74,17 @@ and nothing more.
 - for each Action, one line to preview it and one to invoke it.
 
 The SDK lines are generated from the description, so they name only what
-exists.
+exists, and a `select` never names a value the caller is withheld. The
+query rule and one example of each SDK call are the same for every Type,
+so the text states them once, under RULES. Each Type's and Action's own
+lines are in its `sdk` field.
+
+**Marks are short.** A value with no mark was returned to the caller. The
+others carry `[withheld: <control>]`, `[inferred: ...]` or
+`[unavailable: ...]`. A status that applies to every value of a Type (the
+read was refused, the source did not answer, there was nothing to probe)
+is one line for the Type. A source's own error text is never repeated:
+it can name hosts.
 
 **The context names its model.** `modelDigest` is the inspection's digest
 for an inspector, or the description's for anyone else. An agent can then
@@ -83,6 +97,14 @@ tell that the model changed under a context it holds.
   is verified readable for this caller and `maintenanceStatus` is verified
   withheld. It names the workflow and the check that use `Aircraft`, and
   gives the SDK call to read it.
+- The context costs more tokens. The fleet readiness brief's context went
+  from 1,209 to 1,453 tokens (20% more), most of it the marks, the
+  model line, and the query and SDK rules. The engineer's recorded
+  drafting of that brief was run again through `typesys engineer draft`
+  with the coding agent's same two answers against the new request. It
+  drafts the same mission with the same diagnostic, so the recording in
+  `examples/missions/fleet-readiness-board/mission.draft.json` is keyed
+  to the request as it is now.
 - Probing explains one object per Type, which is one more governed and
   audited call per Type. `probe: 0` still reads nothing and claims
   nothing.

@@ -94,4 +94,15 @@ describe("typesys app inspect, why and graph", () => {
     expect(r.out.consumers).toEqual([APP, FLOW]);
     expect((await run(["graph", dir, "--as", "viewer"])).out.structure).toBe("description");
   });
+  it("gives a context that lists the application's own parts and checks with each Type, and its guards to the lead only (ADR-0092)", async () => {
+    const dir = await workbench();
+    const lead = (await run(["context", dir, "--as", "lead"])).out as unknown as { governance: string; checks: { consumer: string }[]; types: { name: string; usedBy: { consumer: string }[] }[]; text: string };
+    expect(lead.governance).toBe("shown");
+    expect(lead.checks.length).toBeGreaterThan(0);
+    expect(lead.types.find((t) => t.name === "airforce.Aircraft")!.usedBy.map((u) => u.consumer)).toContain(`app ${APP.replace(/^app:/, "")}`);
+    expect(lead.text).toContain("CHECKS a change must keep passing");
+    const viewer = (await run(["context", dir, "--as", "viewer"])).out as unknown as { governance: string; text: string };
+    expect(viewer.governance).toBe("withheld");
+    expect(viewer.text).not.toContain("airforce.maintainer-only");
+  });
 });

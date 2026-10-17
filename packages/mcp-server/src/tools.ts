@@ -140,7 +140,7 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime, extr
     },
     [`${p}compile_context`]: {
       description:
-        "Before writing code against this model: the part of it a coding task needs, as text for your prompt. Types with their values (enums spelled out, which values were not returned to you), relationships, the Actions on them and whether you may invoke them, and the rules for using TypeSystem, within a token budget.",
+        "Before writing code against this model: the part of it a coding task needs, as text for your prompt. Types with their values (enums spelled out), each value marked verified, inferred, withheld or unavailable for you, relationships, the Actions on them and whether you may invoke them, the workflows, pages and checks built on them, how to query them and call them with the typed SDK, and the rules for using TypeSystem, within a token budget. An Action is never included without the Types it needs.",
       inputSchema: {
         type: "object",
         required: ["task"],
@@ -164,8 +164,20 @@ function builtInTools(registry: SemanticRegistry, runtime: SemanticRuntime, extr
         if (focus !== undefined && (!Array.isArray(focus) || focus.some((f) => typeof f !== "string"))) throw new Error(`${p}compile_context: "focus" must be a list of names`);
         const maxTokens = int("maxTokens", 500, 32_000);
         const examples = int("examples", 0, 5);
-        const c = await compileContext(runtime, identity, { task, ...(focus ? { focus: focus as string[] } : {}), ...(maxTokens !== undefined ? { maxTokens } : {}), ...(examples !== undefined ? { examples } : {}) });
-        return { text: c.text, tokens: c.tokens, types: c.types.map((t) => t.name), actions: c.actions.map((a) => a.name), omitted: c.omitted, digest: c.digest };
+        const c = await compileContext(runtime, identity, { task, ...(focus ? { focus: focus as string[] } : {}), ...(maxTokens !== undefined ? { maxTokens } : {}), ...(examples !== undefined ? { examples } : {}), consumers: extras.consumers ?? [] });
+        return {
+          text: c.text,
+          tokens: c.tokens,
+          types: c.types.map((t) => t.name),
+          actions: c.actions.map((a) => a.name),
+          omitted: c.omitted,
+          leftOut: c.leftOut,
+          access: Object.fromEntries(c.types.flatMap((t) => (t.access ? [[t.name, t.access]] : []))),
+          checks: c.checks,
+          modelDigest: c.modelDigest,
+          governance: c.governance,
+          digest: c.digest
+        };
       }
     },
     [`${p}describe_type`]: {

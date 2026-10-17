@@ -56,4 +56,15 @@ describe("workbench tools over MCP", () => {
     expect(overview.structure).toBe("description");
     expect((await call("typesys_graph", { view: "dependents", node: "type:nope", authToken: "demo-lead-token" })).isError).toBe(true);
   });
+
+  it("typesys_compile_context marks each value's status and lists the workflow steps on a Type the server knows of (ADR-0092)", async () => {
+    const viewer = await ok("typesys_compile_context", { task: "aircraft that need attention", authToken: "demo-viewer-token" });
+    const access = (viewer.access as Record<string, { member: string; status: string }[]>)["airforce.Aircraft"]!;
+    expect(access.find((a) => a.member === "maintenanceStatus")?.status).toBe("withheld");
+    expect(viewer.governance).toBe("withheld");
+    expect(viewer.text).toContain("used by workflow airforce.GroundForRepair");
+    const lead = await ok("typesys_compile_context", { task: "aircraft that need attention", authToken: "demo-lead-token" });
+    expect(lead.governance).toBe("shown");
+    expect(lead.text).toContain("airforce.maintainer-only");
+  });
 });

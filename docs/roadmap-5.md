@@ -108,7 +108,7 @@ targets it.
 | 2 | Explanations replayed through the runtime's own decisions | [0089](adr/0089-an-explanation-is-the-runtimes-own-decision-replayed.md) | `packages/domain-airforce/test/inspect-explain.test.ts`, `packages/workflow/test/explain.test.ts` |
 | 3 | One dependency graph over model, sources, policies, workflows, applications and checks | [0090](adr/0090-one-dependency-graph-over-model-governance-and-consumers.md) | `packages/devkit/test/graph.test.ts`, `packages/compiler/test/uses.test.ts` |
 | 4 | Studio as a semantic workbench, and the same questions over HTTP, MCP and the CLI (Milestone A) | [0091](adr/0091-studio-is-a-semantic-engineering-workbench.md) | `packages/studio/test/workbench.test.ts` (Chromium), `packages/http/test/workbench.test.ts`, `packages/mcp-server/test/workbench-tools.test.ts` |
-| 5 | Task-aware context for coding agents (Milestone B) | 0092 | `packages/devkit/test/context-v2.test.ts` |
+| 5 | Task-aware context for coding agents (Milestone B) | [0092](adr/0092-task-aware-context-says-how-each-statement-is-known.md) | `packages/devkit/test/context-v2.test.ts`, the context cases in `packages/mcp-server/test/workbench-tools.test.ts` and `packages/compiler/test/uses.test.ts` |
 | 6 | Change impact, predicted and observed (Milestone C) | 0093 | `packages/devkit/test/impact.test.ts` |
 | 7 | Cross-source link probing | 0094 | `packages/cold-chain/test/links.test.ts` |
 | 8 | Productivity and architectural evaluation (Milestone D) | none | `docs/evidence/semantic-workbench-2026-10-17.md` |
@@ -116,5 +116,5 @@ targets it.
 
 ## Continuation state
 
-- **Done:** slices 1 and 2 (one commit: they share the runtime's decision trace), 3 and 4. Milestone A (exploration and explanation) is complete.
-- **In progress:** slice 5.
+- **Done:** slices 1 and 2 (one commit: they share the runtime's decision trace), 3, 4 and 5. Milestones A (exploration and explanation) and B (context) are complete.
+- **In progress:** slice 6.

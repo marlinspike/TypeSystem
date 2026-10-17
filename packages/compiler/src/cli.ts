@@ -228,8 +228,10 @@ async function contextCommand(dir: string, rest: readonly string[], print: Print
   try {
     const identity = await loaded.resolve(caller.token === "" ? null : caller.token);
     const maxTokens = Number(arg(rest, "--max-tokens") ?? 4000);
-    const ctx = await compileContext(loaded.host.runtime, identity, { task: spec.requirement, maxTokens: Number.isFinite(maxTokens) ? maxTokens : 4000 });
-    return print(true, { ok: true, ...ctx }, [ctx.text, "", `${ctx.tokens} tokens as ${as}${ctx.omitted.length ? `; left out: ${ctx.omitted.join(", ")}` : ""}`]);
+    // What the application is built from is part of the context: its pages, data and checks are listed with the Types they use (ADR-0092).
+    const consumers = appUses(spec, await describeModel(loaded.host.registry));
+    const ctx = await compileContext(loaded.host.runtime, identity, { task: spec.requirement, maxTokens: Number.isFinite(maxTokens) ? maxTokens : 4000, consumers });
+    return print(true, { ok: true, ...ctx }, [ctx.text, "", `${ctx.tokens} tokens as ${as}${ctx.leftOut.length ? `; left out: ${ctx.leftOut.map((l) => (l.reason === "budget" ? l.name : `${l.name} (${l.reason})`)).join(", ")}` : ""}`]);
   } finally {
     await stopHost(loaded);
   }

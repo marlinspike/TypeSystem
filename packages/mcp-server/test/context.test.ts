@@ -78,8 +78,8 @@ describe("typesys_compile_context over MCP", () => {
     const call = async (token: string) => (await client.callTool({ name: "typesys_compile_context", arguments: { task: "aircraft deployment location", examples: 1, authToken: token } })).structuredContent as { text: string; types: string[] };
     const viewer = await call("demo-viewer-token");
     expect(viewer.types).toContain("airforce.Aircraft");
-    expect(viewer.text).toMatch(/deploymentLocation\?: string.*\[not returned to this caller\]/);
-    expect((await call("demo-maintainer-token")).text).not.toMatch(/deploymentLocation\?: string.*\[not returned to this caller\]/);
+    expect(viewer.text).toMatch(/deploymentLocation\?: string.*\[withheld: classification\]/);
+    expect((await call("demo-maintainer-token")).text).not.toMatch(/deploymentLocation\?: string.*\[withheld/);
     const bad = await client.callTool({ name: "typesys_compile_context", arguments: { task: "x", maxTokens: 10 } });
     expect(bad.isError).toBe(true);
   });
@@ -94,7 +94,7 @@ describe("compileContext under review (M3 review L3, L4)", () => {
     const never = (c: typeof viewer) => c.types.find((t) => t.name === "airforce.Aircraft")!.visibility!.neverReturned;
     const hidden = computed(viewer).filter((n) => never(viewer).includes(n));
     expect(hidden.length).toBeGreaterThan(0);
-    for (const n of hidden) expect(viewer.text).toMatch(new RegExp(`${n} \\(computed from [^)]*\\): [^\\n]*\\[not returned to this caller\\]`));
+    for (const n of hidden) expect(viewer.text).toMatch(new RegExp(`${n} \\(computed from [^)]*\\): [^\\n]*\\[withheld: derivation\\]`));
     expect(computed(maintainer).filter((n) => never(maintainer).includes(n)).length).toBeLessThan(hidden.length);
   });
 

@@ -1509,12 +1509,13 @@
     {
       "id": "context.withheld-unmarked",
       "adr": "0078",
-      "description": "The compiled context does not mark values this caller is never returned.",
+      "description": "The compiled context does not mark values the runtime withholds from this caller.",
       "file": "packages/devkit/src/context.ts",
-      "find": "vis?.has(v.name) ? \"  [not returned to this caller]\" : \"\"",
-      "replace": "\"\"",
+      "find": "if (!a || a.status === \"verified\" || wholeStatus(t)) return \"\";",
+      "replace": "if (!a || a.status !== \"inferred\" || wholeStatus(t)) return \"\";",
       "tests": [
-        "packages/mcp-server/test/context.test.ts"
+        "packages/mcp-server/test/context.test.ts",
+        "packages/devkit/test/context-v2.test.ts"
       ]
     },
     {
@@ -1989,6 +1990,61 @@
       "replace": "",
       "tests": [
         "packages/http/test/workbench.test.ts"
+      ]
+    },
+    {
+      "id": "context.withheld-reported-verified",
+      "adr": "0092",
+      "description": "A value the caller's own explanation withholds is reported verified.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "      case \"refused\":\n        return { member, status: \"withheld\"",
+      "replace": "      case \"refused\":\n        return { member, status: \"verified\"",
+      "tests": [
+        "packages/devkit/test/context-v2.test.ts"
+      ]
+    },
+    {
+      "id": "context.absence-reported-verified",
+      "adr": "0092",
+      "description": "A value absent from every probed object, with no explanation, is reported verified rather than inferred.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "return { member, status: \"inferred\", note: `not returned on",
+      "replace": "return { member, status: \"verified\", note: `not returned on",
+      "tests": [
+        "packages/devkit/test/context-v2.test.ts"
+      ]
+    },
+    {
+      "id": "context.action-without-its-types",
+      "adr": "0092",
+      "description": "An Action is kept although a Type it needs was left out.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "if (missing.length > 0) {",
+      "replace": "if (missing.length < 0) {",
+      "tests": [
+        "packages/devkit/test/context-v2.test.ts"
+      ]
+    },
+    {
+      "id": "context.checks-direct-only",
+      "adr": "0092",
+      "description": "Only checks that use a Type directly are listed, not those that reach it through a page.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "if (r.distance > 1 && r.kind === \"part\"",
+      "replace": "if (r.distance > 99 && r.kind === \"part\"",
+      "tests": [
+        "packages/devkit/test/context-v2.test.ts"
+      ]
+    },
+    {
+      "id": "context.sort-on-computed",
+      "adr": "0092",
+      "description": "A computed value is offered as sortable.",
+      "file": "packages/devkit/src/context.ts",
+      "find": "sortable: stored, searchable",
+      "replace": "sortable: [...stored, ...t.computed.map((c) => c.name)], searchable",
+      "tests": [
+        "packages/devkit/test/context-v2.test.ts"
       ]
     }
   ]
