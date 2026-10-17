@@ -39,11 +39,15 @@ export function ne(a: unknown, b: unknown): Maybe<boolean> {
   return r === undefined ? undefined : !r;
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:\d{2})?)?$/;
+
 /** Numbers by value; strings the checker allowed to be ordered are dates, by instant. */
 function order(a: unknown, b: unknown): Maybe<number> {
   if (isAbsent(a) || isAbsent(b)) return undefined;
   if (typeof a === "number" && typeof b === "number") return a - b;
   if (typeof a === "string" && typeof b === "string") {
+    // Only dates written as dates: Date.parse also accepts "12" or "Bravo 7", which would order by accident.
+    if (!ISO_DATE.test(a) || !ISO_DATE.test(b)) return undefined;
     const [x, y] = [Date.parse(a), Date.parse(b)];
     return Number.isNaN(x) || Number.isNaN(y) ? undefined : x - y;
   }
@@ -164,7 +168,15 @@ export function max(list: Maybe<readonly unknown[] | null>, field?: string): May
 
 /** The elements the predicate holds for. An element it is unknown for is left out, as a condition that does not hold. */
 export function where<T>(list: Maybe<readonly T[] | null>, predicate: (item: T) => Maybe<boolean>): Maybe<T[]> {
-  return isAbsent(list) ? undefined : list.filter((item) => predicate(item) === true);
+  if (isAbsent(list)) return undefined;
+  const kept: T[] = [];
+  for (const item of list) {
+    const holds = predicate(item);
+    // Unknown for one element is unknown for the selection: a count or sum over what is left would be a confident understatement.
+    if (holds === undefined) return undefined;
+    if (holds) kept.push(item);
+  }
+  return kept;
 }
 
 /** One field of each element, unknown where an element lacks it. */

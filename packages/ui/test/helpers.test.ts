@@ -25,7 +25,9 @@ describe("@typesys/ui helpers", () => {
     expect(matchPath("/shipments/:id", "/shipments")).toBeUndefined();
     expect(matchPath("/shipments/:id", "/shipments/%E0%A4%A")).toBeUndefined();
     expect(fillPath("/shipments/:id", { id: "S/1" })).toBe("/shipments/S%2F1");
-    expect(fillPath("/shipments/:id", {})).toBe("/shipments/");
+    // P4-18: a missing parameter is no path, not a path to no page.
+    expect(fillPath("/shipments/:id", {})).toBeUndefined();
+    expect(fillPath("/shipments/:id", { id: "" })).toBeUndefined();
   });
 
   it("refreshes only reads of the Types a change names", () => {

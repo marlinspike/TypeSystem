@@ -35,7 +35,7 @@ export const camel = (s: string): string => {
 export const comment = (s: string): string => s.replaceAll("*/", "*\\/");
 
 /** The local name a handwritten module is imported as: `risk` for `risk`, `x_lab_stability` for `lab/stability`. */
-export const moduleAlias = (module: string): string => (/^[a-z][a-z0-9]*$/.test(module) ? module : `x_${module.replace(/[^A-Za-z0-9]+/g, "_")}`);
+export const moduleAlias = (module: string): string => `x_${module.replace(/[^A-Za-z0-9]+/g, "_")}`;
 
 /** How references and functions are written where an expression is emitted. */
 export interface ExprTarget {

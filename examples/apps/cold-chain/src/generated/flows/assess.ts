@@ -2,7 +2,7 @@
 import { defineWorkflow, type StepContext } from "@typesys/workflow";
 import { $, need, parallel } from "@typesys/app";
 import type { AppModel } from "../model.js";
-import * as stability from "../../extensions/stability.js";
+import * as x_stability from "../../extensions/stability.js";
 
 /** What starting coldchain.AssessExcursion takes. */
 export interface AssessInput {
@@ -49,6 +49,7 @@ export const assess = defineWorkflow<AppModel, AssessInput>({
       kind: "read",
       name: "evidence",
       needs: ["shipment"],
+      retry: {"maxAttempts":3,"backoffMs":200},
       run: (client, ctx) =>
         parallel({
           readings: () => client.related("coldchain.Shipment", need(out(ctx, "shipment")?.$id, "$shipment.$id"), "readings"),
@@ -60,7 +61,7 @@ export const assess = defineWorkflow<AppModel, AssessInput>({
       name: "budget",
       description: "Minutes outside 2–8 °C the products tolerate at this peak.",
       needs: ["excursion"],
-      run: (ctx) => stability.budgetMinutes({ peakC: out(ctx, "excursion")?.peakC })
+      run: (ctx) => x_stability.budgetMinutes({ peakC: out(ctx, "excursion")?.peakC })
     },
     {
       kind: "compute",

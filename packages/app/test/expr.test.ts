@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { $, RetryableStepError, UnknownValueError, assertHolds, forEachBounded, need, orUnknown, parallel, within } from "../src/index.js";
+import { $, ALL_ROWS_CAP, RetryableStepError, UnknownValueError, assertHolds, forEachBounded, need, orUnknown, parallel, rows, within } from "../src/index.js";
 
 const U = undefined;
 
@@ -61,7 +61,13 @@ describe("three-valued operators (ADR-0079)", () => {
     expect($.avg([], "n")).toBeUndefined();
     expect($.max([4, 9, 1])).toBe(9);
     expect($.where(rows, (r) => $.gt(r.n, 2))).toEqual([{ n: 3 }]);
-    expect($.where([{ n: U }], (r) => $.gt(r.n, 2))).toEqual([]);
+    // P4-06, P4-21: an element whose predicate is unknown makes the selection unknown, so a count over it is not a confident understatement.
+    expect($.where([{ n: U }, { n: 3 }], (r) => $.gt(r.n, 2))).toBeUndefined();
+    expect($.count($.where([{ n: U }, { n: 3 }], (r) => $.gt(r.n, 2)))).toBeUndefined();
+    // P4-05: only dates written as dates are ordered; Date.parse would order "12" and "Bravo 7" as years.
+    expect($.gt("2026-10-17T00:00:00Z", "Bravo 7")).toBeUndefined();
+    expect($.lt("5", "10")).toBeUndefined();
+    expect($.lt("2026-10-16", "2026-10-17T08:00:00Z")).toBe(true);
     expect($.pluck(rows, "n")).toEqual([2, 3]);
     expect($.count(U)).toBeUndefined();
   });
@@ -106,5 +112,23 @@ describe("flow helpers (ADR-0081)", () => {
 
   it("runs a parallel step's reads at once, each by its name", async () => {
     expect(await parallel({ a: async () => 1, b: async () => "two" })).toEqual({ a: 1, b: "two" });
+  });
+});
+
+describe("rows (P4-26)", () => {
+  // Pages of 1000 rows, `total` in all.
+  const pages = (total: number) => ({
+    page: async (cursor?: string) => {
+      const from = Number(cursor ?? 0);
+      const items = Array.from({ length: Math.min(1000, total - from) }, (_, i) => from + i);
+      return from + 1000 < total ? { items, nextCursor: String(from + 1000) } : { items };
+    }
+  });
+  it("refuses a result the cap would cut rather than shortening it", async () => {
+    expect(await rows(pages(ALL_ROWS_CAP), { all: true })).toHaveLength(ALL_ROWS_CAP);
+    await expect(rows(pages(ALL_ROWS_CAP + 1), { all: true })).rejects.toThrow(/more than 10000 rows/);
+  });
+  it("keeps a limit the read names", async () => {
+    expect(await rows(pages(ALL_ROWS_CAP + 1), { all: true, limit: 1500 })).toHaveLength(1500);
   });
 });

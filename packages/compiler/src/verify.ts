@@ -49,11 +49,17 @@ export async function runScreenCheck(baseUrl: string, spec: AppSpec, check: Scre
   const url = baseUrl + page0.path.split("/").map((seg) => (seg.startsWith(":") ? encodeURIComponent(check.params?.[seg.slice(1)] ?? "") : seg)).join("/");
   const token = spec.callers[check.as]?.token ?? "";
   const { chromium } = await import("playwright-core");
-  const browser = await chromium.launch({ executablePath: chrome, args: ["--no-sandbox"] });
+  // Chromium's sandbox cannot run as root (a container's usual user); anyone else keeps it.
+  const browser = await chromium.launch({ executablePath: chrome, args: process.getuid?.() === 0 ? ["--no-sandbox"] : [] });
   const errors: string[] = [];
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     page.on("pageerror", (e) => errors.push(e.message));
+    // A script or stylesheet that does not load leaves a page that never mounts, which throws nothing.
+    const own = new URL(baseUrl).origin;
+    const asset = (u: string, type: string) => new URL(u).origin === own && ["document", "script", "stylesheet"].includes(type);
+    page.on("requestfailed", (r) => asset(r.url(), r.resourceType()) && errors.push(`${r.url()} did not load`));
+    page.on("response", (r) => r.status() >= 400 && asset(r.url(), r.request().resourceType()) && errors.push(`${r.url()} answered ${r.status()}`));
     await page.addInitScript((t: string) => {
       try {
         if (t) sessionStorage.setItem("typesys.token", t);
@@ -74,12 +80,21 @@ export async function runScreenCheck(baseUrl: string, spec: AppSpec, check: Scre
       quiet = loading ? 0 : quiet + 1;
       await page.waitForTimeout(250);
     }
+    // A negative expectation needs a settled page to be true of: one that never settled shows nothing, which proves nothing.
+    if (quiet < 2) return fail({ errors }, `the page did not settle within ${SETTLE_MS / 1000} s${errors.length ? `: ${errors.join("; ")}` : ""}`);
     const observed = await page.evaluate(
       (c: { visible: string[]; hidden: string[]; rows: string[] }) => {
         const { document, CSS } = globalThis as unknown as PageGlobals;
         return {
           present: Object.fromEntries([...c.visible, ...c.hidden].map((id) => [id, document.querySelector(`[data-node="${CSS.escape(id)}"]`) !== null])),
-          rows: Object.fromEntries(c.rows.map((id) => [id, document.querySelectorAll(`[data-node="${CSS.escape(id)}"] [data-row]`).length])),
+          // The rows the node was given (a table shows one page of them), else the rows it draws.
+          rows: Object.fromEntries(
+            c.rows.map((id) => {
+              const node = document.querySelector(`[data-node="${CSS.escape(id)}"]`) as { getAttribute(n: string): string | null } | null;
+              const given = node?.getAttribute("data-rows");
+              return [id, given != null ? Number(given) : document.querySelectorAll(`[data-node="${CSS.escape(id)}"] [data-row]`).length];
+            })
+          ),
           text: document.body.innerText
         };
       },

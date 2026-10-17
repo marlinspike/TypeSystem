@@ -80,7 +80,9 @@ function toData<T>(state: ReturnType<Resource<T>["getSnapshot"]>, refresh: () =>
  * their state, since the operators treat what is not there yet as unknown.
  */
 export function useDerived<T>(compute: () => T, from: readonly Data<unknown>[]): Data<T> {
-  const value = compute();
+  // Computed from a read that has no value yet (loading, failed, waiting), the result is not known either:
+  // a selection over nothing would be an empty list, and a figure over it a confident 0.
+  const value = from.some((d) => d.status !== "ready" && d.value === undefined) ? (undefined as T) : compute();
   const status = combine(from);
   const refresh = useCallback(() => from.forEach((d) => d.refresh()), [from]);
   const error = from.find((d) => d.status === "error")?.error;

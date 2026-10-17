@@ -54,6 +54,19 @@ export function lowerSteps(flow: FlowIR): LoweredStep[] {
  * condition function, as the generated code gives them, because the engine's
  * AI-review rule compares conditions by identity.
  */
+/**
+ * How the engine retries a step. Parallel reads are one engine step, so a
+ * retry written on a read inside one retries the step: every read in it is
+ * repeated (reads change nothing), as many times as the most any of them asks.
+ */
+export function stepRetry(s: StepIR): StepIR["retry"] {
+  if (s.retry || s.kind !== "parallel") return s.retry;
+  const inner = s.steps.flatMap((r) => (r.retry ? [r.retry] : []));
+  if (inner.length === 0) return undefined;
+  const backoff = Math.max(...inner.map((r) => r.backoffMs ?? 0));
+  return { maxAttempts: Math.max(...inner.map((r) => r.maxAttempts)), ...(backoff ? { backoffMs: backoff } : {}) };
+}
+
 export function skeleton(flow: FlowIR): AnyWorkflow {
   const conditions = new Map<string, (ctx: unknown) => boolean>();
   const when = (e: unknown) => {
@@ -64,7 +77,8 @@ export function skeleton(flow: FlowIR): AnyWorkflow {
     return { when: fn };
   };
   const steps: AnyStep[] = lowerSteps(flow).map(({ ir: s, needs }) => {
-    const base = { name: s.name, ...(needs.length ? { needs } : {}), ...when(s.when), ...(s.retry ? { retry: s.retry } : {}) };
+    const retry = stepRetry(s);
+    const base = { name: s.name, ...(needs.length ? { needs } : {}), ...when(s.when), ...(retry ? { retry } : {}) };
     switch (s.kind) {
       case "read":
       case "parallel":

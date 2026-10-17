@@ -2,7 +2,7 @@ import { canonical } from "@typesys/core";
 import type { FlowInfo, AppAnalysis } from "../check.js";
 import { isLiteral, isRef } from "../expr.js";
 import type { Expr, ReadIR, StepIR } from "../ir.js";
-import { engineNames, inputSchema } from "../skeleton.js";
+import { engineNames, inputSchema, stepRetry } from "../skeleton.js";
 import { tsType, tsTypeOf, type Ty } from "../types.js";
 import { readTs, usesCombinators, valueTs } from "./reads.js";
 import { comment, exprTs, fnModules, ident, moduleAlias, pascal, q, type ExprTarget } from "./ts.js";
@@ -73,7 +73,8 @@ export function flowSource(info: FlowInfo, analysis: AppAnalysis): string {
     if (l.needs.length) lines.push(`needs: [${l.needs.map(q).join(", ")}]`);
     const w = whenOf(s);
     if (w) lines.push(`when: ${w}`);
-    if (s.retry) lines.push(`retry: ${JSON.stringify(s.retry)}`);
+    const retry = stepRetry(s);
+    if (retry) lines.push(`retry: ${JSON.stringify(retry)}`);
     return lines;
   };
 

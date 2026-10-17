@@ -25,5 +25,8 @@ export async function rows<R>(query: Paged<R>, opts: { readonly all?: boolean; r
     if (cursor !== undefined && seen.has(cursor)) throw new Error("The query's pages did not end: a cursor repeated");
     if (cursor !== undefined) seen.add(cursor);
   } while (cursor !== undefined && out.length < max);
+  // A limit the read names is the author's; the cap is not, so a result it would cut is refused rather than shortened.
+  if (opts.limit === undefined && (out.length > max || cursor !== undefined))
+    throw new Error(`The query has more than ${ALL_ROWS_CAP} rows: narrow it, or give the read a limit`);
   return out.slice(0, max);
 }

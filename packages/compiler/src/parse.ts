@@ -46,7 +46,7 @@ export function appProblems(doc: unknown): AppDiagnostic[] {
       if (!isObj(m) || !isStr(m.id)) bad(pointer("models", role), "a model role names the model's id in the LLM configuration");
     }
   }
-  if (a.design !== undefined && (!isObj(a.design) || !isStr(a.design.system))) bad("/design", "design names a system", '"meridian" or "ledger", or <module>#<export> in src/extensions/');
+  if (a.design !== undefined) design(a.design, d);
 
   states(a.state, "/state", d);
   datas(a.data, "/data", d);
@@ -81,6 +81,9 @@ export function appProblems(doc: unknown): AppDiagnostic[] {
         const params = isObj(p.params) ? Object.keys(p.params) : [];
         for (const s of segs) if (!params.includes(s)) d.error("page-param", `${at}/params`, `the path has :${s}, and the page declares no param "${s}"`, `add params.${s}: { "schema": { "type": "string" } }`);
         for (const s of params) if (!segs.includes(s)) d.error("page-param", pointer("pages", i, "params", s), `param "${s}" is not a :segment of ${p.path}`);
+        // A param is a piece of the path, so it arrives as a string; typed as a number, every comparison with it would be unknown.
+        for (const [s, v] of isObj(p.params) ? Object.entries(p.params) : [])
+          if (isObj(v) && isObj(v.schema) && v.schema.type !== undefined && v.schema.type !== "string") d.error("page-param", pointer("pages", i, "params", s, "schema", "type"), `param "${s}" comes from the path, so it is a string`, '{ "type": "string" }, with a pattern or format if it must look a certain way');
       }
       if (p.params !== undefined) {
         if (!isObj(p.params)) bad(`${at}/params`, "params maps a name to { schema }");
@@ -109,15 +112,31 @@ export function appProblems(doc: unknown): AppDiagnostic[] {
       else ids.add(c.id);
       if (typeof c.kind !== "string" || !kinds.includes(c.kind)) d.error("invalid-check", `${at}/kind`, `a check is one of ${kinds.join(", ")}`);
       if (typeof c.as !== "string") d.error("invalid-check", `${at}/as`, "a check names the caller it runs as");
+      // A misspelt assertion would be one the check never makes: it would pass having decided nothing.
+      const fields = typeof c.kind === "string" ? CHECK_FIELDS[c.kind] : undefined;
+      if (fields) known(c, ["id", "kind", "as", "because", ...fields], at, d);
       if (c.kind === "screen") {
         if (!isStr(c.page)) d.error("invalid-check", `${at}/page`, "a screen check names a page");
         const any = ["visible", "hidden", "text", "absentText", "rows"].some((k) => c[k] !== undefined);
         if (!any) d.error("invalid-check", at, "a screen check asserts something: visible, hidden, text, absentText or rows", "a check with nothing to decide passes on any screen");
+        if (isObj(c.rows)) for (const [node, want] of Object.entries(c.rows)) if (isObj(want)) known(want, ["atLeast", "atMost"], `${at}/rows/${node}`, d);
       }
     }
   }
   return d.list;
 }
+
+/** The fields each kind of check has, beside id, kind, as and because. */
+const CHECK_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  reads: ["type", "objectId", "sees", "withheld"],
+  refused: ["type", "objectId"],
+  query: ["query", "atLeast", "atMost"],
+  offered: ["type", "objectId", "action", "offered"],
+  described: ["type", "described"],
+  starts: ["workflow", "input", "status", "waitingOn", "failsAt"],
+  approves: ["workflow", "startedBy", "input", "step", "admitted", "then"],
+  screen: ["page", "params", "visible", "hidden", "text", "absentText", "rows"]
+};
 
 /** The document as an application, or every reason it is not one. */
 export function parseApp(doc: unknown): { app: AppSpec; diagnostics: [] } | { app?: undefined; diagnostics: AppDiagnostic[] } {
@@ -364,4 +383,19 @@ function prop(v: unknown, p: PropSpec, at: string, d: Diagnostics, ids: Set<stri
       });
       return;
   }
+}
+
+/** A design system `@typesys/ui` ships, or `<module>#<Export>` in src/extensions/: the same shape a custom component has. */
+export const DESIGN_SYSTEM = /^(?:meridian|ledger|([a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)*)#([A-Za-z_][A-Za-z0-9_]*))$/;
+
+function design(v: unknown, d: Diagnostics): void {
+  const bad = (at: string, message: string, hint?: string) => d.error("invalid-app", at, message, hint);
+  if (!isObj(v)) return bad("/design", "design names a system", '"meridian" or "ledger", or <module>#<export> in src/extensions/');
+  known(v, ["system", "tokens", "density", "brand", "signIn"], "/design", d);
+  // The system is emitted as an import and an identifier, so only that shape is accepted: nothing else reaches the code.
+  if (!isStr(v.system) || !DESIGN_SYSTEM.test(v.system)) bad("/design/system", "design.system is a shipped system or <module>#<export>", '"meridian", "ledger", or e.g. "brand/theme#overrides" for src/extensions/brand/theme.ts');
+  if (v.tokens !== undefined && (!isObj(v.tokens) || Object.values(v.tokens).some((t) => typeof t !== "string"))) bad("/design/tokens", "design tokens map a token name to a CSS value");
+  if (v.density !== undefined && v.density !== "comfortable" && v.density !== "compact") bad("/design/density", 'density is "comfortable" or "compact"');
+  if (v.brand !== undefined && (!isObj(v.brand) || !isStr(v.brand.name) || (v.brand.mark !== undefined && typeof v.brand.mark !== "string"))) bad("/design/brand", "brand is { name, mark? }");
+  if (v.signIn !== undefined && v.signIn !== "presets") bad("/design/signIn", 'signIn is "presets" when set');
 }

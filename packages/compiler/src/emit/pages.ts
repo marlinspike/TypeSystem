@@ -9,7 +9,7 @@ import { readTs, usesCombinators, valueTs } from "./reads.js";
 import { comment, exprTs, fnModules, ident, moduleAlias, q, type ExprTarget } from "./ts.js";
 
 /** Names a generated page already uses for itself, which data are renamed around. */
-const RESERVED = new Set(["state", "setState", "params", "me", "fx", "client", "row", "item", "result", "id", "i", "$", "need", "rows", "and", "or", "props", "default", "new", "delete", "class", "function", "return", "this", "void", "in", "of", "let", "var", "const", "true", "false", "null", "undefined"]);
+const RESERVED = new Set(["state", "setState", "local", "useRead", "at", "keyOf", "toNumber", "toText", "typedRead", "useDerived", "usePageState", "useEffects", "useRuntime", "params", "me", "fx", "client", "row", "item", "result", "id", "i", "$", "need", "rows", "and", "or", "props", "default", "new", "delete", "class", "function", "return", "this", "void", "in", "of", "let", "var", "const", "true", "false", "null", "undefined"]);
 
 /** The variable a page holds data in: its own name, unless that is one the page needs. */
 export const dataVar = (name: string): string => (RESERVED.has(name) ? `${name}Data` : name);
@@ -393,6 +393,9 @@ export function pageSource(info: PageInfo, analysis: AppAnalysis): string {
     ...(ui0.includes("typedRead") ? [`import type { AppModel } from "../model.js";`] : []),
     ...[...modules].sort().map((m) => `import * as ${moduleAlias(m)} from "../../extensions/${m}.js";`)
   ];
+  // A page named like a component it draws (a page called Table) is declared under another name and exported as its own.
+  const clash = ui0.includes(page.name);
+  const component = clash ? `${page.name}Page` : page.name;
   const reads = ui0.includes("typedRead") ? "\n/** Reads through the client typed by the application's model. */\nconst useRead = typedRead<AppModel>();\n" : "";
   return `${GENERATED(`app.json /pages (${page.name})`)}
 ${imports.join("\n")}
@@ -408,7 +411,7 @@ const local: Readonly<Record<string, unknown>> = ${JSON.stringify(Object.fromEnt
 /**
  * ${comment(page.title)}${page.description ? `\n *\n * ${comment(page.description)}` : ""}
  */
-export function ${page.name}(${usesParams(page) ? "{ params }" : "_props"}: { readonly params: Readonly<Record<string, string>> }) {
+${clash ? `export { ${component} as ${page.name} };\n\n` : ""}${clash ? "" : "export "}function ${component}(${usesParams(page) ? "{ params }" : "_props"}: { readonly params: Readonly<Record<string, string>> }) {
   const [state, setState] = usePageState<${page.name}State>(local);
 ${JSON.stringify(page).includes('"$me') ? "  const { me } = useRuntime();\n" : ""}  const fx = useEffects(setState);
 ${dataLines.join("\n")}
@@ -454,7 +457,7 @@ export function appSource(analysis: AppAnalysis): string {
   const app = analysis.app;
   const design = app.design ?? { system: "meridian" };
   const custom = design.system.includes("#") ? (design.system.split("#") as [string, string]) : undefined;
-  const presets = (design as { signIn?: string }).signIn === "presets" ? Object.fromEntries(Object.entries(app.callers).map(([k, c]) => [k, c.token])) : undefined;
+  const presets = design.signIn === "presets" ? Object.fromEntries(Object.entries(app.callers).map(([k, c]) => [k, c.token])) : undefined;
   const initial = Object.fromEntries(Object.entries(app.state ?? {}).map(([k, s]) => [k, s.default ?? null]));
   const pages = analysis.pages.map(({ page }) => {
     const nav = page.nav ?? !page.path.includes(":");

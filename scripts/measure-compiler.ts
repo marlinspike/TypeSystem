@@ -210,7 +210,8 @@ async function main() {
     const mr = await missionArm(`seed-mission-${s.id}`, m as MissionSpec);
     const ar = await appArm(`seed-app-${s.id}`, a as AppSpec);
     type Diag = { code: string; at: string; severity: string; message: string };
-    const planned = ((mr.scaffold.plan as { diagnostics?: Diag[] } | undefined)?.diagnostics ?? []).filter((d) => d.severity === "error");
+    // A mission the engineer refuses outright reports at the top level; one it plans reports in the plan.
+    const planned = [...((mr.scaffold.diagnostics as Diag[] | undefined) ?? []), ...((mr.scaffold.plan as { diagnostics?: Diag[] } | undefined)?.diagnostics ?? [])].filter((d) => d.severity === "error");
     const mFirst = mr.stage === "plan" && !mr.report ? planned[0] : mr.report?.diagnostics.find((d) => d.severity === "error");
     const aFirst = ar.report.diagnostics.find((d) => d.severity === "error");
     // A warning the checker gives before anything runs is the earliest signal, even when the run goes on to fail.
@@ -280,3 +281,5 @@ async function main() {
 }
 
 await main();
+// The run is over once the results are written; a handle a measured step leaves open must not keep it alive.
+process.exit(process.exitCode ?? 0);

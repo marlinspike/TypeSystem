@@ -98,6 +98,9 @@ export async function llmOptions(): Promise<LlmOptions> {
 }
 `;
 
+/** A flow as the server names it: its own prefix, so no flow key can be one of the server's own names (\`path\`, \`host\`). */
+const flowVar = (key: string): string => `flow_${key}`;
+
 /** The application's entry point: what \`dist/server.js\` runs, and what \`verify\` starts. */
 export function serverSource(app: AppSpec, flowKeys: readonly string[]): string {
   const opts = app.host.options ? JSON.stringify(app.host.options) : "";
@@ -110,7 +113,7 @@ import type { Express } from "express";
 import { createAppServer${app.llm ? ", readLlmConfig" : ""} } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from ${q(app.host.module)};
-${flowKeys.map((k) => `import { ${k} } from "./src/generated/flows/${k}.js";`).join("\n")}
+${flowKeys.map((k) => `import { ${k} as ${flowVar(k)} } from "./src/generated/flows/${k}.js";`).join("\n")}
 ${app.llm ? 'import { llmOptions } from "./src/extensions/server.js";\n' : ""}
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** The application's directory: \`dist/\` is one level down. */
@@ -122,7 +125,7 @@ export async function createApp(): Promise<{ app: Express; workflows: WorkflowEn
     backend: await host.${app.host.build}(${opts}),
     identities: (token) => host.${app.host.identities}(token),
     // Each flow is typed by the application's model; the engine registers any workflow.
-    flows: [${flowKeys.join(", ")}] as unknown as AnyWorkflow[],${models.length ? `\n    models: { ${models.join(", ")} },` : ""}${app.llm ? `\n    llm: { config: readLlmConfig(path.join(root, ${q(app.llm)})), options: await llmOptions() },` : ""}
+    flows: [${flowKeys.map(flowVar).join(", ")}] as unknown as AnyWorkflow[],${models.length ? `\n    models: { ${models.join(", ")} },` : ""}${app.llm ? `\n    llm: { config: readLlmConfig(path.join(root, ${q(app.llm)})), options: await llmOptions() },` : ""}
     clientDir: path.join(here, "client"),
     title: ${q(app.title)}
   });
@@ -133,7 +136,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const server = app.listen(Number(process.env.PORT ?? 4700), "127.0.0.1", () => {
     const url = \`http://127.0.0.1:\${(server.address() as AddressInfo).port}\`;
     // verify waits for this exact line, with the nonce it passed, rather than anything else printed first.
-    console.log(process.env.TYPESYS_ENGINEER_READY ? \`typesys-engineer-ready \${process.env.TYPESYS_ENGINEER_READY} \${url}\` : \`${app.title.replaceAll("`", "'").replaceAll("$", "")} on \${url}\`);
+    console.log(process.env.TYPESYS_ENGINEER_READY ? \`typesys-engineer-ready \${process.env.TYPESYS_ENGINEER_READY} \${url}\` : \`\${${q(app.title)}} on \${url}\`);
   });
 }
 `;

@@ -136,7 +136,8 @@ export function checkExpr(e: unknown, scope: Scope, at: string, d: Diagnostics):
     if (op === "where") {
       const pred = checkExpr(raw[1] as Expr, extend(scope, { item: { ty: item } }), `${opAt}/1`, d);
       expect(pred, BOOLEAN, `${opAt}/1`, d);
-      return carrying(list.ty, list);
+      // An element whose predicate is unknown makes the whole selection unknown: dropping it would understate.
+      return carrying(list.ty, list, pred);
     }
     const name: unknown = raw[1];
     if (typeof name !== "string" || name.startsWith("$")) {
@@ -312,6 +313,9 @@ function expect(v: Typed, want: Ty, at: string, d: Diagnostics): void {
   if (why) d.error("type-mismatch", at, `expected ${describe(want)}: ${why}`);
 }
 
+/** A date or date-time as JSON Schema writes it (RFC 3339): the only strings with an order. */
+export const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:\d{2})?)?$/;
+
 /** Two values that may be compared: one type (an integer with a number), and for ordering, numbers or dates. */
 function comparable(a: Typed, b: Typed, at: string, d: Diagnostics, ordered: boolean): void {
   const [x, y] = [a.ty, b.ty];
@@ -325,8 +329,9 @@ function comparable(a: Typed, b: Typed, at: string, d: Diagnostics, ordered: boo
     return;
   }
   if (ordered) {
-    const dated = (t: Ty) => t.t === "string" && (t.format === "date-time" || t.format === "date");
-    if (x.t === "string" && !(dated(x) || dated(y))) d.error("not-comparable", at, "only numbers and date-time strings have an order", "compare with eq or ne, or order a number");
+    // Both sides: a date field ordered against a plain string would order whatever the string happens to parse as.
+    const dated = (t: Ty) => t.t === "string" && (t.format === "date-time" || t.format === "date" || (t.enum?.length === 1 && ISO_DATE.test(t.enum[0]!)));
+    if (x.t === "string" && !(dated(x) && dated(y))) d.error("not-comparable", at, "only numbers and dates have an order: both sides must be date or date-time strings", "compare with eq or ne, or give the field format date-time");
     else if (x.t !== "number" && x.t !== "string") d.error("not-comparable", at, `${describe(x)} has no order`);
   }
   // A literal compared with a field of fixed values must be one of them.

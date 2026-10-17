@@ -1014,14 +1014,21 @@ export class WorkflowEngine {
     const refused = (err: unknown) => err instanceof AuthorizationError || err instanceof NotFoundError;
     switch (s.kind) {
       case "read": {
-        if (redact) return redact(journaled);
-        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
-        try {
-          return structuredClone(await s.run(client, ctx));
-        } catch (err) {
-          if (refused(err)) return undefined;
-          throw err;
-        }
+        const again = async () => {
+          const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
+          try {
+            return structuredClone(await s.run(client, ctx));
+          } catch (err) {
+            if (refused(err)) return undefined;
+            throw err;
+          }
+        };
+        if (!redact) return again();
+        if (madeOfObjects(journaled)) return redact(journaled);
+        // A read that returned values no object carries (an aggregate's totals, a count) cannot be redacted field by
+        // field: the approver is shown it only if reading it as them gives the same, and otherwise nothing.
+        const theirs = await again().catch(() => undefined);
+        return theirs !== undefined && sameValue(theirs, journaled) ? redact(journaled) : undefined;
       }
       case "compute":
         try {
@@ -1125,4 +1132,20 @@ function covers(seen: unknown, given: unknown): boolean {
     return Object.entries(given as Record<string, unknown>).every(([k, g]) => Object.hasOwn(seen, k) && covers((seen as Record<string, unknown>)[k], g));
   }
   return canonical(seen) === canonical(given);
+}
+
+/** Whether every value in `v` sits in an object (a value with a string `$id` and `$type`), which an approver's view can redact field by field. */
+function madeOfObjects(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (Array.isArray(v)) return v.every(madeOfObjects);
+  if (typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  // An object is redacted as the approver reads it; a plain record (the reads of a parallel step, by name) is made of what it holds.
+  return (typeof o.$id === "string" && typeof o.$type === "string") || Object.values(o).every(madeOfObjects);
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 }

@@ -23,7 +23,8 @@ export interface Route {
 interface RouterValue extends Route {
   readonly pages: readonly PageRoute[];
   navigate(page: string, params?: Readonly<Record<string, unknown>>): void;
-  href(page: string, params?: Readonly<Record<string, unknown>>): string;
+  /** Undefined when a parameter the page's path needs is unknown: there is no page to go to. */
+  href(page: string, params?: Readonly<Record<string, unknown>>): string | undefined;
 }
 
 const RouterContext = createContext<RouterValue | null>(null);
@@ -53,16 +54,18 @@ export function matchPath(pattern: string, path: string): Record<string, string>
   return params;
 }
 
-/** A page's path with its parameters filled in, each encoded. */
-export function fillPath(pattern: string, params: Readonly<Record<string, unknown>> = {}): string {
-  return (
-    "/" +
-    pattern
-      .split("/")
-      .filter(Boolean)
-      .map((seg) => (seg.startsWith(":") ? encodeURIComponent(toText(params[seg.slice(1)]) ?? "") : seg))
-      .join("/")
-  );
+/** A page's path with its parameters filled in, each encoded; undefined when one is unknown or empty, rather than a path to no page. */
+export function fillPath(pattern: string, params: Readonly<Record<string, unknown>> = {}): string | undefined {
+  const segs: string[] = [];
+  for (const seg of pattern.split("/").filter(Boolean)) {
+    if (!seg.startsWith(":")) segs.push(seg);
+    else {
+      const v = toText(params[seg.slice(1)]);
+      if (v === undefined || v === "") return undefined;
+      segs.push(encodeURIComponent(v));
+    }
+  }
+  return `/${segs.join("/")}`;
 }
 
 function resolve(pages: readonly PageRoute[], path: string): Route {
@@ -91,6 +94,7 @@ export function Router(props: { readonly pages: readonly PageRoute[]; readonly c
   const navigate = useCallback(
     (name: string, params?: Readonly<Record<string, unknown>>) => {
       const to = href(name, params);
+      if (to === undefined) return;
       if (to !== location.pathname) history.pushState(null, "", to);
       setPath(to);
       scrollTo({ top: 0 });
@@ -105,6 +109,7 @@ export function Router(props: { readonly pages: readonly PageRoute[]; readonly c
 export function PageLink(props: { readonly page: string; readonly params?: Readonly<Record<string, unknown>>; readonly className?: string; readonly children?: ReactNode }) {
   const router = useRouter();
   const to = router.href(props.page, props.params);
+  if (to === undefined) return <span className={props.className}>{props.children}</span>;
   return (
     <a
       href={to}

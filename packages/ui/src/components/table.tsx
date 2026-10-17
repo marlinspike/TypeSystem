@@ -133,7 +133,7 @@ function TableBuiltIn<R extends object>(props: TableProps<R>) {
     </>
   );
   return (
-    <Frame {...props} kind="table" pending={[props.data, ...(props.pending ?? [])]} actions={tools}>
+    <Frame {...props} kind="table" pending={[props.data, ...(props.pending ?? [])]} actions={tools} rowCount={props.data.value ? rows.length : undefined}>
       {rows.length === 0 ? (
         <EmptyState>{props.empty ?? "No rows you may see."}</EmptyState>
       ) : (

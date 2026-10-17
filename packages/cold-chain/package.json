@@ -17,6 +17,7 @@
   "devDependencies": {
     "@typesys/compiler": "0.1.0",
     "@typesys/engineer": "0.1.0",
+    "@typesys/workflow": "0.1.0",
     "playwright-core": "1.56.1"
   }
 }

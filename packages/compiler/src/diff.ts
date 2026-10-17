@@ -6,7 +6,7 @@ import type { Generated } from "./compile.js";
 /** One change between two versions of an application, in its own terms rather than as lines of JSON. */
 export interface AppChange {
   readonly change: "added" | "removed" | "changed";
-  readonly what: "app" | "host" | "caller" | "model" | "design" | "state" | "data" | "page" | "node" | "flow" | "step" | "check";
+  readonly what: "app" | "host" | "caller" | "llm" | "model" | "design" | "state" | "data" | "page" | "node" | "flow" | "step" | "check";
   /** The JSON Pointer of the thing in the newer version (in the older one when removed). */
   readonly at: string;
   readonly name: string;
@@ -126,7 +126,7 @@ export function diffApps(before: AppSpec, after: AppSpec, generated?: { readonly
   const types = new Set<string>();
   const actions = new Set<string>();
 
-  const top = differing(before, after, ["host", "callers", "models", "design", "state", "data", "flows", "pages", "acceptance"]);
+  const top = differing(before, after, ["host", "callers", "llm", "models", "design", "state", "data", "flows", "pages", "acceptance"]);
   if (top.length) add({ change: "changed", what: "app", at: "", name: after.name, detail: top.join(", ") });
   if (!same(before.host, after.host)) add({ change: "changed", what: "host", at: "/host", name: after.host.module, detail: differing(before.host, after.host).join(", "), risk: "the model, the policies and the identities may all differ: check and verify everything again" });
   compareKeyed(
@@ -136,13 +136,16 @@ export function diffApps(before: AppSpec, after: AppSpec, generated?: { readonly
     (name, b) => (changedCallers.add(name), add({ change: "added", what: "caller", at: b.at, name })),
     (name, a) => (changedCallers.add(name), add({ change: "removed", what: "caller", at: a.at, name, risk: "checks and pages that name this caller no longer resolve" }))
   );
+  const changedRoles = new Set<string>();
   compareKeyed(
     record(before.models, "/models"),
     record(after.models, "/models"),
-    (name, a, b) => add({ change: "changed", what: "model", at: b.at, name, detail: differing(a.value, b.value).join(", "), risk: "an AI step asks a different model, whose audience may be released less" }),
-    (name, b) => add({ change: "added", what: "model", at: b.at, name }),
-    (name, a) => add({ change: "removed", what: "model", at: a.at, name })
+    (name, a, b) => (changedRoles.add(name), add({ change: "changed", what: "model", at: b.at, name, detail: differing(a.value, b.value).join(", "), risk: "an AI step asks a different model, whose audience may be released less" })),
+    (name, b) => (changedRoles.add(name), add({ change: "added", what: "model", at: b.at, name })),
+    (name, a) => (changedRoles.add(name), add({ change: "removed", what: "model", at: a.at, name }))
   );
+  const llmChanged = before.llm !== after.llm;
+  if (llmChanged) add({ change: "changed", what: "llm", at: "/llm", name: after.llm ?? "none", risk: "every AI step may ask another provider, with another audience" });
   if (!same(before.design, after.design)) add({ change: "changed", what: "design", at: "/design", name: after.design?.system ?? "meridian", detail: differing(before.design ?? {}, after.design ?? {}).join(", ") });
   const usesRef = (scope: "state" | "data", name: string, x: unknown): boolean => {
     const text = JSON.stringify(x);
@@ -218,6 +221,9 @@ export function diffApps(before: AppSpec, after: AppSpec, generated?: { readonly
     (_key, b) => (changedFlows.add(b.value.name), touches(b.value, types, actions), add({ change: "added", what: "flow", at: b.at, name: b.value.name })),
     (_key, a) => (changedFlows.add(a.value.name), add({ change: "removed", what: "flow", at: a.at, name: a.value.name, risk: "runs in flight can no longer be resumed by this application" }))
   );
+  // A flow whose AI step asks a changed model (or any model, when the LLM configuration changed) is reached by it.
+  for (const f of Object.values(after.flows ?? {}))
+    if ([...flatSteps(f).values()].some((x) => x.value.kind === "ai" && (llmChanged || changedRoles.has(x.value.model)))) changedFlows.add(f.name);
   // A page that starts, shows or decides a changed flow is reached by it.
   const flowKeysChanged = new Set(Object.entries({ ...before.flows, ...after.flows }).filter(([, f]) => changedFlows.has(f.name)).map(([k]) => k));
   for (const p of after.pages) {

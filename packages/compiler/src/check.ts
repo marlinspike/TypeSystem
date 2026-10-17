@@ -487,7 +487,9 @@ class Checker {
       onFn: (call, args, fat) => this.fn(call, args, fat)
     });
 
-    const covers = (when: Expr | undefined, skipped: readonly string[]) => skipped.every((s) => implies(when, conditions.get(s)));
+    // A read that may fail and carry on (onError "continue") has no condition a consumer could share: nothing covers it.
+    const failsOn = new Set<string>();
+    const covers = (when: Expr | undefined, skipped: readonly string[]) => skipped.every((s) => !failsOn.has(s) && implies(when, conditions.get(s)));
     const requireKnown = (v: Typed, current: StepIR, vat: string, what: string) => {
       const skipped = (v.skippedBy ?? []).filter((s) => s !== current.name);
       if (skipped.length && !covers(current.when, skipped))
@@ -509,7 +511,7 @@ class Checker {
           const r = this.read(s.read, scope, `${sat}/read`, true);
           r.types.forEach((t) => reads.add(t));
           outputs.set(s.name, self(r.typed.ty, { ...(s.onError === "continue" ? { skippedBy: [s.name] } : r.typed.skippedBy ? { skippedBy: r.typed.skippedBy } : {}) }));
-          if (s.onError === "continue") conditions.set(s.name, undefined);
+          if (s.onError === "continue") failsOn.add(s.name);
           break;
         }
         case "parallel": {
@@ -522,7 +524,8 @@ class Checker {
             const typed = this.read(r.read, rscope, `${rat}/read`, true);
             typed.types.forEach((t) => reads.add(t));
             const skipped = [...(r.when !== undefined || r.onError === "continue" ? [r.name] : []), ...(typed.typed.skippedBy ?? [])];
-            results.push([r.name, { ty: typed.typed.ty, ...(skipped.length ? { skippedBy: skipped } : {}) }, r.onError === "continue" ? undefined : r.when]);
+            if (r.onError === "continue") failsOn.add(r.name);
+            results.push([r.name, { ty: typed.typed.ty, ...(skipped.length ? { skippedBy: skipped } : {}) }, r.when]);
           }
           for (const [n, t, w] of results) {
             outputs.set(n, t);

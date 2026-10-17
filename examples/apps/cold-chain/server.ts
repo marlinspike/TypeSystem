@@ -6,8 +6,8 @@ import type { Express } from "express";
 import { createAppServer, readLlmConfig } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from "@typesys/cold-chain";
-import { assess } from "./src/generated/flows/assess.js";
-import { disposition } from "./src/generated/flows/disposition.js";
+import { assess as flow_assess } from "./src/generated/flows/assess.js";
+import { disposition as flow_disposition } from "./src/generated/flows/disposition.js";
 import { llmOptions } from "./src/extensions/server.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,7 +20,7 @@ export async function createApp(): Promise<{ app: Express; workflows: WorkflowEn
     backend: await host.buildColdChainHost(),
     identities: (token) => host.resolveColdChainIdentity(token),
     // Each flow is typed by the application's model; the engine registers any workflow.
-    flows: [assess, disposition] as unknown as AnyWorkflow[],
+    flows: [flow_assess, flow_disposition] as unknown as AnyWorkflow[],
     models: { stability: "stability" },
     llm: { config: readLlmConfig(path.join(root, "typesys.llm.json")), options: await llmOptions() },
     clientDir: path.join(here, "client"),
@@ -33,6 +33,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const server = app.listen(Number(process.env.PORT ?? 4700), "127.0.0.1", () => {
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     // verify waits for this exact line, with the nonce it passed, rather than anything else printed first.
-    console.log(process.env.TYPESYS_ENGINEER_READY ? `typesys-engineer-ready ${process.env.TYPESYS_ENGINEER_READY} ${url}` : `Cold Chain Command on ${url}`);
+    console.log(process.env.TYPESYS_ENGINEER_READY ? `typesys-engineer-ready ${process.env.TYPESYS_ENGINEER_READY} ${url}` : `${"Cold Chain Command"} on ${url}`);
   });
 }

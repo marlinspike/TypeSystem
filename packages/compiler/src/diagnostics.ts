@@ -94,6 +94,7 @@ export const DIAGNOSTIC_CODES: Readonly<Record<string, { readonly meaning: strin
   "unused-data": { meaning: "Data are declared and never used, but would still be read.", resolve: "Remove them, or use them." },
   "page-param": { meaning: "A page's path and its params disagree.", resolve: "Declare one param per :segment of the path, and no other." },
   "invalid-check": { meaning: "An acceptance check is malformed or names something that does not exist.", resolve: "Correct the check; each one must be able to fail." },
+  "invalid-lock": { meaning: "typesys.lock.json names a path that is not a file the compiler generates, such as one outside the application, so the compiler will not read or remove it.", resolve: "Restore typesys.lock.json from version control, or delete it and compile again." },
   "edited-generated-file": { meaning: "A generated file was changed by hand since it was generated, and regenerating would discard the change.", resolve: "Move the change into src/extensions/ (or the spec), or compile with --force to discard it." },
   "extension-missing": { meaning: "The spec names an extension function or component whose module does not exist.", resolve: "Compile once to write a typed stub in src/extensions/, then implement it." },
   "compile-error": { meaning: "TypeScript refused the application: generated code no longer matches an extension, or an extension does not satisfy its contract.", resolve: "Fix the file at `at`: the generated contract in src/generated/contracts.ts says what the extension must provide." },

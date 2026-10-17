@@ -339,6 +339,8 @@ export interface DesignIR {
   readonly tokens?: Readonly<Record<string, string>>;
   readonly density?: "comfortable" | "compact";
   readonly brand?: { readonly name: string; readonly mark?: string };
+  /** `"presets"` offers each caller's published token at sign-in, for a demonstration. */
+  readonly signIn?: "presets";
 }
 
 /**

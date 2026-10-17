@@ -2,7 +2,7 @@
 import { $, need, rows } from "@typesys/app";
 import { Actions, Approvals, Detail, Grid, MapView, Metric, PageHeader, Section, Table, Text, at, keyOf, toNumber, toText, typedRead, useDerived, useEffects, usePageState } from "@typesys/ui";
 import type { AppModel } from "../model.js";
-import * as risk from "../../extensions/risk.js";
+import * as x_risk from "../../extensions/risk.js";
 
 /** Reads through the client typed by the application's model. */
 const useRead = typedRead<AppModel>();
@@ -36,7 +36,7 @@ export function Command(_props: { readonly params: Readonly<Record<string, strin
         <Metric id={"in-transit"} span={3} label={"In transit"} value={$.count($.where(shipments.value, (item) => $.eq(item?.status, "in-transit")))} caption={$.concat($.count(shipments.value), " shipments tracked")} pending={[shipments]} />
         <Metric id={"open-excursions-count"} span={3} label={"Open excursions"} value={$.count(openExcursions.value)} tone={$.cond($.gt($.count(openExcursions.value), 0), "bad", "good")} caption={"outside 2–8 °C"} pending={[openExcursions]} />
         <Metric id={"doses-at-risk"} span={3} label={"Doses at risk"} value={$.sum(atRisk.value, "doses")} format={"integer"} tone={"warn"} caption={$.concat($.count(atRisk.value), " lots on affected shipments")} pending={[atRisk]} />
-        <Metric id={"value-at-risk"} span={3} label={"Value at risk"} value={risk.valueAtRisk({ lots: atRisk.value })} format={"currency"} caption={"contract price, quality assurance only"} pending={[atRisk]} />
+        <Metric id={"value-at-risk"} span={3} label={"Value at risk"} value={x_risk.valueAtRisk({ lots: atRisk.value })} format={"currency"} caption={"contract price, quality assurance only"} pending={[atRisk]} />
         <MapView id={"shipment-map"} title={"Shipments"} span={8} data={shipments} points={(shipments.value ?? []).map((item, i) => ({ id: keyOf(item, i), lat: toNumber(at(item, "lat")), lon: toNumber(at(item, "lon")), label: toText($.concat(item?.$id, " to ", item?.destination)), tone: $.cond($.inList(item?.$id, $.pluck(openExcursions.value, "shipmentId")), "bad", $.cond($.eq(item?.status, "held"), "warn", "good")) }))} selected={state.selected ?? null} onSelect={(id) => fx.set("selected", id)} />
         <Section id={"selection"} title={"Selected shipment"} span={4}>
           {$.holds($.not($.exists(state?.selected))) ? (

@@ -2,8 +2,8 @@
 import { $, need } from "@typesys/app";
 import { Actions, Assistant, Chart, Detail, Frame, Grid, PageHeader, Provenance, RunView, Stack, toNumber, toText, typedRead, useDerived, useEffects, usePageState } from "@typesys/ui";
 import type { AppModel } from "../model.js";
-import * as gauge from "../../extensions/gauge.js";
-import * as stability from "../../extensions/stability.js";
+import * as x_gauge from "../../extensions/gauge.js";
+import * as x_stability from "../../extensions/stability.js";
 
 /** Reads through the client typed by the application's model. */
 const useRead = typedRead<AppModel>();
@@ -24,14 +24,14 @@ export function Excursion({ params }: { readonly params: Readonly<Record<string,
   const fx = useEffects(setState);
   const excursion = useRead((client) => client.get("coldchain.Excursion", need(params?.id, "$params.id"), { provenance: true }), [params.id], { types: ["coldchain.Excursion"] });
   const readings = useRead((client) => client.related("coldchain.Shipment", need(excursion.value?.shipmentId, "$excursion.shipmentId"), "readings"), [excursion.value], { types: ["coldchain.Reading","coldchain.Shipment"] });
-  const budget = useDerived(() => stability.budgetMinutes({ peakC: excursion.value?.peakC }), [excursion]);
+  const budget = useDerived(() => x_stability.budgetMinutes({ peakC: excursion.value?.peakC }), [excursion]);
   return (
     <>
       <PageHeader title={"Excursion review"} />
       <Grid>
         <Detail id={"excursion-detail"} title={"Excursion"} span={4} data={excursion} fields={[{"field":"shipmentId","label":"Shipment"},{"field":"logger"},{"field":"severity","format":"badge","tone":{"minor":"info","major":"warn","critical":"bad"}},{"field":"peakC","format":"temperature","label":"Peak"},{"field":"minutesOut","format":"duration-minutes","label":"Outside range"},{"field":"startedAt","format":"date-time","label":"Started"},{"field":"status","format":"badge","tone":{"open":"bad","closed":"good"}},{"field":"disposition"}]} provenance={true} type={"coldchain.Excursion"} />
         <Frame id={"stability-gauge"} title={"Stability budget"} span={4} kind={"custom"} pending={[excursion, budget]}>
-          <gauge.StabilityGauge minutesOut={excursion.value?.minutesOut} budgetMinutes={budget.value} />
+          <x_gauge.StabilityGauge minutesOut={excursion.value?.minutesOut} budgetMinutes={budget.value} />
         </Frame>
         <Stack span={4}>
           {$.holds($.eq(excursion.value?.status, "open")) ? (

@@ -192,12 +192,28 @@ export async function compileApp(dir: string, options: CompileOptions = {}): Pro
   const { owned, once } = generate(analysis);
 
   const lock = await readLock(abs);
+  // The lock is a file in the working tree like any other: a path in it that leaves the application is refused, never read or removed.
+  const outside = Object.keys(lock?.files ?? {}).filter((file) => !ownedPath(file));
+  if (outside.length)
+    return none([
+      ...checked.diagnostics,
+      ...outside.map((file) => ({ code: "invalid-lock", severity: "error" as const, at: LOCK_FILE, message: `${LOCK_FILE} names ${JSON.stringify(file)}, which is not a file the compiler generates`, hint: `restore ${LOCK_FILE} from version control, or delete it and compile again` }))
+    ]);
   const edited: AppDiagnostic[] = [];
+  const editedHint = "move the change to app.json or src/extensions/, or compile with --force to discard it";
   for (const [file, hash] of Object.entries(lock?.files ?? {})) {
     const f = path.join(abs, file);
     if (!existsSync(f)) continue;
     if (sha(await readFile(f, "utf8")) !== hash && !options.force)
-      edited.push({ code: "edited-generated-file", severity: "error", at: file, message: `${file} was edited since it was generated`, hint: "move the change to app.json or src/extensions/, or compile with --force to discard it", because: "the compiler owns generated files and would overwrite the edit" });
+      edited.push({ code: "edited-generated-file", severity: "error", at: file, message: `${file} was edited since it was generated`, hint: editedHint, because: "the compiler owns generated files and would overwrite the edit" });
+  }
+  // A file this compile would own that the lock does not record (no lock, or a page added beside a file already there)
+  // is overwritten only when it already says what the compiler would write: nothing records who wrote it.
+  for (const [file, content] of owned) {
+    if (lock && Object.hasOwn(lock.files, file)) continue;
+    const f = path.join(abs, file);
+    if (!existsSync(f) || options.force || (await readFile(f, "utf8")) === content) continue;
+    edited.push({ code: "edited-generated-file", severity: "error", at: file, message: `${file} differs from what the compiler generates and ${lock ? `${LOCK_FILE} does not record it` : `there is no ${LOCK_FILE}`}`, hint: editedHint, because: "without a record of what the compiler wrote, the difference may be someone's work" });
   }
   if (edited.length) return none([...checked.diagnostics, ...edited], analysis);
 
@@ -234,9 +250,16 @@ export async function compileApp(dir: string, options: CompileOptions = {}): Pro
   return { ok: true, diagnostics: checked.diagnostics.filter((d) => !stubbed(d)), written, unchanged, created, removed, analysis };
 }
 
+/** A path the compiler generates: relative, normalised, and inside the application. */
+function ownedPath(file: string): boolean {
+  return file !== "" && !path.isAbsolute(file) && !file.includes("\\") && path.posix.normalize(file) === file && !file.split("/").includes("..");
+}
+
 export async function readLock(dir: string): Promise<AppLock | undefined> {
   try {
     const lock = JSON.parse(await readFile(path.join(dir, LOCK_FILE), "utf8")) as AppLock;
+    const files = lock.files as unknown;
+    if (typeof files !== "object" || files === null || Array.isArray(files) || Object.values(files).some((h) => typeof h !== "string")) return undefined;
     return lock.format === LOCK_FORMAT ? lock : undefined;
   } catch {
     return undefined;

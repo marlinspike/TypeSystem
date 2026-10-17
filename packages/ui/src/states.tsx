@@ -92,7 +92,7 @@ export function unavailableIn(value: unknown): { path: string; reason: string; m
  * that is not ready (a skeleton, a waiting line, an error), or the node
  * with a quiet marker while a newer read runs.
  */
-export function Frame(props: NodeProps & { readonly kind: string; readonly children?: ReactNode; readonly actions?: ReactNode; readonly bare?: boolean }) {
+export function Frame(props: NodeProps & { readonly kind: string; readonly children?: ReactNode; readonly actions?: ReactNode; readonly bare?: boolean; readonly rowCount?: number }) {
   const pending = props.pending ?? [];
   const status = combine(pending);
   const firstError = pending.find((d) => d.status === "error");
@@ -111,6 +111,8 @@ export function Frame(props: NodeProps & { readonly kind: string; readonly child
       data-node={props.id}
       data-state={status}
       data-span={span}
+      // How many rows the node was given, whatever page of them it shows: what a screen check counts.
+      data-rows={props.rowCount}
       aria-busy={status === "loading" ? true : undefined}
       aria-labelledby={props.title && props.id ? `${props.id}-title` : undefined}
     >
