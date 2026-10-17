@@ -17,9 +17,14 @@ export interface LinkReport {
   readonly crossSource?: { readonly from: string; readonly through: string; readonly target?: string };
   /** Objects of the Type whose relationship was explained. */
   readonly probed: number;
+  /**
+   * Objects sampled that the subject may not read themselves, so their links
+   * say nothing about the subject's: not probed, and counted here.
+   */
+  readonly unreadable: number;
   /** Related objects returned to the subject, across the objects probed. */
   readonly returned: number;
-  /** Objects whose relationship came back empty. */
+  /** Objects with nothing related: none returned, and none refused or dangling. */
   readonly empty: number;
   /**
    * References to objects no source holds, and related objects the subject
@@ -51,7 +56,7 @@ export interface LinkOptions {
   readonly as?: Identity;
   /** Only these Types. */
   readonly types?: readonly string[];
-  /** Objects of each Type to probe. Default 3. */
+  /** Objects of each Type to probe. Default 3. Explaining another subject, up to ten times as many are tried to find this many the subject may read. */
   readonly sample?: number;
   /** Only relationships resolved through another source. Needs an inspection; ignored without one. */
   readonly crossSourceOnly?: boolean;
@@ -83,13 +88,15 @@ export async function probeLinks(runtime: LinksRuntime, investigator: Identity, 
       // Across systems when it is resolved through another source, or when what it names lives in one (a code on a shipment naming a site the inventory holds).
       const crossing = ri !== undefined && own !== undefined && (ri.crossSource || (targetSource !== undefined && targetSource !== own));
       if (opts.crossSourceOnly && inspection && !crossing) continue;
+      const sample = opts.sample ?? 3;
       try {
-        ids ??= (await runtime.query({ type: t.name, limit: opts.sample ?? 3 }, investigator)).items.map((o) => o.objectId);
+        ids ??= (await runtime.query({ type: t.name, limit: opts.as ? sample * 10 : sample }, investigator)).items.map((o) => o.objectId);
       } catch {
         ids = [];
       }
-      const report = { probed: 0, returned: 0, empty: 0, dangling: 0, refused: 0, unavailable: 0, truncated: 0, examples: [] as { object: string; outcome: string; reason?: string }[] };
+      const report = { probed: 0, unreadable: 0, returned: 0, empty: 0, dangling: 0, refused: 0, unavailable: 0, truncated: 0, examples: [] as { object: string; outcome: string; reason?: string }[] };
       for (const id of ids) {
+        if (report.probed >= sample) break;
         let e: Explanation;
         try {
           e = await runtime.explain({ kind: "relationship", type: t.name, id, relationship: r.name }, investigator, opts.as ? { as: opts.as } : {});
@@ -99,10 +106,16 @@ export async function probeLinks(runtime: LinksRuntime, investigator: Identity, 
           continue;
         }
         disclosure = e.disclosure;
+        // The subject may not read this object at all: its links are not theirs to follow, so it is not a probe of them.
+        if (e.outcome === "refused" && e.findings.some((f) => f.about === `${t.name}/${id}` && f.outcome === "refused")) {
+          report.unreadable++;
+          continue;
+        }
         report.probed++;
         const count = e.findings.find((f) => f.outcome === "returned" && f.member === r.name)?.count ?? 0;
         report.returned += count;
-        if (e.outcome !== "unavailable" && count === 0) report.empty++;
+        // Empty means nothing is related, not that everything related was refused or dangles.
+        if (e.outcome !== "unavailable" && count === 0 && !e.findings.some((f) => f.outcome === "refused" || f.outcome === "dangling")) report.empty++;
         if (e.outcome === "unavailable") report.unavailable++;
         for (const f of e.findings) {
           if (f.outcome === "dangling") report.dangling++;
@@ -118,6 +131,7 @@ export async function probeLinks(runtime: LinksRuntime, investigator: Identity, 
         target: r.target,
         ...(crossing ? { crossSource: { from: own, through: ri.source.dataSourceId, ...(targetSource ? { target: targetSource } : {}) } } : {}),
         probed: report.probed,
+        unreadable: report.unreadable,
         returned: report.returned,
         empty: report.empty,
         ...(told ? { dangling: report.dangling, refused: report.refused } : {}),
@@ -136,7 +150,7 @@ export function renderLinks(probe: LinkProbe): string[] {
     `Links as ${probe.subject}${probe.subject !== probe.investigator ? `, explained to ${probe.investigator}` : ""}:`,
     ...probe.relationships.map((r) => {
       const where = r.crossSource ? ` [${r.crossSource.from} → ${r.crossSource.target ?? r.crossSource.through}]` : "";
-      const counts = [`${r.probed} probed`, `${r.returned} returned`, ...(r.empty ? [`${r.empty} empty`] : []), ...(r.dangling !== undefined ? [`${r.dangling} dangling`, `${r.refused ?? 0} refused`] : []), ...(r.unavailable ? [`${r.unavailable} unavailable`] : []), ...(r.truncated ? [`${r.truncated} truncated`] : [])];
+      const counts = [`${r.probed} probed`, ...(r.unreadable ? [`${r.unreadable} not readable by ${probe.subject}`] : []), `${r.returned} returned`, ...(r.empty ? [`${r.empty} empty`] : []), ...(r.dangling !== undefined ? [`${r.dangling} dangling`, `${r.refused ?? 0} refused`] : []), ...(r.unavailable ? [`${r.unavailable} unavailable`] : []), ...(r.truncated ? [`${r.truncated} truncated`] : [])];
       return `  ${`${r.type}.${r.relationship} → ${r.target}`.padEnd(56)}${where} ${counts.join(", ")}`;
     }),
     ...(probe.relationships.some((r) => r.dangling === undefined) ? ["Dangling and refused references are counted only when an inspector explains another caller's access (--for)."] : []),

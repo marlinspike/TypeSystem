@@ -55,7 +55,12 @@ of each Type on a few objects (three by default), through the runtime
 - objects whose relationship a source did not answer;
 - relationships cut at `maxRelatedPerObject`.
 
-It shows up to three findings that were not `returned`.
+It shows up to three findings that were not `returned`. A relationship is
+empty only when nothing is related: one whose related objects were all
+refused counts as refused. Explaining another subject, an object that
+subject may not read at all is skipped and counted as not readable,
+since its links say nothing about theirs. Up to ten times the sample is
+tried to find enough objects the subject may read.
 
 Dangling and refused references are counted only when an inspector
 explains someone else's access. Telling a caller their own would name an

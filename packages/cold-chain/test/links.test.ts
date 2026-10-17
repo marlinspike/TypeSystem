@@ -44,6 +44,16 @@ describe("links across systems", () => {
     expect([site.probed, site.returned, site.dangling, site.unavailable]).toEqual([3, 3, 0, 0]);
   });
 
+  it("for a carrier, skips shipments they may not read, and counts refused telemetry as refused, never as empty", async () => {
+    const p = await probeLinks(host.runtime, who.qa, { as: who.carrier, types: ["coldchain.Shipment"], crossSourceOnly: true });
+    const readings = p.relationships.find((r) => r.relationship === "readings")!;
+    const site = p.relationships.find((r) => r.relationship === "destinationSite")!;
+    expect(readings.unreadable).toBeGreaterThan(0);
+    expect([readings.probed, readings.returned, readings.empty]).toEqual([3, 0, 0]);
+    expect(readings.refused).toBeGreaterThan(0);
+    expect([site.probed, site.returned, site.refused]).toEqual([3, 3, 0]);
+  });
+
   it("when the inventory stops answering, still reads the shipment, and says which links could not be resolved", async () => {
     await inventory.stop();
     const shipment = await host.runtime.getObject("coldchain.Shipment", "SH-1046", who.qa);

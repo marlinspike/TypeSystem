@@ -2179,6 +2179,28 @@
       "tests": [
         "packages/core/test/declared-values.test.ts"
       ]
+    },
+    {
+      "id": "links.unreadable-source-probed",
+      "adr": "0094",
+      "description": "A link probe counts an object the explained subject may not read as a probe of their links.",
+      "file": "packages/devkit/src/links.ts",
+      "find": "if (e.outcome === \"refused\" && e.findings.some((f) => f.about === `${t.name}/${id}` && f.outcome === \"refused\")) {",
+      "replace": "if (e.outcome === \"refused\" && e.findings.some((f) => f.about === `${t.name}/${id}` && f.outcome === \"refused\") && id === \"\") {",
+      "tests": [
+        "packages/cold-chain/test/links.test.ts"
+      ]
+    },
+    {
+      "id": "links.refused-reported-empty",
+      "adr": "0094",
+      "description": "A link probe reports a relationship whose related objects were all refused as empty.",
+      "file": "packages/devkit/src/links.ts",
+      "find": "count === 0 && !e.findings.some((f) => f.outcome === \"refused\" || f.outcome === \"dangling\")",
+      "replace": "count === 0",
+      "tests": [
+        "packages/cold-chain/test/links.test.ts"
+      ]
     }
   ]
 }
