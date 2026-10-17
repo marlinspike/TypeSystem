@@ -1,17 +1,19 @@
 import express, { type Express, type NextFunction, type Request, type Response, type Router } from "express";
 import {
+  AuthorizationError,
   InvalidInputError,
   NotFoundError,
   summarizeAction,
   type Identity,
   type IdentityResolver,
+  type ExplainQuestion,
   type SemanticAggregateQuery,
   type SemanticQuery,
   type SemanticRegistry,
   type SemanticRuntime
 } from "@typesys/core";
-import { discover, validateQuery } from "@typesys/devkit";
-import type { WorkflowEngine } from "@typesys/workflow";
+import { GRAPH_VIEWS, discover, governedGraph, queryGraph, validateQuery, type GraphConsumer, type GraphViewName, type SemanticGraph } from "@typesys/devkit";
+import { workflowUses, type WorkflowEngine } from "@typesys/workflow";
 import { LOCAL_HOSTS, bearerToken, originGuard } from "./guard.js";
 import { openApiDocument } from "./openapi.js";
 import { bodyProblem, notFound, sendProblem, toProblem, unauthorized } from "./problems.js";
@@ -23,6 +25,14 @@ export interface ApiOptions {
   readonly identityResolver: IdentityResolver;
   /** Serves the workflow routes when given (ADR-0057). */
   readonly workflows?: WorkflowEngine;
+  /** What is built on the model besides the engine's workflows, for `/graph` (ADR-0090): `appUses(spec)` for each application. */
+  readonly consumers?: readonly GraphConsumer[];
+  /**
+   * Whose access an inspector may explain (ADR-0089): `/explain` with `as`
+   * resolves the subject here, and `/subjects` lists them for an inspector.
+   * Without it, an explanation is only ever of the caller's own access.
+   */
+  readonly subjects?: SubjectDirectory;
   /** Told of every 500 with the error itself, which the response never carries. Default: `console.error`. */
   readonly onError?: (err: unknown, req: Request) => void;
   /** The `info` of the OpenAPI document. */
@@ -36,7 +46,16 @@ export interface ApiAppOptions extends ApiOptions {
   readonly allowedOrigins?: readonly string[];
 }
 
+/** The people and agents a deployment can name, for explaining someone else's access. */
+export interface SubjectDirectory {
+  list(): Promise<readonly { readonly subjectId: string; readonly label?: string }[]>;
+  /** The subject as they are now, or undefined when there is no such subject. */
+  resolve(subjectId: string): Promise<Identity | undefined>;
+}
+
 type Handler = (req: Request, identity: Identity) => Promise<unknown>;
+
+
 
 /** The API answers only JSON: never sniffed as something else, never framed. */
 function apiHardening(_req: Request, res: Response, next: NextFunction): void {
@@ -86,6 +105,20 @@ export function createApiRouter(opts: ApiOptions): Router {
     return opts.workflows;
   };
 
+  const subjects = (): SubjectDirectory => {
+    if (!opts.subjects) throw new NotFoundError("This API has no subject directory, so only your own access can be explained");
+    return opts.subjects;
+  };
+  /** The graph as this caller may learn it: from an inspection when they may inspect, else from their description. */
+  const graphFor = (who: Identity): Promise<SemanticGraph> => governedGraph(runtime, who, [...(opts.consumers ?? []), ...(opts.workflows?.definitionsList().map((w) => workflowUses(w)) ?? [])]);
+  const intQuery = (req: Request, name: string, min: number, max: number, fallback: number): number => {
+    const raw = req.query[name];
+    if (raw === undefined) return fallback;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < min || n > max) throw new InvalidInputError(`\`${name}\` must be an integer from ${min} to ${max}`);
+    return n;
+  };
+
   router.get("/me", route(200, async (_req, who) => ({ subjectId: who.subjectId, roles: who.roles, ...(who.clearance ? { clearance: who.clearance } : {}) })));
   // The model as this caller may learn it (ADR-0068): the runtime decides, under the deployment's discovery mode.
   router.get("/model", route(200, (_req, who) => runtime.describeModel(who)));
@@ -100,6 +133,65 @@ export function createApiRouter(opts: ApiOptions): Router {
     route(200, async (req, who) => {
       const { task, limit } = body<{ task?: unknown; limit?: unknown }>(req);
       return discover(await runtime.describeModel(who), typeof task === "string" ? task : "", { limit: typeof limit === "number" ? Math.min(20, Math.max(1, limit)) : 5 });
+    })
+  );
+
+  // Inspection, explanations and the dependency graph (ADR-0088, ADR-0089, ADR-0090): each decided by the runtime for the caller.
+  router.get(
+    "/inspection",
+    route(200, (req, who) => {
+      const raw = req.query.type;
+      const types = raw === undefined ? undefined : (Array.isArray(raw) ? raw : [raw]).map(String);
+      return runtime.inspectModel(who, types ? { types } : {});
+    })
+  );
+  router.get(
+    "/subjects",
+    route(200, async (_req, who) => {
+      if (!(await runtime.canInspect(who))) throw new AuthorizationError("Listing subjects needs the inspection policy");
+      return subjects().list();
+    })
+  );
+  router.post(
+    "/explain",
+    route(200, async (req, who) => {
+      const { question, as } = body<{ question?: unknown; as?: unknown }>(req);
+      if (as === undefined) return runtime.explain(question as ExplainQuestion, who);
+      if (typeof as !== "string" || as === "") throw new InvalidInputError("`as` must be a subject id");
+      // Only an inspector may explain someone else's access, and is told whether the subject exists only then.
+      if (!(await runtime.canInspect(who))) throw new AuthorizationError("Explaining another subject's access needs the inspection policy");
+      const subject = await subjects().resolve(as);
+      if (!subject) throw new NotFoundError(`No subject "${as}"`);
+      return runtime.explain(question as ExplainQuestion, who, { as: subject });
+    })
+  );
+  router.post(
+    "/workflows/:name/explain",
+    route(200, async (req, who) => {
+      const { as } = body<{ as?: unknown }>(req);
+      if (as === undefined) return workflows().explain(param(req, "name"), who);
+      if (typeof as !== "string" || as === "") throw new InvalidInputError("`as` must be a subject id");
+      if (!(await runtime.canInspect(who))) throw new AuthorizationError("Explaining another subject's access needs the inspection policy");
+      const subject = await subjects().resolve(as);
+      if (!subject) throw new NotFoundError(`No subject "${as}"`);
+      return workflows().explain(param(req, "name"), who, { as: subject });
+    })
+  );
+  router.get(
+    "/graph",
+    route(200, async (req, who) => {
+      const view = typeof req.query.view === "string" ? req.query.view : "overview";
+      if (!(GRAPH_VIEWS as readonly string[]).includes(view)) throw new InvalidInputError(`\`view\` is one of ${GRAPH_VIEWS.join(", ")}`);
+      const graph = await graphFor(who);
+      const node = typeof req.query.node === "string" ? req.query.node : undefined;
+      if (view !== "overview" && view !== "full" && !graph.nodes.some((n) => n.id === node)) throw new NotFoundError(`No node "${node ?? ""}" in the graph you may see`);
+      const neighborhoodView = view === "neighborhood";
+      return queryGraph(graph, {
+        view: view as GraphViewName,
+        ...(node ? { node } : {}),
+        depth: neighborhoodView ? intQuery(req, "depth", 1, 4, 1) : intQuery(req, "depth", 1, 50, 50),
+        limit: intQuery(req, "limit", 5, 400, 60)
+      });
     })
   );
 

@@ -103,6 +103,27 @@ export function openApiDocument(
     "/objects/{type}/{id}/provenance/{property}": {
       get: op("getProvenance", "Where one value came from", { type: "array", items: ref("Provenance") }, { parameters: ["type", "id", "property"].map(pathParam) })
     },
+    "/inspection": {
+      get: op("inspectModel", "The enforcement structure of the model an inspector may learn of: sources, policies, markings, derivations (ADR-0088)", { type: "object" }, {
+        parameters: [{ name: "type", in: "query", required: false, schema: { type: "array", items: { type: "string" } }, style: "form", explode: true }]
+      })
+    },
+    "/subjects": { get: op("listSubjects", "Whose access an inspector may explain", { type: "array", items: { type: "object" } }) },
+    "/explain": {
+      post: op("explain", "Why a read, relationship, Action or query is allowed, partly answered, refused or unavailable, replayed through the runtime (ADR-0089)", { type: "object" }, {
+        requestBody: { required: true, ...json({ type: "object", properties: { question: { type: "object" }, as: { type: "string" } }, required: ["question"] }) }
+      })
+    },
+    "/graph": {
+      get: op("graph", "The dependency graph of the model, its governance and its consumers, as this caller may learn it (ADR-0090)", { type: "object" }, {
+        parameters: [
+          { name: "view", in: "query", required: false, schema: { enum: ["overview", "neighborhood", "dependents", "dependencies", "full"] } },
+          { name: "node", in: "query", required: false, schema: { type: "string" } },
+          { name: "depth", in: "query", required: false, schema: { type: "integer" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer" } }
+        ]
+      })
+    },
     "/types/{type}/actions": {
       get: op("listActions", "The Actions on a Type or one object, and whether this caller may invoke each", { type: "array", items: ref("ActionSummary") }, {
         parameters: [pathParam("type"), { name: "objectId", in: "query", required: false, schema: { type: "string" } }]
@@ -150,6 +171,12 @@ export function openApiDocument(
         requestBody: { required: true, ...json({ type: "object", properties: { input: {} }, required: ["input"] }) },
         responses: { "201": { description: "Started", ...json(run) }, default: problem }
       }
+    };
+    paths["/workflows/{name}/explain"] = {
+      post: op("explainWorkflow", "Whether the caller, or for an inspector a named subject, may start, approve and act in a workflow, and why", { type: "object" }, {
+        parameters: [pathParam("name")],
+        requestBody: { required: false, ...json({ type: "object", properties: { as: { type: "string" } } }) }
+      })
     };
     paths["/workflow-runs/{id}"] = { get: op("workflowStatus", "Where a run is, with no values", run, { parameters: [pathParam("id")] }) };
     paths["/workflow-runs/{id}/outputs"] = { get: op("workflowOutputs", "A run's outputs, to its initiator only", { type: "object" }, { parameters: [pathParam("id")] }) };

@@ -69,3 +69,19 @@ th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line
 .confirm { padding: 8px; border: 1px dashed var(--error); border-radius: 6px; }
 label { font-weight: 600; }
 .who .badge { margin-left: 6px; }
+.good { color: #2e7d32; }
+.badge.good { color: #2e7d32; }
+.badge.warn { color: var(--warn); }
+.badge.error { color: var(--error); }
+.badge.marking { color: var(--error); font-weight: 600; }
+.graph-split { display: grid; grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(260px, 380px); gap: 12px; }
+@media (max-width: 1100px) { .graph-split { grid-template-columns: 1fr; } }
+.canvas-wrap { min-width: 0; }
+.canvas { height: 640px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.inspector { min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: var(--panel); max-height: 640px; overflow-y: auto; }
+.inspector h3 { margin: 0; overflow-wrap: anywhere; }
+.inspector table { font-size: 12px; }
+.check { font-weight: 400; display: flex; gap: 6px; align-items: center; }
+.kinds li { margin: 2px 0; }
+.reach .muted { font-size: 12px; }
+.__________cytoscape_container { position: relative; }

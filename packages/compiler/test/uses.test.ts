@@ -3,6 +3,8 @@ import { describeModel, requireRole } from "@typesys/core";
 import { buildAirforceTestbed, demoIdentities } from "@typesys/domain-airforce";
 import { dependents, nodeId, semanticGraph } from "@typesys/devkit";
 import { appUses } from "../src/uses.js";
+import { appCommand } from "../src/cli.js";
+import { squadronDir } from "./apps.js";
 import { squadronApp } from "./fixtures.js";
 
 async function graphOf(app = squadronApp()) {
@@ -56,5 +58,40 @@ describe("application uses (ADR-0090)", () => {
     const g = await graphOf(app);
     expect(g.nodes.find((n) => n.id === nodeId.member("airforce.Aircraft", "fuelState"))?.unresolved).toBe(true);
     expect(dependents(g, nodeId.member("airforce.Aircraft", "fuelState")).reached.map((r) => r.id)).toContain(nodeId.part(APP, "data.attention"));
+  });
+});
+
+describe("typesys app inspect, why and graph", () => {
+  const run = async (argv: string[]) => {
+    let printed = "";
+    const code = await appCommand([...argv, "--json"], (s) => (printed = s));
+    return { code, out: JSON.parse(printed) as Record<string, unknown> };
+  };
+  const workbench = () => {
+    const app = squadronApp();
+    return squadronDir("workbench-cli", { ...app, host: { ...app.host, build: "buildAirforceWorkbench" } });
+  };
+
+  it("inspects for the lead and refuses the viewer", async () => {
+    const dir = await workbench();
+    const lead = await run(["inspect", dir, "--as", "lead", "--type", "airforce.Aircraft"]);
+    expect(lead.code).toBe(0);
+    expect((lead.out.types as { name: string }[]).map((t) => t.name)).toEqual(["airforce.Aircraft"]);
+    const viewer = await run(["inspect", dir, "--as", "viewer"]);
+    expect(viewer.code).toBe(1);
+  });
+
+  it("explains why the viewer is shown a partial Aircraft, to the lead", async () => {
+    const dir = await workbench();
+    const r = await run(["why", dir, "--as", "lead", "--for", "viewer", "--read", "airforce.Aircraft/AF86-0147"]);
+    expect(r.out).toMatchObject({ ok: true, outcome: "partial", disclosure: "inspector" });
+    expect((await run(["why", dir, "--as", "lead"])).out.error).toMatch(/needs one of/);
+  });
+
+  it("answers what a change to a value reaches in this application", async () => {
+    const dir = await workbench();
+    const r = await run(["graph", dir, "--as", "lead", "--view", "dependents", "--node", "member:airforce.Aircraft.maintenanceStatus"]);
+    expect(r.out.consumers).toEqual([APP, FLOW]);
+    expect((await run(["graph", dir, "--as", "viewer"])).out.structure).toBe("description");
   });
 });

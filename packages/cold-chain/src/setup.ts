@@ -23,7 +23,7 @@ export async function buildColdChainHost(options: ColdChainHostOptions = {}): Pr
     manifests: [coreManifest, coldChainManifest],
     adapters: [trackerAdapter(urls.tracker, options.trackerKey), sensorAdapter(urls.sensors), inventoryAdapter(urls.inventory, options.inventoryKey)],
     policyRules: coldChainPolicyRules,
-    runtimeOptions: { resilience: { callTimeoutMs: 2_000 }, classification: coldChainClassification, ...options.runtimeOptions }
+    runtimeOptions: { resilience: { callTimeoutMs: 2_000 }, classification: coldChainClassification, inspection: { policy: "coldchain.inspect" }, ...options.runtimeOptions }
   });
   return { ...built, ...(services ? { services } : {}) };
 }

@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { compileContext } from "@typesys/devkit";
+import { compileContext, governedGraph, queryGraph, GRAPH_VIEWS, type GraphViewName } from "@typesys/devkit";
+import { describeModel, type ExplainQuestion, type Identity } from "@typesys/core";
 import { tryLoadHost } from "@typesys/engineer";
 import { buildApp } from "./build.js";
 import { EFFECT_CATALOG, NODE_BASE, NODE_CATALOG, OP_CATALOG, SCOPES, STEP_BASE, STEP_CATALOG } from "./catalog.js";
@@ -12,6 +13,7 @@ import { diffApps } from "./diff.js";
 import { missionToApp } from "./migrate.js";
 import type { AppSpec } from "./ir.js";
 import { verifyApp } from "./verify.js";
+import { appUses } from "./uses.js";
 
 export const APP_USAGE = `typesys app — the application compiler (ADR-0079 to ADR-0085)
 
@@ -25,6 +27,9 @@ Usage:
   typesys app verify <dir> [--json]
   typesys app diff <dir> --against <app.json> [--json]
   typesys app migrate <mission.json> --out <dir> [--force] [--json]
+  typesys app inspect <dir> [--as <caller>] [--type <Type>]... [--json]
+  typesys app why <dir> [--as <caller>] [--for <caller>] (--read <Type>/<id> | --related <Type>/<id>/<relationship> | --invoke <Action> [--input <json>] | --query <json>) [--json]
+  typesys app graph <dir> [--as <caller>] [--view overview|neighborhood|dependents|dependencies|full] [--node <id>] [--depth <n>] [--json]
 
   catalog   Every primitive (nodes, steps, effects, operators, scopes) and
             its fields: the whole language, as data.
@@ -46,6 +51,15 @@ Usage:
   diff      What changed between <app.json> and <dir>/app.json, what each
             change risks, the generated files it changes and the checks
             that exercise it.
+  inspect   Where each value comes from and what guards it: sources,
+            policies with their rules, markings, derivations (ADR-0088).
+            Only for a caller the host's inspection policy admits.
+  why       Why the runtime allows, partly answers, refuses or cannot
+            answer a read, relationship, Action or query (ADR-0089), for
+            --as, or with --for for another caller (an inspector only).
+  graph     The dependency graph of the model and this application, as
+            --as may learn it (ADR-0090): what a change to --node reaches
+            (dependents) or what it rests on (dependencies).
   migrate   Translate a typesys.mission/1 spec into <dir>/app.json: the
             same host, callers and checks, the workflow step for step, the
             views as tables. Every change it makes is a mission-translation
@@ -158,6 +172,10 @@ export async function appCommand(argv: readonly string[], out: (s: string) => vo
       return contextCommand(target, rest, print, host);
     case "migrate":
       return migrateCommand(target, arg(rest, "--out"), rest.includes("--force"), print, options.within);
+    case "inspect":
+    case "why":
+    case "graph":
+      return workbenchCommand(sub, target, rest, print, host);
     default:
       out(APP_USAGE);
       return 1;
@@ -212,6 +230,100 @@ async function contextCommand(dir: string, rest: readonly string[], print: Print
     const maxTokens = Number(arg(rest, "--max-tokens") ?? 4000);
     const ctx = await compileContext(loaded.host.runtime, identity, { task: spec.requirement, maxTokens: Number.isFinite(maxTokens) ? maxTokens : 4000 });
     return print(true, { ok: true, ...ctx }, [ctx.text, "", `${ctx.tokens} tokens as ${as}${ctx.omitted.length ? `; left out: ${ctx.omitted.join(", ")}` : ""}`]);
+  } finally {
+    await stopHost(loaded);
+  }
+}
+
+function args(rest: readonly string[], flag: string): string[] {
+  return rest.flatMap((v, i) => (rest[i - 1] === flag ? [v] : []));
+}
+
+/** The question `why` asks, from its flags. */
+function question(rest: readonly string[]): ExplainQuestion | string {
+  const read = arg(rest, "--read");
+  const related = arg(rest, "--related");
+  const invoke = arg(rest, "--invoke");
+  const query = arg(rest, "--query");
+  const parse = (text: string | undefined, what: string): unknown => {
+    try {
+      return JSON.parse(text ?? "{}") as unknown;
+    } catch {
+      throw new Error(`${what} is not JSON`);
+    }
+  };
+  if (read) {
+    const [type, ...id] = read.split("/");
+    return type && id.length ? { kind: "read", type, id: id.join("/") } : "--read takes <Type>/<id>";
+  }
+  if (related) {
+    const parts = related.split("/");
+    return parts.length >= 3 ? { kind: "relationship", type: parts[0]!, id: parts.slice(1, -1).join("/"), relationship: parts.at(-1)! } : "--related takes <Type>/<id>/<relationship>";
+  }
+  if (invoke) return { kind: "invoke", action: invoke, input: parse(arg(rest, "--input"), "--input") };
+  if (query) return { kind: "query", query: parse(query, "--query") as never };
+  return "why needs one of --read, --related, --invoke, --query";
+}
+
+/** inspect, why and graph: each a question one of the application's callers asks the host's runtime, which decides it. */
+async function workbenchCommand(sub: "inspect" | "why" | "graph", dir: string, rest: readonly string[], print: Print, host: { within?: string }): Promise<number> {
+  const read = await readAppSpec(path.resolve(dir));
+  if (read.doc === undefined) return print(false, { ok: false, diagnostics: read.diagnostics }, read.diagnostics.map(line));
+  const spec = read.doc as AppSpec;
+  const callerNamed = (name: string | undefined) => (name ? spec.callers?.[name] : undefined);
+  const as = arg(rest, "--as") ?? Object.entries(spec.callers ?? {}).find(([, c]) => c.token !== "")?.[0];
+  if (!as || !callerNamed(as)) return print(false, { ok: false, error: `no caller ${as ?? ""}` }, [`no caller "${as ?? ""}": callers are ${Object.keys(spec.callers ?? {}).join(", ")}`]);
+  const forName = arg(rest, "--for");
+  if (forName !== undefined && !callerNamed(forName)) return print(false, { ok: false, error: `no caller ${forName}` }, [`no caller "${forName}": callers are ${Object.keys(spec.callers ?? {}).join(", ")}`]);
+  const loaded = await tryLoadHost(spec, path.resolve(dir), host);
+  if ("diagnostic" in loaded) return print(false, { ok: false, diagnostics: [loaded.diagnostic] }, [line(loaded.diagnostic)]);
+  const identityOf = async (name: string): Promise<Identity> => {
+    const token = callerNamed(name)!.token;
+    return loaded.resolve(token === "" ? null : token);
+  };
+  const runtime = loaded.host.runtime;
+  try {
+    const identity = await identityOf(as);
+    if (sub === "inspect") {
+      const types = args(rest, "--type");
+      const i = await runtime.inspectModel(identity, types.length ? { types } : {});
+      return print(true, { ok: true, ...i }, [
+        `Inspection as ${as} (${i.modelDigest})`,
+        ...i.types.flatMap((t) => [
+          `${t.name}  object policy ${t.objectPolicy}${t.source ? `, from ${t.source.dataSourceId}` : ""}${t.markings.length ? ` [${t.markings.join(", ")}]` : ""}`,
+          ...t.members.map(
+            (m) =>
+              `  ${m.name}: ${m.computed ? `computed from ${m.computed.dependsOn.join(", ") || "nothing"}${m.computed.releases.length ? `, released from ${m.computed.releases.join(", ")}` : ""}` : (m.source?.dataSourceId ?? "")}${m.policy ? `; policy ${m.policy}` : ""}${m.markings.length ? ` [${m.markings.join(", ")}]` : ""}`
+          )
+        ]),
+        ...i.policies.map((p) => `policy ${p.name}: ${p.rule ?? "opaque"}`)
+      ]);
+    }
+    if (sub === "why") {
+      const q = question(rest);
+      if (typeof q === "string") return print(false, { ok: false, error: q }, [q]);
+      const e = await runtime.explain(q, identity, forName ? { as: await identityOf(forName) } : {});
+      return print(true, { ok: true, ...e }, [
+        `${e.outcome.toUpperCase()}: ${e.summary}`,
+        ...e.findings.map((f) => `  ${f.outcome.padEnd(9)} ${(f.member ?? f.about).padEnd(28)} ${f.basis}${f.control ? `, ${f.control}` : ""}${f.policy ? ` ${f.policy}` : ""}${f.reason ? `: ${f.reason}` : ""}${f.remedy ? ` (to change: ${f.remedy})` : ""}`),
+        e.caveat
+      ]);
+    }
+    const view = arg(rest, "--view") ?? "overview";
+    if (!(GRAPH_VIEWS as readonly string[]).includes(view)) return print(false, { ok: false, error: `--view is one of ${GRAPH_VIEWS.join(", ")}` }, [`--view is one of ${GRAPH_VIEWS.join(", ")}`]);
+    const graph = await governedGraph(runtime, identity, appUses(spec, await describeModel(loaded.host.registry)));
+    const node = arg(rest, "--node");
+    if (view !== "overview" && view !== "full" && !graph.nodes.some((n) => n.id === node)) return print(false, { ok: false, error: `no node ${node ?? ""}` }, [`no node "${node ?? ""}" in the graph ${as} may see`]);
+    const depth = arg(rest, "--depth");
+    const r = queryGraph(graph, { view: view as GraphViewName, ...(node ? { node } : {}), ...(depth ? { depth: Number(depth) } : {}) });
+    const reached = (r as { reached?: { id: string; via: string; distance: number }[] }).reached;
+    return print(true, { ok: true, ...r }, [
+      `${graph.structure === "inspection" ? "Graph from an inspection" : "Graph from the description"} as ${as}: ${graph.nodes.length} nodes, ${graph.edges.length} edges (${graph.digest.slice(0, 19)})`,
+      ...(reached ? [...reached.map((x) => `  ${"  ".repeat(Math.max(0, x.distance - 1))}${x.id}  (${x.via})`), `Consumers: ${((r as { consumers?: string[] }).consumers ?? []).join(", ") || "none"}`] : ((r as { nodes?: { id: string }[] }).nodes ?? []).map((n) => `  ${n.id}`))
+    ]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return print(false, { ok: false, error: message }, [message]);
   } finally {
     await stopHost(loaded);
   }

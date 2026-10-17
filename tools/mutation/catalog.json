@@ -1946,6 +1946,50 @@
       "tests": [
         "packages/compiler/test/uses.test.ts"
       ]
+    },
+    {
+      "id": "graph.description-names-policies",
+      "adr": "0090",
+      "description": "A graph built for a caller who may not inspect names the policies its consumers use.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "if (use.kind === \"policy\" && !governance) continue;",
+      "replace": "",
+      "tests": [
+        "packages/devkit/test/graph.test.ts"
+      ]
+    },
+    {
+      "id": "graph.unresolved-kept-under-need-to-know",
+      "adr": "0090",
+      "description": "Under need-to-know discovery, the graph names what a consumer uses that the caller may not learn of.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "{ unresolved: runtime.discovery === \"open\" ? \"keep\" : \"drop\" }",
+      "replace": "{ unresolved: \"keep\" }",
+      "tests": [
+        "packages/http/test/workbench.test.ts"
+      ]
+    },
+    {
+      "id": "mcp.explain-as-unguarded",
+      "adr": "0089",
+      "description": "A caller who may not inspect learns from typesys_explain whether a subject exists.",
+      "file": "packages/mcp-server/src/tools.ts",
+      "find": "if (!(await runtime.canInspect(identity))) throw new AuthorizationError(\"Explaining another subject's access needs the inspection policy\");",
+      "replace": "",
+      "tests": [
+        "packages/mcp-server/test/workbench-tools.test.ts"
+      ]
+    },
+    {
+      "id": "http.explain-as-unguarded",
+      "adr": "0089",
+      "description": "A caller who may not inspect learns from /explain whether a subject exists.",
+      "file": "packages/http/src/api.ts",
+      "find": "// Only an inspector may explain someone else's access, and is told whether the subject exists only then.\n      if (!(await runtime.canInspect(who))) throw new AuthorizationError(\"Explaining another subject's access needs the inspection policy\");",
+      "replace": "",
+      "tests": [
+        "packages/http/test/workbench.test.ts"
+      ]
     }
   ]
 }

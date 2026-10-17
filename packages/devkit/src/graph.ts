@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { canonical, type ModelDescription, type ModelInspection } from "@typesys/core";
+import { canonical, type Identity, type ModelDescription, type ModelInspection, type SemanticRuntime } from "@typesys/core";
 
 export const GRAPH_FORMAT = "typesys.graph/1";
 
@@ -313,6 +313,17 @@ export function semanticGraph(model: ModelInspection | ModelDescription, consume
   };
 }
 
+/**
+ * The graph as one caller may learn it, the same for every host (HTTP, MCP,
+ * CLI): from an inspection when the runtime lets them inspect, else from
+ * their description; and, unless discovery is open, without the names a
+ * consumer uses that their description leaves out.
+ */
+export async function governedGraph(runtime: Pick<SemanticRuntime, "canInspect" | "inspectModel" | "describeModel" | "discovery">, identity: Identity, consumers: readonly GraphConsumer[] = []): Promise<SemanticGraph> {
+  const model = (await runtime.canInspect(identity)) ? await runtime.inspectModel(identity) : await runtime.describeModel(identity);
+  return semanticGraph(model, consumers, { unresolved: runtime.discovery === "open" ? "keep" : "drop" });
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -510,4 +521,38 @@ export function overview(graph: SemanticGraph): Subgraph & { readonly counts: Re
   for (const n of graph.nodes) counts[n.kind] = (counts[n.kind] ?? 0) + 1;
   const edges = [...folded.values()].filter((e) => shown.has(e.from) && shown.has(e.to));
   return { nodes, edges, more: nodes.filter((n) => ix.children(n.id).length > 0).map((n) => n.id), counts };
+}
+
+export const GRAPH_VIEWS = ["overview", "neighborhood", "dependents", "dependencies", "full"] as const;
+export type GraphViewName = (typeof GRAPH_VIEWS)[number];
+
+export interface GraphRequest {
+  readonly view: GraphViewName;
+  /** Required for every view but `overview` and `full`. */
+  readonly node?: string;
+  readonly depth?: number;
+  readonly limit?: number;
+}
+
+/**
+ * One view of a graph, as every host serves it: the graph's identity
+ * (format, structure, digests) and the view's answer. Throws on a view it
+ * does not know or a node the graph does not have.
+ */
+export function queryGraph(graph: SemanticGraph, req: GraphRequest): Record<string, unknown> {
+  const meta = { format: graph.format, structure: graph.structure, modelDigest: graph.modelDigest, digest: graph.digest };
+  switch (req.view) {
+    case "full":
+      return { ...meta, nodes: graph.nodes, edges: graph.edges };
+    case "overview":
+      return { ...meta, ...overview(graph) };
+    case "neighborhood":
+      return { ...meta, ...neighborhood(graph, req.node ?? "", { depth: req.depth ?? 1, limit: req.limit ?? 60 }) };
+    case "dependents":
+      return { ...meta, ...dependents(graph, req.node ?? "", req.depth === undefined ? {} : { depth: req.depth }) };
+    case "dependencies":
+      return { ...meta, ...dependencies(graph, req.node ?? "", req.depth === undefined ? {} : { depth: req.depth }) };
+    default:
+      throw new Error(`view is one of ${GRAPH_VIEWS.join(", ")}`);
+  }
 }

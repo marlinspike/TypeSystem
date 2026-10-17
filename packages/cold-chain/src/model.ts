@@ -229,5 +229,7 @@ export const coldChainPolicyRules: Record<string, PolicyRule> = {
   "coldchain.dispose": requireRole("logistics", "qa"),
   /** Who may sign off a disposition: quality assurance, never the coordinator who asked for it. */
   "coldchain.qa-release": requireRole("qa"),
-  "coldchain.qa": requireRole("qa")
+  "coldchain.qa": requireRole("qa"),
+  /** Who may inspect the enforcement structure and explain anyone's access (ADR-0088): quality assurance and the auditor. */
+  "coldchain.inspect": requireRole("qa", "auditor")
 };

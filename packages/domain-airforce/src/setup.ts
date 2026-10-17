@@ -53,7 +53,9 @@ export const airforcePolicyRules: Record<string, PolicyRule> = {
   // Instance-scoped (ADR-0053): decided on the WorkOrder's own assignedTo.
   "airforce.work-order-assignee": allOf(requireRole("maintainer"), anyOf(requireRole("lead"), requireAttributeMatch("assignedTo", "displayName"))),
   // Who approves the GroundForRepair workflow's proposal (ADR-0057).
-  "airforce.maintenance-lead": allOf(requireRole("maintainer"), requireRole("lead"))
+  "airforce.maintenance-lead": allOf(requireRole("maintainer"), requireRole("lead")),
+  // Who may inspect the enforcement structure and explain others' access (ADR-0088), when a deployment names it as its inspection policy.
+  "airforce.inspect": requireRole("lead")
 };
 
 /**
@@ -89,6 +91,15 @@ export async function buildAirforceTestbed(
   });
 
   return { registry, runtime, policyEngine, inMemoryAdapter, mockRestAdapter };
+}
+
+/**
+ * The testbed as a developer's workbench (ADR-0088): the lead may inspect
+ * the enforcement structure and explain anyone's access. Everything else
+ * is `buildAirforceTestbed`'s.
+ */
+export function buildAirforceWorkbench(opts: Parameters<typeof buildAirforceTestbed>[0] = {}): Promise<AirforceTestbed> {
+  return buildAirforceTestbed({ ...opts, runtimeOptions: { inspection: { policy: "airforce.inspect" }, ...opts.runtimeOptions } });
 }
 
 /**

@@ -1,4 +1,6 @@
 import type { SemanticRegistry, SemanticRuntime } from "@typesys/core";
+import type { GraphConsumer } from "@typesys/devkit";
+import type { SubjectDirectory } from "@typesys/http";
 import type { IdentityResolver } from "./auth.js";
 
 /**
@@ -9,6 +11,10 @@ import type { IdentityResolver } from "./auth.js";
 export interface McpBackend {
   registry: SemanticRegistry;
   runtime: SemanticRuntime;
+  /** What is built on the model, for `typesys_graph` (ADR-0090): `workflowUses` and `appUses` of each. */
+  consumers?: readonly GraphConsumer[];
+  /** Whose access an inspector may explain with `typesys_explain`'s `as` (ADR-0089). */
+  subjects?: SubjectDirectory;
 }
 
 /** The `{ name, version }` a server announces to its clients in `initialize`. */

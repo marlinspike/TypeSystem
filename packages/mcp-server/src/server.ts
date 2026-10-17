@@ -42,7 +42,7 @@ export function createServer<B extends McpBackend>(backend: B, resolveIdentity: 
   );
 
   registerResourceHandlers(server, backend.registry, backend.runtime, resolveIdentity);
-  registerToolHandlers(server, backend.registry, backend.runtime, resolveIdentity);
+  registerToolHandlers(server, backend.registry, backend.runtime, resolveIdentity, backend);
 
   return { ...backend, server };
 }

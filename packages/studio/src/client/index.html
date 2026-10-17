@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TypeSys Studio</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="studio.css" />
+    <!-- The id tells Cytoscape its container rule is already here (in studio.css), so it injects no inline style the CSP would refuse. -->
+    <link id="__________cytoscape_stylesheet" rel="stylesheet" href="studio.css" />
     <script type="module" src="studio.js"></script>
   </head>
   <body>
