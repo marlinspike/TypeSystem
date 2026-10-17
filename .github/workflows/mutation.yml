@@ -1,0 +1,44 @@
+name: Mutation
+
+# Optional, and never hooked up: it runs only when someone starts it by hand
+# from the Actions tab. A full run of the catalog takes over half an hour, so
+# mutation testing is done locally (`npm run mutation`, ADR-0070); this is
+# for a maintainer who chooses to spend the Actions time. Every catalogued
+# defect in a security mechanism is applied, the tree is rebuilt, and the
+# tests the catalog names must fail; the evidence record is uploaded.
+on:
+  workflow_dispatch:
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: typesys
+          POSTGRES_PASSWORD: typesys
+          POSTGRES_DB: typesys_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://typesys:typesys@localhost:5432/typesys_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build:postgres
+      - run: npm run mutation -- --out mutation-evidence.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-evidence
+          path: mutation-evidence.json

@@ -49,8 +49,9 @@ conflict. If you add a new top-level TypeScript folder, add it to
 
 ## The check gate (run before opening a PR)
 
-CI (`.github/workflows/ci.yml`) runs all of this on every push and PR, so
-save yourself a round trip:
+CI (`.github/workflows/ci.yml`) runs all of this on every pull request, in
+one job of about four minutes, so save yourself a round trip. Nothing
+longer runs on GitHub: mutation testing is local only.
 
 ```bash
 npm run build && npm test && npm run lint && npm run typecheck
@@ -66,8 +67,8 @@ npm run smoke:mcp-http   # the same over the HTTP transport
 
 If you touched a security mechanism the mutation catalog names, rerun its
 mutations (ADR-0070); a catalog entry whose code moved goes stale and fails
-the run until you update it. Mutation testing runs only on your machine,
-never on GitHub, so this is the only place it happens:
+the run until you update it. Mutation testing runs only on your machine for
+a change, never on GitHub, so this is the only place it happens:
 
 ```bash
 npm run mutation -- --only <id,...> --allow-dirty

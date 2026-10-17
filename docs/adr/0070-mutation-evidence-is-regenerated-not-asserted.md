@@ -51,8 +51,9 @@ names. The run exits 1 on a survivor, a stale entry or an unrun mutation
 **Regenerated locally.** The committed `latest.json` is one run of `npm
 run mutation`, made on the revision it names; regenerating it is the
 same command on that revision, with Postgres for the mutations that need
-it. The catalog is never run on GitHub (amended 2026-10-17: a full run
-takes over half an hour of Actions time). A change to guarded code runs
+it. The catalog is never run on GitHub for a change (amended 2026-10-17: a
+full run takes over half an hour of Actions time); the Mutation workflow
+remains, to be started by hand only. A change to guarded code runs
 the mutations that guard it locally before it is pushed (`--only`).
 
 **What the first catalog covers.** 45 mutations: every mechanism of M2
