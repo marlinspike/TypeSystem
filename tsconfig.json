@@ -28,6 +28,7 @@
     { "path": "packages/adapter-http" },
     { "path": "packages/sortie-readiness" },
     { "path": "packages/cold-chain" },
+    { "path": "packages/showcase" },
     { "path": "packages/evaluation" },
     { "path": "packages/app" },
     { "path": "packages/ui" },

@@ -148,6 +148,14 @@ export interface WorkflowDefinition<M extends ModelShape = ModelShape, I = unkno
    * completed. Without it only the initiator may.
    */
   readonly cancelPolicy?: string;
+  /**
+   * The object a run is about (ADR-0097): the input field `idFrom` carries
+   * its id. A caller the runtime refuses that object may not start a run on
+   * it, so the start is refused (and audited) rather than a run failing on
+   * its first read. An object that does not exist, or whose source is down,
+   * is left to the run's own reads.
+   */
+  readonly about?: { readonly type: string; readonly idFrom: string };
   readonly inputSchema: JsonSchema2020;
   readonly steps: readonly Step<M, I>[];
 }

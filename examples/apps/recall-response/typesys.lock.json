@@ -1,0 +1,16 @@
+{
+  "format": "typesys.app.lock/1",
+  "spec": "87334c91c278f471a8a9bce2b9519367c2b6aad41b0767007905e2f3f4fb2329",
+  "files": {
+    "server.ts": "85ee8290bcafcf8cb186f9ea70d62bc18bc99a3b2652d65b142d05a496a05bb9",
+    "index.html": "4d83759175b55f8aa17c122bd31525d797d83bd564f89abcf57893106b29505b",
+    "src/generated/model.ts": "fb9b161361a77aafcdaed0c6f83db45c9ef18107979eaf6509169369ec82c9ab",
+    "src/generated/contracts.ts": "aeaa38a8c9687fc28fd61d2e0fb43fb29917b0a090ac781815ede78d5c5aed39",
+    "src/generated/contracts-check.ts": "3373cbf13c62c003518ff7986792fd9166656ee20e2378d8e283d670d9c1925d",
+    "src/generated/flows/respond.ts": "aaf6b2fe18cb5e9ba711d9e1aa25cebfeff66e25c423eefe3cdeddeb8cd50080",
+    "src/generated/pages/Notice.tsx": "8e7bb8b02d998a81e031e9e40bb88fb62f47f4e0634b0d89fa9980ea545f2b2c",
+    "src/generated/pages/Notices.tsx": "55f1563959e203657462c59978d694e92a92a39f136595001205607b36e2cfee",
+    "src/generated/app.tsx": "7927186b0f8317425d81c877ff1d38dd32f37be56dfb91b791077aeb1736e131",
+    "src/generated/acceptance.test.ts": "6b0ef410c6610f13cf3039da15fca3c4160a54e592ffeb5353518f4f59e7be60"
+  }
+}

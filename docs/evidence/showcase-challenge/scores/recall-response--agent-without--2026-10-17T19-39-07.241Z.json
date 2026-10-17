@@ -1,0 +1,98 @@
+{
+  "task": "recall-response",
+  "arm": "agent-without",
+  "at": "2026-10-17T19:39:07.241Z",
+  "production": {
+    "source": "agent",
+    "producer": "Claude Code subagent (agent-without arm, this session)",
+    "humanInterventions": 0
+  },
+  "total": 16,
+  "built": true,
+  "started": true,
+  "checks": [
+    {
+      "id": "rr-coordinator-asks",
+      "ok": true
+    },
+    {
+      "id": "rr-nothing-before-signoff",
+      "ok": true
+    },
+    {
+      "id": "rr-signoff-quarantines-listed-lots",
+      "ok": true
+    },
+    {
+      "id": "rr-response-filed-across-systems",
+      "ok": true
+    },
+    {
+      "id": "rr-tracker-decides-in-transit",
+      "ok": true
+    },
+    {
+      "id": "rr-qa-never-signs-own",
+      "ok": true
+    },
+    {
+      "id": "rr-no-one-else-approves",
+      "ok": true
+    },
+    {
+      "id": "rr-embargo-need-to-know",
+      "ok": true
+    },
+    {
+      "id": "rr-embargoed-response-by-qa",
+      "ok": true
+    },
+    {
+      "id": "rr-health-hazard-confidential",
+      "ok": true
+    },
+    {
+      "id": "rr-auditor-and-carrier-cannot-ask",
+      "ok": true
+    },
+    {
+      "id": "rr-carrier-and-anonymous-read-no-notice",
+      "ok": true
+    },
+    {
+      "id": "rr-terminated-fails",
+      "ok": true
+    },
+    {
+      "id": "rr-already-answered-fails",
+      "ok": true
+    },
+    {
+      "id": "rr-second-response-fails",
+      "ok": true
+    },
+    {
+      "id": "rr-ndc-mismatch-fails",
+      "ok": true
+    }
+  ],
+  "passed": 16,
+  "code": {
+    "files": 5,
+    "codeLines": 666,
+    "imports": [
+      "@typesys/adapter-http",
+      "@typesys/cold-chain",
+      "@typesys/core"
+    ],
+    "directServiceCalls": 1,
+    "restatedAccessRules": 0,
+    "branchDensity": 21,
+    "largestFileLines": 220
+  },
+  "performance": {
+    "requests": 89,
+    "p50Ms": 10,
+    "p95Ms": 90
+  }
+}

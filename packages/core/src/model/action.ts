@@ -64,6 +64,14 @@ export interface ActionDefinition {
    * withheld from an audience.
    */
   outputType?: string;
+  /**
+   * Only a workflow may invoke it, at a step after one of its approvals was
+   * granted (ADR-0096). Every other caller is refused, however the policy
+   * decides them: a consequential write a process puts behind a person's
+   * sign-off cannot be reached around the process, through REST, MCP or
+   * the SDK. The approval is recorded in the Action's audit row.
+   */
+  requiresApproval?: boolean;
   version: string;
   deprecated?: { since: string; supersededBy?: string };
 }

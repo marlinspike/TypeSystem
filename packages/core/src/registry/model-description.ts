@@ -47,6 +47,8 @@ export interface ActionDescription {
   target?: { type: string; idFrom: string };
   sideEffects: ActionDefinition["sideEffects"];
   idempotency: ActionDefinition["idempotency"];
+  /** Invoked only by a workflow after an approval (ADR-0096). */
+  requiresApproval?: boolean;
   deprecated?: { since: string; supersededBy?: string };
 }
 
@@ -94,6 +96,7 @@ export function describeAction(action: ActionDefinition): ActionDescription {
     ...(action.target ? { target: { type: action.target.type ?? action.applicableTypes[0]!, idFrom: action.target.idFrom } } : {}),
     sideEffects: action.sideEffects,
     idempotency: action.idempotency,
+    ...(action.requiresApproval ? { requiresApproval: true } : {}),
     ...(action.deprecated ? { deprecated: action.deprecated } : {})
   };
 }

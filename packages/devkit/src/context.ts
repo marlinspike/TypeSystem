@@ -113,6 +113,8 @@ export interface ContextAction {
   /** Whether this caller may invoke it, decided per Type; an instance-scoped Action may still be refused on one object. */
   readonly invocable: boolean;
   readonly instanceScoped: boolean;
+  /** Runs only from a workflow step after someone other than the caller approved the run (ADR-0096). */
+  readonly requiresApproval?: boolean;
   readonly input: string;
   readonly effect: string;
   /** The Types it acts on, applies to and returns: it is in a context only with each of them. */
@@ -494,7 +496,7 @@ async function actionEntries(runtime: ContextRuntime, identity: Identity, a: Act
     .join(", ");
   const effect = `${a.sideEffects === "none" ? "reads only" : a.sideEffects}; idempotency ${a.idempotency}${a.target ? `; acts on one ${a.target.type} named by ${a.target.idFrom}` : ""}`;
   const handle = `client.action(${JSON.stringify(a.name)})`;
-  return [{ name: a.name, description: a.description, reason, on, invocable, instanceScoped, input: `{ ${input} }`, effect, needs, sdk: [`${handle}.preview(input)`, `${handle}.invoke(input)`] }];
+  return [{ name: a.name, description: a.description, reason, on, invocable, instanceScoped, ...(a.requiresApproval ? { requiresApproval: true } : {}), input: `{ ${input} }`, effect, needs, sdk: [`${handle}.preview(input)`, `${handle}.invoke(input)`] }];
 }
 
 /** The one status every value shares when it is about the Type rather than any value: a refused read, nothing to probe. */
@@ -544,5 +546,5 @@ function renderType(t: ContextType): string {
 }
 
 function renderAction(a: ContextAction): string {
-  return `${a.name} on ${a.on} — ${a.description}\n  input ${a.input}; ${a.effect}; ${a.invocable ? "this caller may invoke it" : a.instanceScoped ? "decided on each object: this caller is not allowed it on every one" : "this caller may not invoke it"}`;
+  return `${a.name} on ${a.on} — ${a.description}\n  input ${a.input}; ${a.effect}; ${a.requiresApproval ? "requires approval: only a workflow step invokes it, after someone other than the caller approves the run" : a.invocable ? "this caller may invoke it" : a.instanceScoped ? "decided on each object: this caller is not allowed it on every one" : "this caller may not invoke it"}`;
 }

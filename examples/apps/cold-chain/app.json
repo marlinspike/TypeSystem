@@ -41,7 +41,8 @@
     "system": "meridian",
     "brand": {
       "name": "Cold Chain Command"
-    }
+    },
+    "signIn": "presets"
   },
   "data": {
     "shipments": {

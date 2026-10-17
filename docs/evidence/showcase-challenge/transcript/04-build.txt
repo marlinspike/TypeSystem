@@ -1,0 +1,191 @@
+$ node packages/cli/dist/bin.js app context examples/apps/recall-response --as logistics --max-tokens 3000
+# at 2026-10-17T19:50:49Z
+TypeSystem model context for: Written 2026-10-17 by the enterprise architect for the cold chain, before any application for it existed. Manufacturers post their recall notices to an industry recall exchange, a system our distribution business subscribes to but does not own. Today a coordinator reads each notice, looks our lots up by hand in the pharmacy inventory and the shipment tracker, phones quality assurance, quarantines lots one by one, and types an effectiveness response into the exchange. We want one governed recall response instead.
+As user-logistics-1. Only what this caller is told of and returned is shown.
+Model c49449c8bbe760ae. Sources, policies and markings are withheld from this caller.
+
+TYPES
+coldchain.Recall — A manufacturer's recall notice, in the recall exchange, and the response on file against it.
+  firm: string — The issuing manufacturer.
+  product: string
+  ndc: string — National Drug Code, eleven digits, as the exchange writes it.
+  recallClass: "I" | "II" | "III"
+  lifecycle: "active" | "terminated"
+  embargoed: boolean — True while the manufacturer has not made the notice public: need-to-know for quality assurance.
+  healthHazard?: string — The manufacturer's health hazard evaluation. CONFIDENTIAL; quality assurance only.  [withheld: classification]
+  issuedOn?: string
+  affectedLots?: object[] — Every lot the manufacturer recalled, including lots we never held.
+  responseStatus: "awaiting" | "responded"
+  lotsHeld?: string[] — From the response on file: the lots quarantined.
+  dosesHeld?: number — From the response on file: the doses in those lots.
+  shipmentsInTransit?: string[] — From the response on file: shipments reported in transit.
+  signedOffBy?: string — From the response on file: who signed it off.
+  (read as this caller: 2 probed)
+coldchain.Lot — A manufacturer's lot of a cold-chain product, in the pharmacy inventory.
+  product: string
+  ndc?: string — National Drug Code.
+  manufacturer?: string
+  doses?: number
+  unitCost?: number — Contract price per dose, USD. CONFIDENTIAL.  [withheld: classification]
+  status: "available" | "in-transit" | "quarantined" | "destroyed"
+  expiresOn?: string
+  siteId?: string
+  shipmentId?: string
+  minTempC?: number
+  maxTempC?: number
+  holdReason?: string | null
+  (read as this caller: 3 probed)
+coldchain.Site — A distribution center, hospital pharmacy or clinic, in the pharmacy inventory.
+  name: string
+  kind?: "distribution" | "hospital" | "clinic"
+  city?: string
+  lat?: number
+  lon?: number
+  → lots: coldchain.Lot[]
+  (read as this caller: 3 probed)
+coldchain.Reading — One temperature reading from a shipment's logger, in the sensor hub.
+  shipmentId: string
+  logger?: string
+  at: string
+  temperatureC: number
+  (read as this caller: 3 probed)
+coldchain.Shipment — A refrigerated consignment, in the shipment tracker.
+  origin: string — The site it left.
+  destination: string — The site it is bound for.
+  carrier?: string
+  status: "in-transit" | "delivered" | "held"
+  lat?: number — Its last GPS fix.
+  lon?: number
+  departedAt?: string
+  eta?: string
+  → readings: coldchain.Reading[]
+  → excursions: coldchain.Excursion[]
+  → lots: coldchain.Lot[]
+  → originSite: coldchain.Site
+  → destinationSite: coldchain.Site
+  (read as this caller: 3 probed)
+coldchain.Excursion — A time a shipment's temperature left 2–8 °C, in the sensor hub.
+  shipmentId: string
+  logger?: string
+  startedAt?: string
+  endedAt?: string
+  peakC?: number — The reading furthest from the range.
+  minutesOut?: number
+  severity: "minor" | "major" | "critical"
+  status: "open" | "closed"
+  disposition?: "release" | "quarantine" | "destroy" | null
+  note?: string | null
+  (read as this caller: 3 probed)
+core.Organization — A group party such as a unit, company, or agency.
+  [withheld: reading it was refused, for every value]
+  id: string
+  displayName: string
+  orgType?: string
+  → members: core.Person[]
+core.Event — Something that happened at a point in time, tracked by the enterprise (e.g. a maintenance event).
+  [withheld: reading it was refused, for every value]
+  id: string
+  occurredAt: string
+  description?: string
+core.Asset — A physical or logical item of value an enterprise tracks, such as an aircraft, vehicle, or facility.
+  [withheld: reading it was refused, for every value]
+  id: string
+  name: string
+  description?: string
+core.Person — An individual human party.
+  [withheld: reading it was refused, for every value]
+  id: string
+  displayName: string
+  email?: string
+  roleTitle?: string
+  → affiliations: core.Organization[]
+
+ACTIONS
+FileRecallResponse on coldchain.Recall — Files the distributor's effectiveness response to a recall with the exchange. The exchange refuses a terminated notice, one already answered, and a lot not on the notice.
+  input { recallNumber: string, lotsQuarantined: string[], dosesQuarantined: number, shipmentsInTransit: string[], signedOffBy: string }; external; idempotency none; acts on one coldchain.Recall named by recallNumber; decided on each object: this caller is not allowed it on every one
+HoldLotsForRecall on coldchain.Lot — Quarantines each listed lot in the pharmacy inventory with a hold reason naming the recall. All or none: a lot that cannot be held releases those already held.
+  input { recallId: string, lotIds: string[] }; mutates; idempotency natural; this caller may not invoke it
+QuarantineLot on coldchain.Lot — Holds one lot in the pharmacy inventory.
+  input { lotId: string, reason: string }; mutates; idempotency natural; acts on one coldchain.Lot named by lotId; decided on each object: this caller is not allowed it on every one
+QuarantineShipmentLots on coldchain.Shipment — Holds every lot a shipment carries in the pharmacy inventory, so none is dispensed.
+  input { shipmentId: string, reason: string }; mutates; idempotency natural; acts on one coldchain.Shipment named by shipmentId; this caller may invoke it
+ReleaseShipmentLots on coldchain.Shipment — Releases a shipment's quarantined lots to the status they had before.
+  input { shipmentId: string }; mutates; idempotency natural; acts on one coldchain.Shipment named by shipmentId; this caller may invoke it
+ReleaseRecallHolds on coldchain.Lot — Releases lots a recall hold quarantined: undoes HoldLotsForRecall.
+  input { lotIds: string[] }; mutates; idempotency natural; this caller may not invoke it
+ReleaseLot on coldchain.Lot — Releases one quarantined lot.
+  input { lotId: string }; mutates; idempotency natural; acts on one coldchain.Lot named by lotId; decided on each object: this caller is not allowed it on every one
+CloseExcursion on coldchain.Excursion — Records the disposition of a temperature excursion in the sensor hub, closing it.
+  input { excursionId: string, disposition: "release" | "quarantine" | "destroy", note?: string }; mutates; idempotency none; acts on one coldchain.Excursion named by excursionId; this caller may invoke it
+ReopenExcursion on coldchain.Excursion — Reopens a closed excursion: undoes a disposition recorded in error.
+  input { excursionId: string }; mutates; idempotency natural; acts on one coldchain.Excursion named by excursionId; this caller may invoke it
+
+RULES
+- Query: a filter may name any value; a top-level sort and a search name stored values only, never a computed one; at most 1000 objects a page.
+- With the typed SDK: client.from("coldchain.Recall").select("firm", "product", "ndc").limit(20).page(); client.get("coldchain.Recall", id); client.action("FileRecallResponse").preview(input) or client.action("FileRecallResponse").invoke(input).
+- Read and change data only through TypeSystem: the runtime's API, the typed SDK, or MCP. Never query a source system directly; its rows are not governed.
+- Values a caller may not read are left out of what they are returned, not set to null. Write code that treats any value as possibly absent.
+- Changes happen only through Actions. An Action can be refused for one object while allowed on others; check the result.
+- A refusal is a decision, not an error to retry or work around.
+- Marks: a value with no mark was returned to this caller (verified). [withheld] the runtime decided this caller may not read it. [inferred] concluded from the objects probed. [unavailable] could not be determined.
+- This context is a prediction made now, for this caller. The runtime decides every call your code makes, and can decide a later one differently.
+
+2104 tokens as logistics
+# exit 0
+
+$ node packages/cli/dist/bin.js app check examples/apps/recall-response
+# at 2026-10-17T19:52:22Z
+INVALID — recall-response
+  flow coldchain.RespondToRecall 1.0.0: 11 steps, started by logistics, qa, qa2
+  page Notices /: 1 data
+  page Notice /notices/:id: 2 data
+  22 acceptance checks
+  info    extension-missing at /flows/respond/steps/4/value: src/extensions/recall.ts does not exist yet (compile writes a typed stub there once; then make it yours)
+  error   type-mismatch at /flows/respond/steps/7/value/pluck/1: pluck takes the name of a field of each element, as a plain string
+# exit 1
+
+$ node packages/cli/dist/bin.js app check examples/apps/recall-response
+# at 2026-10-17T19:52:27Z
+OK — recall-response
+  flow coldchain.RespondToRecall 1.0.0: 11 steps, started by logistics, qa, qa2
+  page Notices /: 1 data
+  page Notice /notices/:id: 2 data
+  22 acceptance checks
+  info    extension-missing at /flows/respond/steps/4/value: src/extensions/recall.ts does not exist yet (compile writes a typed stub there once; then make it yours)
+  info    extension-missing at /flows/respond/steps/7/value: src/extensions/recall.ts does not exist yet (compile writes a typed stub there once; then make it yours)
+# exit 0
+
+$ node packages/cli/dist/bin.js app compile examples/apps/recall-response
+# at 2026-10-17T19:52:32Z
+OK — recall-response
+  wrote   server.ts
+  wrote   index.html
+  wrote   src/generated/model.ts
+  wrote   src/generated/contracts.ts
+  wrote   src/generated/contracts-check.ts
+  wrote   src/generated/flows/respond.ts
+  wrote   src/generated/pages/Notice.tsx
+  wrote   src/generated/pages/Notices.tsx
+  wrote   src/generated/app.tsx
+  wrote   src/generated/acceptance.test.ts
+  created src/extensions/recall.ts (yours from now on)
+  0 unchanged
+# exit 0
+
+$ node packages/cli/dist/bin.js app build examples/apps/recall-response
+# at 2026-10-17T19:52:53Z
+BUILD FAILED
+  error   compile-error at src/generated/flows/respond.ts:103:82: TS4104: The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'. (generated code that does not type-check is a compiler defect, or a model the application was compiled against has changed: run typesys app compile again)
+  error   compile-error at src/generated/flows/respond.ts:106:37: TS4104: The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'. (generated code that does not type-check is a compiler defect, or a model the application was compiled against has changed: run typesys app compile again)
+  error   compile-error at src/generated/flows/respond.ts:114:86: TS4104: The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'. (generated code that does not type-check is a compiler defect, or a model the application was compiled against has changed: run typesys app compile again)
+  error   compile-error at src/generated/flows/respond.ts:114:227: TS4104: The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'. (generated code that does not type-check is a compiler defect, or a model the application was compiled against has changed: run typesys app compile again)
+# exit 1
+
+$ node packages/cli/dist/bin.js app compile examples/apps/recall-response && node packages/cli/dist/bin.js app build examples/apps/recall-response
+# at 2026-10-17T19:53:23Z
+OK — recall-response
+  wrote   src/generated/flows/respond.ts
+  9 unchanged
+OK — built examples/apps/recall-response/dist
+# exit 0
+

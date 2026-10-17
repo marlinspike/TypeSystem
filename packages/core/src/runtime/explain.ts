@@ -39,6 +39,7 @@ export type Control =
   | "release"
   | "audience"
   | "action-policy"
+  | "approval"
   | "target"
   | "input"
   | "precondition"

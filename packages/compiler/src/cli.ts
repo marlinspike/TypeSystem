@@ -338,7 +338,10 @@ async function workbenchCommand(sub: "inspect" | "why" | "graph" | "impact" | "l
       const [record, against] = [arg(rest, "--record"), arg(rest, "--against")];
       if (!record === !against) return print(false, { ok: false, error: "impact needs one of --record or --against" }, ["impact needs one of --record <baseline.json> or --against <baseline.json>"]);
       const callers = Object.fromEntries(await Promise.all(Object.keys(spec.callers ?? {}).map(async (name) => [name, await identityOf(name)] as const)));
-      const now = await recordBaseline(runtime, identity, { callers });
+      // Beside the first object of each Type, every object the application's checks name: those are the ones its policies treat differently.
+      const named = (spec.acceptance ?? []).flatMap((c) => ("objectId" in c && "type" in c && typeof c.objectId === "string" && typeof c.type === "string" ? [{ type: c.type, id: c.objectId }] : []));
+      const objects = named.filter((o, i) => named.findIndex((x) => x.type === o.type && x.id === o.id) === i);
+      const now = await recordBaseline(runtime, identity, { callers, objects });
       if (record) {
         await writeFile(path.resolve(record), `${JSON.stringify(now, null, 2)}\n`);
         return print(true, { ok: true, baseline: record, probes: now.probes.length, inspected: now.inspection !== undefined }, [

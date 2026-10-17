@@ -1,0 +1,24 @@
+{
+  "name": "@typesys/showcase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The developer showcase: one command starts the runtime demo, Studio over two domains, Cold Chain Command and the Recall Response over shared services, and a guide organized around ten engineering questions, each answered on a live surface with its CLI and MCP equivalents.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "bin": {
+    "typesys-showcase": "./dist/bin.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@typesys/cold-chain": "0.1.0",
+    "@typesys/llm": "0.1.0"
+  },
+  "devDependencies": {
+    "@typesys/compiler": "0.1.0",
+    "playwright-core": "1.56.1"
+  }
+}

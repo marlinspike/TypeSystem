@@ -33,6 +33,8 @@ export type HttpField = string | { readonly from: string; readonly map: Readonly
 export interface HttpTypeMapping {
   /** Path of one record, with `{id}` for the object id (URI-encoded). */
   readonly get: string;
+  /** Pointer to the record in a get response, when the service wraps it (`/data` for `{ "data": { … } }`). Default: the whole response. */
+  readonly record?: string;
   readonly list: {
     readonly path: string;
     /** Pointer to the array of records in a list response (`""` for a bare array). */
@@ -40,6 +42,12 @@ export interface HttpTypeMapping {
     /** Pointer to the next page's cursor, when the service pages. */
     readonly next?: string;
     readonly cursorParam?: string;
+    /**
+     * Page-numbered paging, for a service that pages by number rather than
+     * cursor: the parameter carrying the page number (counted from `first`,
+     * default 1) and a pointer to the response's "there is more" flag.
+     */
+    readonly pages?: { readonly param: string; readonly more: string; readonly first?: number };
     readonly pageSizeParam?: string;
     readonly pageSize?: number;
     /** Canonical fields the service can filter on (`eq` only), and the query parameter for each. */
@@ -148,11 +156,12 @@ export class HttpAdapter implements Adapter {
     this.dataSourceId = config.dataSourceId;
     this.fetch = config.fetch ?? globalThis.fetch.bind(globalThis);
     for (const [type, m] of Object.entries(config.types)) {
-      for (const p of [m.id, m.list.items, m.list.next, ...Object.values(m.fields).map(fieldOf)]) {
+      for (const p of [m.id, m.record, m.list.items, m.list.next, m.list.pages?.more, ...Object.values(m.fields).map(fieldOf)]) {
         if (p !== undefined && p !== "" && !p.startsWith("/")) throw new TypeError(`${type}: "${p}" is not a JSON Pointer`);
       }
       // A cursor the adapter cannot send back would end every list after its first page.
       if (m.list.next !== undefined && !m.list.cursorParam) throw new TypeError(`${type}: list names a next cursor but no cursorParam to send it in`);
+      if (m.list.next !== undefined && m.list.pages) throw new TypeError(`${type}: list pages by cursor or by number, not both`);
     }
   }
 
@@ -249,7 +258,8 @@ export class HttpAdapter implements Adapter {
     const m = this.mapping(typeName);
     // `.` and `..` (however encoded) would be resolved by the URL parser into another endpoint.
     if (objectId === "." || objectId === "..") return { values: {}, provenance: [] };
-    const record = await this.get(m.get.replace("{id}", encodeURIComponent(objectId)), opts?.signal);
+    const response = await this.get(m.get.replace("{id}", encodeURIComponent(objectId)), opts?.signal);
+    const record = response === undefined || !m.record ? response : pointer(response, m.record);
     const c = record === undefined ? undefined : this.canonical(m, record);
     return c && c.objectId === objectId ? { values: c.values, provenance: c.provenance } : { values: {}, provenance: [] };
   }
@@ -271,6 +281,7 @@ export class HttpAdapter implements Adapter {
       if (page >= (this.config.maxPages ?? 20)) throw new AdapterUnavailableError(`${this.config.system} has more than ${this.config.maxPages ?? 20} pages for ${typeName}; narrow the query`, { retryable: false });
       const p = new URLSearchParams(params);
       if (cursor !== undefined && m.list.cursorParam) p.set(m.list.cursorParam, cursor);
+      if (m.list.pages) p.set(m.list.pages.param, String((m.list.pages.first ?? 1) + page));
       const qs = p.toString();
       const body = await this.get(`${m.list.path}${qs ? `?${qs}` : ""}`, signal);
       const items = pointer(body, m.list.items);
@@ -278,6 +289,11 @@ export class HttpAdapter implements Adapter {
       for (const r of items) {
         const c = this.canonical(m, r);
         if (c) out.push(c);
+      }
+      if (m.list.pages) {
+        // A page that says there is more but holds nothing would page forever: it ends the list.
+        if (pointer(body, m.list.pages.more) !== true || items.length === 0) break;
+        continue;
       }
       const next = m.list.next === undefined ? undefined : pointer(body, m.list.next);
       if (next === undefined || next === null || next === "") break;

@@ -1,0 +1,10 @@
+$ node packages/evaluation/dist/bin.js score --task recall-response --arm agent-with --dir examples/apps/recall-response --source agent --producer 'Claude Code (this session, the showcase engineer)'
+# at 2026-10-17T19:53:45Z
+0/16 hidden checks; saved /home/claude/TypeSystem/packages/evaluation/results/recall-response--agent-with--2026-10-17T19-53-45.559Z.json
+# exit 0
+
+$ node packages/evaluation/dist/bin.js score --task recall-response --arm agent-with --dir examples/apps/recall-response --source agent --producer 'Claude Code (this session, the showcase engineer)'
+# at 2026-10-17T19:54:05Z
+16/16 hidden checks; saved /home/claude/TypeSystem/packages/evaluation/results/recall-response--agent-with--2026-10-17T19-54-05.818Z.json
+# exit 0
+

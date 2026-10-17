@@ -1,0 +1,30 @@
+{
+  "types": [
+    { "entity": "openapi:recall-exchange#/components/schemas/Notice", "name": "Recall", "description": "A manufacturer's recall notice posted to the recall exchange, with this distributor's effectiveness response once one is filed.",
+      "properties": [
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber", "name": "recallNumber", "description": "The exchange's recall number, e.g. RCL-26-0412." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm", "name": "firm", "description": "The manufacturer that issued the recall." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/product", "name": "product", "description": "The recalled product: its name and its eleven-digit NDC." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots", "name": "affectedLots", "description": "Every lot the manufacturer recalled, by lot code and expiry, including lots this distributor never held." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass", "name": "recallClass", "description": "The recall's hazard class, CLASS_I (most serious) to CLASS_III." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation", "name": "healthHazard", "description": "The manufacturer's health hazard evaluation." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure", "name": "disclosure", "description": "PUBLIC, or EMBARGOED while the notice is not yet public." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle", "name": "lifecycle", "description": "ACTIVE, or TERMINATED once the manufacturer ends the recall." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn", "name": "issuedOn", "description": "The day the notice was issued." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/responseState", "name": "responseStatus", "description": "PENDING until this distributor's response is on file, then RECEIVED." },
+        { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/response", "name": "response", "description": "This distributor's effectiveness response, once filed." }
+      ] }
+  ],
+  "relationships": [],
+  "sensitive": [
+    { "field": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation", "category": "health", "marking": "", "reason": "The manufacturer's health hazard evaluation describes possible adverse health consequences of the product.", "cites": ["openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation"] }
+  ],
+  "actions": [
+    { "operation": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post", "name": "FileRecallResponse", "description": "Files this distributor's one effectiveness response to a notice: the lots it quarantined, their doses, the shipments still in transit and who signed it off." }
+  ],
+  "findings": [
+    { "kind": "inconsistency", "severity": "warning", "message": "The exchange writes NDCs as eleven digits without hyphens (product.ndc11); any comparison with another system's NDC must normalise the format first.", "cites": ["openapi:recall-exchange#/info", "openapi:recall-exchange#/components/schemas/Notice/properties/product"] },
+    { "kind": "ambiguity", "severity": "info", "message": "affectedLots names lots by lotCode, which no entity in these sources is keyed by; whether it is another system's lot number is for a reviewer to settle.", "cites": ["openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots"] },
+    { "kind": "ambiguity", "severity": "warning", "message": "An EMBARGOED notice is visible to the distributor client and not to the viewer client: who inside the business may read it is a policy decision the evidence does not make.", "cites": ["openapi:recall-exchange#/info", "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure"] }
+  ]
+}

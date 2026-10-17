@@ -43,6 +43,10 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
   if (!WORKFLOW_NAME.test(workflow.name)) add({ code: "invalid-name", message: `workflow name "${workflow.name}" must be qualified, like a Type (domain.Name)` });
   if (!workflow.startPolicy) add({ code: "missing-policy", message: "the workflow names no startPolicy" });
   compiles(workflow.inputSchema, undefined, "inputSchema");
+  if (workflow.about) {
+    if (!model.types.some((t) => t.name === workflow.about!.type)) add({ code: "unknown-type", message: `the workflow is about unknown Type "${workflow.about.type}"` });
+    if (!Object.hasOwn((workflow.inputSchema.properties ?? {}), workflow.about.idFrom)) add({ code: "unknown-need", message: `the workflow is about the input "${workflow.about.idFrom}", which its inputSchema does not declare` });
+  }
 
   const earlier = new Set<string>();
   for (const step of workflow.steps) {
@@ -82,6 +86,20 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
       // Action the source recognizes as repeated may be called twice.
       if (action && action.idempotency === "none" && (step.retry?.maxAttempts ?? 1) > 1) {
         add({ code: "retry-not-idempotent", step: step.name, message: `step "${step.name}" retries "${action.name}", whose idempotency is none` });
+      }
+      // An Action that requires approval (ADR-0096) is refused at run time without a granted one, so the
+      // checker says so first: an approval the step reads from, which cannot be skipped while the step runs.
+      for (const effect of [action, step.compensate ? actions.get(step.compensate.action) : undefined]) {
+        if (!effect?.requiresApproval) continue;
+        const reads = upstream(workflow.steps, step.name);
+        const approved = workflow.steps.some((s) => s.kind === "approval" && reads.has(s.name) && (!s.when || s.when === step.when));
+        if (!approved) {
+          add({
+            code: "unapproved-action",
+            step: step.name,
+            message: `step "${step.name}" ${effect === action ? "invokes" : "compensates with"} "${effect.name}", which requires an approval, with no approval it needs that always runs before it`
+          });
+        }
       }
       // The step's own Action, and its compensation: both run on what the step read, the latter on any later failure.
       const compensation = step.compensate ? actions.get(step.compensate.action) : undefined;

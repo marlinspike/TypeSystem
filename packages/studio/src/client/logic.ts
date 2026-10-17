@@ -134,3 +134,35 @@ export const TOKEN_KEY = "typesys.studio.token";
 export function starterQuery(type: string): string {
   return JSON.stringify({ type, limit: 10 }, null, 2);
 }
+
+/** The Studio's tabs, in the order the header shows them. */
+export const TABS = ["model", "graph", "explain", "impact", "query", "actions"] as const;
+export type Tab = (typeof TABS)[number];
+
+/**
+ * Where a link into the Studio opens: `#tab=explain&as=Lead&type=airforce.Aircraft&id=AF86-0147&for=user-viewer-1`.
+ * `as` names one of the deployment's demo sign-ins by its label, never a token,
+ * so a link carries no credential; `for` is the subject an inspector explains.
+ * Anything unrecognised is ignored.
+ */
+export interface DeepLink {
+  readonly tab?: Tab;
+  readonly as?: string;
+  readonly type?: string;
+  readonly id?: string;
+  readonly for?: string;
+  readonly node?: string;
+}
+
+export function parseDeepLink(hash: string): DeepLink {
+  const params = new URLSearchParams(hash.replace(/^#\/?/, ""));
+  const get = (name: string) => params.get(name)?.trim() || undefined;
+  const tab = get("tab");
+  const link: Record<string, string> = {};
+  if (tab && (TABS as readonly string[]).includes(tab)) link.tab = tab;
+  for (const key of ["as", "type", "id", "for", "node"] as const) {
+    const value = get(key);
+    if (value) link[key] = value;
+  }
+  return link;
+}

@@ -1,0 +1,1 @@
+{ "arm": "agent-with", "startedAt": "2026-10-17T19:30:52Z", "finishedAt": "2026-10-17T19:42:18Z", "durationMs": 685693, "subagentTokens": 212144, "toolUses": 61, "note": "did not use the typesys engineer/app compiler loop; hand-wrote the workflow with @typesys/workflow" }

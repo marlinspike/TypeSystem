@@ -27,7 +27,8 @@ export type AdapterPlan =
       readonly baseUrlEnv: string;
       readonly auth?:
         | { readonly kind: "client-credentials"; readonly tokenPath: string; readonly clientIdEnv: string; readonly clientSecretEnv: string; readonly scope: string }
-        | { readonly kind: "header"; readonly name: string; readonly valueEnv: string };
+        | { readonly kind: "header"; readonly name: string; readonly valueEnv: string }
+        | { readonly kind: "basic"; readonly usernameEnv: string; readonly passwordEnv: string };
       readonly types: Readonly<Record<string, HttpTypeMapping>>;
       readonly actions: Readonly<Record<string, HttpActionMapping>>;
     };
@@ -198,7 +199,8 @@ export function buildDomain(model: SourceModel, p: Proposal, version = "1.0.0"):
         }
         types[t.name] = {
           get: (s.info.basePath ?? "") + get.path.replace(`{${get.pathParams.at(-1)}}`, "{id}"),
-          list: { path: (s.info.basePath ?? "") + list.path, items: list.items ?? "", ...(Object.keys(params).length ? { params } : {}) },
+          ...(get.record ? { record: get.record } : {}),
+          list: { path: (s.info.basePath ?? "") + list.path, items: list.items ?? "", ...(list.pages ? { pages: list.pages } : {}), ...(Object.keys(params).length ? { params } : {}) },
           id: pointerOf(t.properties.find((x) => x.name === t.key)!.field),
           fields: Object.fromEntries(t.properties.map((x) => [x.name, pointerOf(x.field)]))
         };
@@ -208,7 +210,9 @@ export function buildDomain(model: SourceModel, p: Proposal, version = "1.0.0"):
         ? { auth: { kind: "client-credentials" as const, tokenPath: s.auth.tokenUrl, clientIdEnv: `${env(s.info.id)}_CLIENT_ID`, clientSecretEnv: `${env(s.info.id)}_CLIENT_SECRET`, scope: scopes.join(" ") } }
         : s.auth?.kind === "api-key" && s.auth.header
           ? { auth: { kind: "header" as const, name: s.auth.header, valueEnv: `${env(s.info.id)}_API_KEY` } }
-          : {};
+          : s.auth?.kind === "basic"
+            ? { auth: { kind: "basic" as const, usernameEnv: `${env(s.info.id)}_CLIENT_ID`, passwordEnv: `${env(s.info.id)}_CLIENT_SECRET` } }
+            : {};
       adapters.push({ kind: "http", dataSourceId: s.info.id, system: s.info.system, baseUrlEnv: `${env(s.info.id)}_BASE_URL`, ...auth, types, actions: httpActions.get(s.info.id) ?? {} });
     } else {
       notes.push(`${s.info.system} is described by JSON Schema only: its Types are proposed, and a deployment supplies the adapter that reads them`);
@@ -255,7 +259,9 @@ export function adaptersFor(plans: readonly AdapterPlan[], environment: AdapterE
         ? { kind: "client-credentials" as const, tokenUrl: tokenUrlFor(plan.dataSourceId, plan.auth.tokenPath, baseUrl), clientId: need(plan.auth.clientIdEnv), clientSecret: need(plan.auth.clientSecretEnv), ...(plan.auth.scope ? { scope: plan.auth.scope } : {}) }
         : plan.auth?.kind === "header"
           ? { kind: "header" as const, name: plan.auth.name, value: need(plan.auth.valueEnv) }
-          : undefined;
+          : plan.auth?.kind === "basic"
+            ? { kind: "header" as const, name: "authorization", value: `Basic ${Buffer.from(`${need(plan.auth.usernameEnv)}:${need(plan.auth.passwordEnv)}`).toString("base64")}` }
+            : undefined;
     return new HttpAdapter({ dataSourceId: plan.dataSourceId, system: plan.system, baseUrl, ...(auth ? { auth } : {}), types: plan.types, actions: plan.actions, ...(environment.fetch ? { fetch: environment.fetch } : {}) });
   });
 }

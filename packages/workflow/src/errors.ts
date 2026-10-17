@@ -6,6 +6,7 @@ export interface WorkflowDiagnostic {
     | "unknown-need"
     | "unknown-action"
     | "unreviewed-ai-output"
+    | "unapproved-action"
     | "retry-not-idempotent"
     | "invalid-retry"
     | "invalid-deadline"

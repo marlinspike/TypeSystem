@@ -196,7 +196,7 @@ export type RuntimeOperation = "getObject" | "getRelationship" | "getProvenance"
 
 /** Why a previewed Action would not run (ADR-0053), in the order the runtime checks. */
 export interface ActionBlocker {
-  kind: "authorization" | "target" | "input" | "precondition";
+  kind: "authorization" | "approval" | "target" | "input" | "precondition";
   message: string;
 }
 
@@ -222,6 +222,22 @@ export interface ActionPreview {
 }
 
 /** One Action as `listActions` reports it. `instanceScoped` Actions are decided per object (ADR-0053). */
+/**
+ * The approval a workflow step invokes an Action under (ADR-0096): which
+ * run, which approval step, and who granted it. Only the workflow engine
+ * supplies it; no transport passes one through from a caller.
+ */
+export interface ApprovalGrant {
+  readonly workflow: string;
+  readonly runId: string;
+  readonly step: string;
+  readonly approvedBy: string;
+}
+
+export interface InvokeActionOptions {
+  readonly approval?: ApprovalGrant;
+}
+
 export interface ListedAction {
   action: ActionDefinition;
   authorized: boolean;
@@ -2693,6 +2709,7 @@ export class SemanticRuntime {
               else findings.push(await policyFinding(false));
             } else if (b.kind === "target") findings.push({ about: target ? `${target.typeName}/${target.objectId}` : action.name, outcome: "not-found", basis: "evaluated", control: "target", reason: b.message });
             else if (b.kind === "input") findings.push({ about: action.name, outcome: "invalid", basis: "evaluated", control: "input", reason: b.message });
+            else if (b.kind === "approval") findings.push({ about: action.name, outcome: "refused", basis: "evaluated", control: "approval", reason: b.message });
           }
           if (preview.authorized) findings.push(await policyFinding(true));
           for (const p of preview.preconditions) {
@@ -2892,9 +2909,12 @@ export class SemanticRuntime {
           // exactly as invokeAction decides it.
           const instanceScoped = action.target !== undefined;
           const onThis = instanceScoped && opts.objectId !== undefined && (action.target!.type ?? action.applicableTypes[0]) === typeName;
-          const authorized = onThis
-            ? (await this.gateAction(identity, action, { [action.target!.idFrom]: opts.objectId })).decision.allow
-            : (await this.authorizeInvoke(identity, action, typeName)).allow;
+          // An Action only an approved workflow step may invoke is never invocable by the caller directly (ADR-0096).
+          const authorized =
+            !action.requiresApproval &&
+            (onThis
+              ? (await this.gateAction(identity, action, { [action.target!.idFrom]: opts.objectId })).decision.allow
+              : (await this.authorizeInvoke(identity, action, typeName)).allow);
           // Under need-to-know an Action is listed only to a caller it admits: here, or on some object for an
           // instance-scoped one listed without an object, as describeModel decides it.
           // Under need-to-know an Action is listed only when describeModel would describe it: invocable on some
@@ -2916,7 +2936,7 @@ export class SemanticRuntime {
    * call, under operation `previewAction`, plus one row recording the
    * preview's outcome.
    */
-  async previewAction(actionName: string, input: unknown, identity: Identity): Promise<ActionPreview> {
+  async previewAction(actionName: string, input: unknown, identity: Identity, options: InvokeActionOptions = {}): Promise<ActionPreview> {
     const action = await this.registry.getAction(actionName);
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
     return this.withRequest("previewAction", () => this.instrument(
@@ -2946,6 +2966,9 @@ export class SemanticRuntime {
           // Told as invokeAction's refusal is (ADR-0067), and without the policy's reason when discovery is not open
           // (ADR-0068): which roles or attributes a policy wants describes it. The audit row keeps the reason.
           if (!gate.decision.allow) blockers.push({ kind: "authorization", message: this.toldReason(gate.decision.reason, identity) });
+          else if (action.requiresApproval && (!options.approval || options.approval.approvedBy === identity.subjectId)) {
+            blockers.push({ kind: "approval", message: "Invoked only by a workflow step after someone other than the caller approved it (ADR-0096)" });
+          }
         } catch (err) {
           // Raised only after the caller was allowed to read the target type: the id names no object.
           if (!(err instanceof ObjectNotFoundError)) throw err;
@@ -2997,7 +3020,7 @@ export class SemanticRuntime {
           action: action.name,
           version: action.version,
           ...(target ? { target } : {}),
-          authorized: gate?.decision.allow === true,
+          authorized: gate?.decision.allow === true && !blockers.some((b) => b.kind === "approval"),
           inputValid,
           preconditions,
           blockers,
@@ -3054,7 +3077,7 @@ export class SemanticRuntime {
     return { value, withheld };
   }
 
-  async invokeAction(actionName: string, input: unknown, identity: Identity): Promise<unknown> {
+  async invokeAction(actionName: string, input: unknown, identity: Identity, options: InvokeActionOptions = {}): Promise<unknown> {
     const action = await this.registry.getAction(actionName);
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
     const primaryType = action.applicableTypes[0] ?? "unknown";
@@ -3067,6 +3090,22 @@ export class SemanticRuntime {
         await this.checkRateLimit(identity);
         const { decision, typeName, target } = await this.gateAction(identity, action, input);
         if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason, identity);
+        // Behind a person's sign-off (ADR-0096): the policy admits the caller, but only through an approved workflow step,
+        // and never on an approval the caller granted themselves.
+        if (action.requiresApproval && (!options.approval || options.approval.approvedBy === identity.subjectId)) {
+          const reason = options.approval ? "Requires an approval granted by someone other than the caller" : "Requires an approval: only a workflow step after an approval invokes it";
+          await this.registry.appendAuditEvent({
+            id: ulid(),
+            timestamp: new Date().toISOString(),
+            subjectId: identity.subjectId,
+            operation: "invokeAction",
+            action: action.name,
+            resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
+            decision: "deny",
+            reason
+          });
+          throw notAuthorized("invoke", { typeName, actionName: action.name }, reason, identity);
+        }
         // After the policy check, so every attempt by an unauthorized caller is still audited as a
         // deny; before preconditions, which read `input` and would otherwise see unchecked shapes.
         this.inputValidator.validateActionInput(action, input);
@@ -3104,7 +3143,15 @@ export class SemanticRuntime {
             resource: { typeName, ...(target ? { objectId: target.objectId } : {}) },
             decision: "allow",
             outcome: "success",
-            ...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : released.withheld.length ? { details: { withheld: released.withheld } } : {})
+            ...(identity.audience || released.withheld.length || options.approval
+              ? {
+                  details: {
+                    ...(identity.audience ? { audience: identity.audience.id } : {}),
+                    ...(identity.audience || released.withheld.length ? { withheld: released.withheld } : {}),
+                    ...(options.approval ? { approval: { ...options.approval } } : {})
+                  }
+                }
+              : {})
           });
         }
 

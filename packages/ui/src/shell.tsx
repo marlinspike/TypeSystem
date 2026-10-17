@@ -36,6 +36,17 @@ function SignIn(props: { readonly presets?: Readonly<Record<string, string>> }) 
   const { token, signIn, me } = useRuntime();
   const [draft, setDraft] = useState("");
   const current = Object.entries(props.presets ?? {}).find(([, t]) => t === token)?.[0];
+  // `?as=<preset>` signs in as a demonstration preset, so a guide can link to a page as a named person; never a token in a URL.
+  useEffect(() => {
+    if (!props.presets || typeof location === "undefined") return;
+    const url = new URL(location.href);
+    const as = url.searchParams.get("as");
+    const preset = as ? Object.entries(props.presets).find(([name]) => name.toLowerCase() === as.toLowerCase()) : undefined;
+    if (!as) return;
+    if (preset && preset[1] !== token) signIn(preset[1]);
+    url.searchParams.delete("as");
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  }, []); // Once, on arrival.
   return (
     <div className="ts-signin">
       <span className="ts-me" data-signed-in={me ? "true" : "false"}>

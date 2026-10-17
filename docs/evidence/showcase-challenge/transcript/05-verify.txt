@@ -1,0 +1,27 @@
+$ node packages/cli/dist/bin.js app verify examples/apps/recall-response
+# at 2026-10-17T19:53:30Z
+OK — recall-response: check ok, build ok, acceptance ok
+  pass  qa-reads-hazard
+  pass  logistics-lacks-hazard
+  pass  embargo-refused-logistics
+  pass  embargo-refused-auditor
+  pass  qa2-reads-embargoed
+  pass  carrier-refused
+  pass  anonymous-refused
+  pass  auditor-query-public-only
+  pass  logistics-asks
+  pass  terminated-fails
+  pass  answered-fails
+  pass  other-product-fails
+  pass  embargo-ask-refused
+  pass  auditor-cannot-ask
+  pass  carrier-cannot-ask
+  pass  qa-signs-off
+  pass  qa2-signs-qa-request
+  pass  logistics-cannot-sign-off
+  pass  hold-not-offered
+  pass  qa-sees-notices
+  pass  logistics-sees-public
+  pass  notice-page
+# exit 0
+

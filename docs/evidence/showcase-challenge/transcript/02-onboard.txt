@@ -1,0 +1,87 @@
+$ node packages/cli/dist/bin.js onboard collect --openapi examples/services/recall-exchange/openapi.json --source recall-exchange --out examples/apps/recall-response/onboarding/sources.json
+# at 2026-10-17T19:33:13Z
+Collected recall-exchange (openapi): 3 entities, 4 operations, 28 facts → examples/apps/recall-response/onboarding/sources.json
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard propose examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/proposal
+# at 2026-10-17T19:33:14Z
+OK — coldchain: 0 Types approved, 12 items pending review, 0 model items refused
+  pending type:openapi:recall-exchange#/components/schemas/Notice (new): Type coldchain.Notice from openapi:recall-exchange#/components/schemas/Notice
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber (new): coldchain.Notice.recallNumber from openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm (new): coldchain.Notice.issuingFirm from openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/product (new): coldchain.Notice.product from openapi:recall-exchange#/components/schemas/Notice/properties/product
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots (new): coldchain.Notice.affectedLots from openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass (new): coldchain.Notice.hazardClass from openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation (new): coldchain.Notice.hazardEvaluation from openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/disclosure (new): coldchain.Notice.disclosure from openapi:recall-exchange#/components/schemas/Notice/properties/disclosure
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle (new): coldchain.Notice.lifecycle from openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn (new): coldchain.Notice.issuedOn from openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/responseState (new): coldchain.Notice.responseState from openapi:recall-exchange#/components/schemas/Notice/properties/responseState
+  pending property:openapi:recall-exchange#/components/schemas/Notice/properties/response (new): coldchain.Notice.response from openapi:recall-exchange#/components/schemas/Notice/properties/response
+  → examples/apps/recall-response/onboarding/proposal
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard collect --openapi examples/services/recall-exchange/openapi.json --source recall-exchange --out examples/apps/recall-response/onboarding/sources.json && node packages/cli/dist/bin.js onboard propose examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/proposal | grep -v 'pending property'
+# at 2026-10-17T19:33:26Z
+Collected recall-exchange (openapi): 3 entities, 4 operations, 28 facts → examples/apps/recall-response/onboarding/sources.json
+OK — coldchain: 0 Types approved, 13 items pending review, 0 model items refused
+  pending type:openapi:recall-exchange#/components/schemas/Notice (new): Type coldchain.Notice from openapi:recall-exchange#/components/schemas/Notice
+  pending action:openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post (new): Action FileResponse from openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post
+  → examples/apps/recall-response/onboarding/proposal
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard request examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/request.txt
+# at 2026-10-17T19:33:43Z
+Wrote the request to examples/apps/recall-response/onboarding/request.txt
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard propose examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/proposal --answer examples/apps/recall-response/onboarding/refinement-answer.json | grep -v 'pending property'
+# at 2026-10-17T19:33:56Z
+OK — coldchain: 0 Types approved, 14 items pending review, 0 model items refused
+  pending type:openapi:recall-exchange#/components/schemas/Notice (new): Type coldchain.Recall from openapi:recall-exchange#/components/schemas/Notice
+  pending sensitive:openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation:health (new): openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation: health (The manufacturer's health hazard evaluation describes possible adverse health consequences of the product.)
+  pending action:openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post (new): Action FileRecallResponse from openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post
+  → examples/apps/recall-response/onboarding/proposal
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard review examples/apps/recall-response/onboarding/proposal --review examples/apps/recall-response/onboarding/review.json --by 'Claude Code (engineer on the recall-response challenge)' --accept-rest
+# at 2026-10-17T19:34:01Z
+14 decisions in examples/apps/recall-response/onboarding/review.json; run propose with --review examples/apps/recall-response/onboarding/review.json to apply them
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard propose examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/proposal --answer examples/apps/recall-response/onboarding/refinement-answer.json --review examples/apps/recall-response/onboarding/review.json | grep -v 'property'
+# at 2026-10-17T19:34:02Z
+OK — coldchain: 1 Types approved, 0 items pending review, 0 model items refused
+  policy rules to write: coldchain.health, coldchain.invoke-file-recall-response, coldchain.read-recall
+  → examples/apps/recall-response/onboarding/proposal
+# exit 0
+
+$ RECALL_EXCHANGE_BASE_URL=http://127.0.0.1:4799 RECALL_EXCHANGE_CLIENT_ID=coldchain-distributor RECALL_EXCHANGE_CLIENT_SECRET=<distributor-secret> node packages/cli/dist/bin.js onboard check examples/apps/recall-response/onboarding/proposal
+# at 2026-10-17T19:34:07Z
+bash: line 1: distributor-secret: No such file or directory
+# exit 1
+$ node packages/cli/dist/bin.js onboard check examples/apps/recall-response/onboarding/proposal   # RECALL_EXCHANGE_* set in the environment
+# at 2026-10-17T19:34:12Z
+passed       reads:coldchain.Recall: 6 read
+failed       conforms:coldchain.Recall: Error: can't resolve reference #/components/schemas/Response from id #
+passed       gets:coldchain.Recall: RCL-26-0412 read alone as in a query
+passed       protects:coldchain.Recall.healthHazard: withheld without coldchain.health
+# exit 1
+
+$ node packages/cli/dist/bin.js onboard collect --openapi examples/services/recall-exchange/openapi.json --source recall-exchange --out examples/apps/recall-response/onboarding/sources.json && node packages/cli/dist/bin.js onboard propose examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/proposal --answer examples/apps/recall-response/onboarding/refinement-answer.json --review examples/apps/recall-response/onboarding/review.json | grep -v property && node packages/cli/dist/bin.js onboard check examples/apps/recall-response/onboarding/proposal
+# at 2026-10-17T19:34:23Z
+Collected recall-exchange (openapi): 3 entities, 4 operations, 28 facts → examples/apps/recall-response/onboarding/sources.json
+OK — coldchain: 1 Types approved, 0 items pending review, 0 model items refused
+  policy rules to write: coldchain.health, coldchain.invoke-file-recall-response, coldchain.read-recall
+  → examples/apps/recall-response/onboarding/proposal
+FAIL — RECALL_EXCHANGE_BASE_URL is not set
+# exit 1
+
+$ RECALL_EXCHANGE_BASE_URL=http://127.0.0.1:4799 RECALL_EXCHANGE_CLIENT_ID=coldchain-distributor RECALL_EXCHANGE_CLIENT_SECRET=rx-exchange-2026 node packages/cli/dist/bin.js onboard check examples/apps/recall-response/onboarding/proposal
+# at 2026-10-17T19:34:28Z
+passed       reads:coldchain.Recall: 6 read
+passed       conforms:coldchain.Recall: every value conforms
+passed       gets:coldchain.Recall: RCL-26-0412 read alone as in a query
+passed       protects:coldchain.Recall.healthHazard: withheld without coldchain.health
+# exit 0
+

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "typesys-app": {
+      "command": "node",
+      "args": ["packages/compiler/dist/mcp-bin.js", "."]
+    },
+    "typesys-onboard": {
+      "command": "node",
+      "args": ["packages/onboard/dist/mcp-bin.js", "."]
+    },
+    "typesys-runtime": {
+      "command": "npx",
+      "args": ["tsx", "packages/demo-web/src/mcp-stdio.ts"]
+    }
+  }
+}

@@ -224,7 +224,8 @@ function read(x: Record<string, unknown>, at: string, d: Diagnostics, extra: rea
 function flow(key: string, f: unknown, at: string, d: Diagnostics): void {
   if (!CAMEL.test(key)) d.error("invalid-name", at, `flow key "${key}" is not a camelCase name`, "effects and forms refer to the flow by it");
   if (!isObj(f)) return d.error("invalid-app", at, "a flow is an object");
-  known(f, ["name", "version", "title", "description", "startPolicy", "cancelPolicy", "input", "steps"], at, d);
+  known(f, ["name", "version", "title", "description", "startPolicy", "cancelPolicy", "about", "input", "steps"], at, d);
+  if (f.about !== undefined && !isStr(f.about)) d.error("invalid-app", `${at}/about`, "about names one of the flow's inputs");
   if (typeof f.name !== "string" || !QUALIFIED.test(f.name)) d.error("invalid-name", `${at}/name`, "a flow's name is qualified like a Type", 'e.g. "coldchain.DispositionLot"');
   if (typeof f.version !== "string" || !/^\d+\.\d+\.\d+$/.test(f.version)) d.error("invalid-app", `${at}/version`, "version is semver, like 1.0.0");
   if (!isStr(f.startPolicy)) d.error("invalid-app", `${at}/startPolicy`, "a flow names the policy that admits who may start it");

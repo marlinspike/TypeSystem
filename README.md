@@ -39,6 +39,175 @@ through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
 
+## See all of it running: the developer showcase
+
+```bash
+npm install && npm run build
+npx typesys app build examples/apps/cold-chain && npx typesys app build examples/apps/recall-response
+npm run showcase        # guide at http://127.0.0.1:4300
+```
+
+You need Node 22 and nothing else: no database, no Docker, no API key.
+If something is missing or a port is busy, `npm run showcase -- check`
+says what and what to run. Ctrl-C stops everything it started.
+
+**A five-minute tour.** Open http://127.0.0.1:4300 and read down the page.
+
+1. The cards at the top are the running surfaces; a green dot means it is
+   up. Click any card to open it in a new tab.
+2. Each of the ten questions has a short answer and **See it** links. A
+   link opens the surface already signed in as the person who shows the
+   answer (the coordinator, a pharmacist, the auditor). In any
+   application, the buttons at the top right switch person, so you can
+   reload the same page as someone else and watch what disappears.
+3. Under question 4, pick a record and press **Read as everyone**: one row
+   per person, with the fields they got or the reason they were refused.
+4. Under question 7, press **Run the recall response**. It plays the
+   whole approval workflow through the API, including the attempts that
+   are refused. A notice can be answered once, so press **Reset
+   everything** (under question 8) before running it again.
+5. Under question 8, press **Stop the pharmacy inventory**, then open
+   *A shipment with one system down*. Press **Start it again** when done.
+6. **From a terminal** and **Over MCP** under each question give the same
+   answer without a browser; run the commands from the repository root.
+
+To call an application's API yourself, send one of the demonstration
+tokens as `Authorization: Bearer <token>` (no token means not signed in):
+
+| Person | Token |
+| --- | --- |
+| Dana Whitfield, logistics coordinator | `demo-logistics-token` |
+| Dr. Priya Raman, quality assurance | `demo-qa-token` |
+| Dr. Tomasz Brandt, quality assurance | `demo-qa2-token` (Recall Response only) |
+| Sam Ortega, compliance auditor | `demo-auditor-token` |
+| Northline Cold Freight dispatch | `demo-carrier-token` |
+
+```bash
+curl -s -H 'Authorization: Bearer demo-logistics-token' \
+  http://127.0.0.1:4710/api/objects/coldchain.Recall/RCL-26-0388   # 403: embargoed, need-to-know for QA
+```
+
+One command starts four independent enterprise services (a shipment
+tracker, a sensor hub, a pharmacy inventory and an industry recall
+exchange, each with its own data and its own authentication), the runtime
+demo, Studio over two domains, Cold Chain Command, the Recall Response
+application, and a simulated model endpoint. Every surface reads the same
+services, so a lot one application quarantines is quarantined in the other
+and in Studio, and stopping a service is an outage for all of them.
+
+The guide is organized around ten questions an engineer asks of a system
+they did not build: what is connected, what the objects and capabilities
+are, how they relate across systems, what each identity may see and do,
+where each value came from, how applications and Claude Code use it, how a
+governed workflow runs, what happens when a source fails, what a change to
+a definition or policy does, and how regressions and security consequences
+are caught. Each question links to the running view that answers it,
+already signed in as the right person, and gives the `typesys` command and
+MCP tool that answer it without a browser.
+
+![The showcase guide](docs/images/showcase/guide.png)
+
+Three of the answers are live in the guide itself. **Compare identities**
+reads one object through an application's own API as every caller: the
+embargoed recall notice RCL-26-0388 returns all ten fields, including the
+CONFIDENTIAL health hazard, to both pharmacists, and 403 "A notice under
+embargo is need-to-know for quality assurance alone" to the coordinator and
+the auditor. **Stop the pharmacy inventory** and shipment SH-1042 still
+reads from the tracker and its 48 readings from the sensor hub, while its
+lots answer 503 "Pharmacy inventory could not be reached" instead of an
+empty list. **Run the recall response** walks a governed workflow through
+the API:
+
+| Who | Did | Answer |
+| --- | --- | --- |
+| Logistics coordinator | asks to respond to RCL-26-0412 | 201, waiting on quality assurance |
+| Logistics coordinator | tries to sign it off herself | 403, the initiator of a run may not approve it |
+| Carrier | tries to sign it off | 403, requires role qa |
+| QA pharmacist | quarantines the lots directly, outside the run | 403, requires an approval |
+| QA pharmacist | signs it off | run completed: L-7701 and L-7731 quarantined, 2,700 doses and shipment SH-1042 filed with the exchange, signed off by Dr. Priya Raman |
+
+![The workflow walk](docs/images/showcase/guide-workflow.png)
+
+With the pharmacy inventory stopped, Cold Chain Command's shipment page
+keeps everything the tracker and the sensor hub answered and says, in the
+panels the inventory feeds, that the service could not answer:
+
+![A shipment during an inventory outage](docs/images/showcase/cold-chain-outage.png)
+
+Studio over the cold chain shows all four systems, both applications, their
+workflows and the policies over them in one graph, as the person signed in
+may inspect it:
+
+![Studio over four systems](docs/images/showcase/studio-cold-chain.png)
+
+The identities are demonstration tokens and the classification scheme is a
+demonstration one; nothing in the showcase is an accredited security
+configuration. [`docs/showcase/`](docs/showcase/README.md) is the
+walkthrough, and [`coverage.md`](docs/showcase/coverage.md) maps every
+capability to the demonstration that shows it.
+
+### Claude Code on an unfamiliar task, recorded
+
+Claude Code is the developer in the showcase, not a runtime feature. An
+independent author first wrote a task with a new fourth system (the recall
+exchange: HTTP Basic, numbered pages, every answer in an envelope, its own
+vocabulary) and 16 hidden acceptance checks. Then three builders solved it
+without seeing the checks: Claude Code in this repository, and two Claude
+Code subagents in sealed copies, one with TypeSystem's development tools
+and one with only the runtime packages.
+
+| Builder | Wall time | Tokens | Hidden checks |
+| --- | --- | --- | --- |
+| Subagent, runtime packages only | 7 min 43 s | 172,383 | 16 / 16 |
+| Subagent, with TypeSystem's tools | 11 min 26 s | 212,144 | 16 / 16 |
+| Claude Code, this repository ([`examples/apps/recall-response`](examples/apps/recall-response/app.json)) | about 23 min, including platform changes | not metered | 16 / 16 |
+
+The checks did not separate them, and the tools arm was the slower one, so
+this run says nothing in favour of the tools on pass rate. What it did show
+is where the platform fell short: both subagents had to rebuild or
+duplicate the governed host to add a source, and both kept quarantines
+inside a signed-off run with their own application code, where no other
+application and no checker could see the rule. Those gaps are now
+closed in the platform:
+
+- An Action can require an approved workflow step (`requiresApproval`,
+  ADR-0096). The runtime refuses it otherwise, the workflow validator
+  reports `unapproved-action`, and the compiler reports `approval-required`
+  for a page that would call it.
+- A workflow run can be about one object (`about`, ADR-0097): starting it
+  is refused, and audited, for anyone who may not read that object.
+- Onboarding and the HTTP adapter read enveloped, paged, Basic-authenticated
+  APIs (ADR-0098).
+- Change impact probes the objects an application's own checks name
+  (ADR-0099). Removing the embargo condition from the recall read policy
+  was then reported as 28 new exposures, with exit status 1, before
+  anything ran.
+
+The transcripts are the real session logs. The
+[report](docs/evidence/showcase-challenge/README.md) has the timings, the
+three solutions' code, the lifecycle from onboarding to evolution, and what
+one run of one task cannot show.
+
+### Runtime models, real or simulated
+
+An application's AI step asks a configured model through `@typesys/llm`,
+which is separate from Claude Code and never shares its credentials. By
+default nothing paid is called: Cold Chain Command answers with an
+in-process stand-in, and under the showcase it calls the simulated
+OpenAI-compatible endpoint, which goes through the real provider path and
+labels every answer "(simulated model)". Sample configurations for
+Anthropic, OpenAI, OpenRouter and Ollama are in
+[`examples/apps/cold-chain/llm/`](examples/apps/cold-chain/llm/):
+
+```bash
+npm run showcase -- models                         # every configuration: providers, models, SIMULATED or REAL, key set or not
+npm run showcase -- models examples/apps/cold-chain/llm/anthropic.json --discover
+TYPESYS_LLM_CONFIG=examples/apps/cold-chain/llm/anthropic.json npm run showcase
+```
+
+[`docs/showcase/models.md`](docs/showcase/models.md) explains what changes
+with a real model and what stays the runtime's.
+
 ## Understand an unfamiliar system
 
 TypeSystem 5.0 answers the questions an engineer asks first about systems
@@ -971,6 +1140,7 @@ per-record and per-field rules are involved.
 ```bash
 npm install
 npm run build
+npm run showcase      # http://127.0.0.1:4300: everything below at once, with the guide
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
 npm run studio        # http://localhost:4400: the semantic workbench: model, explain, graph, impact
@@ -1004,8 +1174,9 @@ squadron readiness app built with and without TypeSys).
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
 | Applications | `compiler` (the `typesys.app/1` checker, code generator, verifier, semantic diff and mission migration), `ui` (React components for tables, detail, charts, timelines, graphs, maps, forms, approvals, runs, an assistant and provenance, with a separate design system), `app` (three-valued expressions, flow helpers and the server compiled applications run on) |
 | Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata), `engineer` (missions drafted, scaffolded and verified) |
+| Showcase | `showcase` (`npm run showcase`: starts every service and surface over shared services, the ten-question guide, the simulated model endpoint, and `models` for model configurations) |
 | Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
-| Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services), `examples/services` (six independent services TypeSys reads over HTTP) |
+| Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services, and `examples/apps/recall-response` over four), `examples/services` (seven independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 
 ## Status
@@ -1013,7 +1184,8 @@ squadron readiness app built with and without TypeSys).
 The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
-request runs the full suite. A catalog of 219 deliberate mutations, each
+request runs lint, typecheck, the build and the unit suite; the database,
+browser and showcase tests run locally with `npm run check:full`. A catalog of 219 deliberate mutations, each
 of which a test must catch, runs locally with `npm run mutation`, never
 on GitHub for a change. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a

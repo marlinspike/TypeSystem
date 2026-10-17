@@ -1,0 +1,24 @@
+{
+  "format": "typesys.llm/1",
+  "providers": {
+    "ollama": {
+      "kind": "ollama"
+    }
+  },
+  "models": {
+    "stability": {
+      "provider": "ollama",
+      "model": "REPLACE-WITH-A-PULLED-OLLAMA-MODEL",
+      "uses": [
+        "runtime"
+      ],
+      "audience": {
+        "id": "model:coldchain-enclave/stability",
+        "roles": [
+          "coldchain-model"
+        ],
+        "clearance": "INTERNAL"
+      }
+    }
+  }
+}

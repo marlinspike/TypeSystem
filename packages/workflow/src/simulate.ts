@@ -3,10 +3,10 @@ import { synthesize } from "@typesys/devkit";
 import type { ModelShape } from "@typesys/sdk";
 import { scriptedModel } from "./ai.js";
 import type { WorkflowDefinition } from "./definition.js";
-import { WorkflowEngine, type FaultPlan, type WorkflowEngineOptions, type WorkflowHost } from "./engine.js";
+import { WorkflowEngine, grantedApproval, type FaultPlan, type WorkflowEngineOptions, type WorkflowHost } from "./engine.js";
 import { SimulatedCrash, SimulationError } from "./errors.js";
 import { InMemoryJournal, type JournalRecord } from "./journal.js";
-import type { RunView } from "./state.js";
+import type { RunState, RunView } from "./state.js";
 
 export interface SimulationScript<I = unknown> {
   readonly initiator: Identity;
@@ -60,8 +60,10 @@ class SimulationEngine extends WorkflowEngine {
    * where the output names them. A target the simulation itself invented
    * cannot be checked, and is reported as such rather than as a pass.
    */
-  protected override async invokeAction(action: ActionDescription, input: unknown, identity: Identity) {
-    const preview = await this.options.host.runtime.previewAction(action.name, input, identity);
+  protected override async invokeAction(action: ActionDescription, input: unknown, identity: Identity, state: RunState) {
+    // The approvals were scripted, but each approver was decided by the real policy, so the preview weighs the grant a live run would carry.
+    const approval = grantedApproval(state);
+    const preview = await this.options.host.runtime.previewAction(action.name, input, identity, approval ? { approval } : {});
     const targetId = action.target ? (input as Record<string, unknown> | null)?.[action.target.idFrom] : undefined;
     const inventedTarget = typeof targetId === "string" && this.invented.has(targetId);
     const onlyInventedTarget = !preview.wouldExecute && inventedTarget && preview.blockers.every((b) => b.kind === "target");

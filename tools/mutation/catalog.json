@@ -583,8 +583,8 @@
       "adr": "0067",
       "description": "An Action's outcome audit row omits the audience the caller read for (review L6).",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "...(identity.audience ? { details: { audience: identity.audience.id, withheld: released.withheld } } : released.withheld.length",
-      "replace": "...(false ? { details: {} } : released.withheld.length",
+      "find": "...(identity.audience ? { audience: identity.audience.id } : {}),",
+      "replace": "...({}),",
       "tests": [
         "packages/domain-airforce/test/m2-adv-release.test.ts"
       ]

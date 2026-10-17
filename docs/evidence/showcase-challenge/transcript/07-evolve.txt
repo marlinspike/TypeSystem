@@ -1,0 +1,177 @@
+$ node packages/cli/dist/bin.js app impact examples/apps/recall-response --as qa --record docs/evidence/showcase-challenge/evolve/baseline.json
+# at 2026-10-17T19:57:27Z
+Recorded docs/evidence/showcase-challenge/evolve/baseline.json: 12 Types, 36 reads by 6 callers, with the inspection
+# exit 0
+
+$ node packages/cli/dist/bin.js app impact examples/apps/recall-response --as qa --against docs/evidence/showcase-challenge/evolve/baseline.json
+# at 2026-10-17T19:57:44Z
+Change 49ee161f57ad → 75ce0eaf09d5: risky
+  governance changes   policy:coldchain.read-recall: rule is role in [qa, logistics, auditor, coldchain-model], was any of (role in [qa]; all of (role in [logistics, auditor, coldchain-model]; opaque rule (a function)))
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+Checks to run: part:app:recall-response/check.anonymous-refused, part:app:recall-response/check.auditor-query-public-only, part:app:recall-response/check.carrier-refused, part:app:recall-response/check.embargo-refused-auditor, part:app:recall-response/check.embargo-refused-logistics, part:app:recall-response/check.logistics-lacks-hazard, part:app:recall-response/check.logistics-sees-public, part:app:recall-response/check.notice-page, part:app:recall-response/check.qa-reads-hazard, part:app:recall-response/check.qa-sees-notices, part:app:recall-response/check.qa2-reads-embargoed
+# exit 0
+
+# The first comparison above reported only the predicted governance change: the baseline probed the first
+# notice (RCL-26-0412, public), so no observed decision could differ. TypeSystem gap, fixed in this PR:
+# `typesys app impact` now also probes every object the application's acceptance checks name.
+# Rule restored, baseline recorded again, then the same change made again.
+
+$ node packages/cli/dist/bin.js app impact examples/apps/recall-response --as qa --record docs/evidence/showcase-challenge/evolve/baseline.json
+# at 2026-10-17T19:58:58Z
+Recorded docs/evidence/showcase-challenge/evolve/baseline.json: 12 Types, 42 reads by 6 callers, with the inspection
+# exit 0
+
+$ git diff packages/cold-chain/src/recalls.ts
+# at 2026-10-17T19:59:00Z
+diff --git a/packages/cold-chain/src/recalls.ts b/packages/cold-chain/src/recalls.ts
+index d012f27..ee66a3c 100644
+--- a/packages/cold-chain/src/recalls.ts
++++ b/packages/cold-chain/src/recalls.ts
+@@ -126,7 +126,7 @@ const MODEL = "coldchain-model";
+ const publicNotice: PolicyRule = ({ resource }: PolicyRequest) =>
+   // Asked about the Type rather than one notice: some notices are public.
+   !resource.attributes || resource.attributes.embargoed === false ? { allow: true } : { allow: false, reason: "A notice under embargo is need-to-know for quality assurance alone" };
+-const readRecall = anyOf(requireRole("qa"), allOf(requireRole("logistics", "auditor", MODEL), publicNotice));
++const readRecall = requireRole("qa", "logistics", "auditor", MODEL);
+ 
+ export const recallPolicyRules: Record<string, PolicyRule> = {
+   "coldchain.read-recall": readRecall,
+# exit 0
+
+$ node packages/cli/dist/bin.js app impact examples/apps/recall-response --as qa --against docs/evidence/showcase-challenge/evolve/baseline.json
+# at 2026-10-17T19:59:00Z
+Change 49ee161f57ad → 75ce0eaf09d5: risky, 28 new exposures
+  observed widens      coldchain.Recall: the read is partial, was refused
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.affectedLots on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.dosesHeld on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.embargoed on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.firm on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.issuedOn on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.lifecycle on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.lotsHeld on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.ndc on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.product on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.recallClass on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.responseStatus on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.shipmentsInTransit on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.signedOffBy on coldchain.Recall/RCL-26-0388: now returned to logistics, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall: the read is partial, was refused
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.affectedLots on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.dosesHeld on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.embargoed on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.firm on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.issuedOn on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.lifecycle on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.lotsHeld on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.ndc on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.product on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.recallClass on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.responseStatus on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.shipmentsInTransit on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  observed widens      coldchain.Recall.signedOffBy on coldchain.Recall/RCL-26-0388: now returned to auditor, was not described
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+  governance changes   policy:coldchain.read-recall: rule is role in [qa, logistics, auditor, coldchain-model], was any of (role in [qa]; all of (role in [logistics, auditor, coldchain-model]; opaque rule (a function)))
+                       reaches app:recall-response, workflow:coldchain.RespondToRecall
+Checks to run: part:app:recall-response/check.anonymous-refused, part:app:recall-response/check.auditor-query-public-only, part:app:recall-response/check.carrier-refused, part:app:recall-response/check.embargo-refused-auditor, part:app:recall-response/check.embargo-refused-logistics, part:app:recall-response/check.logistics-lacks-hazard, part:app:recall-response/check.logistics-sees-public, part:app:recall-response/check.notice-page, part:app:recall-response/check.qa-reads-hazard, part:app:recall-response/check.qa-sees-notices, part:app:recall-response/check.qa2-reads-embargoed
+# exit 1
+
+$ node packages/cli/dist/bin.js app verify examples/apps/recall-response
+# at 2026-10-17T19:59:09Z
+FAILED — recall-response: check ok, build ok, acceptance FAILED
+  pass  qa-reads-hazard
+  pass  logistics-lacks-hazard
+  FAIL  embargo-refused-logistics
+  FAIL  embargo-refused-auditor
+  pass  qa2-reads-embargoed
+  pass  carrier-refused
+  pass  anonymous-refused
+  FAIL  auditor-query-public-only
+  pass  logistics-asks
+  pass  terminated-fails
+  pass  answered-fails
+  pass  other-product-fails
+  FAIL  embargo-ask-refused
+  pass  auditor-cannot-ask
+  pass  carrier-cannot-ask
+  pass  qa-signs-off
+  pass  qa2-signs-qa-request
+  pass  logistics-cannot-sign-off
+  pass  hold-not-offered
+  pass  qa-sees-notices
+  FAIL  logistics-sees-public
+  pass  notice-page
+  error   check-failed at acceptance/2: "embargo-refused-logistics" failed: logistics read coldchain.Recall RCL-26-0388 (the requirement says this caller is refused)
+  error   check-failed at acceptance/3: "embargo-refused-auditor" failed: auditor read coldchain.Recall RCL-26-0388 (the requirement says this caller is refused)
+  error   check-failed at acceptance/7: "auditor-query-public-only" failed: 6 results, expected at most 5 (this caller reads more than the requirement allows)
+  error   check-failed at acceptance/12: "embargo-ask-refused" failed: the run is waiting-approval, expected refused (read the run's steps: the first one not completed is why)
+  error   check-failed at acceptance/20: logistics-sees-public: the page says "RCL-26-0388"; notices-table shows 6 rows, more than 5 (open the page as this caller and compare)
+# exit 1
+
+# Fix: restore the embargo condition (the change is reverted; the requirement did not change).
+$ node packages/cli/dist/bin.js app impact examples/apps/recall-response --as qa --against docs/evidence/showcase-challenge/evolve/baseline.json
+# at 2026-10-17T19:59:27Z
+Change 49ee161f57ad → 49ee161f57ad: compatible
+  No change.
+# exit 0
+
+$ node packages/cli/dist/bin.js app why examples/apps/recall-response --as qa --for logistics --read coldchain.Recall/RCL-26-0388
+# at 2026-10-17T19:59:28Z
+REFUSED: user-logistics-1 is refused by object-policy: No alternative allowed: Requires one of roles [qa], subject has [logistics]; A notice under embargo is need-to-know for quality assurance alone.
+  refused   coldchain.Recall/RCL-26-0388 evaluated, object-policy coldchain.read-recall: No alternative allowed: Requires one of roles [qa], subject has [logistics]; A notice under embargo is need-to-know for quality assurance alone (to change: allowed when any of (role in [qa]; all of (role in [logistics, auditor, coldchain-model]; opaque rule (a function))))
+This explains the decision as it is made now. The runtime decides every call again, and a later call can be decided differently.
+# exit 0
+
+$ node packages/cli/dist/bin.js app verify examples/apps/recall-response
+# at 2026-10-17T19:59:29Z
+OK — recall-response: check ok, build ok, acceptance ok
+  pass  qa-reads-hazard
+  pass  logistics-lacks-hazard
+  pass  embargo-refused-logistics
+  pass  embargo-refused-auditor
+  pass  qa2-reads-embargoed
+  pass  carrier-refused
+  pass  anonymous-refused
+  pass  auditor-query-public-only
+  pass  logistics-asks
+  pass  terminated-fails
+  pass  answered-fails
+  pass  other-product-fails
+  pass  embargo-ask-refused
+  pass  auditor-cannot-ask
+  pass  carrier-cannot-ask
+  pass  qa-signs-off
+  pass  qa2-signs-qa-request
+  pass  logistics-cannot-sign-off
+  pass  hold-not-offered
+  pass  qa-sees-notices
+  pass  logistics-sees-public
+  pass  notice-page
+# exit 0
+

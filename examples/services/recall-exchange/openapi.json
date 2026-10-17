@@ -1,0 +1,156 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Recall Exchange",
+    "version": "4.1.0",
+    "description": "Manufacturer recall notification exchange. Manufacturers post recall notices; a subscribing distributor reads them and files one effectiveness response per notice, saying which affected lots it quarantined, how many doses, and which shipments carrying them were still in transit. NDCs are written as eleven digits without hyphens. The viewer client sees PUBLIC notices only and may not respond; an EMBARGOED notice is not visible to it."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "basicClient": [] }],
+  "paths": {
+    "/exchange/v1/notices": {
+      "get": {
+        "operationId": "listNotices",
+        "summary": "List recall notices visible to this client, two a page",
+        "parameters": [
+          { "name": "issuingFirm", "in": "query", "schema": { "type": "string" }, "description": "Exact firm name, e.g. Northwind Biologics" },
+          { "name": "ndc11", "in": "query", "schema": { "type": "string", "pattern": "^[0-9]{11}$" }, "description": "Eleven-digit NDC, no hyphens" },
+          { "name": "lotCode", "in": "query", "schema": { "type": "string" }, "description": "Notices that list this lot" },
+          { "name": "lifecycle", "in": "query", "schema": { "$ref": "#/components/schemas/Lifecycle" } },
+          { "name": "disclosure", "in": "query", "schema": { "$ref": "#/components/schemas/Disclosure" } },
+          { "name": "responseState", "in": "query", "schema": { "$ref": "#/components/schemas/ResponseState" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "pageSize", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 2 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of notices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Notice" } },
+                    "meta": {
+                      "type": "object",
+                      "properties": { "page": { "type": "integer" }, "pageSize": { "type": "integer" }, "total": { "type": "integer" }, "hasMore": { "type": "boolean" } },
+                      "required": ["page", "pageSize", "total", "hasMore"]
+                    }
+                  },
+                  "required": ["data", "meta"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
+      }
+    },
+    "/exchange/v1/notices/{recallNumber}": {
+      "get": {
+        "operationId": "getNotice",
+        "summary": "One recall notice",
+        "parameters": [{ "$ref": "#/components/parameters/RecallNumber" }],
+        "responses": {
+          "200": { "description": "The notice", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Notice" } }, "required": ["data"] } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/exchange/v1/notices/{recallNumber}/responses": {
+      "get": {
+        "operationId": "listResponses",
+        "summary": "The response on file for a notice (none or one)",
+        "parameters": [{ "$ref": "#/components/parameters/RecallNumber" }],
+        "responses": {
+          "200": { "description": "Responses", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Response" } } }, "required": ["data"] } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "operationId": "fileResponse",
+        "summary": "File this distributor's effectiveness response to a notice; once per notice",
+        "parameters": [{ "$ref": "#/components/parameters/RecallNumber" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lotsQuarantined": { "type": "array", "items": { "type": "string" }, "description": "Lot codes from the notice that this distributor holds and has quarantined" },
+                  "dosesQuarantined": { "type": "integer", "minimum": 0 },
+                  "shipmentsInTransit": { "type": "array", "items": { "type": "string" }, "description": "Shipment references carrying a quarantined lot that are still in transit" },
+                  "signedOffBy": { "type": "string", "minLength": 1, "description": "The person responsible for the response" }
+                },
+                "required": ["lotsQuarantined", "dosesQuarantined", "shipmentsInTransit", "signedOffBy"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Filed", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Response" } }, "required": ["data"] } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "description": "This client may not file responses", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "NOTICE_TERMINATED or ALREADY_RESPONDED", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "description": "LOT_NOT_ON_NOTICE: a quarantined lot is not listed on the notice", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "basicClient": { "type": "http", "scheme": "basic", "description": "Client id and secret. coldchain-distributor / rx-exchange-2026 reads every notice and files responses; coldchain-viewer / rx-view-only reads PUBLIC notices only." }
+    },
+    "parameters": {
+      "RecallNumber": { "name": "recallNumber", "in": "path", "required": true, "schema": { "type": "string" }, "description": "e.g. RCL-26-0412" }
+    },
+    "responses": {
+      "Unauthenticated": { "description": "Unknown client or wrong secret", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "No such notice, or not visible to this client", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    },
+    "schemas": {
+      "Lifecycle": { "type": "string", "enum": ["ACTIVE", "TERMINATED"] },
+      "Disclosure": { "type": "string", "enum": ["PUBLIC", "EMBARGOED"] },
+      "ResponseState": { "type": "string", "enum": ["PENDING", "RECEIVED"] },
+      "Notice": {
+        "type": "object",
+        "properties": {
+          "recallNumber": { "type": "string" },
+          "issuingFirm": { "type": "string" },
+          "product": { "type": "object", "properties": { "name": { "type": "string" }, "ndc11": { "type": "string", "pattern": "^[0-9]{11}$" } }, "required": ["name", "ndc11"] },
+          "affectedLots": { "type": "array", "items": { "type": "object", "properties": { "lotCode": { "type": "string" }, "expiry": { "type": "string", "format": "date" } }, "required": ["lotCode"] } },
+          "hazardClass": { "type": "string", "enum": ["CLASS_I", "CLASS_II", "CLASS_III"] },
+          "hazardEvaluation": { "type": "string", "description": "The manufacturer's health hazard evaluation" },
+          "disclosure": { "$ref": "#/components/schemas/Disclosure" },
+          "lifecycle": { "$ref": "#/components/schemas/Lifecycle" },
+          "issuedOn": { "type": "string", "format": "date" },
+          "responseState": { "$ref": "#/components/schemas/ResponseState" },
+          "response": { "oneOf": [{ "$ref": "#/components/schemas/Response" }, { "type": "null" }] }
+        },
+        "required": ["recallNumber", "issuingFirm", "product", "affectedLots", "hazardClass", "disclosure", "lifecycle", "responseState"]
+      },
+      "Response": {
+        "type": "object",
+        "properties": {
+          "receivedAt": { "type": "string", "format": "date-time" },
+          "lotsQuarantined": { "type": "array", "items": { "type": "string" } },
+          "dosesQuarantined": { "type": "integer" },
+          "shipmentsInTransit": { "type": "array", "items": { "type": "string" } },
+          "signedOffBy": { "type": "string" }
+        },
+        "required": ["receivedAt", "lotsQuarantined", "dosesQuarantined", "shipmentsInTransit", "signedOffBy"]
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" } }, "required": ["code"] } },
+        "required": ["error"]
+      }
+    }
+  }
+}

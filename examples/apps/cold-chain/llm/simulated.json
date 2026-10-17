@@ -1,0 +1,29 @@
+{
+  "format": "typesys.llm/1",
+  "providers": {
+    "simulated": {
+      "kind": "openai-compatible",
+      "baseUrl": "http://127.0.0.1:4790/v1",
+      "environment": "local"
+    }
+  },
+  "models": {
+    "stability": {
+      "provider": "simulated",
+      "model": "stability-simulated",
+      "uses": [
+        "runtime"
+      ],
+      "audience": {
+        "id": "model:coldchain-enclave/stability",
+        "roles": [
+          "coldchain-model"
+        ],
+        "clearance": "INTERNAL"
+      },
+      "capabilities": {
+        "structuredOutput": "schema"
+      }
+    }
+  }
+}

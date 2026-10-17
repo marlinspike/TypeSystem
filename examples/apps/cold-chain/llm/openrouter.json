@@ -1,0 +1,25 @@
+{
+  "format": "typesys.llm/1",
+  "providers": {
+    "openrouter": {
+      "kind": "openrouter",
+      "apiKeyEnv": "OPENROUTER_API_KEY"
+    }
+  },
+  "models": {
+    "stability": {
+      "provider": "openrouter",
+      "model": "REPLACE-WITH-AN-OPENROUTER-MODEL-ID",
+      "uses": [
+        "runtime"
+      ],
+      "audience": {
+        "id": "model:coldchain-enclave/stability",
+        "roles": [
+          "coldchain-model"
+        ],
+        "clearance": "INTERNAL"
+      }
+    }
+  }
+}

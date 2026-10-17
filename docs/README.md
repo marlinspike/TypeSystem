@@ -8,6 +8,13 @@ points into.
 
 ## New here?
 
+0. **[The developer showcase](showcase/README.md)**: `npm run showcase`
+   starts every demonstration over shared services, with a guide that
+   answers ten engineering questions on the running surfaces.
+   [Coverage](showcase/coverage.md) maps each capability to its
+   demonstration, [models](showcase/models.md) explains real and simulated
+   runtime models, and [the challenge report](evidence/showcase-challenge/README.md)
+   records Claude Code solving an unfamiliar task with and without the tools.
 1. **[Why TypeSys?](why-typesys.md)** — when to use this, when not to, how
    it compares to a hand-rolled BFF, GraphQL federation, and the
    Palantir/C3 platforms it takes inspiration from without cloning.

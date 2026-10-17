@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ModelDescription } from "@typesys/core";
 import { loadConfig, studioApi, type Me, type StudioConfig } from "./api.js";
-import { TOKEN_KEY, starterQuery } from "./logic.js";
+import { TABS, TOKEN_KEY, parseDeepLink, starterQuery, type Tab } from "./logic.js";
 import { ModelView } from "./ModelView.js";
 import { QueryView } from "./QueryView.js";
 import { ActionsView } from "./ActionsView.js";
@@ -11,7 +11,6 @@ import { ExplainView, type ExplainSeed } from "./ExplainView.js";
 import { ImpactView } from "./ImpactView.js";
 import type { GraphNode } from "@typesys/devkit";
 
-type Tab = "model" | "graph" | "explain" | "impact" | "query" | "actions";
 const TAB_LABEL: Record<Tab, string> = { model: "Model", graph: "Graph", explain: "Explain", impact: "Impact", query: "Query", actions: "Actions" };
 
 /** What to explain about a node of the graph: the question its kind asks. */
@@ -45,6 +44,10 @@ function storeToken(token: string | undefined): void {
  * model, queries and Actions exactly as the API answers that caller: change
  * the token and the same screens show what someone else may see.
  */
+/** Read once, when the page opens: a link from the showcase or a colleague says where to start (see `parseDeepLink`). */
+const LINK = parseDeepLink(typeof location === "undefined" ? "" : location.hash);
+const LINK_SEED: ExplainSeed | null = LINK.tab === "explain" && LINK.type ? { kind: "read", type: LINK.type, ...(LINK.id ? { id: LINK.id } : {}), ...(LINK.for ? { subject: LINK.for } : {}) } : null;
+
 export function App() {
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [token, setToken] = useState<string | undefined>(storedToken);
@@ -52,16 +55,27 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [model, setModel] = useState<ModelDescription | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState<Tab>("model");
-  const [query, setQuery] = useState(starterQuery("airforce.Aircraft"));
+  const [tab, setTab] = useState<Tab>(LINK.tab ?? "model");
+  const [query, setQuery] = useState(starterQuery(LINK.type ?? "airforce.Aircraft"));
   const [action, setAction] = useState<string | null>(null);
-  const [focus, setFocus] = useState<string | null>(null);
-  const [seed, setSeed] = useState<ExplainSeed | null>(null);
+  const [focus, setFocus] = useState<string | null>(LINK.node ?? (LINK.tab === "graph" && LINK.type ? `type:${LINK.type}` : null));
+  const [seed, setSeed] = useState<ExplainSeed | null>(LINK_SEED);
 
   const api = useMemo(() => studioApi(token), [token]);
 
   useEffect(() => {
-    loadConfig().then(setConfig, setError);
+    loadConfig().then((c) => {
+      setConfig(c);
+      // A link's `as` names a demo sign-in by its label; a link never carries a token.
+      const preset = LINK.as ? c.demo?.find((d) => d.label.toLowerCase() === LINK.as!.toLowerCase()) : undefined;
+      if (preset) {
+        storeToken(preset.token);
+        setToken(preset.token);
+      } else if (LINK.as?.toLowerCase() === "anonymous") {
+        storeToken(undefined);
+        setToken(undefined);
+      }
+    }, setError);
   }, []);
 
   useEffect(() => {
@@ -74,7 +88,7 @@ export function App() {
         if (!live) return;
         setMe(who);
         setModel(m);
-        if (m.types[0] && !m.types.some((t) => t.name === "airforce.Aircraft")) setQuery(starterQuery(m.types[0].name));
+        if (m.types[0] && !m.types.some((t) => t.name === (LINK.type ?? "airforce.Aircraft"))) setQuery(starterQuery(m.types[0].name));
       },
       (err: unknown) => live && setError(err)
     );
@@ -141,7 +155,7 @@ export function App() {
         </form>
       </header>
       <nav role="tablist">
-        {(["model", "graph", "explain", "impact", "query", "actions"] as const).map((t) => (
+        {TABS.map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
             {TAB_LABEL[t]}
           </button>
@@ -149,7 +163,7 @@ export function App() {
       </nav>
       <main>
         <ErrorNote error={error} />
-        {model && tab === "model" && <ModelView api={api} model={model} onQuery={openQuery} onAction={openAction} onGraph={openGraph} />}
+        {model && tab === "model" && <ModelView api={api} model={model} onQuery={openQuery} onAction={openAction} onGraph={openGraph} {...(LINK.type ? { initialType: LINK.type } : {})} />}
         {model && tab === "graph" && <GraphView key={`${token ?? ""}|${focus ?? ""}`} api={api} focus={focus} onExplain={openExplain} />}
         {model && tab === "explain" && <ExplainView key={`${token ?? ""}|${JSON.stringify(seed)}`} api={api} model={model} seed={seed} />}
         {model && tab === "impact" && <ImpactView key={token ?? ""} api={api} />}
