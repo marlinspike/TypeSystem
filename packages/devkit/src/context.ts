@@ -59,7 +59,7 @@ export interface ValueAccess {
 export interface ContextUse {
   /** `workflow airforce.GroundForRepair`, `app squadron`. */
   readonly consumer: string;
-  /** The part's label, absent for a use by the consumer as a whole. */
+  /** The part's name in its consumer (`data.fleet`, `check.board-shows`, a step's name), absent for a use by the consumer as a whole. */
   readonly part?: string;
   /** `read`, `page`, `check`... */
   readonly partKind?: string;
@@ -445,7 +445,7 @@ function usesOf(graph: SemanticGraph, type: string): ContextUse[] {
     const owner = node.kind === "part" ? ix.node(node.parent!) : node;
     const use: ContextUse = {
       consumer: `${owner?.kind ?? "consumer"} ${owner?.label ?? ""}`.trim(),
-      ...(node.kind === "part" ? { part: isAcceptanceCheck(graph, user) ? node.id.slice(node.id.lastIndexOf("/") + 1) : node.label, partKind: String(node.detail?.part ?? "part") } : {}),
+      ...(node.kind === "part" ? { part: node.id.slice(node.id.lastIndexOf("/") + 1), partKind: String(node.detail?.part ?? "part") } : {}),
       ...(isAcceptanceCheck(graph, user) ? { acceptance: true as const } : {}),
       ...(member ? { member } : {}),
       ...(how ? { how } : {})
@@ -526,9 +526,19 @@ function renderType(t: ContextType): string {
   for (const c of t.computed) lines.push(`  ${c.name} (computed from ${c.dependsOn.join(", ")}): ${c.type}${mark(t, c.name)}${guardOf(t, c.name)}`);
   for (const r of t.relationships) lines.push(`  → ${r.name}: ${r.target}${r.many ? "[]" : ""}`);
   if (t.visibility) lines.push(`  (read as this caller: ${t.visibility.probed} probed)`);
-  const shown = t.usedBy.slice(0, 8);
-  for (const u of shown) lines.push(`  used by ${u.consumer}${u.part ? ` ${u.partKind} "${u.part}"` : ""}${u.member ? ` (${u.member}${u.how ? `, ${u.how}` : ""})` : u.how ? ` (${u.how})` : ""}`);
-  if (t.usedBy.length > shown.length) lines.push(`  used by ${t.usedBy.length - shown.length} more`);
+  // One line per consumer, naming its parts once each. The members and how each part uses them stay in the
+  // JSON; a check reached only through another part is listed under CHECKS instead.
+  const byConsumer = new Map<string, Set<string>>();
+  for (const u of t.usedBy) {
+    if (u.how?.startsWith("through ")) continue;
+    const parts = byConsumer.get(u.consumer) ?? new Set<string>();
+    if (u.part) parts.add(u.part);
+    byConsumer.set(u.consumer, parts);
+  }
+  for (const [consumer, parts] of byConsumer) {
+    const named = [...parts];
+    lines.push(`  used by ${consumer}${named.length ? `: ${named.slice(0, 6).join(", ")}${named.length > 6 ? ` and ${named.length - 6} more` : ""}` : ""}`);
+  }
   for (const e of t.examples ?? []) lines.push(`  example ${e.objectId}: ${JSON.stringify(e.values)}`);
   return lines.join("\n");
 }

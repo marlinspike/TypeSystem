@@ -105,6 +105,13 @@ tell that the model changed under a context it holds.
   drafts the same mission with the same diagnostic, so the recording in
   `examples/missions/fleet-readiness-board/mission.draft.json` is keyed
   to the request as it is now.
+- With consumers, each Type lists the applications and workflows that use
+  it, one line per consumer naming its parts. The first version gave each
+  part a line; the Milestone D evaluation measured that at 1.8 times the
+  4.0 context and it was cut to 1.5 times
+  ([semantic-workbench-2026-10-17.md](../evidence/semantic-workbench-2026-10-17.md)).
+  The members each part uses, and checks reached only through another
+  part, stay in the JSON.
 - Probing explains one object per Type, which is one more governed and
   audited call per Type. `probe: 0` still reads nothing and claims
   nothing.
