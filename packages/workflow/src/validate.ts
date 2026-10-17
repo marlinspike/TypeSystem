@@ -63,6 +63,10 @@ export function validateWorkflow(workflow: AnyWorkflow, model: ModelDescription)
         }
       }
     }
+    if (step.kind === "read") {
+      const types = new Set(model.types.map((t) => t.name));
+      for (const t of step.reads ?? []) if (!types.has(t)) add({ code: "unknown-type", step: step.name, message: `read step "${step.name}" declares it reads unknown Type "${t}"` });
+    }
     if (step.kind === "approval" && !step.policy) add({ code: "missing-policy", step: step.name, message: `approval "${step.name}" names no policy` });
     // A deadline is a time to come: NaN or Infinity would journal a timer no clock can reach, and zero or less expires at once.
     if (step.kind === "approval" && step.deadline !== undefined && !(Number.isFinite(step.deadline.afterMs) && step.deadline.afterMs > 0)) {

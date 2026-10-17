@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AuthorizationError, requireRole } from "@typesys/core";
 import { buildAirforceTestbed, demoAudiences, demoIdentities, groundForRepair } from "@typesys/domain-airforce";
-import { WorkflowEngine, scriptedModel } from "../src/index.js";
+import { WorkflowEngine, scriptedModel, type AnyWorkflow } from "../src/index.js";
 
 /** Explaining a workflow (ADR-0089): start, approvals, Actions and AI release, decided by the engine a run uses. */
 async function fixture() {
@@ -32,5 +32,33 @@ describe("WorkflowEngine.explain (ADR-0089)", () => {
     expect(own.disclosure).toBe("caller");
     expect(JSON.stringify(own)).not.toContain("airforce.maintainer-only");
     await expect(engine.explain("airforce.GroundForRepair", demoIdentities.viewer, { as: demoIdentities.lead })).rejects.toBeInstanceOf(AuthorizationError);
+  });
+});
+
+describe("declared reads (ADR-0090)", () => {
+  const readStep = (reads: readonly string[] | undefined) => ({
+    kind: "read",
+    name: "aircraft",
+    ...(reads ? { reads } : {}),
+    run: async (af: unknown) => (af as { get: (t: string, id: string) => Promise<unknown> }).get("airforce.Aircraft", "AF86-0147")
+  });
+  const workflow = (name: string, reads: readonly string[] | undefined) =>
+    ({ name, version: "1.0.0", startPolicy: "airforce.maintainer-only", inputSchema: { type: "object" }, steps: [readStep(reads)] }) as unknown as AnyWorkflow;
+
+  it("lets a read step read the Types it declares, and fails it when it reads another", async () => {
+    const { engine } = await fixture();
+    engine.register(workflow("test.Declared", ["airforce.Aircraft"]));
+    engine.register(workflow("test.Undeclared", undefined));
+    engine.register(workflow("test.Wrong", ["airforce.WorkOrder"]));
+    expect((await engine.start("test.Declared", {}, demoIdentities.maintainer)).status).toBe("completed");
+    expect((await engine.start("test.Undeclared", {}, demoIdentities.maintainer)).status).toBe("completed");
+    const wrong = await engine.start("test.Wrong", {}, demoIdentities.maintainer);
+    expect(wrong.status).toBe("failed");
+    expect(JSON.stringify(wrong)).toMatch(/does not declare in reads/);
+  });
+
+  it("refuses a definition that declares a read of an unknown Type", async () => {
+    const { engine } = await fixture();
+    expect(() => engine.register(workflow("test.Unknown", ["airforce.Nothing"]))).toThrow(/unknown Type "airforce.Nothing"/);
   });
 });

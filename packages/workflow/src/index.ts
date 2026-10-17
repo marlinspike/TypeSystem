@@ -9,3 +9,4 @@ export * from "./engine.js";
 export * from "./simulate.js";
 export * from "./explain.js";
 export { workflowJournalContract, type JournalContractHarness } from "./testing/journal-contract.js";
+export * from "./uses.js";

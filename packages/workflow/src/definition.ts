@@ -43,6 +43,13 @@ interface StepBase<I> {
 /** Reads through the runtime as the run's initiator, with the typed client (ADR-0055): policy decides what comes back. */
 export interface ReadStep<M extends ModelShape, I> extends StepBase<I> {
   readonly kind: "read";
+  /**
+   * The Types the step reads, from which it may follow their relationships
+   * (ADR-0090). Declared, the engine refuses a read of any other Type, so
+   * the dependency graph and impact analysis can rely on it; omitted, the
+   * step may read any Type and is shown as opaque.
+   */
+  readonly reads?: readonly string[];
   readonly run: (client: Client<M>, ctx: StepContext<I>) => Promise<unknown>;
 }
 

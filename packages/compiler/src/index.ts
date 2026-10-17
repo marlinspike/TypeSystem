@@ -15,3 +15,4 @@ export * from "./diff.js";
 export * from "./migrate.js";
 export * from "./cli.js";
 export * from "./mcp.js";
+export * from "./uses.js";

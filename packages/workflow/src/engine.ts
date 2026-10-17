@@ -12,6 +12,7 @@ import {
   type Identity,
   type ModelDescription,
   type PolicyEngine,
+  type SemanticAggregateQuery,
   type SemanticRegistry,
   type SemanticRuntime
 } from "@typesys/core";
@@ -905,7 +906,7 @@ export class WorkflowEngine {
       case "read": {
         // A read step reads: it gets no way to invoke an Action, which would bypass the AI-review rule, the
         // journal's no-replay guarantee for non-idempotent Actions, and a simulation's promise to change nothing.
-        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name));
+        const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name, step.reads));
         return { output: structuredClone(await step.run(client, ctx)), source: "read" };
       }
       case "compute":
@@ -1034,7 +1035,7 @@ export class WorkflowEngine {
     switch (s.kind) {
       case "read": {
         const again = async () => {
-          const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name));
+          const client = createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, releaseAs), s.name, s.reads));
           try {
             return structuredClone(await s.run(client, ctx));
           } catch (err) {
@@ -1129,9 +1130,21 @@ export class WorkflowEngine {
 }
 
 /** A transport for read steps: everything reads, and invoking an Action is refused. */
-function readOnlyTransport(inner: Transport, step: string): Transport {
+function readOnlyTransport(inner: Transport, step: string, reads?: readonly string[]): Transport {
+  // A declared read is a promise the dependency graph relies on (ADR-0090), so a read of any other Type is refused.
+  const declared = <T>(type: string, read: () => Promise<T>): Promise<T> =>
+    reads && !reads.includes(type)
+      ? Promise.reject(new WorkflowDefinitionError(`Read step "${step}" read Type "${type}", which it does not declare in reads (${reads.join(", ")})`))
+      : read();
   return {
     ...inner,
+    query: (q) => declared(q.type, () => inner.query(q)),
+    explain: (q) => declared(q.type, () => inner.explain(q)),
+    getObject: (type, id, opts) => declared(type, () => inner.getObject(type, id, opts)),
+    getRelationship: (type, id, rel) => declared(type, () => inner.getRelationship(type, id, rel)),
+    getProvenance: (type, id, property) => declared(type, () => inner.getProvenance(type, id, property)),
+    listActions: (type, id) => declared(type, () => inner.listActions(type, id)),
+    ...(inner.aggregate ? { aggregate: (q: SemanticAggregateQuery) => declared(q.type, () => inner.aggregate!(q)) } : {}),
     invokeAction: async (action) => {
       throw new WorkflowDefinitionError(`Read step "${step}" tried to invoke Action "${action}": only an action step may, so it is reviewed, journaled and simulated`);
     }

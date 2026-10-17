@@ -363,7 +363,7 @@
       "adr": "0057",
       "description": "A read step's client can invoke an Action, bypassing review.",
       "file": "packages/workflow/src/engine.ts",
-      "find": "createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name))",
+      "find": "createClient<ModelShape>(readOnlyTransport(runtimeTransport(this.options.host.runtime, identity), step.name, step.reads))",
       "replace": "createClient<ModelShape>(runtimeTransport(this.options.host.runtime, identity))",
       "tests": [
         "packages/workflow/test/pressure-workflow.test.ts"
@@ -1878,6 +1878,73 @@
       "replace": "if (false) throw",
       "tests": [
         "packages/workflow/test/explain.test.ts"
+      ]
+    },
+    {
+      "id": "graph.whole-type-ignored",
+      "adr": "0090",
+      "description": "A read of a whole Type is not counted as depending on its members, so a change to a member misses it.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "if (direction === \"dependents\" && n?.parent && n.kind === \"member\")",
+      "replace": "if (direction === \"dependents\" && n?.parent && n.kind === \"relationship\")",
+      "tests": [
+        "packages/devkit/test/graph.test.ts"
+      ]
+    },
+    {
+      "id": "graph.derivation-dropped",
+      "adr": "0090",
+      "description": "The graph forgets what a computed value derives from.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "for (const d of m.computed.dependsOn) b.edge({ from: mid, to: nodeId.member(t.name, d), kind: \"derives-from\", basis: \"declared\" });",
+      "replace": "",
+      "tests": [
+        "packages/devkit/test/graph.test.ts"
+      ]
+    },
+    {
+      "id": "graph.placeholder-resolved",
+      "adr": "0090",
+      "description": "A consumer's use of a member the model does not describe looks like a real member.",
+      "file": "packages/devkit/src/graph.ts",
+      "find": "kind: \"member\", label: use.member, parent: nodeId.type(use.type), unresolved: true });",
+      "replace": "kind: \"member\", label: use.member, parent: nodeId.type(use.type) });",
+      "tests": [
+        "packages/devkit/test/graph.test.ts",
+        "packages/compiler/test/uses.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.reads-unenforced",
+      "adr": "0090",
+      "description": "A read step reads a Type it does not declare, so the graph's account of it is wrong.",
+      "file": "packages/workflow/src/engine.ts",
+      "find": "reads && !reads.includes(type)",
+      "replace": "reads && reads.length === 0",
+      "tests": [
+        "packages/workflow/test/explain.test.ts"
+      ]
+    },
+    {
+      "id": "workflow.undeclared-read-not-opaque",
+      "adr": "0090",
+      "description": "A read step that declares nothing is shown as reading nothing, not as opaque.",
+      "file": "packages/workflow/src/uses.ts",
+      "find": "else opaque = \"a read step without `reads` may read any Type\";",
+      "replace": "",
+      "tests": [
+        "packages/devkit/test/graph.test.ts"
+      ]
+    },
+    {
+      "id": "app.fields-ignored",
+      "adr": "0090",
+      "description": "The fields a component shows are not recorded, so a change to one misses the page.",
+      "file": "packages/compiler/src/uses.ts",
+      "find": "if (d.type) for (const f of names) u.member(d.type, f, how);",
+      "replace": "",
+      "tests": [
+        "packages/compiler/test/uses.test.ts"
       ]
     }
   ]

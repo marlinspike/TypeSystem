@@ -6,3 +6,4 @@ export * from "./synthesize.js";
 export { didYouMean, tokenize } from "./text.js";
 export * from "./context.js";
 export * from "./paths.js";
+export * from "./graph.js";
