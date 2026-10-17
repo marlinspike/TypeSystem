@@ -1,0 +1,78 @@
+$ node packages/cli/dist/bin.js app catalog | sed -n '/^Steps/,/^Effects/p'
+# at 2026-10-17T19:35:13Z
+Steps (flows). Every step also takes:
+    kind: string  Which step.
+    name: string  camelCase; later steps refer to its output as $<name>.
+    description?: string  What it is for.
+    when?: expr  Runs only when true; otherwise skipped, and its output unknown.
+    retry?: string  { maxAttempts, backoffMs }: only on retryable errors.
+  read: A governed read as the run's initiator.
+    read: string  A read: { kind: query | object | related | aggregate, … }.
+    timeoutMs?: number  Fail (retryably) after this long.
+    onError?: fail | continue  continue: a source failure leaves the output unknown and the run goes on.
+  compute: A pure value of earlier steps; replayed and compared, so deterministic.
+    value: expr  The value.
+  check: Fails the run with `message` unless `assert` is true (an unknown value is not true).
+    assert: expr  A boolean.
+    message: string  Why the run fails.
+  ai: Asks a configured model (ADR-0074). Its input is released for the model's audience (ADR-0067); its answer is checked against `output` and treated as a proposal: an Action with side effects that uses it needs an approval of it first.
+    model: string  A role in `models`.
+    prompt: string  The instruction.
+    input: expr-map  What the model is given.
+    output: schema  JSON Schema the answer must satisfy.
+    release?: refuse | redact  Default refuse.
+  approval: Waits for a person the policy admits; never the initiator unless allowSelfApproval.
+    policy: string  A policy rule.
+    present: strings  Earlier steps the approver is shown.
+    allowSelfApproval?: boolean  Default false.
+    deadlineMs?: number  Expires (and compensates) after this long.
+  action: Invokes an Action as the initiator: policy, input schema, preconditions and audit apply.
+    action: action  The Action.
+    input: expr-map  Its input.
+    compensate?: string  { action, input }: undoes it; $output is this Action's output.
+  parallel: Reads that do not depend on one another, run at once; each is referred to by its own name.
+    steps: string  Read steps.
+  forEach: One read per element of a list ($item), at most `max`: a longer list fails the step rather than being cut short.
+    over: expr  A list.
+    max: number  Most elements.
+    read: string  The read, over $item.
+    concurrency?: number  Reads at once; default 4.
+
+Effects:
+# exit 0
+
+$ node packages/cli/dist/bin.js app why examples/apps/cold-chain --as qa --for logistics --invoke QuarantineLot --input '{"lotId":"L-7701","reason":"recall"}'
+# at 2026-10-17T19:35:20Z
+REFUSED: user-logistics-1 is refused by action-policy: Requires one of roles [qa], subject has [logistics].
+  refused   QuarantineLot                evaluated, action-policy coldchain.qa: Requires one of roles [qa], subject has [logistics] (to change: allowed when role in [qa])
+This explains the decision as it is made now. The runtime decides every call again, and a later call can be decided differently.
+# exit 0
+
+$ node packages/cli/dist/bin.js app why examples/apps/cold-chain --as qa --for logistics --invoke QuarantineShipmentLots --input '{"shipmentId":"SH-1042"}'
+# at 2026-10-17T19:35:21Z
+INVALID: The request itself is invalid: Invalid input for action "QuarantineShipmentLots": (root) must have required property 'reason'.
+  invalid   QuarantineShipmentLots       evaluated, input: Invalid input for action "QuarantineShipmentLots": (root) must have required property 'reason'
+  allowed   QuarantineShipmentLots       evaluated, action-policy coldchain.dispose (to change: allowed when role in [logistics, qa])
+This explains the decision as it is made now. The runtime decides every call again, and a later call can be decided differently.
+# exit 0
+
+$ node packages/cli/dist/bin.js app inspect examples/apps/cold-chain --as qa --type coldchain.Lot
+# at 2026-10-17T19:35:22Z
+Inspection as qa (sha256:35c43b3ae4d22f5e8c25863d82c1f4518804161e1f5763682c353fe9f8d259f9)
+coldchain.Lot  object policy coldchain.inventory, from pharmacy-inventory
+  product: pharmacy-inventory
+  ndc: pharmacy-inventory
+  manufacturer: pharmacy-inventory
+  doses: pharmacy-inventory
+  unitCost: pharmacy-inventory [CONFIDENTIAL]
+  status: pharmacy-inventory
+  expiresOn: pharmacy-inventory
+  siteId: pharmacy-inventory
+  shipmentId: pharmacy-inventory
+  minTempC: pharmacy-inventory
+  maxTempC: pharmacy-inventory
+  holdReason: pharmacy-inventory
+policy coldchain.inventory: role in [logistics, qa, auditor, coldchain-model]
+policy coldchain.qa: role in [qa]
+# exit 0
+

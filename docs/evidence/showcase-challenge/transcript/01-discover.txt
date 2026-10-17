@@ -1,0 +1,16 @@
+$ node packages/cli/dist/bin.js onboard collect --openapi examples/services/recall-exchange/openapi.json --source recall-exchange --out examples/apps/recall-response/onboarding/sources.json
+# at 2026-10-17T19:31:08Z
+Collected recall-exchange (openapi): 3 entities, 4 operations, 28 facts → examples/apps/recall-response/onboarding/sources.json
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard propose examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/proposal
+# at 2026-10-17T19:31:08Z
+OK — coldchain: 0 Types approved, 0 items pending review, 0 model items refused
+  → examples/apps/recall-response/onboarding/proposal
+# exit 0
+
+$ node packages/cli/dist/bin.js onboard request examples/apps/recall-response/onboarding/sources.json --domain coldchain --out examples/apps/recall-response/onboarding/request.json
+# at 2026-10-17T19:31:16Z
+Wrote the request to examples/apps/recall-response/onboarding/request.json
+# exit 0
+

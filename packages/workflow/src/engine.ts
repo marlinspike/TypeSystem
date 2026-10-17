@@ -9,6 +9,7 @@ import {
   describeModel,
   withAudience,
   type ActionDescription,
+  type ApprovalGrant,
   type Identity,
   type ModelDescription,
   type PolicyEngine,
@@ -191,6 +192,20 @@ export class WorkflowEngine {
     this.validators.set(`${w.name}@${w.version}`, this.ajv.compile(w.inputSchema));
   }
 
+  /** Refuses a start on an object the initiator may not read (ADR-0097); every other outcome is the run's to meet. */
+  private async mayReadSubject(workflow: AnyWorkflow, input: unknown, initiator: Identity, runId: string): Promise<void> {
+    if (!workflow.about) return;
+    const id = (input as Record<string, unknown>)[workflow.about.idFrom];
+    if (typeof id !== "string") return;
+    try {
+      await this.options.host.runtime.getObject(workflow.about.type, id, initiator);
+    } catch (err) {
+      if (!(err instanceof AuthorizationError)) return;
+      await this.audit(initiator, "workflow.start", workflow, runId, "deny", { reason: `may not read ${workflow.about.type}/${id}, which the run is about` });
+      throw new AuthorizationError(`Not authorized: start ${workflow.name}`, err.reason);
+    }
+  }
+
   /**
    * Starts a run of the newest registered version, if `initiator` may (the
    * workflow's `startPolicy`) and `input` matches its `inputSchema`, and
@@ -212,6 +227,7 @@ export class WorkflowEngine {
     if (!decision.allow) throw new AuthorizationError(`Not authorized: start ${workflow.name}`, initiator.audience ? `Refused while reading for ${initiator.audience.id}` : decision.reason);
     const validate = this.validators.get(`${workflow.name}@${workflow.version}`)!;
     if (!validate(input)) throw new InvalidInputError(`Invalid input for workflow "${workflow.name}": ${this.ajv.errorsText(validate.errors)}`, validate.errors);
+    await this.mayReadSubject(workflow, input, initiator, runId);
 
     await this.journal.append(
       runId,
@@ -246,6 +262,7 @@ export class WorkflowEngine {
       type: "approval-decided",
       step,
       approver: approver.subjectId,
+      ...(typeof approver.attributes.displayName === "string" ? { approverName: approver.attributes.displayName } : {}),
       approved: decision.approved,
       ...(decision.comment !== undefined ? { comment: decision.comment } : {})
     });
@@ -535,14 +552,19 @@ export class WorkflowEngine {
     return this.journal.read(runId);
   }
 
-  /** Invokes an Action as the initiator. A simulation previews it instead. */
+  /**
+   * Invokes an Action as the initiator, under the run's latest granted
+   * approval, so an Action only an approved step may invoke (ADR-0096) can
+   * be. A simulation previews it instead.
+   */
   protected async invokeAction(
     action: ActionDescription,
     input: unknown,
     identity: Identity,
-    _state: RunState
+    state: RunState
   ): Promise<{ output: unknown; simulated?: { wouldExecute: boolean | null; note?: string } }> {
-    return { output: await this.options.host.runtime.invokeAction(action.name, input, identity) };
+    const approval = grantedApproval(state);
+    return { output: await this.options.host.runtime.invokeAction(action.name, input, identity, approval ? { approval } : {}) };
   }
 
   private async load(runId: string): Promise<{ records: JournalRecord[]; state: RunState; workflow: AnyWorkflow }> {
@@ -1208,4 +1230,14 @@ function sameValue(a: unknown, b: unknown): boolean {
   const canon = (v: unknown): unknown =>
     Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v;
   return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+}
+
+/** The run's most recent approval that was granted, as the runtime records it beside an Action (ADR-0096). */
+export function grantedApproval(state: RunState): ApprovalGrant | undefined {
+  let granted: ApprovalGrant | undefined;
+  for (const [step, s] of state.steps) {
+    const d = s.approval?.decision;
+    if (d?.approved) granted = { workflow: state.workflow, runId: state.runId, step, approvedBy: d.approver };
+  }
+  return granted;
 }

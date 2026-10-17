@@ -1737,8 +1737,34 @@ async function checkHealth() {
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
+/**
+ * Where a link into the demo opens, e.g. from the showcase guide:
+ * `#tab=explorer&as=viewer&engine=cedar&type=airforce.Aircraft&id=AF86-0147`.
+ * `as` is an identity key from /api/identities; anything unknown is ignored.
+ */
+function deepLink() {
+  const params = new URLSearchParams(location.hash.replace(/^#\/?/, ""));
+  const pick = (name, allowed) => {
+    const value = params.get(name);
+    return value && (!allowed || allowed.includes(value)) ? value : undefined;
+  };
+  return {
+    as: pick("as", state.identities.map((i) => i.key)),
+    engine: pick("engine", ["abac", "cedar"]),
+    tab: pick("tab", ["explorer", "security", "query", "guardrails", "mcp"]),
+    type: pick("type"),
+    id: pick("id")
+  };
+}
+
 async function init() {
   [state.identities, state.runtime] = await Promise.all([api("/api/identities", undefined, false), api("/api/runtime", undefined, false)]);
+  const link = deepLink();
+  if (link.as) state.identity = link.as;
+  if (link.engine) {
+    state.engine = link.engine;
+    $$(".engine-btn").forEach((b) => b.classList.toggle("active", b.dataset.engine === link.engine));
+  }
 
   initTabs();
   initIdentitySwitch();
@@ -1765,6 +1791,11 @@ async function init() {
 
   await Promise.all([loadTypes(), initMcpTab()]);
   void checkHealth();
+  if (link.tab) $(`.tab[data-tab="${link.tab}"]`)?.click();
+  if (link.type && link.id) {
+    $("#typePicker").value = link.type;
+    await openRoot(link.type, link.id);
+  }
 }
 
 init();

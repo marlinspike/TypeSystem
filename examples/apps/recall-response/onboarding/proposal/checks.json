@@ -1,0 +1,167 @@
+[
+  {
+    "id": "reads:coldchain.Recall",
+    "kind": "reads",
+    "type": "coldchain.Recall"
+  },
+  {
+    "id": "conforms:coldchain.Recall",
+    "kind": "conforms",
+    "type": "coldchain.Recall",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "recallNumber": {
+          "type": "string",
+          "description": "The exchange's recall number, e.g. RCL-26-0412."
+        },
+        "firm": {
+          "type": "string",
+          "description": "The manufacturer that issued the recall."
+        },
+        "product": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "ndc11": {
+              "type": "string",
+              "pattern": "^[0-9]{11}$"
+            }
+          },
+          "required": [
+            "name",
+            "ndc11"
+          ],
+          "description": "The recalled product: its name and its eleven-digit NDC."
+        },
+        "affectedLots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lotCode": {
+                "type": "string"
+              },
+              "expiry": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            "required": [
+              "lotCode"
+            ]
+          },
+          "description": "Every lot the manufacturer recalled, by lot code and expiry, including lots this distributor never held."
+        },
+        "recallClass": {
+          "type": "string",
+          "enum": [
+            "CLASS_I",
+            "CLASS_II",
+            "CLASS_III"
+          ],
+          "description": "The recall's hazard class, CLASS_I (most serious) to CLASS_III."
+        },
+        "healthHazard": {
+          "type": "string",
+          "description": "The manufacturer's health hazard evaluation"
+        },
+        "disclosure": {
+          "type": "string",
+          "enum": [
+            "PUBLIC",
+            "EMBARGOED"
+          ],
+          "description": "PUBLIC, or EMBARGOED while the notice is not yet public."
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "TERMINATED"
+          ],
+          "description": "ACTIVE, or TERMINATED once the manufacturer ends the recall."
+        },
+        "issuedOn": {
+          "type": "string",
+          "format": "date",
+          "description": "The day the notice was issued."
+        },
+        "responseStatus": {
+          "type": "string",
+          "enum": [
+            "PENDING",
+            "RECEIVED"
+          ],
+          "description": "PENDING until this distributor's response is on file, then RECEIVED."
+        },
+        "response": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "receivedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "lotsQuarantined": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "dosesQuarantined": {
+                  "type": "integer"
+                },
+                "shipmentsInTransit": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "signedOffBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "receivedAt",
+                "lotsQuarantined",
+                "dosesQuarantined",
+                "shipmentsInTransit",
+                "signedOffBy"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "This distributor's effectiveness response, once filed."
+        }
+      },
+      "required": [
+        "recallNumber",
+        "firm",
+        "product",
+        "affectedLots",
+        "recallClass",
+        "disclosure",
+        "lifecycle",
+        "responseStatus"
+      ]
+    }
+  },
+  {
+    "id": "gets:coldchain.Recall",
+    "kind": "gets",
+    "type": "coldchain.Recall"
+  },
+  {
+    "id": "protects:coldchain.Recall.healthHazard",
+    "kind": "protects",
+    "type": "coldchain.Recall",
+    "property": "healthHazard",
+    "policy": "coldchain.health"
+  }
+]

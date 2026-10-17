@@ -106,6 +106,7 @@ export function skeleton(flow: FlowIR): AnyWorkflow {
     version: flow.version,
     startPolicy: flow.startPolicy,
     ...(flow.cancelPolicy ? { cancelPolicy: flow.cancelPolicy } : {}),
+    ...(flow.about && flow.input[flow.about]?.objectOf ? { about: { type: flow.input[flow.about]!.objectOf!, idFrom: flow.about } } : {}),
     inputSchema: inputSchema(flow),
     steps
   };

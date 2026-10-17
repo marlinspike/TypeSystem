@@ -1,0 +1,59 @@
+[
+  {
+    "kind": "http",
+    "dataSourceId": "recall-exchange",
+    "system": "Recall Exchange",
+    "baseUrlEnv": "RECALL_EXCHANGE_BASE_URL",
+    "auth": {
+      "kind": "basic",
+      "usernameEnv": "RECALL_EXCHANGE_CLIENT_ID",
+      "passwordEnv": "RECALL_EXCHANGE_CLIENT_SECRET"
+    },
+    "types": {
+      "coldchain.Recall": {
+        "get": "/exchange/v1/notices/{id}",
+        "record": "/data",
+        "list": {
+          "path": "/exchange/v1/notices",
+          "items": "/data",
+          "pages": {
+            "param": "page",
+            "more": "/meta/hasMore"
+          },
+          "params": {
+            "firm": "issuingFirm",
+            "lifecycle": "lifecycle",
+            "disclosure": "disclosure",
+            "responseStatus": "responseState"
+          }
+        },
+        "id": "/recallNumber",
+        "fields": {
+          "recallNumber": "/recallNumber",
+          "firm": "/issuingFirm",
+          "product": "/product",
+          "affectedLots": "/affectedLots",
+          "recallClass": "/hazardClass",
+          "healthHazard": "/hazardEvaluation",
+          "disclosure": "/disclosure",
+          "lifecycle": "/lifecycle",
+          "issuedOn": "/issuedOn",
+          "responseStatus": "/responseState",
+          "response": "/response"
+        }
+      }
+    },
+    "actions": {
+      "FileRecallResponse": {
+        "method": "POST",
+        "path": "/exchange/v1/notices/{recallNumber}/responses",
+        "body": [
+          "lotsQuarantined",
+          "dosesQuarantined",
+          "shipmentsInTransit",
+          "signedOffBy"
+        ]
+      }
+    }
+  }
+]

@@ -12,7 +12,7 @@ export interface StepState {
   /** An AI step's needs as released to its model (ADR-0067). */
   released?: { audience: string; needs: Readonly<Record<string, unknown>> };
   outcome?: { kind: "completed"; output: unknown; source: OutputSource } | { kind: "skipped" } | { kind: "failed"; error: RecordedError; retryable: boolean };
-  approval?: { requested: boolean; decision?: { approver: string; approved: boolean; comment?: string }; expired?: boolean };
+  approval?: { requested: boolean; decision?: { approver: string; approverName?: string; approved: boolean; comment?: string }; expired?: boolean };
   compensation?: "started" | "completed" | "failed";
 }
 
@@ -95,7 +95,7 @@ export function fold(runId: string, records: readonly JournalRecord[]): RunState
         state.waitingOn = { step: e.step, policy: e.policy };
         break;
       case "approval-decided":
-        step(e.step).approval = { requested: true, decision: { approver: e.approver, approved: e.approved, ...(e.comment !== undefined ? { comment: e.comment } : {}) } };
+        step(e.step).approval = { requested: true, decision: { approver: e.approver, ...(e.approverName !== undefined ? { approverName: e.approverName } : {}), approved: e.approved, ...(e.comment !== undefined ? { comment: e.comment } : {}) } };
         state.timers.delete(`approval:${e.step}`);
         delete state.waitingOn;
         break;

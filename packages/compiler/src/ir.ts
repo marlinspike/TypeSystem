@@ -222,6 +222,8 @@ export interface FlowIR {
   readonly description?: string;
   readonly startPolicy: string;
   readonly cancelPolicy?: string;
+  /** The input whose object the run is about (ADR-0097): a caller who may not read that object may not start a run on it. The input names its Type with `objectOf`. */
+  readonly about?: string;
   readonly input: Readonly<Record<string, FlowInputIR>>;
   readonly steps: readonly StepIR[];
 }

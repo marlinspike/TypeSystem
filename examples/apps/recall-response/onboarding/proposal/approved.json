@@ -1,0 +1,439 @@
+{
+  "format": "typesys.onboarding/1",
+  "domain": "coldchain",
+  "sources": [
+    {
+      "id": "recall-exchange",
+      "kind": "openapi",
+      "system": "Recall Exchange",
+      "description": "Manufacturer recall notification exchange. Manufacturers post recall notices; a subscribing distributor reads them and files one effectiveness response per notice, saying which affected lots it quarantined, how many doses, and which shipments carrying them were still in transit. NDCs are written as eleven digits without hyphens. The viewer client sees PUBLIC notices only and may not respond; an EMBARGOED notice is not visible to it.",
+      "digest": "sha256:a81c242c5a80e65f9f1f64cfbded388797325523de9a5e7a602a2326ac59ab60"
+    }
+  ],
+  "types": [
+    {
+      "id": "type:openapi:recall-exchange#/components/schemas/Notice",
+      "cites": [
+        "openapi:recall-exchange#/components/schemas/Notice",
+        "openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber"
+      ],
+      "basis": "declared",
+      "author": "model",
+      "fingerprint": "sha256:62d99319b6fefeebd39e4fd08ed72cfcb90a735ca092961f77030341333882fe",
+      "entity": "openapi:recall-exchange#/components/schemas/Notice",
+      "name": "coldchain.Recall",
+      "key": "recallNumber",
+      "properties": [
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:000c9fdd431069d171e0dfeeece1dbaa2efdd0a947d631ffe3efb63bc0f09e82",
+          "name": "recallNumber",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber",
+          "schema": {
+            "type": "string"
+          },
+          "required": true,
+          "description": "The exchange's recall number, e.g. RCL-26-0412.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:2c963c16bb34228688dbdc2623db2dcab5b67e64250e5a594c0aa96388a87656",
+          "name": "firm",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm",
+          "schema": {
+            "type": "string"
+          },
+          "required": true,
+          "description": "The manufacturer that issued the recall.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/product",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/product"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:e4ec5f80b953c08c501402f08eb5e2eb83f46cece3220f6080547d4ff40f1e34",
+          "name": "product",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/product",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "ndc11": {
+                "type": "string",
+                "pattern": "^[0-9]{11}$"
+              }
+            },
+            "required": [
+              "name",
+              "ndc11"
+            ]
+          },
+          "required": true,
+          "description": "The recalled product: its name and its eleven-digit NDC.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:3bac24944b2782d71ab1f60315aa29d5673b853560bce0aebbf6fdaccbe8c848",
+          "name": "affectedLots",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots",
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lotCode": {
+                  "type": "string"
+                },
+                "expiry": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "lotCode"
+              ]
+            }
+          },
+          "required": true,
+          "description": "Every lot the manufacturer recalled, by lot code and expiry, including lots this distributor never held.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:6db7b1ef02b1d32e8c7703cfe7cdba947d5340eb4a05af5623d8a0f20fe2faf5",
+          "name": "recallClass",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "CLASS_I",
+              "CLASS_II",
+              "CLASS_III"
+            ]
+          },
+          "required": true,
+          "description": "The recall's hazard class, CLASS_I (most serious) to CLASS_III.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:2b9358553c75096920d7e2cfd1c07f3f959b7d3efaa151beb68ead743fc24558",
+          "name": "healthHazard",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation",
+          "schema": {
+            "type": "string"
+          },
+          "required": false,
+          "description": "The manufacturer's health hazard evaluation",
+          "describedBy": "source"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/disclosure",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:675e1e7bfa4a80319d68acf3149e9c73f7008bb560961a5b450d8fa799359722",
+          "name": "disclosure",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "EMBARGOED"
+            ]
+          },
+          "required": true,
+          "description": "PUBLIC, or EMBARGOED while the notice is not yet public.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:d9cb895c7ea8aac6d6d7337539febd52e810d1fd213b228a2c3d03a39a3f353c",
+          "name": "lifecycle",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "TERMINATED"
+            ]
+          },
+          "required": true,
+          "description": "ACTIVE, or TERMINATED once the manufacturer ends the recall.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:60884c64d6280adcea21eb0ef6a8e15e652b3c2913e1082331065ee88429dac1",
+          "name": "issuedOn",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn",
+          "schema": {
+            "type": "string",
+            "format": "date"
+          },
+          "required": false,
+          "description": "The day the notice was issued.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/responseState",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/responseState"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:60b085497ff11fdbeb8fc8282d259b905a184fd23c7c0221d2c08f9785e71d28",
+          "name": "responseStatus",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/responseState",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "RECEIVED"
+            ]
+          },
+          "required": true,
+          "description": "PENDING until this distributor's response is on file, then RECEIVED.",
+          "describedBy": "model"
+        },
+        {
+          "id": "property:openapi:recall-exchange#/components/schemas/Notice/properties/response",
+          "cites": [
+            "openapi:recall-exchange#/components/schemas/Notice/properties/response"
+          ],
+          "basis": "declared",
+          "author": "model",
+          "fingerprint": "sha256:a96e56657c1cdf3aa308798b02746e8ca7f9708c697b20e0ac211bc87dcbb321",
+          "name": "response",
+          "field": "openapi:recall-exchange#/components/schemas/Notice/properties/response",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "receivedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "lotsQuarantined": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "dosesQuarantined": {
+                    "type": "integer"
+                  },
+                  "shipmentsInTransit": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "signedOffBy": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "receivedAt",
+                  "lotsQuarantined",
+                  "dosesQuarantined",
+                  "shipmentsInTransit",
+                  "signedOffBy"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required": false,
+          "description": "This distributor's effectiveness response, once filed.",
+          "describedBy": "model"
+        }
+      ],
+      "description": "A manufacturer's recall notice posted to the recall exchange, with this distributor's effectiveness response once one is filed.",
+      "describedBy": "model"
+    }
+  ],
+  "relationships": [],
+  "sensitive": [
+    {
+      "id": "sensitive:openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation:health",
+      "cites": [
+        "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation"
+      ],
+      "basis": "inferred",
+      "author": "model",
+      "fingerprint": "sha256:2b9358553c75096920d7e2cfd1c07f3f959b7d3efaa151beb68ead743fc24558",
+      "field": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation",
+      "category": "health",
+      "reason": "The manufacturer's health hazard evaluation describes possible adverse health consequences of the product."
+    }
+  ],
+  "actions": [
+    {
+      "id": "action:openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post",
+      "cites": [
+        "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post",
+        "openapi:recall-exchange#/components/schemas/Notice"
+      ],
+      "basis": "declared",
+      "author": "model",
+      "fingerprint": "sha256:aeed8dfe0cf838acf3b8d9ba97e3e123ea47d69cc3849cbee4d4885a184a2352",
+      "operation": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post",
+      "name": "FileRecallResponse",
+      "description": "Files this distributor's one effectiveness response to a notice: the lots it quarantined, their doses, the shipments still in transit and who signed it off."
+    }
+  ],
+  "findings": [
+    {
+      "id": "finding:missing-key:8b209499e0edb9ac",
+      "cites": [
+        "openapi:recall-exchange#/components/schemas/Response"
+      ],
+      "basis": "derived",
+      "author": "baseline",
+      "fingerprint": "sha256:3be5169efe5fee0cb3097e88e8f573516c041388c240dc3d41691cdabbc38d8e",
+      "kind": "missing-key",
+      "severity": "warning",
+      "message": "Response declares no key, so its records cannot be read one by one; it is left out until one is named"
+    },
+    {
+      "id": "finding:missing-key:f1ea5ba16af9dcd9",
+      "cites": [
+        "openapi:recall-exchange#/components/schemas/Error"
+      ],
+      "basis": "derived",
+      "author": "baseline",
+      "fingerprint": "sha256:70ff83712cdc4b2e2a1ec947fff8defe19537ae70434a8dd5910c0107962f253",
+      "kind": "missing-key",
+      "severity": "warning",
+      "message": "Error declares no key, so its records cannot be read one by one; it is left out until one is named"
+    },
+    {
+      "id": "finding:ambiguity:e8367bf0b8912aef",
+      "cites": [
+        "openapi:recall-exchange#/paths/~1exchange~1v1~1notices/get"
+      ],
+      "basis": "derived",
+      "author": "baseline",
+      "fingerprint": "sha256:5e12660192cf3ad9bb8c6b86e6d61955a3db1a6d0e5451ef8e945625a7af4d04",
+      "kind": "ambiguity",
+      "severity": "info",
+      "message": "GET /exchange/v1/notices filters by \"ndc11\", which is no field of what it lists; queries on it are decided after reading"
+    },
+    {
+      "id": "finding:ambiguity:d7b6c4ac5155121c",
+      "cites": [
+        "openapi:recall-exchange#/paths/~1exchange~1v1~1notices/get"
+      ],
+      "basis": "derived",
+      "author": "baseline",
+      "fingerprint": "sha256:5e12660192cf3ad9bb8c6b86e6d61955a3db1a6d0e5451ef8e945625a7af4d04",
+      "kind": "ambiguity",
+      "severity": "info",
+      "message": "GET /exchange/v1/notices filters by \"lotCode\", which is no field of what it lists; queries on it are decided after reading"
+    },
+    {
+      "id": "finding:ambiguity:1b91fe5105a94fa8",
+      "cites": [
+        "openapi:recall-exchange#/paths/~1exchange~1v1~1notices/get"
+      ],
+      "basis": "derived",
+      "author": "baseline",
+      "fingerprint": "sha256:5e12660192cf3ad9bb8c6b86e6d61955a3db1a6d0e5451ef8e945625a7af4d04",
+      "kind": "ambiguity",
+      "severity": "info",
+      "message": "GET /exchange/v1/notices filters by \"pageSize\", which is no field of what it lists; queries on it are decided after reading"
+    },
+    {
+      "id": "finding:inconsistency:1241808289cb4ace",
+      "cites": [
+        "openapi:recall-exchange#/info",
+        "openapi:recall-exchange#/components/schemas/Notice/properties/product"
+      ],
+      "basis": "inferred",
+      "author": "model",
+      "fingerprint": "sha256:3e8c6c9c4bc485073f8bd6ccdd8a822c24c40deb3c467beaa07b4b1c89d1b8fa",
+      "kind": "inconsistency",
+      "severity": "warning",
+      "message": "The exchange writes NDCs as eleven digits without hyphens (product.ndc11); any comparison with another system's NDC must normalise the format first."
+    },
+    {
+      "id": "finding:ambiguity:60d3649bc49362ed",
+      "cites": [
+        "openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots"
+      ],
+      "basis": "inferred",
+      "author": "model",
+      "fingerprint": "sha256:3bac24944b2782d71ab1f60315aa29d5673b853560bce0aebbf6fdaccbe8c848",
+      "kind": "ambiguity",
+      "severity": "info",
+      "message": "affectedLots names lots by lotCode, which no entity in these sources is keyed by; whether it is another system's lot number is for a reviewer to settle."
+    },
+    {
+      "id": "finding:ambiguity:aef7a600246e8d62",
+      "cites": [
+        "openapi:recall-exchange#/info",
+        "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure"
+      ],
+      "basis": "inferred",
+      "author": "model",
+      "fingerprint": "sha256:839b9c133abb65163267b5f1f06094885e505bb46ab4638e82b6fcc14deeb39d",
+      "kind": "ambiguity",
+      "severity": "warning",
+      "message": "An EMBARGOED notice is visible to the distributor client and not to the viewer client: who inside the business may read it is a policy decision the evidence does not make."
+    }
+  ],
+  "rejected": [],
+  "refinedBy": {
+    "model": "agent",
+    "configDigest": "411c369cf8594a638d4efc408f8c712f616086de44626c121387cf51300fb20c",
+    "requestDigest": "59d6ecc6b4550d4812e1564394e4482a185bf667b6496c520857fd6ed8414776"
+  }
+}

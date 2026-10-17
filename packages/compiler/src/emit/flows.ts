@@ -184,7 +184,7 @@ ${whens.length ? `\n${whens.join("\n")}\n` : ""}
 export const ${key} = defineWorkflow<AppModel, ${T}Input>({
   name: ${q(flow.name)},
   version: ${q(flow.version)},${flow.description ? `\n  description: ${q(flow.description)},` : ""}
-  startPolicy: ${q(flow.startPolicy)},${flow.cancelPolicy ? `\n  cancelPolicy: ${q(flow.cancelPolicy)},` : ""}
+  startPolicy: ${q(flow.startPolicy)},${flow.cancelPolicy ? `\n  cancelPolicy: ${q(flow.cancelPolicy)},` : ""}${flow.about && flow.input[flow.about]?.objectOf ? `\n  about: { type: ${q(flow.input[flow.about]!.objectOf!)}, idFrom: ${q(flow.about)} },` : ""}
   inputSchema: ${JSON.stringify(inputSchema(flow))},
   steps: [
 ${steps.join(",\n")}
@@ -200,7 +200,9 @@ ${steps.join(",\n")}
       const literal = v === null || typeof v !== "object" ? !isRef(v) : isLiteral(v);
       // A required input is needed; an optional one may be left out when unknown.
       let value = literal ? exprTs(v, target) : required.has(k) ? valueTs(v, target, `input "${k}"`) : exprTs(v, target);
-      if (!literal && Object.hasOwn(props, k) && typeOfExpr(v) === "unknown") value = `${value} as AppModel["actions"][${q(action)}]["input"][${q(k)}]`;
+      // A list in a flow is read-only; the generated model types an Action's list input as a plain array, which the Action never changes.
+      const isList = (props[k] as { type?: unknown } | undefined)?.type === "array";
+      if (!literal && Object.hasOwn(props, k) && (isList || typeOfExpr(v) === "unknown")) value = `${value} as AppModel["actions"][${q(action)}]["input"][${q(k)}]`;
       return `${ident(k)}: ${value}`;
     });
     return `{ ${entries.join(", ")} }`;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ARMS, buildReference, contamination, contractText, createSandbox, EVALUATION_DIR, hiddenFile, loadHidden, loadTask, measureCode, renderReport, scoreApp, taskIds } from "../src/index.js";
+import { ARMS, buildReference, referenceApp, contamination, contractText, createSandbox, EVALUATION_DIR, hiddenFile, loadHidden, loadTask, measureCode, renderReport, scoreApp, taskIds } from "../src/index.js";
 
 /**
  * The evaluation harness (ADR-0073) is checked before any arm is run: each
@@ -16,7 +16,8 @@ const reference = { source: "reference" as const, producer: "engineering-loop sc
 
 describe("the evaluation harness", () => {
   for (const id of taskIds()) {
-    it(`${id}: the reference application passes every hidden check`, { timeout: 600_000 }, async () => {
+    // An application reference is compiled and built (tsc and the client bundle) before it is scored: local only, to keep CI short.
+    it.skipIf(referenceApp(id) !== undefined && process.env.CI !== undefined)(`${id}: the reference application passes every hidden check`, { timeout: 600_000 }, async () => {
       const hidden = await loadHidden(hiddenFile(id));
       expect(hidden.length).toBeGreaterThanOrEqual(8);
       const dir = await buildReference(id, path.join(WORK, "reference", id));

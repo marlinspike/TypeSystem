@@ -2,9 +2,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type ServiceName = "shipment-tracker" | "sensor-hub" | "pharmacy-inventory";
+export type ServiceName = "shipment-tracker" | "sensor-hub" | "pharmacy-inventory" | "recall-exchange";
 
-/** Where the three independent services live in this repository: plain Node, no TypeSystem code. */
+/** Where the independent services live in this repository: plain Node, no TypeSystem code. */
 export const SERVICES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../examples/services");
 
 export interface ServiceOptions {

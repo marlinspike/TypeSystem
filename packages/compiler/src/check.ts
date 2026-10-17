@@ -93,7 +93,8 @@ export interface AppAnalysis {
 
 const TONE_VALUES = ["neutral", "info", "good", "warn", "bad"];
 const ME: Typed = { ty: { t: "object", fields: { subjectId: { ty: STRING, optional: false }, roles: { ty: { t: "list", of: STRING }, optional: false } } } };
-const APPROVAL_OUTPUT: Ty = { t: "object", fields: { approved: { ty: BOOLEAN, optional: false }, comment: { ty: STRING, optional: true } } };
+/** An approval's decision: who decided (their subject id, and display name when they have one) and how. */
+const APPROVAL_OUTPUT: Ty = { t: "object", fields: { approved: { ty: BOOLEAN, optional: false }, approver: { ty: STRING, optional: false }, approverName: { ty: STRING, optional: true }, comment: { ty: STRING, optional: true } } };
 const RUN_ID: Ty = STRING;
 
 /**
@@ -461,6 +462,9 @@ class Checker {
     for (const [k, v] of Object.entries(flow.input)) {
       inputFields[k] = { ty: schemaToTy(v.schema).ty, optional: false };
       if (v.objectOf) this.type(v.objectOf, `${at}/input/${k}/objectOf`);
+    }
+    if (flow.about !== undefined && !flow.input[flow.about]?.objectOf) {
+      this.d.error("unknown-reference", `${at}/about`, flow.input[flow.about] ? `input "${flow.about}" names no Type (objectOf)` : `no input "${flow.about}"`, "about names an input with objectOf: the Type of the object the run is about");
     }
     const input: Extract<Ty, { t: "object" }> = { t: "object", fields: inputFields };
     const outputs = new Map<string, Typed>();
@@ -982,6 +986,8 @@ class Checker {
           this.inputs(a, e.input, scope, `${eat}/input`);
           if (e.confirm === false && a.sideEffects !== "none")
             this.d.error("unconfirmed-effect", `${eat}/confirm`, `${a.name} changes ${a.sideEffects === "external" ? "an external system" : "data"} (${a.sideEffects}), and confirm is false`, "remove confirm: false", "a person is shown the runtime's preview of an Action that changes a system, and confirms it");
+          if (a.requiresApproval)
+            this.d.error("approval-required", `${eat}/invoke`, `${a.name} requires an approval, so a page cannot invoke it`, "run a flow that approves it before invoking it", "the runtime refuses this Action unless a workflow step invokes it after someone other than the caller approved it (ADR-0096)");
         }
       } else if ("navigate" in e) {
         if (!pages.has(e.navigate)) {
@@ -1078,6 +1084,7 @@ class Checker {
 
 const WORKFLOW_HINTS: Readonly<Record<string, string>> = {
   "unreviewed-ai-output": "add an approval step that presents the AI step, before the Action",
+  "unapproved-action": "add an approval step the action step needs, with no condition of its own",
   "retry-not-idempotent": "remove the retry, or make the Action idempotent in the model",
   "unreleasable-ai-input": "read what the model needs in a read step",
   "unknown-need": "refer to an earlier step",

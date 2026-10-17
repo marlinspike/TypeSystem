@@ -94,6 +94,10 @@ export interface SourceOperation {
   readonly queryParams: readonly { readonly name: string; readonly field?: string }[];
   /** For a list, the pointer to the array of records in its response. */
   readonly items?: string;
+  /** For a get whose response wraps the record (`{ "data": { … } }`), the pointer to it. */
+  readonly record?: string;
+  /** For a list paged by number: the page parameter, and the pointer to the response's "there is more" flag. */
+  readonly pages?: { readonly param: string; readonly more: string };
   /** For a command, its JSON request body. */
   readonly body?: JsonSchema2020;
   readonly scopes: readonly string[];
@@ -101,7 +105,7 @@ export interface SourceOperation {
 
 /** How the source authenticates callers, as its contract says (never a credential). */
 export interface SourceAuth {
-  readonly kind: "client-credentials" | "api-key" | "none";
+  readonly kind: "client-credentials" | "api-key" | "basic" | "none";
   readonly tokenUrl?: string;
   readonly header?: string;
   readonly scopes?: readonly string[];
@@ -470,6 +474,8 @@ function inline(doc: Json, v: unknown, depth = 0): JsonSchema2020 {
   for (const [k, val] of Object.entries(s)) {
     if (k === "properties" && isObj(val)) out.properties = Object.fromEntries(Object.entries(val).map(([pk, pv]) => [pk, inline(doc, pv, depth + 1)]));
     else if (k === "items") out.items = inline(doc, val, depth + 1);
+    // A reference inside a composition would be left pointing into a document the Type does not carry.
+    else if ((k === "oneOf" || k === "anyOf" || k === "allOf") && Array.isArray(val)) out[k] = val.map((x) => inline(doc, x, depth + 1));
     else if (k === "nullable" || k === "example" || k === "examples" || k === "xml" || k === "externalDocs") continue;
     else out[k] = val;
   }
@@ -553,11 +559,20 @@ export function fromOpenApi(doc: unknown, options: { readonly source: string; re
       let role: OperationRole = method === "get" ? "get" : "command";
       let entity: string | undefined;
       let items: string | undefined;
+      let record: string | undefined;
+      let pages: SourceOperation["pages"];
       if (method === "get") {
         const direct = refName(okSchema);
         const resolved = deref(doc, okSchema);
-        if (direct && pathParams.length > 0 && path.endsWith(`{${pathParams.at(-1)}}`)) {
+        // A record wrapped in a one-property envelope, `{ "data": { "$ref": … } }`, is still the record this path gets.
+        const wrapped = !direct && isObj(resolved) && isObj(resolved.properties) ? Object.entries(resolved.properties).filter(([, v]) => refName(v)) : [];
+        const byPath = pathParams.length > 0 && path.endsWith(`{${pathParams.at(-1)}}`);
+        if (direct && byPath) {
           entity = `openapi:${source}#/components/schemas/${esc(direct)}`;
+          keys.set(entity, pathParams.at(-1)!);
+        } else if (byPath && wrapped.length === 1) {
+          entity = `openapi:${source}#/components/schemas/${esc(refName(wrapped[0]![1])!)}`;
+          record = `/${esc(wrapped[0]![0])}`;
           keys.set(entity, pathParams.at(-1)!);
         } else if (isObj(resolved) && resolved.type === "array" && refName(resolved.items)) {
           role = "list";
@@ -572,6 +587,10 @@ export function fromOpenApi(doc: unknown, options: { readonly source: string; re
             role = "list";
             entity = `openapi:${source}#/components/schemas/${esc(refName((deref(doc, arr[1]) as Json).items)!)}`;
             items = `/${esc(arr[0])}`;
+            // Paged by number: a page parameter, and a boolean "more" flag beside the records or one level down (`meta.hasMore`).
+            const param = query.find((q) => ["page", "pageNumber", "page_number"].includes(q));
+            const more = param ? moreFlag(doc, resolved) : undefined;
+            if (param && more) pages = { param, more };
           }
         }
       } else if (pathParams.length > 0) {
@@ -580,7 +599,9 @@ export function fromOpenApi(doc: unknown, options: { readonly source: string; re
         const getOp = isObj(doc.paths) && isObj(doc.paths[base]) ? doc.paths[base].get : undefined;
         const ok2 = isObj(getOp) && isObj(getOp.responses) ? deref(doc, getOp.responses["200"]) : undefined;
         const c2 = isObj(ok2) && isObj(ok2.content) ? ok2.content["application/json"] : undefined;
-        const n = isObj(c2) ? refName(c2.schema) : undefined;
+        const s2 = isObj(c2) ? deref(doc, c2.schema) : undefined;
+        const wrapped2 = isObj(s2) && isObj(c2) && !refName(c2.schema) && isObj(s2.properties) ? Object.values(s2.properties).filter((v) => refName(v)) : [];
+        const n = isObj(c2) ? (refName(c2.schema) ?? (wrapped2.length === 1 ? refName(wrapped2[0]) : undefined)) : undefined;
         if (n) entity = `openapi:${source}#/components/schemas/${esc(n)}`;
       }
       const ent = entity ? entities.find((e) => e.id === entity) : undefined;
@@ -604,6 +625,8 @@ export function fromOpenApi(doc: unknown, options: { readonly source: string; re
         pathParams,
         queryParams,
         ...(items !== undefined ? { items } : {}),
+        ...(record !== undefined ? { record } : {}),
+        ...(pages ? { pages } : {}),
         ...(bodySchema ? { body: bodySchema } : {}),
         scopes
       });
@@ -628,6 +651,26 @@ function scopesOf(security: unknown): string[] {
   return [...new Set(security.flatMap((s) => (isObj(s) ? Object.values(s).flatMap((v) => (Array.isArray(v) ? v.map(String) : [])) : [])))];
 }
 
+const MORE_FLAGS = ["hasMore", "has_more", "more", "hasNextPage", "has_next_page"];
+
+/** The pointer to a list response's boolean "there is more" flag, beside the records or one object down. */
+function moreFlag(doc: Json, response: Json): string | undefined {
+  const props = isObj(response.properties) ? response.properties : {};
+  for (const [name, v] of Object.entries(props)) {
+    const d = deref(doc, v);
+    if (MORE_FLAGS.includes(name) && isObj(d) && d.type === "boolean") return `/${esc(name)}`;
+  }
+  for (const [outer, v] of Object.entries(props)) {
+    const d = deref(doc, v);
+    if (!isObj(d) || !isObj(d.properties)) continue;
+    for (const [name, w] of Object.entries(d.properties)) {
+      const e = deref(doc, w);
+      if (MORE_FLAGS.includes(name) && isObj(e) && e.type === "boolean") return `/${esc(outer)}/${esc(name)}`;
+    }
+  }
+  return undefined;
+}
+
 function authOf(doc: Json): { auth?: SourceAuth } {
   const schemes = isObj(doc.components) && isObj(doc.components.securitySchemes) ? doc.components.securitySchemes : {};
   for (const s of Object.values(schemes)) {
@@ -637,6 +680,7 @@ function authOf(doc: Json): { auth?: SourceAuth } {
       return { auth: { kind: "client-credentials", ...(typeof cc.tokenUrl === "string" ? { tokenUrl: cc.tokenUrl } : {}), scopes: isObj(cc.scopes) ? Object.keys(cc.scopes) : [] } };
     }
     if (s.type === "apiKey" && s.in === "header" && typeof s.name === "string") return { auth: { kind: "api-key", header: s.name } };
+    if (s.type === "http" && typeof s.scheme === "string" && s.scheme.toLowerCase() === "basic") return { auth: { kind: "basic" } };
   }
   return Object.keys(schemes).length ? {} : { auth: { kind: "none" } };
 }

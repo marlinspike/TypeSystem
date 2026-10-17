@@ -14,5 +14,7 @@ mountApp({
     { name: "Lots", title: "Lots", path: "/lots", nav: true, component: Lots }
   ],
   design: { system: "meridian", brand: {"name":"Cold Chain Command"} },
-  initialState: {}
+  initialState: {},
+  // Demonstration sign-in (design.signIn = "presets"): these tokens are already published in app.json.
+  presets: {"logistics":"demo-logistics-token","qa":"demo-qa-token","auditor":"demo-auditor-token","carrier":"demo-carrier-token","anonymous":""}
 });

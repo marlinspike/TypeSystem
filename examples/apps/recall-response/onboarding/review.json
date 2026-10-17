@@ -1,0 +1,103 @@
+{
+  "format": "typesys.onboarding-review/1",
+  "domain": "coldchain",
+  "decisions": {
+    "type:openapi:recall-exchange#/components/schemas/Notice": {
+      "decision": "accept",
+      "fingerprint": "sha256:62d99319b6fefeebd39e4fd08ed72cfcb90a735ca092961f77030341333882fe",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "Recall"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber": {
+      "decision": "accept",
+      "fingerprint": "sha256:000c9fdd431069d171e0dfeeece1dbaa2efdd0a947d631ffe3efb63bc0f09e82",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "recallNumber"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm": {
+      "decision": "accept",
+      "fingerprint": "sha256:2c963c16bb34228688dbdc2623db2dcab5b67e64250e5a594c0aa96388a87656",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "firm"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/product": {
+      "decision": "accept",
+      "fingerprint": "sha256:e4ec5f80b953c08c501402f08eb5e2eb83f46cece3220f6080547d4ff40f1e34",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "product"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots": {
+      "decision": "accept",
+      "fingerprint": "sha256:3bac24944b2782d71ab1f60315aa29d5673b853560bce0aebbf6fdaccbe8c848",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "affectedLots"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass": {
+      "decision": "accept",
+      "fingerprint": "sha256:6db7b1ef02b1d32e8c7703cfe7cdba947d5340eb4a05af5623d8a0f20fe2faf5",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "recallClass"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation": {
+      "decision": "accept",
+      "fingerprint": "sha256:2b9358553c75096920d7e2cfd1c07f3f959b7d3efaa151beb68ead743fc24558",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "healthHazard"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/disclosure": {
+      "decision": "accept",
+      "fingerprint": "sha256:675e1e7bfa4a80319d68acf3149e9c73f7008bb560961a5b450d8fa799359722",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "disclosure"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle": {
+      "decision": "accept",
+      "fingerprint": "sha256:d9cb895c7ea8aac6d6d7337539febd52e810d1fd213b228a2c3d03a39a3f353c",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "lifecycle"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn": {
+      "decision": "accept",
+      "fingerprint": "sha256:60884c64d6280adcea21eb0ef6a8e15e652b3c2913e1082331065ee88429dac1",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "issuedOn"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/responseState": {
+      "decision": "accept",
+      "fingerprint": "sha256:60b085497ff11fdbeb8fc8282d259b905a184fd23c7c0221d2c08f9785e71d28",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "responseStatus"
+    },
+    "property:openapi:recall-exchange#/components/schemas/Notice/properties/response": {
+      "decision": "accept",
+      "fingerprint": "sha256:a96e56657c1cdf3aa308798b02746e8ca7f9708c697b20e0ac211bc87dcbb321",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "response"
+    },
+    "sensitive:openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation:health": {
+      "decision": "accept",
+      "fingerprint": "sha256:2b9358553c75096920d7e2cfd1c07f3f959b7d3efaa151beb68ead743fc24558",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z"
+    },
+    "action:openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post": {
+      "decision": "accept",
+      "fingerprint": "sha256:aeed8dfe0cf838acf3b8d9ba97e3e123ea47d69cc3849cbee4d4885a184a2352",
+      "by": "Claude Code (engineer on the recall-response challenge)",
+      "at": "2026-10-17T19:34:02.005Z",
+      "name": "FileRecallResponse"
+    }
+  }
+}

@@ -16,9 +16,11 @@ export function ModelView(props: {
   readonly onQuery: (type: string) => void;
   readonly onAction: (name: string) => void;
   readonly onGraph: (type: string) => void;
+  /** The Type to open first, from a link; the first Type when it is not in the model. */
+  readonly initialType?: string;
 }) {
   const { api, model } = props;
-  const [selected, setSelected] = useState(model.types[0]?.name ?? "");
+  const [selected, setSelected] = useState(model.types.some((t) => t.name === props.initialType) ? props.initialType! : (model.types[0]?.name ?? ""));
   const [filter, setFilter] = useState("");
   const [task, setTask] = useState("");
   const [matches, setMatches] = useState<readonly DiscoveryMatch[] | null>(null);

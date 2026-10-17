@@ -3,7 +3,7 @@ import type { ExplainQuestion, Explanation, Finding, ModelDescription } from "@t
 import type { StudioApi, WorkflowExplanation } from "./api.js";
 import { ErrorNote } from "./ErrorNote.js";
 
-export type ExplainSeed = { readonly kind: "read" | "relationship"; readonly type: string; readonly relationship?: string } | { readonly kind: "invoke"; readonly action: string } | { readonly kind: "workflow"; readonly workflow: string };
+export type ExplainSeed = { readonly kind: "read" | "relationship"; readonly type: string; readonly relationship?: string; readonly id?: string; readonly subject?: string } | { readonly kind: "invoke"; readonly action: string } | { readonly kind: "workflow"; readonly workflow: string };
 type Kind = "read" | "relationship" | "invoke" | "query" | "workflow";
 
 const OUTCOME_CLASS: Record<string, string> = { returned: "good", allowed: "good", withheld: "warn", refused: "error", "not-found": "warn", unavailable: "error", invalid: "error", dangling: "warn", truncated: "warn", "no-value": "" };
@@ -65,7 +65,7 @@ export function ExplainView(props: { readonly api: StudioApi; readonly model: Mo
   const firstType = model.types[0]?.name ?? "";
   const [kind, setKind] = useState<Kind>(seed?.kind ?? "read");
   const [type, setType] = useState(seed && "type" in seed ? seed.type : firstType);
-  const [id, setId] = useState("");
+  const [id, setId] = useState(seed && "id" in seed ? (seed.id ?? "") : "");
   const [relationship, setRelationship] = useState(seed && "relationship" in seed ? (seed.relationship ?? "") : "");
   const [action, setAction] = useState(seed?.kind === "invoke" ? seed.action : (model.actions[0]?.name ?? ""));
   const [input, setInput] = useState("{}");
@@ -73,7 +73,7 @@ export function ExplainView(props: { readonly api: StudioApi; readonly model: Mo
   const [workflow, setWorkflow] = useState(seed?.kind === "workflow" ? seed.workflow : "");
   const [workflows, setWorkflows] = useState<readonly string[]>([]);
   const [subjects, setSubjects] = useState<readonly { subjectId: string; label?: string }[] | null>(null);
-  const [as, setAs] = useState("");
+  const [as, setAs] = useState(seed && "subject" in seed ? (seed.subject ?? "") : "");
   const [result, setResult] = useState<Explanation | WorkflowExplanation | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -127,6 +127,13 @@ export function ExplainView(props: { readonly api: StudioApi; readonly model: Mo
       setBusy(false);
     }
   };
+
+  // A link that names the object answers at once, as the person following it expects.
+  const [autorun] = useState(() => Boolean(seed && "id" in seed && seed.id));
+  useEffect(() => {
+    if (autorun) void run();
+    // Once, when the view opens from a link.
+  }, [autorun]);
 
   return (
     <div className="split">

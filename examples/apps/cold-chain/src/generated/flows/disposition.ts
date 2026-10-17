@@ -18,7 +18,7 @@ export interface DispositionSteps {
   readonly budget: number | undefined;
   readonly doses: number | undefined;
   readonly assess: { readonly disposition: "release" | "quarantine" | "destroy"; readonly confidence: "low" | "medium" | "high"; readonly rationale: string };
-  readonly pharmacistSignoff: { readonly approved: boolean; readonly comment?: string };
+  readonly pharmacistSignoff: { readonly approved: boolean; readonly approver: string; readonly approverName?: string; readonly comment?: string };
   readonly close: { readonly [key: string]: unknown };
   readonly hold: { readonly [key: string]: unknown };
 }

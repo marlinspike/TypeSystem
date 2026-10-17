@@ -270,7 +270,8 @@ export function baseline(model: SourceModel, domain: string): Proposal {
   for (const s of model.sources)
     for (const op of s.operations)
       for (const q of op.queryParams)
-        if (!q.field && op.role === "list") finding("ambiguity", "info", `${op.method} ${op.path} filters by "${q.name}", which is no field of what it lists; queries on it are decided after reading`, [op.id]);
+        // The page parameter is how the adapter pages, not a filter.
+        if (!q.field && op.role === "list" && q.name !== op.pages?.param) finding("ambiguity", "info", `${op.method} ${op.path} filters by "${q.name}", which is no field of what it lists; queries on it are decided after reading`, [op.id]);
 
   return { format: PROPOSAL_FORMAT, domain, sources: model.sources.map((s) => s.info), types, relationships, sensitive, actions, findings, rejected: [] };
 }

@@ -1,0 +1,1 @@
+{ "arm": "agent-without", "startedAt": "2026-10-17T19:30:52Z", "finishedAt": "2026-10-17T19:38:32Z", "durationMs": 463127, "subagentTokens": 172383, "toolUses": 35, "selfReportedSmoke": "9/9" }

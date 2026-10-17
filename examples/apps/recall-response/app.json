@@ -1,0 +1,806 @@
+{
+  "format": "typesys.app/1",
+  "name": "recall-response",
+  "title": "Recall Response",
+  "requirement": "Manufacturers post recall notices to an industry recall exchange we subscribe to but do not own. A logistics coordinator or a quality assurance pharmacist asks to respond to a notice. Quality assurance signs the response off, and never the person who asked for it. Only once it is signed off are our affected lots (every lot the notice lists that is in the pharmacy inventory and not destroyed) quarantined with a hold reason naming the recall, and our response (those lots, their doses, the shipments carrying them that the tracker shows in transit, and who signed it off) filed with the exchange. A terminated notice, one already answered, or one naming our lot under a different product cannot be answered: the request fails and nothing changes. An embargoed notice is need-to-know for quality assurance. The health hazard evaluation is confidential to quality assurance. The coordinator and the auditor read public notices; a carrier reads none.",
+  "host": {
+    "module": "@typesys/cold-chain",
+    "build": "buildRecallHost",
+    "identities": "resolveRecallIdentity"
+  },
+  "callers": {
+    "logistics": {
+      "token": "demo-logistics-token",
+      "description": "Dana Whitfield, logistics coordinator"
+    },
+    "qa": {
+      "token": "demo-qa-token",
+      "description": "Dr. Priya Raman, quality assurance pharmacist"
+    },
+    "qa2": {
+      "token": "demo-qa2-token",
+      "description": "Dr. Tomasz Brandt, quality assurance pharmacist"
+    },
+    "auditor": {
+      "token": "demo-auditor-token",
+      "description": "Sam Ortega, compliance auditor"
+    },
+    "carrier": {
+      "token": "demo-carrier-token",
+      "description": "Northline Cold Freight dispatch"
+    },
+    "anonymous": {
+      "token": "",
+      "description": "Not signed in"
+    }
+  },
+  "design": {
+    "system": "meridian",
+    "brand": {
+      "name": "Recall Response"
+    },
+    "signIn": "presets"
+  },
+  "pages": [
+    {
+      "name": "Notices",
+      "title": "Recall notices",
+      "path": "/",
+      "description": "Every notice the signed-in person may read.",
+      "layout": {
+        "kind": "grid",
+        "children": [
+          {
+            "kind": "metric",
+            "id": "awaiting",
+            "label": "Awaiting a response",
+            "span": 4,
+            "value": {
+              "count": {
+                "where": [
+                  "$notices",
+                  {
+                    "and": [
+                      {
+                        "eq": [
+                          "$item.responseStatus",
+                          "awaiting"
+                        ]
+                      },
+                      {
+                        "eq": [
+                          "$item.lifecycle",
+                          "active"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "tone": "warn"
+          },
+          {
+            "kind": "metric",
+            "id": "class-i",
+            "label": "Class I",
+            "span": 4,
+            "value": {
+              "count": {
+                "where": [
+                  "$notices",
+                  {
+                    "eq": [
+                      "$item.recallClass",
+                      "I"
+                    ]
+                  }
+                ]
+              }
+            },
+            "tone": "bad"
+          },
+          {
+            "kind": "approvals",
+            "id": "approvals",
+            "title": "Waiting on your sign-off",
+            "span": 4,
+            "flows": [
+              "respond"
+            ]
+          },
+          {
+            "kind": "table",
+            "id": "notices-table",
+            "title": "Notices",
+            "span": 12,
+            "data": "notices",
+            "columns": [
+              {
+                "field": "$id",
+                "label": "Recall"
+              },
+              "firm",
+              "product",
+              {
+                "field": "recallClass",
+                "label": "Class",
+                "format": "badge",
+                "tone": {
+                  "I": "bad",
+                  "II": "warn",
+                  "III": "info"
+                }
+              },
+              {
+                "field": "lifecycle",
+                "format": "badge",
+                "tone": {
+                  "active": "info",
+                  "terminated": "neutral"
+                }
+              },
+              {
+                "field": "embargoed",
+                "label": "Embargoed"
+              },
+              {
+                "field": "responseStatus",
+                "label": "Response",
+                "format": "badge",
+                "tone": {
+                  "awaiting": "warn",
+                  "responded": "good"
+                }
+              },
+              {
+                "field": "issuedOn",
+                "format": "date",
+                "label": "Issued"
+              }
+            ],
+            "filters": [
+              "responseStatus",
+              "recallClass",
+              "lifecycle"
+            ],
+            "search": true,
+            "rowActions": [
+              {
+                "label": "Open",
+                "do": [
+                  {
+                    "navigate": "Notice",
+                    "params": {
+                      "id": "$row.$id"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Notice",
+      "title": "Recall notice",
+      "path": "/notices/:id",
+      "params": {
+        "id": {
+          "schema": {
+            "type": "string"
+          },
+          "objectOf": "coldchain.Recall"
+        }
+      },
+      "state": {
+        "runId": {
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default": null
+        }
+      },
+      "data": {
+        "notice": {
+          "kind": "object",
+          "type": "coldchain.Recall",
+          "id": "$params.id",
+          "provenance": true
+        }
+      },
+      "layout": {
+        "kind": "grid",
+        "children": [
+          {
+            "kind": "detail",
+            "id": "notice-detail",
+            "title": "Notice",
+            "span": 6,
+            "data": "notice",
+            "provenance": true,
+            "fields": [
+              "firm",
+              "product",
+              "ndc",
+              {
+                "field": "recallClass",
+                "label": "Class"
+              },
+              "lifecycle",
+              "embargoed",
+              {
+                "field": "healthHazard",
+                "label": "Health hazard"
+              },
+              {
+                "field": "issuedOn",
+                "format": "date",
+                "label": "Issued"
+              }
+            ]
+          },
+          {
+            "kind": "detail",
+            "id": "response-detail",
+            "title": "Response on file",
+            "span": 6,
+            "data": "notice",
+            "fields": [
+              {
+                "field": "responseStatus",
+                "label": "Response",
+                "format": "badge",
+                "tone": {
+                  "awaiting": "warn",
+                  "responded": "good"
+                }
+              },
+              {
+                "field": "lotsHeld",
+                "label": "Lots quarantined"
+              },
+              {
+                "field": "dosesHeld",
+                "label": "Doses",
+                "format": "integer"
+              },
+              {
+                "field": "shipmentsInTransit",
+                "label": "Shipments in transit"
+              },
+              {
+                "field": "signedOffBy",
+                "label": "Signed off by"
+              }
+            ]
+          },
+          {
+            "kind": "stack",
+            "span": 12,
+            "children": [
+              {
+                "kind": "actions",
+                "id": "respond-actions",
+                "when": {
+                  "and": [
+                    {
+                      "eq": [
+                        "$notice.responseStatus",
+                        "awaiting"
+                      ]
+                    },
+                    {
+                      "eq": [
+                        "$notice.lifecycle",
+                        "active"
+                      ]
+                    }
+                  ]
+                },
+                "buttons": [
+                  {
+                    "label": "Ask to respond",
+                    "tone": "primary",
+                    "do": [
+                      {
+                        "run": "respond",
+                        "input": {
+                          "recallId": "$params.id"
+                        },
+                        "into": "runId"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "run",
+                "id": "respond-run",
+                "title": "Response",
+                "run": "$state.runId",
+                "flow": "respond",
+                "when": {
+                  "exists": "$state.runId"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "qa-reads-hazard",
+      "kind": "reads",
+      "as": "qa",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0412",
+      "sees": [
+        "firm",
+        "ndc",
+        "recallClass",
+        "healthHazard"
+      ]
+    },
+    {
+      "id": "logistics-lacks-hazard",
+      "kind": "reads",
+      "as": "logistics",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0412",
+      "sees": [
+        "firm",
+        "ndc",
+        "recallClass"
+      ],
+      "withheld": [
+        "healthHazard"
+      ],
+      "because": "the health hazard evaluation is confidential to quality assurance"
+    },
+    {
+      "id": "embargo-refused-logistics",
+      "kind": "refused",
+      "as": "logistics",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0388"
+    },
+    {
+      "id": "embargo-refused-auditor",
+      "kind": "refused",
+      "as": "auditor",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0388"
+    },
+    {
+      "id": "qa2-reads-embargoed",
+      "kind": "reads",
+      "as": "qa2",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0388",
+      "sees": [
+        "firm",
+        "healthHazard",
+        "embargoed"
+      ]
+    },
+    {
+      "id": "carrier-refused",
+      "kind": "refused",
+      "as": "carrier",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0412"
+    },
+    {
+      "id": "anonymous-refused",
+      "kind": "refused",
+      "as": "anonymous",
+      "type": "coldchain.Recall",
+      "objectId": "RCL-26-0412"
+    },
+    {
+      "id": "auditor-query-public-only",
+      "kind": "query",
+      "as": "auditor",
+      "query": {
+        "type": "coldchain.Recall"
+      },
+      "atLeast": 5,
+      "atMost": 5,
+      "because": "one of six notices is embargoed"
+    },
+    {
+      "id": "logistics-asks",
+      "kind": "starts",
+      "as": "logistics",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0412"
+      },
+      "status": "waiting-approval",
+      "waitingOn": "qaSignoff"
+    },
+    {
+      "id": "terminated-fails",
+      "kind": "starts",
+      "as": "logistics",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-25-0990"
+      },
+      "status": "failed",
+      "failsAt": "active"
+    },
+    {
+      "id": "answered-fails",
+      "kind": "starts",
+      "as": "logistics",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0360"
+      },
+      "status": "failed",
+      "failsAt": "unanswered"
+    },
+    {
+      "id": "other-product-fails",
+      "kind": "starts",
+      "as": "qa",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0405"
+      },
+      "status": "failed",
+      "failsAt": "sameProduct"
+    },
+    {
+      "id": "embargo-ask-refused",
+      "kind": "starts",
+      "as": "logistics",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0388"
+      },
+      "status": "refused"
+    },
+    {
+      "id": "auditor-cannot-ask",
+      "kind": "starts",
+      "as": "auditor",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0412"
+      },
+      "status": "refused"
+    },
+    {
+      "id": "carrier-cannot-ask",
+      "kind": "starts",
+      "as": "carrier",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0412"
+      },
+      "status": "refused"
+    },
+    {
+      "id": "qa-signs-off",
+      "kind": "approves",
+      "as": "qa",
+      "startedBy": "logistics",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0412"
+      },
+      "step": "qaSignoff",
+      "admitted": true,
+      "then": "completed"
+    },
+    {
+      "id": "qa2-signs-qa-request",
+      "kind": "approves",
+      "as": "qa2",
+      "startedBy": "qa",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0388"
+      },
+      "step": "qaSignoff",
+      "admitted": true,
+      "then": "completed"
+    },
+    {
+      "id": "logistics-cannot-sign-off",
+      "kind": "approves",
+      "as": "logistics",
+      "startedBy": "qa",
+      "workflow": "coldchain.RespondToRecall",
+      "input": {
+        "recallId": "RCL-26-0420"
+      },
+      "step": "qaSignoff",
+      "admitted": false
+    },
+    {
+      "id": "hold-not-offered",
+      "kind": "offered",
+      "as": "qa",
+      "type": "coldchain.Lot",
+      "objectId": "L-7701",
+      "action": "HoldLotsForRecall",
+      "offered": false
+    },
+    {
+      "id": "qa-sees-notices",
+      "kind": "screen",
+      "as": "qa",
+      "page": "Notices",
+      "visible": [
+        "notices-table",
+        "approvals"
+      ],
+      "rows": {
+        "notices-table": {
+          "atLeast": 6
+        }
+      }
+    },
+    {
+      "id": "logistics-sees-public",
+      "kind": "screen",
+      "as": "logistics",
+      "page": "Notices",
+      "rows": {
+        "notices-table": {
+          "atMost": 5
+        }
+      },
+      "absentText": [
+        "RCL-26-0388"
+      ]
+    },
+    {
+      "id": "notice-page",
+      "kind": "screen",
+      "as": "logistics",
+      "page": "Notice",
+      "params": {
+        "id": "RCL-26-0412"
+      },
+      "visible": [
+        "notice-detail",
+        "respond-actions"
+      ],
+      "text": [
+        "Northwind Biologics"
+      ],
+      "absentText": [
+        "Stability testing"
+      ]
+    }
+  ],
+  "flows": {
+    "respond": {
+      "name": "coldchain.RespondToRecall",
+      "version": "1.0.0",
+      "title": "Recall response",
+      "description": "Find our affected lots and shipments, have quality assurance sign the response off, then quarantine the lots and file the response with the exchange.",
+      "startPolicy": "coldchain.respond-recall",
+      "about": "recallId",
+      "input": {
+        "recallId": {
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "objectOf": "coldchain.Recall",
+          "description": "The exchange's recall number."
+        }
+      },
+      "steps": [
+        {
+          "kind": "read",
+          "name": "recall",
+          "read": {
+            "kind": "object",
+            "type": "coldchain.Recall",
+            "id": "$input.recallId"
+          }
+        },
+        {
+          "kind": "check",
+          "name": "active",
+          "assert": {
+            "eq": [
+              "$recall.lifecycle",
+              "active"
+            ]
+          },
+          "message": "the manufacturer has terminated this recall"
+        },
+        {
+          "kind": "check",
+          "name": "unanswered",
+          "assert": {
+            "eq": [
+              "$recall.responseStatus",
+              "awaiting"
+            ]
+          },
+          "message": "a response to this notice is already on file with the exchange"
+        },
+        {
+          "kind": "read",
+          "name": "inventory",
+          "read": {
+            "kind": "query",
+            "query": {
+              "type": "coldchain.Lot",
+              "select": [
+                "ndc",
+                "doses",
+                "status",
+                "shipmentId"
+              ],
+              "limit": 500,
+              "all": true
+            }
+          }
+        },
+        {
+          "kind": "compute",
+          "name": "affected",
+          "description": "Our lots the notice lists, the doses in them, the shipments carrying them, and any listed lot we hold under another product.",
+          "value": {
+            "fn": "recall#affected",
+            "args": {
+              "listed": "$recall.affectedLots",
+              "ndc": "$recall.ndc",
+              "lots": "$inventory"
+            },
+            "returns": {
+              "type": "object",
+              "properties": {
+                "lots": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "doses": {
+                  "type": "integer"
+                },
+                "shipments": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "mismatched": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "lots",
+                "doses",
+                "shipments",
+                "mismatched"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "check",
+          "name": "sameProduct",
+          "assert": {
+            "eq": [
+              {
+                "count": "$affected.mismatched"
+              },
+              0
+            ]
+          },
+          "message": "the notice names one of our lots under a different product than our inventory holds it"
+        },
+        {
+          "kind": "forEach",
+          "name": "carriers",
+          "over": "$affected.shipments",
+          "max": 100,
+          "read": {
+            "kind": "object",
+            "type": "coldchain.Shipment",
+            "id": "$item"
+          }
+        },
+        {
+          "kind": "compute",
+          "name": "inTransit",
+          "value": {
+            "fn": "recall#inTransit",
+            "args": {
+              "shipments": "$carriers"
+            },
+            "returns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "The shipments the tracker shows in transit."
+        },
+        {
+          "kind": "approval",
+          "name": "qaSignoff",
+          "policy": "coldchain.qa-release",
+          "present": [
+            "recall",
+            "affected",
+            "inTransit"
+          ]
+        },
+        {
+          "kind": "action",
+          "name": "hold",
+          "action": "HoldLotsForRecall",
+          "input": {
+            "recallId": "$input.recallId",
+            "lotIds": "$affected.lots"
+          },
+          "compensate": {
+            "action": "ReleaseRecallHolds",
+            "input": {
+              "lotIds": "$output.held"
+            }
+          }
+        },
+        {
+          "kind": "action",
+          "name": "file",
+          "action": "FileRecallResponse",
+          "input": {
+            "recallNumber": "$input.recallId",
+            "lotsQuarantined": "$affected.lots",
+            "dosesQuarantined": "$affected.doses",
+            "shipmentsInTransit": "$inTransit",
+            "signedOffBy": {
+              "coalesce": [
+                "$qaSignoff.approverName",
+                "$qaSignoff.approver"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "data": {
+    "notices": {
+      "kind": "query",
+      "query": {
+        "type": "coldchain.Recall",
+        "select": [
+          "firm",
+          "product",
+          "recallClass",
+          "lifecycle",
+          "embargoed",
+          "responseStatus",
+          "issuedOn"
+        ],
+        "limit": 100,
+        "all": true
+      }
+    }
+  }
+}

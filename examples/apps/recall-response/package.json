@@ -1,0 +1,10 @@
+{
+  "name": "recall-response",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../../packages/compiler/dist/bin.js build .",
+    "start": "node dist/server.js",
+    "test": "vitest run"
+  }
+}

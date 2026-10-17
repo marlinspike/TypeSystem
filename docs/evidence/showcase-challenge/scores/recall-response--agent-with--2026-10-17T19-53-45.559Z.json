@@ -1,0 +1,34 @@
+{
+  "task": "recall-response",
+  "arm": "agent-with",
+  "at": "2026-10-17T19:53:45.559Z",
+  "production": {
+    "source": "agent",
+    "producer": "Claude Code (this session, the showcase engineer)",
+    "humanInterventions": 0
+  },
+  "total": 16,
+  "built": false,
+  "started": false,
+  "diagnostic": "the build failed: sh: 1: typesys-app: not found",
+  "checks": [],
+  "passed": 0,
+  "code": {
+    "files": 10,
+    "codeLines": 523,
+    "imports": [
+      "@typesys/app",
+      "@typesys/cold-chain",
+      "@typesys/compiler",
+      "@typesys/ui",
+      "@typesys/workflow",
+      "express",
+      "react",
+      "vitest"
+    ],
+    "directServiceCalls": 0,
+    "restatedAccessRules": 0,
+    "branchDensity": 13,
+    "largestFileLines": 254
+  }
+}

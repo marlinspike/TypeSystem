@@ -63,7 +63,8 @@ export type JournalEvent =
       readonly final: boolean;
     }
   | { readonly type: "approval-requested"; readonly step: string; readonly policy: string }
-  | { readonly type: "approval-decided"; readonly step: string; readonly approver: string; readonly approved: boolean; readonly comment?: string }
+  /** `approverName` is the approver's display name as they signed in, kept so a later step can name who signed off (ADR-0097). */
+  | { readonly type: "approval-decided"; readonly step: string; readonly approver: string; readonly approverName?: string; readonly approved: boolean; readonly comment?: string }
   | { readonly type: "compensating"; readonly cause: CompensationCause; readonly step: string }
   | { readonly type: "compensation-started"; readonly step: string; readonly action: string; readonly input: unknown }
   | { readonly type: "compensation-completed"; readonly step: string; readonly output: unknown }

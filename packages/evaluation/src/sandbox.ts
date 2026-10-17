@@ -12,7 +12,7 @@ import type { Task } from "./types.js";
  * every existing mission application and its spec, the tests and review
  * reports that quote them, and the repository's history.
  */
-const WITHHELD = [/^\.git$/, /^packages\/evaluation$/, /^examples\/missions$/, /^packages\/mission-readiness$/, /^packages\/[^/]+\/test$/, /^packages\/[^/]+\/\.work$/, /^docs\/evidence$/, /^docs\/reviews$/, /^node_modules$/, /(^|\/)\.work$/];
+const WITHHELD = [/^\.git$/, /^packages\/evaluation$/, /^examples\/missions$/, /^examples\/apps\/recall-response$/, /^packages\/mission-readiness$/, /^packages\/[^/]+\/test$/, /^packages\/[^/]+\/\.work$/, /^docs\/evidence$/, /^docs\/reviews$/, /^node_modules$/, /(^|\/)\.work$/];
 
 /**
  * Builds an isolated copy of the repository for one run: the packages as

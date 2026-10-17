@@ -1,0 +1,603 @@
+{
+  "format": "typesys.onboarding-sources/1",
+  "sources": [
+    {
+      "info": {
+        "id": "recall-exchange",
+        "kind": "openapi",
+        "system": "Recall Exchange",
+        "description": "Manufacturer recall notification exchange. Manufacturers post recall notices; a subscribing distributor reads them and files one effectiveness response per notice, saying which affected lots it quarantined, how many doses, and which shipments carrying them were still in transit. NDCs are written as eleven digits without hyphens. The viewer client sees PUBLIC notices only and may not respond; an EMBARGOED notice is not visible to it.",
+        "digest": "sha256:a81c242c5a80e65f9f1f64cfbded388797325523de9a5e7a602a2326ac59ab60"
+      },
+      "entities": [
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice",
+          "source": "recall-exchange",
+          "name": "Notice",
+          "fields": [
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber",
+              "name": "recallNumber",
+              "pointer": "/recallNumber",
+              "schema": {
+                "type": "string"
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm",
+              "name": "issuingFirm",
+              "pointer": "/issuingFirm",
+              "schema": {
+                "type": "string"
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/product",
+              "name": "product",
+              "pointer": "/product",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "ndc11": {
+                    "type": "string",
+                    "pattern": "^[0-9]{11}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "ndc11"
+                ]
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots",
+              "name": "affectedLots",
+              "pointer": "/affectedLots",
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "lotCode": {
+                      "type": "string"
+                    },
+                    "expiry": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "required": [
+                    "lotCode"
+                  ]
+                }
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass",
+              "name": "hazardClass",
+              "pointer": "/hazardClass",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "CLASS_I",
+                  "CLASS_II",
+                  "CLASS_III"
+                ]
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation",
+              "name": "hazardEvaluation",
+              "pointer": "/hazardEvaluation",
+              "schema": {
+                "type": "string"
+              },
+              "nullable": false,
+              "required": false,
+              "description": "The manufacturer's health hazard evaluation",
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure",
+              "name": "disclosure",
+              "pointer": "/disclosure",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "PUBLIC",
+                  "EMBARGOED"
+                ]
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle",
+              "name": "lifecycle",
+              "pointer": "/lifecycle",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "ACTIVE",
+                  "TERMINATED"
+                ]
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn",
+              "name": "issuedOn",
+              "pointer": "/issuedOn",
+              "schema": {
+                "type": "string",
+                "format": "date"
+              },
+              "nullable": false,
+              "required": false,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/responseState",
+              "name": "responseState",
+              "pointer": "/responseState",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "RECEIVED"
+                ]
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Notice/properties/response",
+              "name": "response",
+              "pointer": "/response",
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "receivedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lotsQuarantined": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "dosesQuarantined": {
+                        "type": "integer"
+                      },
+                      "shipmentsInTransit": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "signedOffBy": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "receivedAt",
+                      "lotsQuarantined",
+                      "dosesQuarantined",
+                      "shipmentsInTransit",
+                      "signedOffBy"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "nullable": false,
+              "required": false,
+              "hints": []
+            }
+          ],
+          "key": "recallNumber"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response",
+          "source": "recall-exchange",
+          "name": "Response",
+          "fields": [
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Response/properties/receivedAt",
+              "name": "receivedAt",
+              "pointer": "/receivedAt",
+              "schema": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Response/properties/lotsQuarantined",
+              "name": "lotsQuarantined",
+              "pointer": "/lotsQuarantined",
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Response/properties/dosesQuarantined",
+              "name": "dosesQuarantined",
+              "pointer": "/dosesQuarantined",
+              "schema": {
+                "type": "integer"
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Response/properties/shipmentsInTransit",
+              "name": "shipmentsInTransit",
+              "pointer": "/shipmentsInTransit",
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            },
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Response/properties/signedOffBy",
+              "name": "signedOffBy",
+              "pointer": "/signedOffBy",
+              "schema": {
+                "type": "string"
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            }
+          ]
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Error",
+          "source": "recall-exchange",
+          "name": "Error",
+          "fields": [
+            {
+              "id": "openapi:recall-exchange#/components/schemas/Error/properties/error",
+              "name": "error",
+              "pointer": "/error",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              },
+              "nullable": false,
+              "required": true,
+              "hints": []
+            }
+          ]
+        }
+      ],
+      "operations": [
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices/get",
+          "source": "recall-exchange",
+          "method": "GET",
+          "path": "/exchange/v1/notices",
+          "operationId": "listNotices",
+          "summary": "List recall notices visible to this client, two a page",
+          "role": "list",
+          "entity": "openapi:recall-exchange#/components/schemas/Notice",
+          "pathParams": [],
+          "queryParams": [
+            {
+              "name": "issuingFirm",
+              "field": "issuingFirm"
+            },
+            {
+              "name": "ndc11"
+            },
+            {
+              "name": "lotCode"
+            },
+            {
+              "name": "lifecycle",
+              "field": "lifecycle"
+            },
+            {
+              "name": "disclosure",
+              "field": "disclosure"
+            },
+            {
+              "name": "responseState",
+              "field": "responseState"
+            },
+            {
+              "name": "page"
+            },
+            {
+              "name": "pageSize"
+            }
+          ],
+          "items": "/data",
+          "pages": {
+            "param": "page",
+            "more": "/meta/hasMore"
+          },
+          "scopes": []
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}/get",
+          "source": "recall-exchange",
+          "method": "GET",
+          "path": "/exchange/v1/notices/{recallNumber}",
+          "operationId": "getNotice",
+          "summary": "One recall notice",
+          "role": "get",
+          "entity": "openapi:recall-exchange#/components/schemas/Notice",
+          "pathParams": [
+            "recallNumber"
+          ],
+          "queryParams": [],
+          "record": "/data",
+          "scopes": []
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/get",
+          "source": "recall-exchange",
+          "method": "GET",
+          "path": "/exchange/v1/notices/{recallNumber}/responses",
+          "operationId": "listResponses",
+          "summary": "The response on file for a notice (none or one)",
+          "role": "list",
+          "entity": "openapi:recall-exchange#/components/schemas/Response",
+          "pathParams": [
+            "recallNumber"
+          ],
+          "queryParams": [],
+          "items": "/data",
+          "scopes": []
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post",
+          "source": "recall-exchange",
+          "method": "POST",
+          "path": "/exchange/v1/notices/{recallNumber}/responses",
+          "operationId": "fileResponse",
+          "summary": "File this distributor's effectiveness response to a notice; once per notice",
+          "role": "command",
+          "entity": "openapi:recall-exchange#/components/schemas/Notice",
+          "pathParams": [
+            "recallNumber"
+          ],
+          "queryParams": [],
+          "body": {
+            "type": "object",
+            "properties": {
+              "lotsQuarantined": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Lot codes from the notice that this distributor holds and has quarantined"
+              },
+              "dosesQuarantined": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "shipmentsInTransit": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Shipment references carrying a quarantined lot that are still in transit"
+              },
+              "signedOffBy": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The person responsible for the response"
+              }
+            },
+            "required": [
+              "lotsQuarantined",
+              "dosesQuarantined",
+              "shipmentsInTransit",
+              "signedOffBy"
+            ]
+          },
+          "scopes": []
+        }
+      ],
+      "auth": {
+        "kind": "basic"
+      },
+      "evidence": [
+        {
+          "id": "openapi:recall-exchange#/info",
+          "source": "recall-exchange",
+          "text": "API \"Recall Exchange\" 4.1.0: \"Manufacturer recall notification exchange. Manufacturers post recall notices; a subscribing distributor reads them and files one effectiveness response per notice, saying which affected lots it quarantined, how many doses, and which shipments carrying them were still in transit. NDCs are written as eleven digits without hyphens. The viewer client sees PUBLIC notices only and may not respond; an EMBARGOED notice is not visible to it.\""
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Lifecycle",
+          "source": "recall-exchange",
+          "text": "Schema Lifecycle: one of \"ACTIVE\", \"TERMINATED\""
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Disclosure",
+          "source": "recall-exchange",
+          "text": "Schema Disclosure: one of \"PUBLIC\", \"EMBARGOED\""
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/ResponseState",
+          "source": "recall-exchange",
+          "text": "Schema ResponseState: one of \"PENDING\", \"RECEIVED\""
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice",
+          "source": "recall-exchange",
+          "text": "Schema Notice; required recallNumber, issuingFirm, product, affectedLots, hazardClass, disclosure, lifecycle, responseState"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/recallNumber",
+          "source": "recall-exchange",
+          "text": "Notice.recallNumber: string, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/issuingFirm",
+          "source": "recall-exchange",
+          "text": "Notice.issuingFirm: string, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/product",
+          "source": "recall-exchange",
+          "text": "Notice.product: object {name, ndc11}, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/affectedLots",
+          "source": "recall-exchange",
+          "text": "Notice.affectedLots: array of object {lotCode, expiry}, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardClass",
+          "source": "recall-exchange",
+          "text": "Notice.hazardClass: string one of \"CLASS_I\", \"CLASS_II\", \"CLASS_III\", required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/hazardEvaluation",
+          "source": "recall-exchange",
+          "text": "Notice.hazardEvaluation: string; \"The manufacturer's health hazard evaluation\""
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/disclosure",
+          "source": "recall-exchange",
+          "text": "Notice.disclosure: string one of \"PUBLIC\", \"EMBARGOED\", required (schema Disclosure)"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/lifecycle",
+          "source": "recall-exchange",
+          "text": "Notice.lifecycle: string one of \"ACTIVE\", \"TERMINATED\", required (schema Lifecycle)"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/issuedOn",
+          "source": "recall-exchange",
+          "text": "Notice.issuedOn: string format date"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/responseState",
+          "source": "recall-exchange",
+          "text": "Notice.responseState: string one of \"PENDING\", \"RECEIVED\", required (schema ResponseState)"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Notice/properties/response",
+          "source": "recall-exchange",
+          "text": "Notice.response: any"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response",
+          "source": "recall-exchange",
+          "text": "Schema Response; required receivedAt, lotsQuarantined, dosesQuarantined, shipmentsInTransit, signedOffBy"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response/properties/receivedAt",
+          "source": "recall-exchange",
+          "text": "Response.receivedAt: string format date-time, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response/properties/lotsQuarantined",
+          "source": "recall-exchange",
+          "text": "Response.lotsQuarantined: array of string, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response/properties/dosesQuarantined",
+          "source": "recall-exchange",
+          "text": "Response.dosesQuarantined: integer, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response/properties/shipmentsInTransit",
+          "source": "recall-exchange",
+          "text": "Response.shipmentsInTransit: array of string, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Response/properties/signedOffBy",
+          "source": "recall-exchange",
+          "text": "Response.signedOffBy: string, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Error",
+          "source": "recall-exchange",
+          "text": "Schema Error; required error"
+        },
+        {
+          "id": "openapi:recall-exchange#/components/schemas/Error/properties/error",
+          "source": "recall-exchange",
+          "text": "Error.error: object {code, message}, required"
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices/get",
+          "source": "recall-exchange",
+          "text": "GET /exchange/v1/notices (listNotices): \"List recall notices visible to this client, two a page\"; list Notice; query issuingFirm, ndc11, lotCode, lifecycle, disclosure, responseState, page, pageSize"
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}/get",
+          "source": "recall-exchange",
+          "text": "GET /exchange/v1/notices/{recallNumber} (getNotice): \"One recall notice\"; get Notice; path recallNumber"
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/get",
+          "source": "recall-exchange",
+          "text": "GET /exchange/v1/notices/{recallNumber}/responses (listResponses): \"The response on file for a notice (none or one)\"; list Response; path recallNumber"
+        },
+        {
+          "id": "openapi:recall-exchange#/paths/~1exchange~1v1~1notices~1{recallNumber}~1responses/post",
+          "source": "recall-exchange",
+          "text": "POST /exchange/v1/notices/{recallNumber}/responses (fileResponse): \"File this distributor's effectiveness response to a notice; once per notice\"; command Notice; path recallNumber; body object {lotsQuarantined, dosesQuarantined, shipmentsInTransit, signedOffBy}"
+        }
+      ]
+    }
+  ]
+}
