@@ -92,6 +92,23 @@ describe("typesys deploy", () => {
     expect(JSON.parse(lines[0]!) as unknown).toMatchObject({ ok: true, deployment: "airforce", build: expect.stringMatching(/^sha256:/) as unknown });
   });
 
+  it("blocks the shipped widening example and lets the narrowing one through, as the README shows", async () => {
+    const quiet = { log: console.log, error: console.error };
+    const out: string[] = [];
+    console.log = (s: string) => void out.push(s);
+    try {
+      const run = (file: string) => deployCommand(["check", "deployments/airforce.deployment.json", `examples/upgrades/${file}`, "--packs-dir", "packs", "--json"]);
+      expect(await run("airforce-viewers-read-maintenance.deployment.json")).toBe(1);
+      const blocked = JSON.parse(out[0]!) as { blocking: string[] };
+      expect(blocked.blocking).toContain("policy airforce.maintainer-only now admits viewer (on airforce.Aircraft, airforce.MaintenanceEvent)");
+      expect(blocked.blocking).toContain("exposure: viewer reads airforce.Aircraft.maintenanceStatus on airforce.Aircraft/AF86-0147 (now returned to viewer, was withheld)");
+      expect(await run("airforce-viewers-lose-aircraft.deployment.json")).toBe(0);
+      expect((JSON.parse(out[1]!) as { ok: boolean; policies: { changed: string[] } }).policies.changed).toEqual(["airforce.read-aircraft"]);
+    } finally {
+      Object.assign(console, quiet);
+    }
+  });
+
   it("checks one file against another, and refuses what is not a contract", async () => {
     const out: string[] = [];
     const log = console.log;

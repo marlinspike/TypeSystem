@@ -806,6 +806,28 @@ defects. 15 are fixed, one in part, and one is kept with its reason; 24
 mutations guard the fixes. Nothing measures a person or an agent using
 these tools on a real task.
 
+## Deployments declared, upgrades checked
+
+ADR-0100 to ADR-0104. Policy rules are data that compile to the same
+combinators, proven equal on every shipped rule set by
+`comparePolicyRules` (`packages/*/test/policy-document.test.ts`). A
+deployment is a `typesys.deployment/1` document; `@typesys/host` builds it
+after checking packs, extensions, sources and rules against each other,
+with a per-process registry, and serves it (`packages/host/test/host.test.ts`,
+`files.test.ts`). The airforce and hospital deployments serve exactly what
+their testbeds did, for every Type and persona
+(`packages/demo-web/test/deployments.test.ts`); the cold chain, recall and
+sortie suites pass unchanged on hosts built from their deployments. Every
+audit row names its build, in memory and in Postgres
+(`packages/core/test/audit-build.test.ts`, the registry store contract).
+Consumers pin Type versions per request over the runtime, REST, MCP over
+HTTP and the SDK, and compiled applications pin theirs
+(`*/test/consumer-contract.test.ts`, `packages/compiler/test/compile.test.ts`).
+`typesys deploy check` blocks broken consumers, breaking changes,
+exposures and widened rules (`packages/host/test/check.test.ts`). Not
+built: hot activation of a new build, a build registry, out-of-process
+adapters, serving two majors of a Type at once, and pinning over MCP stdio.
+
 ## Real but narrow — the mechanism exists, exercised once
 
 - Property-level policy is exercised on several fields, not just the two

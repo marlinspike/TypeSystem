@@ -10,7 +10,6 @@ import {
   requireRole,
   type ContractMismatch,
   type Identity,
-  type PolicyRequest,
   type SemanticQuery
 } from "@typesys/core";
 import { analyzeChange, recordBaseline, type Baseline, type ChangeImpact, type GraphConsumer } from "@typesys/devkit";
@@ -77,6 +76,7 @@ export interface PolicyDecisionChange {
   readonly policy: string;
   readonly as: string;
   readonly type: string;
+  /** `absent`: the policy is not in that build; a Type that names it is refused (default deny). */
   readonly before: boolean | "throws" | "absent";
   readonly after: boolean | "throws" | "absent";
 }
@@ -185,20 +185,44 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
       // The model as it is, not as the checker is told of it: the contract diff must see every Type.
       return { ...probed, description: await describeModel(host.registry) };
     };
-    const impact = analyzeChange(await record(a), await record(b), opts.graphConsumers ?? []);
+    const [baseA, baseB] = [await record(a), await record(b)];
+    const impact = analyzeChange(baseA, baseB, opts.graphConsumers ?? []);
 
-    // Policies, as data and as decisions: every persona, every Type, type-level.
+    // Policies, as data and as decisions: each persona, on each Type the policy decides in either build (its own
+    // Type, a member's, or an Action's), type-level. A rule decides nothing where no Type names it.
     const ruleDiff = diffNamed(new Map(Object.entries(a.deployment.policies)), new Map(Object.entries(b.deployment.policies)), sameJson);
-    const requests: (Omit<PolicyRequest, "policyName"> & { as: string })[] = Object.entries(personas).flatMap(([as, subject]) =>
-      types.map((type) => ({ as, subject, action: "read" as const, resource: { typeName: type } }))
-    );
-    const diffs = await comparePolicyRules(compilePolicies(a.deployment.policies), compilePolicies(b.deployment.policies), requests, Object.fromEntries([...new Set([...Object.keys(a.deployment.policies), ...Object.keys(b.deployment.policies)])].map((p) => [p, ["reason", "plan", "description"] as const])));
-    const decisions: PolicyDecisionChange[] = diffs.flatMap((d) => {
-      if (d.what === "missing") return [];
-      if (d.what !== "decision") return [];
-      const r = requests[d.request]!;
-      return [{ policy: d.policy, as: r.as, type: r.resource.typeName, before: d.before as boolean | "throws", after: d.after as boolean | "throws" }];
-    });
+    const actionTypes = new Map([...baseA.description.actions, ...baseB.description.actions].map((x) => [x.name, x.applicableTypes]));
+    const decidedTypes = new Map<string, Set<string>>();
+    for (const p of [...(baseA.inspection?.policies ?? []), ...(baseB.inspection?.policies ?? [])]) {
+      const set = decidedTypes.get(p.name) ?? new Set<string>();
+      for (const d of p.decides) {
+        if (actionTypes.has(d)) for (const t of actionTypes.get(d)!) set.add(t);
+        else set.add(types.find((t) => d === t || d.startsWith(`${t}.`)) ?? d);
+      }
+      decidedTypes.set(p.name, set);
+    }
+    const [rulesA, rulesB] = [compilePolicies(a.deployment.policies), compilePolicies(b.deployment.policies)];
+    const decisions: PolicyDecisionChange[] = [];
+    for (const policy of [...new Set([...Object.keys(rulesA), ...Object.keys(rulesB)])].sort()) {
+      const on = [...(decidedTypes.get(policy) ?? [])].sort();
+      const requests = Object.entries(personas).flatMap(([as, subject]) => on.map((type) => ({ as, subject, action: "read" as const, resource: { typeName: type } })));
+      if (requests.length === 0) continue;
+      const one = (rules: typeof rulesA) => (Object.hasOwn(rules, policy) ? { [policy]: rules[policy]! } : {});
+      const [onlyA, onlyB] = [one(rulesA), one(rulesB)];
+      const absent = { [policy]: (() => Promise.resolve({ allow: false })) as (typeof rulesA)[string] };
+      const diffs = await comparePolicyRules(Object.keys(onlyA).length ? onlyA : absent, Object.keys(onlyB).length ? onlyB : absent, requests, { [policy]: ["reason", "plan", "description"] });
+      for (const d of diffs) {
+        if (d.what !== "decision") continue;
+        const r = requests[d.request]!;
+        decisions.push({
+          policy,
+          as: r.as,
+          type: r.resource.typeName,
+          before: Object.keys(onlyA).length ? (d.before as boolean | "throws") : "absent",
+          after: Object.keys(onlyB).length ? (d.after as boolean | "throws") : "absent"
+        });
+      }
+    }
 
     const packDiff = diffNamed(keyed(a.packs, (p) => p.name), keyed(b.packs, (p) => p.name), (x, y) => x.digest === y.digest && x.version === y.version);
     const sourceDiff = diffNamed(new Map(Object.entries(a.deployment.sources)), new Map(Object.entries(b.deployment.sources)), sameJson);
@@ -222,9 +246,14 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
     const blocking: string[] = [];
     for (const c of consumers.filter((x) => !x.satisfied)) blocking.push(`consumer ${c.name}: the new build does not keep its contract (${c.mismatches.map((m) => `${m.type} ${m.range}${m.version ? `, now ${m.version}` : ", gone"}`).join("; ")})`);
     for (const item of impact.items.filter((i) => i.impact === "breaking")) blocking.push(`breaking: ${item.subject}: ${item.change}`);
-    for (const e of impact.exposures) blocking.push(`exposure: ${e.as} ${e.change} on ${e.object ?? e.subject}`);
+    for (const e of impact.exposures) blocking.push(`exposure: ${e.as} reads ${e.subject} on ${e.object ?? e.subject} (${e.change})`);
     for (const q of queries.filter((x) => x.effect === "widens")) blocking.push(`exposure: ${q.as} gets more from query ${q.query} (${q.before.outcome}${q.before.values ? ` [${q.before.values.join(", ")}]` : ""} → ${q.after.outcome}${q.after.values ? ` [${q.after.values.join(", ")}]` : ""})`);
-    for (const d of decisions.filter((x) => x.after === true && x.before !== true)) blocking.push(`policy ${d.policy} now admits ${d.as} to ${d.type}`);
+    const admits = new Map<string, string[]>();
+    for (const d of decisions.filter((x) => x.after === true && x.before !== true)) admits.set(`${d.policy}|${d.as}`, [...(admits.get(`${d.policy}|${d.as}`) ?? []), d.type]);
+    for (const [k, on] of admits) {
+      const [policy, as] = k.split("|");
+      blocking.push(`policy ${policy} now admits ${as} (on ${on.join(", ")})`);
+    }
 
     const changed =
       blocking.length > 0 ||
@@ -272,7 +301,15 @@ export function renderDeployCheck(r: DeployCheckReport): string {
   list("Packs", r.packs);
   list("Sources", r.sources);
   list("Policies", r.policies);
-  for (const d of r.policies.decisions) lines.push(`  ${d.policy} for ${d.as} on ${d.type}: ${String(d.before)} → ${String(d.after)}`);
+  const byRule = new Map<string, { before: string; after: string; on: string[] }>();
+  for (const d of r.policies.decisions) {
+    const k = `${d.policy}|${d.as}|${String(d.before)}|${String(d.after)}`;
+    byRule.set(k, { before: String(d.before), after: String(d.after), on: [...(byRule.get(k)?.on ?? []), d.type] });
+  }
+  for (const [k, v] of byRule) {
+    const [policy, as] = k.split("|");
+    lines.push(`  ${policy} for ${as}: ${v.before === "true" ? "admitted" : v.before === "false" ? "refused" : v.before} → ${v.after === "true" ? "admitted" : v.after === "false" ? "refused" : v.after} (on ${v.on.join(", ")})`);
+  }
   if (r.settings.length) lines.push(`Settings changed: ${r.settings.join(", ")}`);
   for (const c of r.consumers) lines.push(`Consumer ${c.name}: ${c.satisfied ? "contract kept" : "contract NOT kept"}`);
   const contract = r.impact.items.filter((i) => i.kind === "contract");
@@ -288,7 +325,20 @@ export function renderDeployCheck(r: DeployCheckReport): string {
   const observed = r.impact.items.filter((i) => i.kind === "observed");
   if (observed.length) {
     lines.push("Observed reads:");
-    for (const i of observed) lines.push(`  [${i.effect}] ${i.as} on ${i.object}: ${i.change}`);
+    // Every widening, one line each; the rest counted per persona, which is what a reviewer weighs.
+    for (const i of observed.filter((x) => x.effect === "widens")) lines.push(`  [widens] ${i.as} reads ${i.subject} on ${i.object}: ${i.change}`);
+    const rest = new Map<string, { n: number; objects: Set<string> }>();
+    for (const i of observed.filter((x) => x.effect !== "widens")) {
+      const k = `${i.effect ?? "changes"}|${i.as ?? "?"}`;
+      const e = rest.get(k) ?? { n: 0, objects: new Set<string>() };
+      e.n++;
+      if (i.object) e.objects.add(i.object);
+      rest.set(k, e);
+    }
+    for (const [k, e] of rest) {
+      const [effect, as] = k.split("|");
+      lines.push(`  [${effect}] ${as}: ${e.n} value${e.n === 1 ? "" : "s"} on ${e.objects.size} object${e.objects.size === 1 ? "" : "s"}`);
+    }
   }
   for (const q of r.queries) lines.push(`Query ${q.query} as ${q.as}: [${q.effect}] ${q.before.outcome} (${q.before.count ?? 0}) → ${q.after.outcome} (${q.after.count ?? 0})`);
   if (r.impact.checks.length) lines.push(`Acceptance checks to run: ${r.impact.checks.join(", ")}`);

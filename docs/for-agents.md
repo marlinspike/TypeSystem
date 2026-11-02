@@ -40,6 +40,13 @@ connection — check the result of every call, not just the first one.
 `Authorization: Bearer <token>` header on every request. This is the
 authoritative source when present.
 
+To pin the Type versions you were written against (ADR-0103), also send
+`TypeSystem-Contract: airforce.Aircraft@^1.0.0, airforce.WorkOrder@^1.0.0`.
+A call that touches a Type outside its range fails with "The model does not
+satisfy this consumer's contract", before any data is read, rather than
+answering in a shape you do not expect. Stdio carries no headers, so there
+is no contract on that transport.
+
 **Over stdio** (no headers exist on that transport): the same token goes
 in-band instead —
 
