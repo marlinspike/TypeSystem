@@ -19,6 +19,8 @@ export interface BuildRuntimeOptions {
   policyEngine?: PolicyEngine;
   /** Cache, rate limiter, concurrency bound, and query limits for the runtime — see `SemanticRuntimeOptions`. */
   runtimeOptions?: SemanticRuntimeOptions;
+  /** The deployment build this runtime serves (ADR-0101), stamped on every audit row. */
+  build?: string;
 }
 
 export interface BuiltRuntime {
@@ -39,7 +41,7 @@ export interface BuiltRuntime {
  */
 export async function buildRuntime(opts: BuildRuntimeOptions): Promise<BuiltRuntime> {
   const store = opts.store ?? new InMemoryRegistryStore();
-  const registry = new SemanticRegistry(store);
+  const registry = new SemanticRegistry(store, undefined, opts.build ? { build: opts.build } : {});
 
   for (const manifest of opts.manifests) {
     await registerDomain(registry, manifest);

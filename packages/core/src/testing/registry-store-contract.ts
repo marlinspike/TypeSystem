@@ -269,5 +269,14 @@ export function runRegistryStoreContractTests(
       expect(byId["evt-op"]).toMatchObject({ operation: "listActions", details: { control: "classification", markings: ["SECRET"] } });
       expect(byId["evt-no-op"]?.operation).toBeUndefined();
     });
+
+    it("audit events: the build round-trips, and a row without one reads back without one (ADR-0101)", async () => {
+      await store.appendAuditEvent({ ...auditEvent("evt-build", "2026-03-01T00:00:00.000Z"), build: "sha256:abc" });
+      await store.appendAuditEvent(auditEvent("evt-no-build", "2026-03-01T00:00:01.000Z"));
+      const { items } = await store.listAuditEvents({ limit: 2 });
+      const byId = Object.fromEntries(items.map((e) => [e.id, e]));
+      expect(byId["evt-build"]?.build).toBe("sha256:abc");
+      expect(byId["evt-no-build"]?.build).toBeUndefined();
+    });
   });
 }

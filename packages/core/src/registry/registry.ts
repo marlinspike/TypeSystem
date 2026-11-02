@@ -135,15 +135,26 @@ function rederiveProtections(sub: TypeDefinition, oldBase: TypeDefinition | unde
  * definitions, and owns the composition of `extends` + traits into a
  * flattened TypeDefinition at registration time (see ADR-0004).
  */
+export interface SemanticRegistryOptions {
+  /** The deployment build this process serves (ADR-0101): stamped on every audit row the registry writes. */
+  readonly build?: string;
+}
+
 export class SemanticRegistry {
   private readonly ajv: Ajv2020;
   private readonly registeredSchemaIds = new Set<string>();
 
   constructor(
     private readonly store: RegistryStore,
-    ajv: Ajv2020 = createSemanticValidator()
+    ajv: Ajv2020 = createSemanticValidator(),
+    private readonly options: SemanticRegistryOptions = {}
   ) {
     this.ajv = ajv;
+  }
+
+  /** The deployment build every audit row this registry writes is stamped with (ADR-0101), if it was given one. */
+  get build(): string | undefined {
+    return this.options.build;
   }
 
   private ensureAjvSchema(id: string, schema: JsonSchema2020): void {
@@ -382,7 +393,8 @@ export class SemanticRegistry {
   }
 
   async appendAuditEvent(evt: AuditEvent): Promise<void> {
-    await this.store.appendAuditEvent(evt);
+    // Every writer (the runtime, workflows, pack installs) goes through here, so every row names the build (ADR-0101).
+    await this.store.appendAuditEvent(this.options.build && evt.build === undefined ? { ...evt, build: this.options.build } : evt);
   }
 
   async listAuditEvents(opts?: AuditEventListOptions): Promise<QueryResult<AuditEvent>> {
