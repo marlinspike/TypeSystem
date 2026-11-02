@@ -12,7 +12,9 @@
   "license": "MIT",
   "dependencies": {
     "@typesys/adapter-http": "0.1.0",
-    "@typesys/core": "0.1.0"
+    "@typesys/core": "0.1.0",
+    "@typesys/host": "0.1.0",
+    "@typesys/packs": "0.1.0"
   },
   "devDependencies": {
     "@typesys/engineer": "0.1.0",

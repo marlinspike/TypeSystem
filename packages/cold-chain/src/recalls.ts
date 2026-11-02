@@ -1,9 +1,13 @@
-import { HttpAdapter } from "@typesys/adapter-http";
+import type { HttpAdapter } from "@typesys/adapter-http";
 import type { ActionContext, ActionDefinition, Adapter, AdapterCallOptions, DataSource, DomainManifest, Identity, Mapping, PolicyDocument, PolicyRule } from "@typesys/core";
 import { compilePolicies } from "@typesys/core";
+import { adapterForSource, buildHost, emptyEnvironment, overlayEnvironment, type Deployment, type HostExtension, type HttpSourceSpec } from "@typesys/host";
+import { buildPack, corePack } from "@typesys/packs";
 import { INVENTORY } from "./model.js";
+import { coldChainPack } from "./pack.js";
 import { startService, type RunningService } from "./services.js";
-import { buildColdChainHost, coldChainIdentities, resolveColdChainIdentity, type ColdChainHost, type ColdChainHostOptions } from "./setup.js";
+import { coldChainDeployment, coldChainEnvironment, coldChainIdentities, coldChainUrlsFromEnv, resolveColdChainIdentity, type ColdChainHost, type ColdChainHostOptions } from "./setup.js";
+import { startServices } from "./services.js";
 
 /**
  * The recall exchange, a fourth system the distributor subscribes to but
@@ -144,40 +148,43 @@ export const recallPolicyDocument: PolicyDocument = {
 export const recallPolicyRules: Record<string, PolicyRule> = compilePolicies(recallPolicyDocument);
 
 /** The exchange, read and written as the distributor's client (HTTP Basic), its `{ data, meta }` envelope and numbered pages unwrapped. */
-export function recallExchangeAdapter(baseUrl: string, client = { id: "coldchain-distributor", secret: "rx-exchange-2026" }): HttpAdapter {
-  return new HttpAdapter({
-    dataSourceId: RECALLS,
-    system: "Recall exchange",
-    baseUrl,
-    auth: { kind: "header", name: "authorization", value: `Basic ${Buffer.from(`${client.id}:${client.secret}`).toString("base64")}` },
-    types: {
-      "coldchain.Recall": {
-        get: "/exchange/v1/notices/{id}",
-        record: "/data",
-        list: { path: "/exchange/v1/notices", items: "/data", pages: { param: "page", more: "/meta/hasMore" } },
-        id: "/recallNumber",
-        fields: {
-          firm: "/issuingFirm",
-          product: "/product/name",
-          ndc: "/product/ndc11",
-          recallClass: { from: "/hazardClass", map: { CLASS_I: "I", CLASS_II: "II", CLASS_III: "III" } },
-          lifecycle: { from: "/lifecycle", map: { ACTIVE: "active", TERMINATED: "terminated" } },
-          embargoed: { from: "/disclosure", map: { PUBLIC: false, EMBARGOED: true } },
-          healthHazard: "/hazardEvaluation",
-          issuedOn: "/issuedOn",
-          affectedLots: "/affectedLots",
-          responseStatus: { from: "/responseState", map: { PENDING: "awaiting", RECEIVED: "responded" } },
-          lotsHeld: "/response/lotsQuarantined",
-          dosesHeld: "/response/dosesQuarantined",
-          shipmentsInTransit: "/response/shipmentsInTransit",
-          signedOffBy: "/response/signedOffBy"
-        }
+export const recallExchangeSource: HttpSourceSpec = {
+  kind: "http",
+  system: "Recall exchange",
+  baseUrl: { $env: "TYPESYS_COLDCHAIN_RECALLS_URL" },
+  auth: { kind: "basic", username: "coldchain-distributor", password: { $secret: "TYPESYS_COLDCHAIN_RECALLS_SECRET", default: "rx-exchange-2026" } },
+  types: {
+    "coldchain.Recall": {
+      get: "/exchange/v1/notices/{id}",
+      record: "/data",
+      list: { path: "/exchange/v1/notices", items: "/data", pages: { param: "page", more: "/meta/hasMore" } },
+      id: "/recallNumber",
+      fields: {
+        firm: "/issuingFirm",
+        product: "/product/name",
+        ndc: "/product/ndc11",
+        recallClass: { from: "/hazardClass", map: { CLASS_I: "I", CLASS_II: "II", CLASS_III: "III" } },
+        lifecycle: { from: "/lifecycle", map: { ACTIVE: "active", TERMINATED: "terminated" } },
+        embargoed: { from: "/disclosure", map: { PUBLIC: false, EMBARGOED: true } },
+        healthHazard: "/hazardEvaluation",
+        issuedOn: "/issuedOn",
+        affectedLots: "/affectedLots",
+        responseStatus: { from: "/responseState", map: { PENDING: "awaiting", RECEIVED: "responded" } },
+        lotsHeld: "/response/lotsQuarantined",
+        dosesHeld: "/response/dosesQuarantined",
+        shipmentsInTransit: "/response/shipmentsInTransit",
+        signedOffBy: "/response/signedOffBy"
       }
-    },
-    actions: {
-      FileRecallResponse: { method: "POST", path: "/exchange/v1/notices/{recallNumber}/responses", body: ["lotsQuarantined", "dosesQuarantined", "shipmentsInTransit", "signedOffBy"] }
     }
-  });
+  },
+  actions: {
+    FileRecallResponse: { method: "POST", path: "/exchange/v1/notices/{recallNumber}/responses", body: ["lotsQuarantined", "dosesQuarantined", "shipmentsInTransit", "signedOffBy"] }
+  }
+};
+
+export function recallExchangeAdapter(baseUrl: string, client = { id: "coldchain-distributor", secret: "rx-exchange-2026" }): HttpAdapter {
+  const spec: HttpSourceSpec = { ...recallExchangeSource, auth: { kind: "basic", username: client.id, password: { $secret: "TYPESYS_COLDCHAIN_RECALLS_SECRET" } } };
+  return adapterForSource(RECALLS, spec, overlayEnvironment({ TYPESYS_COLDCHAIN_RECALLS_URL: baseUrl, TYPESYS_COLDCHAIN_RECALLS_SECRET: client.secret }, emptyEnvironment), true);
 }
 
 /**
@@ -232,37 +239,85 @@ export interface RecallHostOptions extends Omit<ColdChainHostOptions, "extend"> 
 
 export type RecallHost = ColdChainHost & { exchange?: RunningService };
 
-/** The cold chain host with the recall exchange added: one runtime, four systems. */
+/** The recall exchange's model as a pack (ADR-0059, ADR-0102), over the cold chain's. */
+export const recallPack = buildPack({
+  name: "coldchain-recalls",
+  version: "1.0.0",
+  description: "Manufacturers' recall notices from an industry recall exchange, over the cold chain's lots, with Actions to hold affected lots and file an effectiveness response.",
+  requires: { core: "^1.0.0", coldchain: "^1.0.0" },
+  manifests: [recallManifest]
+});
+
+/** The extension a recall deployment names: the hold and release Actions, carried out lot by lot against the inventory, undone on failure. */
+export const RECALL_EXTENSION = "@typesys/cold-chain/recall-extension";
+export const recallExtension: HostExtension = {
+  name: RECALL_EXTENSION,
+  adapters: ({ sources }) => [withRecallHolds(sources[INVENTORY]!)]
+};
+
+/**
+ * The cold chain with the recall exchange added, as a deployment (ADR-0102):
+ * the cold chain's, plus the recall pack, the exchange as a fourth source,
+ * the recall rules, and one extension. That extension is the only code: the
+ * hold Action is a loop with compensation that no single request can say.
+ */
+export const recallDeployment: Deployment = {
+  ...coldChainDeployment,
+  name: "cold-chain-recalls",
+  description: "The cold chain with an industry recall exchange added: one runtime, four systems.",
+  packs: [...coldChainDeployment.packs, { name: "coldchain-recalls", version: "1.0.0", digest: recallPack.digest }],
+  extensions: [RECALL_EXTENSION],
+  sources: { ...coldChainDeployment.sources, [RECALLS]: recallExchangeSource },
+  policies: { ...coldChainDeployment.policies, ...recallPolicyDocument },
+  identity: { kind: "tokens", tokens: { ...(coldChainDeployment.identity.kind === "tokens" ? coldChainDeployment.identity.tokens : {}), "demo-qa2-token": "qa2" } },
+  personas: {
+    ...coldChainDeployment.personas,
+    qa2: { subjectId: "user-qa-2", roles: ["qa"], attributes: { displayName: "Dr. Tomasz Brandt" }, clearance: "CONFIDENTIAL" }
+  }
+};
+
+/** The cold chain host with the recall exchange added: one runtime, four systems, built from `recallDeployment`. */
 export async function buildRecallHost(options: RecallHostOptions = {}): Promise<RecallHost> {
   const given = options.exchangeUrl ?? process.env.TYPESYS_COLDCHAIN_RECALLS_URL;
   const exchange = given ? undefined : await startService("recall-exchange");
   const url = given ?? exchange!.url;
   const kill = () => exchange?.process.kill();
   if (exchange) process.once("exit", kill);
-  const host = await buildColdChainHost({
-    ...options,
-    extend: { manifests: [recallManifest], policyRules: recallPolicyRules, adapters: (base) => [recallExchangeAdapter(url), withRecallHolds(base[INVENTORY]!)] }
+  const urls = options.urls ?? coldChainUrlsFromEnv();
+  const services = urls ? undefined : await startServices().catch(async (err: unknown) => {
+    await exchange?.stop();
+    throw err;
   });
-  if (!exchange) return host;
-  const others = host.services;
-  return {
-    ...host,
-    exchange,
+  const at = urls ?? { tracker: services!.tracker.url, sensors: services!.sensors.url, inventory: services!.inventory.url };
+  let host: ColdChainHost;
+  try {
+    host = await buildHost(recallDeployment, {
+      packs: [corePack, coldChainPack, recallPack],
+      extensions: [recallExtension],
+      env: overlayEnvironment({ TYPESYS_COLDCHAIN_RECALLS_URL: url }, coldChainEnvironment(at, options)),
+      ...(options.runtimeOptions ? { runtimeOptions: options.runtimeOptions } : {})
+    });
+  } catch (err) {
+    process.off("exit", kill);
+    await Promise.all([services?.stop(), exchange?.stop()]);
+    throw err;
+  }
+  if (!exchange && !services) return host;
+  return Object.assign(host, {
+    ...(exchange ? { exchange } : {}),
     // The compiler and the tests stop a host's services when they are done with it.
     services: {
-      ...(host.services ?? ({} as NonNullable<ColdChainHost["services"]>)),
+      ...(services ?? ({} as NonNullable<ColdChainHost["services"]>)),
       stop: async () => {
         process.off("exit", kill);
-        await Promise.all([others?.stop(), exchange.stop()]);
+        await Promise.all([services?.stop(), exchange?.stop()]);
       }
     }
-  };
+  });
 }
 
 /** A second quality assurance pharmacist, so one can sign off what the other asked for. */
-export const recallIdentities: Record<"qa2", Identity> = {
-  qa2: { subjectId: "user-qa-2", roles: ["qa"], attributes: { displayName: "Dr. Tomasz Brandt" }, clearance: "CONFIDENTIAL" }
-};
+export const recallIdentities: Record<"qa2", Identity> = { qa2: recallDeployment.personas!.qa2! };
 
 /** The cold chain's demonstration tokens, and `demo-qa2-token` for Dr. Brandt. */
 export function resolveRecallIdentity(token: string | null | undefined): Promise<Identity> {

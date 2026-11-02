@@ -1,6 +1,9 @@
-import { buildRuntime, coreManifest, type Adapter, type BuiltRuntime, type DomainManifest, type Identity, type PolicyRule, type SemanticRuntimeOptions } from "@typesys/core";
-import { inventoryAdapter, sensorAdapter, trackerAdapter } from "./adapters.js";
-import { coldChainClassification, coldChainManifest, coldChainPolicyRules } from "./model.js";
+import type { Adapter, DomainManifest, Identity, PolicyRule, SemanticRuntimeOptions } from "@typesys/core";
+import { corePack } from "@typesys/packs";
+import { DEPLOYMENT_FORMAT, adapterForSource, buildHost, overlayEnvironment, type Deployment, type Host, type HostEnvironment, type HttpSourceSpec } from "@typesys/host";
+import { inventorySource, sensorSource, trackerSource } from "./adapters.js";
+import { coldChainPolicyDocument, INVENTORY, SENSORS, TRACKER } from "./model.js";
+import { coldChainPack } from "./pack.js";
 import { startServices, type RunningServices } from "./services.js";
 
 export interface ColdChainHostOptions {
@@ -13,9 +16,10 @@ export interface ColdChainHostOptions {
   readonly runtimeOptions?: SemanticRuntimeOptions;
   /**
    * More of the model over more systems, on the same runtime: what an
-   * application adds to the cold chain (the recall exchange is one).
-   * `adapters` is given the cold chain's own, by data source; an adapter it
-   * returns with the same data source replaces that one.
+   * application adds to the cold chain in code. `adapters` is given the cold
+   * chain's own, by data source; an adapter it returns with the same data
+   * source replaces that one. Everything added is recorded as code on the
+   * host (`host.code`), and declared in the deployment it builds.
    */
   readonly extend?: {
     readonly manifests?: readonly DomainManifest[];
@@ -24,7 +28,7 @@ export interface ColdChainHostOptions {
   };
 }
 
-export type ColdChainHost = BuiltRuntime & { services?: RunningServices };
+export type ColdChainHost = Host & { services?: RunningServices };
 
 /**
  * The services' URLs from `TYPESYS_COLDCHAIN_TRACKER_URL`, `_SENSORS_URL` and
@@ -38,34 +42,90 @@ export function coldChainUrlsFromEnv(env: NodeJS.ProcessEnv = process.env): Cold
   return tracker && sensors && inventory ? { tracker, sensors, inventory } : undefined;
 }
 
-/** The governed runtime over the three services. */
+/** The cold chain's sources, by data source id. */
+export const coldChainSources: Readonly<Record<string, HttpSourceSpec>> = { [TRACKER]: trackerSource, [SENSORS]: sensorSource, [INVENTORY]: inventorySource };
+
+/**
+ * The cold chain as a deployment (ADR-0102): no code at all. The model is
+ * two packs, the three systems are declared with references to their
+ * addresses and credentials, the rules are data, and the people are
+ * personas with demonstration tokens. `deployments/cold-chain.deployment.json`
+ * is this, written out by `npm run deployments`; the generic server runs it.
+ */
+export const coldChainDeployment: Deployment = {
+  format: DEPLOYMENT_FORMAT,
+  name: "cold-chain",
+  description: "A pharmaceutical cold chain across a shipment tracker, a temperature sensor hub and a pharmacy inventory, each written and secured independently, behind one governed model.",
+  demo: true,
+  packs: [
+    { name: "core", version: "1.0.0", digest: corePack.digest },
+    { name: "coldchain", version: "1.0.0", digest: coldChainPack.digest }
+  ],
+  sources: coldChainSources,
+  policies: coldChainPolicyDocument,
+  classification: { kind: "linear", name: "coldchain-commercial", levels: ["PUBLIC", "INTERNAL", "CONFIDENTIAL"] },
+  identity: { kind: "tokens", tokens: { "demo-logistics-token": "logistics", "demo-qa-token": "qa", "demo-auditor-token": "auditor", "demo-carrier-token": "carrier" } },
+  personas: {
+    logistics: { subjectId: "user-logistics-1", roles: ["logistics"], attributes: { displayName: "Dana Whitfield" }, clearance: "INTERNAL" },
+    qa: { subjectId: "user-qa-1", roles: ["qa"], attributes: { displayName: "Dr. Priya Raman" }, clearance: "CONFIDENTIAL" },
+    auditor: { subjectId: "user-auditor-1", roles: ["auditor"], attributes: { displayName: "Sam Ortega" }, clearance: "INTERNAL" },
+    carrier: { subjectId: "user-carrier-1", roles: ["carrier"], attributes: { displayName: "Northline dispatch", carrier: "Northline Cold Freight" }, clearance: "PUBLIC" },
+    anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
+  },
+  runtime: { callTimeoutMs: 2_000, inspectionPolicy: "coldchain.inspect" }
+};
+
+/** Where the in-process hosts find the services and which keys they hold: the given values first, then the process's environment. */
+export function coldChainEnvironment(urls: NonNullable<ColdChainHostOptions["urls"]>, options: Pick<ColdChainHostOptions, "trackerKey" | "inventoryKey"> = {}): HostEnvironment {
+  return overlayEnvironment({
+    TYPESYS_COLDCHAIN_TRACKER_URL: urls.tracker,
+    TYPESYS_COLDCHAIN_SENSORS_URL: urls.sensors,
+    TYPESYS_COLDCHAIN_INVENTORY_URL: urls.inventory,
+    TYPESYS_COLDCHAIN_TRACKER_KEY: options.trackerKey,
+    TYPESYS_COLDCHAIN_INVENTORY_KEY: options.inventoryKey
+  });
+}
+
+/** The name `extend` is recorded under: code an application adds in-process. */
+export const APPLICATION_EXTENSION = "application";
+
+/** The governed runtime over the three services: the generic host, built from `coldChainDeployment`. */
 export async function buildColdChainHost(options: ColdChainHostOptions = {}): Promise<ColdChainHost> {
   const given = options.urls ?? coldChainUrlsFromEnv();
   const services = given ? undefined : await startServices();
   const urls = given ?? { tracker: services!.tracker.url, sensors: services!.sensors.url, inventory: services!.inventory.url };
-  const base: Record<string, Adapter> = Object.fromEntries(
-    [trackerAdapter(urls.tracker, options.trackerKey), sensorAdapter(urls.sensors), inventoryAdapter(urls.inventory, options.inventoryKey)].map((a) => [a.dataSourceId, a])
-  );
-  const extra = (await options.extend?.adapters?.(base)) ?? [];
-  const adapters = new Map<string, Adapter>(Object.entries(base));
-  for (const a of extra) adapters.set(a.dataSourceId, a);
-  const built = await buildRuntime({
-    manifests: [coreManifest, coldChainManifest, ...(options.extend?.manifests ?? [])],
-    adapters: [...adapters.values()],
-    policyRules: { ...coldChainPolicyRules, ...options.extend?.policyRules },
-    runtimeOptions: { resilience: { callTimeoutMs: 2_000 }, classification: coldChainClassification, inspection: { policy: "coldchain.inspect" }, ...options.runtimeOptions }
-  });
-  return { ...built, ...(services ? { services } : {}) };
+  const env = coldChainEnvironment(urls, options);
+  try {
+    let deployment = coldChainDeployment;
+    let added: readonly Adapter[] = [];
+    if (options.extend?.adapters) {
+      // The base adapters, as the host will build them, for the application to wrap; what it returns is declared below.
+      const base = Object.fromEntries(Object.entries(coldChainSources).map(([id, spec]) => [id, adapterForSource(id, spec, env, true)]));
+      added = await options.extend.adapters(base);
+      const fresh = added.filter((a) => !Object.hasOwn(coldChainSources, a.dataSourceId));
+      deployment = {
+        ...coldChainDeployment,
+        extensions: [APPLICATION_EXTENSION],
+        sources: { ...coldChainSources, ...Object.fromEntries(fresh.map((a) => [a.dataSourceId, { kind: "extension" as const, extension: APPLICATION_EXTENSION }])) }
+      };
+    }
+    const host = await buildHost(deployment, {
+      packs: [corePack, coldChainPack],
+      env,
+      ...(options.extend?.adapters ? { extensions: [{ name: APPLICATION_EXTENSION, adapters: () => added }] } : {}),
+      ...(options.extend?.manifests ? { manifests: options.extend.manifests } : {}),
+      ...(options.extend?.policyRules ? { policyRules: options.extend.policyRules } : {}),
+      ...(options.runtimeOptions ? { runtimeOptions: options.runtimeOptions } : {})
+    });
+    return Object.assign(host, services ? { services } : {});
+  } catch (err) {
+    await services?.stop();
+    throw err;
+  }
 }
 
-/** Demonstration identities; a deployment resolves tokens with @typesys/auth-oidc (ADR-0050). */
-export const coldChainIdentities: Record<"logistics" | "qa" | "auditor" | "carrier" | "anonymous", Identity> = {
-  logistics: { subjectId: "user-logistics-1", roles: ["logistics"], attributes: { displayName: "Dana Whitfield" }, clearance: "INTERNAL" },
-  qa: { subjectId: "user-qa-1", roles: ["qa"], attributes: { displayName: "Dr. Priya Raman" }, clearance: "CONFIDENTIAL" },
-  auditor: { subjectId: "user-auditor-1", roles: ["auditor"], attributes: { displayName: "Sam Ortega" }, clearance: "INTERNAL" },
-  carrier: { subjectId: "user-carrier-1", roles: ["carrier"], attributes: { displayName: "Northline dispatch", carrier: "Northline Cold Freight" }, clearance: "PUBLIC" },
-  anonymous: { subjectId: "anonymous", roles: [], attributes: {} }
-};
+/** Demonstration identities: the deployment's personas. A real deployment resolves tokens with @typesys/auth-oidc (ADR-0050). */
+export const coldChainIdentities = coldChainDeployment.personas as Record<"logistics" | "qa" | "auditor" | "carrier" | "anonymous", Identity>;
 
 const TOKENS: Record<string, Identity> = {
   "demo-logistics-token": coldChainIdentities.logistics,

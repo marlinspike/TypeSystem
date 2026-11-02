@@ -69,7 +69,8 @@ beforeAll(async () => {
 describe("domain packs (ADR-0059)", () => {
   it("the committed archives are exactly what the domains build", async () => {
     expect(await driftedPacks()).toEqual([]);
-    expect(PACKS.map((p) => verifyPack(p))).toEqual([[], [], []]);
+    expect(PACKS.map((p) => verifyPack(p))).toEqual(PACKS.map(() => []));
+    expect(PACKS.map((p) => p.name)).toEqual(["core", "airforce", "hospital", "coldchain", "coldchain-recalls", "ops"]);
   });
 
   it("installed from its files with no network, the airforce domain is the same model and answers every caller the same", async () => {

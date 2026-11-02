@@ -1,0 +1,351 @@
+{
+  "format": "typesys.pack/1",
+  "name": "coldchain-recalls",
+  "version": "1.0.0",
+  "description": "Manufacturers' recall notices from an industry recall exchange, over the cold chain's lots, with Actions to hold affected lots and file an effectiveness response.",
+  "requires": {
+    "core": "^1.0.0",
+    "coldchain": "^1.0.0"
+  },
+  "contents": {
+    "types": [
+      {
+        "name": "coldchain.Recall",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/coldchain/Recall/1.0.0",
+          "title": "Recall",
+          "description": "A manufacturer's recall notice, in the recall exchange, and the response on file against it.",
+          "type": "object",
+          "properties": {
+            "firm": {
+              "type": "string",
+              "description": "The issuing manufacturer."
+            },
+            "product": {
+              "type": "string"
+            },
+            "ndc": {
+              "type": "string",
+              "pattern": "^[0-9]{11}$",
+              "description": "National Drug Code, eleven digits, as the exchange writes it."
+            },
+            "recallClass": {
+              "type": "string",
+              "enum": [
+                "I",
+                "II",
+                "III"
+              ]
+            },
+            "lifecycle": {
+              "type": "string",
+              "enum": [
+                "active",
+                "terminated"
+              ]
+            },
+            "embargoed": {
+              "type": "boolean",
+              "description": "True while the manufacturer has not made the notice public: need-to-know for quality assurance."
+            },
+            "healthHazard": {
+              "type": "string",
+              "description": "The manufacturer's health hazard evaluation. CONFIDENTIAL; quality assurance only."
+            },
+            "issuedOn": {
+              "type": "string",
+              "format": "date"
+            },
+            "affectedLots": {
+              "type": "array",
+              "description": "Every lot the manufacturer recalled, including lots we never held.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "lotCode": {
+                    "type": "string"
+                  },
+                  "expiry": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                },
+                "required": [
+                  "lotCode"
+                ]
+              }
+            },
+            "responseStatus": {
+              "type": "string",
+              "enum": [
+                "awaiting",
+                "responded"
+              ]
+            },
+            "lotsHeld": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "From the response on file: the lots quarantined."
+            },
+            "dosesHeld": {
+              "type": "integer",
+              "description": "From the response on file: the doses in those lots."
+            },
+            "shipmentsInTransit": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "From the response on file: shipments reported in transit."
+            },
+            "signedOffBy": {
+              "type": "string",
+              "description": "From the response on file: who signed it off."
+            }
+          },
+          "required": [
+            "firm",
+            "product",
+            "ndc",
+            "recallClass",
+            "lifecycle",
+            "embargoed",
+            "responseStatus"
+          ],
+          "x-actions": {
+            "actions": [
+              "FileRecallResponse"
+            ]
+          },
+          "x-policy": {
+            "objectPolicy": "coldchain.read-recall",
+            "propertyPolicies": {
+              "healthHazard": "coldchain.qa"
+            }
+          },
+          "x-provenance": {
+            "properties": {
+              "healthHazard": {
+                "classification": "CONFIDENTIAL"
+              }
+            }
+          }
+        },
+        "traits": []
+      }
+    ],
+    "traits": [],
+    "actions": [
+      {
+        "id": "action-coldchain-hold-lots-for-recall",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "name": "HoldLotsForRecall",
+        "description": "Quarantines each listed lot in the pharmacy inventory with a hold reason naming the recall. All or none: a lot that cannot be held releases those already held.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "recallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lotIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "recallId",
+            "lotIds"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "recallId": {
+              "type": "string"
+            },
+            "held": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "recallId",
+            "held"
+          ]
+        },
+        "authorizationPolicy": "coldchain.respond-recall",
+        "requiresApproval": true,
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/quarantine, per lot"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-release-recall-holds",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "name": "ReleaseRecallHolds",
+        "description": "Releases lots a recall hold quarantined: undoes HoldLotsForRecall.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "lotIds"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "released": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "released"
+          ]
+        },
+        "authorizationPolicy": "coldchain.respond-recall",
+        "requiresApproval": true,
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/release, per lot"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-file-recall-response",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "name": "FileRecallResponse",
+        "description": "Files the distributor's effectiveness response to a recall with the exchange. The exchange refuses a terminated notice, one already answered, and a lot not on the notice.",
+        "applicableTypes": [
+          "coldchain.Recall"
+        ],
+        "target": {
+          "idFrom": "recallNumber"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "recallNumber": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lotsQuarantined": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dosesQuarantined": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "shipmentsInTransit": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "signedOffBy": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "recallNumber",
+            "lotsQuarantined",
+            "dosesQuarantined",
+            "shipmentsInTransit",
+            "signedOffBy"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "authorizationPolicy": "coldchain.respond-recall",
+        "requiresApproval": true,
+        "implementation": {
+          "dataSourceId": "recall-exchange",
+          "operation": "POST /exchange/v1/notices/{recallNumber}/responses"
+        },
+        "sideEffects": "external",
+        "idempotency": "none",
+        "preconditions": []
+      }
+    ],
+    "dataSources": [
+      {
+        "id": "recall-exchange",
+        "name": "Recall exchange (industry service)",
+        "kind": "http"
+      }
+    ],
+    "mappings": [
+      {
+        "id": "map-coldchain.Recall",
+        "typeName": "coldchain.Recall",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "recall-exchange",
+        "operation": "get",
+        "resolutionMode": "live"
+      }
+    ]
+  },
+  "requirements": {
+    "computed": [],
+    "preconditions": [],
+    "policies": [
+      "coldchain.qa",
+      "coldchain.read-recall",
+      "coldchain.respond-recall"
+    ],
+    "dataSources": [
+      "pharmacy-inventory",
+      "recall-exchange"
+    ],
+    "types": [
+      "coldchain.Lot"
+    ],
+    "actions": []
+  },
+  "digest": "sha256:fc332bfe88900db92732655c074963ece663228b2898366a9a42cd3fea33cde5"
+}

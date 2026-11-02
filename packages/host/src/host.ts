@@ -1,0 +1,361 @@
+import { createRemoteJWKSet } from "jose";
+import {
+  AbacPolicyEngine,
+  DEMO_LINEAR_CLASSIFICATION,
+  DENY_MARKED_DATA,
+  InMemoryRegistryStore,
+  SemanticRegistry,
+  SemanticRuntime,
+  compilePolicies,
+  linearClassification,
+  mergeBindingRegistries,
+  registerDomain,
+  type Adapter,
+  type BindingRegistry,
+  type BuiltRuntime,
+  type ClassificationScheme,
+  type DomainManifest,
+  type Identity,
+  type IdentityResolver,
+  type PolicyRule,
+  type RegistryStore,
+  type SemanticRuntimeOptions
+} from "@typesys/core";
+import { HttpAdapter, type HttpAdapterConfig, type HttpAuth } from "@typesys/adapter-http";
+import { createOidcIdentityResolver } from "@typesys/auth-oidc";
+import { installPacks, type InstalledPack, type PackArchive } from "@typesys/packs";
+import {
+  DeploymentError,
+  buildIdOf,
+  parseDeployment,
+  type ConfigString,
+  type Credential,
+  type Deployment,
+  type HttpAuthSpec,
+  type HttpSourceSpec
+} from "./deployment.js";
+
+/** Where references are resolved: configuration from the environment, credentials from a secret store. */
+export interface HostEnvironment {
+  env(name: string): string | undefined;
+  secret(name: string): string | undefined;
+}
+
+/** Both from `process.env`: what a container gets from its ConfigMap and Secret. */
+export const processEnvironment: HostEnvironment = {
+  env: (name) => process.env[name],
+  secret: (name) => process.env[name]
+};
+
+/** Nothing set: every reference falls back to its default, or fails. */
+export const emptyEnvironment: HostEnvironment = { env: () => undefined, secret: () => undefined };
+
+/** An environment from fixed values, falling back to another: how a test or an in-process host points at its own services. */
+export function overlayEnvironment(values: Readonly<Record<string, string | undefined>>, base: HostEnvironment = processEnvironment): HostEnvironment {
+  const own = (name: string) => (Object.hasOwn(values, name) ? values[name] : undefined);
+  return { env: (name) => own(name) ?? base.env(name), secret: (name) => own(name) ?? base.secret(name) };
+}
+
+export interface HostExtensionContext {
+  readonly deployment: Deployment;
+  readonly env: HostEnvironment;
+  /** The adapters the deployment configures itself (its `http` sources), by data source id. */
+  readonly sources: Readonly<Record<string, Adapter>>;
+}
+
+/**
+ * Code a deployment needs, named in its `extensions` (ADR-0102): bindings
+ * for the computed values and preconditions its packs name, adapters for its
+ * `extension` sources, decorators of its other sources, and an identity
+ * resolver. An extension adds no policy, Type or source the deployment does
+ * not declare: what it returns is checked against the deployment.
+ */
+export interface HostExtension {
+  readonly name: string;
+  readonly bindings?: BindingRegistry;
+  /** Adapters, each for a source the deployment declares: one of this extension's, or a decorator of another (same id). */
+  readonly adapters?: (ctx: HostExtensionContext) => readonly Adapter[] | Promise<readonly Adapter[]>;
+  readonly identityResolver?: IdentityResolver;
+  /** Releases what the extension started (services, connections) when the host closes. */
+  readonly close?: () => Promise<void>;
+}
+
+export interface HostOptions {
+  /** The pack archives the deployment lists, by name and version (and digest, where it gives one). */
+  readonly packs: readonly PackArchive[];
+  readonly extensions?: readonly HostExtension[];
+  readonly env?: HostEnvironment;
+  /** Default: a registry in this process, built from the packs (ADR-0102). Nothing another replica writes can change it. */
+  readonly store?: RegistryStore;
+  /** Code-only runtime options (a shared cache, a rate limiter, query limits); they override the deployment's own. */
+  readonly runtimeOptions?: SemanticRuntimeOptions;
+  /**
+   * Model and rules given as code beside the deployment's packs and policies,
+   * for a host extended in-process by an application (the cold chain's
+   * `extend`). Recorded under `code` so nothing about them is hidden; a rule
+   * here may not reuse a deployment policy's name.
+   */
+  readonly manifests?: readonly DomainManifest[];
+  readonly policyRules?: Readonly<Record<string, PolicyRule>>;
+  /** Who installs the packs, for the `pack.install` audit row. Default `"host"`. */
+  readonly actor?: string;
+}
+
+export interface Host extends BuiltRuntime {
+  readonly deployment: Deployment;
+  /** The build id every audit row of this host names (ADR-0101). */
+  readonly build: string;
+  readonly identityResolver: IdentityResolver;
+  /** The deployment's personas, `anonymous` always among them. */
+  readonly personas: Readonly<Record<string, Identity>>;
+  readonly packs: readonly InstalledPack[];
+  /** Every adapter the runtime has, by data source id. */
+  readonly adapters: Readonly<Record<string, Adapter>>;
+  /** What this host runs that the deployment does not hold as data. */
+  readonly code: {
+    readonly extensions: readonly string[];
+    /** Sources an extension supplies or decorates, with the extension's name. */
+    readonly sources: Readonly<Record<string, string>>;
+    readonly manifests: readonly string[];
+    readonly policies: readonly string[];
+  };
+  close(): Promise<void>;
+}
+
+const ANONYMOUS: Identity = Object.freeze({ subjectId: "anonymous", roles: [], attributes: {} });
+
+/** Closes every extension, whatever one of them throws. */
+async function closeAll(extensions: Iterable<HostExtension>): Promise<void> {
+  await Promise.allSettled([...extensions].map(async (e) => e.close?.()));
+}
+
+function resolveConfig(value: ConfigString, env: HostEnvironment, at: string): string {
+  if (typeof value === "string") return value;
+  const raw = env.env(value.$env) ?? value.default;
+  if (raw === undefined || raw === "") throw new DeploymentError([`${at}: environment variable ${value.$env} is not set`]);
+  return value.path ? new URL(value.path, raw).href : raw;
+}
+
+function resolveCredential(value: Credential, env: HostEnvironment, demo: boolean, at: string): string {
+  if (typeof value === "string") return value;
+  const secret = env.secret(value.$secret) ?? (demo ? value.default : undefined);
+  if (secret === undefined || secret === "") throw new DeploymentError([`${at}: secret ${value.$secret} is not set`]);
+  return `${value.prefix ?? ""}${secret}`;
+}
+
+function httpAuth(spec: HttpAuthSpec, env: HostEnvironment, demo: boolean, at: string): HttpAuth {
+  if (spec.kind === "header") return { kind: "header", name: spec.name, value: resolveCredential(spec.value, env, demo, `${at}.value`) };
+  if (spec.kind === "basic")
+    return { kind: "header", name: "authorization", value: `Basic ${Buffer.from(`${spec.username}:${resolveCredential(spec.password, env, demo, `${at}.password`)}`).toString("base64")}` };
+  return {
+    kind: "client-credentials",
+    tokenUrl: resolveConfig(spec.tokenUrl, env, `${at}.tokenUrl`),
+    clientId: spec.clientId,
+    clientSecret: resolveCredential(spec.clientSecret, env, demo, `${at}.clientSecret`),
+    ...(spec.scope !== undefined ? { scope: spec.scope } : {})
+  };
+}
+
+/**
+ * The adapter a deployment's `http` source describes, its references
+ * resolved from `env`. A `$secret` default is used only when `demo` is true.
+ */
+export function adapterForSource(id: string, spec: HttpSourceSpec, env: HostEnvironment, demo: boolean): HttpAdapter {
+  const at = `sources["${id}"]`;
+  const config: HttpAdapterConfig = {
+    dataSourceId: id,
+    system: spec.system,
+    baseUrl: resolveConfig(spec.baseUrl, env, `${at}.baseUrl`),
+    ...(spec.auth ? { auth: httpAuth(spec.auth, env, demo, `${at}.auth`) } : {}),
+    types: spec.types,
+    ...(spec.actions ? { actions: spec.actions } : {}),
+    ...(spec.maxPages !== undefined ? { maxPages: spec.maxPages } : {})
+  };
+  return new HttpAdapter(config);
+}
+
+function classificationOf(deployment: Deployment): ClassificationScheme {
+  const c = deployment.classification ?? { kind: "deny-marked" };
+  if (c.kind === "linear") return linearClassification(c.levels, c.name);
+  if (c.kind === "demo-linear") return DEMO_LINEAR_CLASSIFICATION;
+  return DENY_MARKED_DATA;
+}
+
+function identityResolverOf(deployment: Deployment, env: HostEnvironment, personas: Readonly<Record<string, Identity>>, extensions: ReadonlyMap<string, HostExtension>): IdentityResolver {
+  const spec = deployment.identity;
+  if (spec.kind === "oidc") {
+    const issuer = resolveConfig(spec.issuer, env, "identity.issuer");
+    const audience = spec.audience !== undefined ? resolveConfig(spec.audience, env, "identity.audience") : undefined;
+    const jwksUrl = spec.jwksUrl !== undefined ? resolveConfig(spec.jwksUrl, env, "identity.jwksUrl") : undefined;
+    return createOidcIdentityResolver({
+      issuer,
+      ...(audience ? { audience } : {}),
+      ...(spec.rolesClaim ? { rolesClaim: spec.rolesClaim } : {}),
+      ...(spec.clearanceClaim ? { clearanceClaim: spec.clearanceClaim } : {}),
+      ...(jwksUrl ? { jwks: createRemoteJWKSet(new URL(jwksUrl)) } : {})
+    });
+  }
+  if (spec.kind === "tokens") {
+    const tokens = spec.tokens;
+    // Own properties only: "constructor" and "__proto__" are not tokens.
+    return (token) => Promise.resolve(token && Object.hasOwn(tokens, token) ? personas[tokens[token]!]! : personas.anonymous!);
+  }
+  const resolver = extensions.get(spec.extension)?.identityResolver;
+  if (!resolver) throw new DeploymentError([`identity: extension "${spec.extension}" supplies no identity resolver`]);
+  return resolver;
+}
+
+/**
+ * Builds one governed runtime from a deployment (ADR-0102). Everything is
+ * checked before anything is built, and every problem is reported at once:
+ * the packs offered are exactly the ones listed, every extension named is
+ * supplied, every source the model reads is declared and served, every
+ * adapter an extension returns is for a declared source, and nothing a pack
+ * names is missing (`installPacks` plans before it registers). The registry
+ * is this process's own, filled from the packs, so a replica booting a new
+ * build never changes what another replica serves.
+ */
+export async function buildHost(deploymentDoc: Deployment, options: HostOptions): Promise<Host> {
+  const deployment = parseDeployment(deploymentDoc);
+  const env = options.env ?? processEnvironment;
+  const demo = deployment.demo === true;
+  const problems: string[] = [];
+
+  // Extensions: exactly the ones the deployment names.
+  const extensions = new Map<string, HostExtension>();
+  for (const e of options.extensions ?? []) {
+    if (extensions.has(e.name)) problems.push(`extension "${e.name}" is supplied twice`);
+    extensions.set(e.name, e);
+  }
+  const named = new Set(deployment.extensions ?? []);
+  for (const n of named) if (!extensions.has(n)) problems.push(`extension "${n}" is named by the deployment but not supplied`);
+  for (const n of extensions.keys()) if (!named.has(n)) problems.push(`extension "${n}" is supplied but the deployment does not name it`);
+
+  // Packs: exactly the ones the deployment lists, at the version (and digest) it lists.
+  const archives: PackArchive[] = [];
+  const byName = new Map<string, PackArchive>();
+  for (const a of options.packs) {
+    if (byName.has(a.name)) problems.push(`pack ${a.name} is supplied twice`);
+    byName.set(a.name, a);
+  }
+  for (const ref of deployment.packs) {
+    const a = byName.get(ref.name);
+    if (!a) problems.push(`pack ${ref.name}@${ref.version} is listed but not supplied`);
+    else if (a.version !== ref.version) problems.push(`pack ${ref.name}: the deployment lists ${ref.version}, ${a.version} was supplied`);
+    else if (ref.digest && ref.digest.toLowerCase() !== a.digest.toLowerCase()) problems.push(`pack ${ref.name}@${ref.version}: digest ${a.digest} is not the ${ref.digest} the deployment lists`);
+    else archives.push(a);
+  }
+  for (const name of byName.keys()) if (!deployment.packs.some((p) => p.name === name)) problems.push(`pack ${name} is supplied but the deployment does not list it`);
+
+  // Policies: the deployment's, as data; code rules may not shadow one.
+  let rules: Record<string, PolicyRule> = {};
+  try {
+    rules = compilePolicies(deployment.policies);
+  } catch (err) {
+    problems.push(err instanceof Error ? err.message : String(err));
+  }
+  for (const name of Object.keys(options.policyRules ?? {})) if (Object.hasOwn(rules, name)) problems.push(`code policy "${name}" would replace the deployment's rule of that name`);
+
+  // Every source a model declares must be declared here, and every source declared here must be one a model declares.
+  const modelSources = new Set<string>([
+    ...archives.flatMap((a) => a.contents.dataSources.map((d) => d.id)),
+    ...(options.manifests ?? []).flatMap((m) => (m.dataSources ?? []).map((d) => d.id))
+  ]);
+  for (const id of Object.keys(deployment.sources)) if (!modelSources.has(id)) problems.push(`sources["${id}"]: no pack declares a data source with this id`);
+  if (problems.length > 0) throw new DeploymentError(problems);
+
+  // Adapters: the deployment's own, then each extension's, checked against what the deployment declares.
+  const own: Record<string, Adapter> = {};
+  for (const [id, spec] of Object.entries(deployment.sources)) {
+    if (spec.kind !== "http") continue;
+    try {
+      own[id] = adapterForSource(id, spec, env, demo);
+    } catch (err) {
+      problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
+    }
+  }
+  if (problems.length > 0) throw new DeploymentError(problems);
+  const adapters = new Map<string, Adapter>(Object.entries(own));
+  const supplied: Record<string, string> = {};
+  for (const [name, ext] of extensions) {
+    const returned = (await ext.adapters?.({ deployment, env, sources: { ...own } })) ?? [];
+    for (const a of returned) {
+      const spec = Object.hasOwn(deployment.sources, a.dataSourceId) ? deployment.sources[a.dataSourceId] : undefined;
+      if (!spec) problems.push(`extension "${name}" returned an adapter for "${a.dataSourceId}", which the deployment does not declare`);
+      else if (spec.kind === "extension" && spec.extension !== name) problems.push(`extension "${name}" returned an adapter for "${a.dataSourceId}", which the deployment gives to "${spec.extension}"`);
+      else if (Object.hasOwn(supplied, a.dataSourceId)) problems.push(`"${a.dataSourceId}" is supplied by both "${supplied[a.dataSourceId]}" and "${name}"`);
+      else {
+        supplied[a.dataSourceId] = name;
+        adapters.set(a.dataSourceId, a);
+      }
+    }
+  }
+  for (const [id, spec] of Object.entries(deployment.sources)) if (spec.kind === "extension" && !adapters.has(id)) problems.push(`sources["${id}"]: extension "${spec.extension}" supplied no adapter for it`);
+
+  const personas: Record<string, Identity> = { anonymous: ANONYMOUS, ...(deployment.personas ?? {}) };
+  let identityResolver: IdentityResolver | undefined;
+  try {
+    identityResolver = identityResolverOf(deployment, env, personas, extensions);
+  } catch (err) {
+    problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
+  }
+  if (problems.length > 0) {
+    await closeAll(extensions.values());
+    throw new DeploymentError(problems);
+  }
+
+  const build = buildIdOf(deployment, archives.map((a) => a.digest));
+  const registry = new SemanticRegistry(options.store ?? new InMemoryRegistryStore(), undefined, { build });
+  const allRules = { ...rules, ...options.policyRules };
+  const bindings = mergeBindingRegistries(...[...extensions.values()].map((e) => e.bindings ?? { computed: {}, preconditions: {} }));
+  let installed: InstalledPack[];
+  try {
+    installed = await installPacks(registry, archives, {
+      bindings,
+      actor: options.actor ?? "host",
+      policies: Object.keys(allRules),
+      adapters: [...adapters.values()],
+      ...(deployment.trust?.keys ? { trustedKeys: deployment.trust.keys } : {}),
+      ...(deployment.trust?.revokedKeys ? { revokedKeys: deployment.trust.revokedKeys } : {}),
+      ...(deployment.trust?.revokedDigests ? { revokedDigests: deployment.trust.revokedDigests } : {})
+    });
+    for (const m of options.manifests ?? []) await registerDomain(registry, m);
+  } catch (err) {
+    await closeAll(extensions.values());
+    throw err;
+  }
+
+  const policyEngine = new AbacPolicyEngine();
+  for (const [name, rule] of Object.entries(allRules)) policyEngine.registerRule(name, rule);
+  const runtime = new SemanticRuntime(registry, [...adapters.values()], policyEngine, {
+    classification: classificationOf(deployment),
+    ...(deployment.runtime?.callTimeoutMs !== undefined ? { resilience: { callTimeoutMs: deployment.runtime.callTimeoutMs } } : {}),
+    ...(deployment.runtime?.inspectionPolicy ? { inspection: { policy: deployment.runtime.inspectionPolicy } } : {}),
+    ...options.runtimeOptions
+  });
+
+  let closed = false;
+  return {
+    registry,
+    runtime,
+    policyEngine,
+    deployment,
+    build,
+    identityResolver: identityResolver!,
+    personas,
+    packs: installed,
+    adapters: Object.fromEntries(adapters),
+    code: {
+      extensions: [...extensions.keys()],
+      sources: supplied,
+      manifests: (options.manifests ?? []).flatMap((m) => m.types.map((t) => t.options.name)),
+      policies: Object.keys(options.policyRules ?? {})
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      await closeAll(extensions.values());
+      await registry.close();
+    }
+  };
+}

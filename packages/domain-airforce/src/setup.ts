@@ -61,6 +61,28 @@ export const airforcePolicyDocument: PolicyDocument = {
 export const airforcePolicyRules: Record<string, PolicyRule> = compilePolicies(airforcePolicyDocument);
 
 /**
+ * The domain's two systems, seeded with the sample data: the aircraft
+ * repository (in memory) and the maintenance system (a simulated REST
+ * service whose calls take `latencyMs`, default 1). Fresh on every call.
+ * The testbed uses them, and so does the airforce demo deployment's
+ * extension (ADR-0102), so both serve the same data.
+ */
+export function airforceSampleAdapters(latencyMs = 1): { inMemoryAdapter: InMemoryRepositoryAdapter; mockRestAdapter: MockRestAdapter } {
+  const inMemoryAdapter = new InMemoryRepositoryAdapter(AIRCRAFT_DATA_SOURCE_ID, "airforce-repo");
+  inMemoryAdapter.seed("airforce.Aircraft", sampleAircraft);
+  inMemoryAdapter.seed("airforce.Component", sampleComponents);
+
+  const mockRestClient = new MockRestClient(latencyMs);
+  mockRestClient.seedMaintenanceEvents(sampleMaintenanceEvents);
+  mockRestClient.seedWorkOrders(sampleWorkOrders);
+  const mockRestAdapter = new MockRestAdapter(MAINTENANCE_DATA_SOURCE_ID, mockRestClient, {
+    maintenanceEventType: "airforce.MaintenanceEvent",
+    workOrderType: "airforce.WorkOrder"
+  });
+  return { inMemoryAdapter, mockRestAdapter };
+}
+
+/**
  * `runtimeOptions` (cache, rate limiter, concurrency, query limits) pass straight through to
  * `buildRuntime` — e.g. Redis-backed ones for a multi-instance run. `mockRestLatencyMs` sets the
  * simulated network latency of the maintenance system's REST calls (default 1ms), so a load test
@@ -78,18 +100,7 @@ export async function buildAirforceTestbed(
     manifest?: DomainManifest;
   } = {}
 ): Promise<AirforceTestbed> {
-  const inMemoryAdapter = new InMemoryRepositoryAdapter(AIRCRAFT_DATA_SOURCE_ID, "airforce-repo");
-  inMemoryAdapter.seed("airforce.Aircraft", sampleAircraft);
-  inMemoryAdapter.seed("airforce.Component", sampleComponents);
-
-  const mockRestClient = new MockRestClient(opts.mockRestLatencyMs ?? 1);
-  mockRestClient.seedMaintenanceEvents(sampleMaintenanceEvents);
-  mockRestClient.seedWorkOrders(sampleWorkOrders);
-  const mockRestAdapter = new MockRestAdapter(MAINTENANCE_DATA_SOURCE_ID, mockRestClient, {
-    maintenanceEventType: "airforce.MaintenanceEvent",
-    workOrderType: "airforce.WorkOrder"
-  });
-
+  const { inMemoryAdapter, mockRestAdapter } = airforceSampleAdapters(opts.mockRestLatencyMs);
   const { registry, runtime, policyEngine } = await buildRuntime({
     manifests: [coreManifest, opts.manifest ?? airforceManifest],
     adapters: [inMemoryAdapter, mockRestAdapter],

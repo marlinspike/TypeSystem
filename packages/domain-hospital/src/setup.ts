@@ -56,11 +56,17 @@ export const hospitalPolicyDocument: PolicyDocument = {
 /** The same rules, compiled (ADR-0100). */
 export const hospitalPolicyRules: Record<string, PolicyRule> = compilePolicies(hospitalPolicyDocument);
 
-export async function buildHospitalTestbed(opts: { runtimeOptions?: SemanticRuntimeOptions } = {}): Promise<HospitalTestbed> {
+/** The hospital repository, seeded with the sample data; fresh on every call. The testbed and the hospital demo deployment's extension (ADR-0102) both serve it. */
+export function hospitalSampleAdapter(): InMemoryRepositoryAdapter {
   const adapter = new InMemoryRepositoryAdapter(HOSPITAL_DATA_SOURCE_ID, "hospital-repo");
   adapter.seed("hospital.Patient", samplePatients);
   adapter.seed("hospital.Provider", sampleProviders);
   adapter.seed("hospital.Appointment", sampleAppointments);
+  return adapter;
+}
+
+export async function buildHospitalTestbed(opts: { runtimeOptions?: SemanticRuntimeOptions } = {}): Promise<HospitalTestbed> {
+  const adapter = hospitalSampleAdapter();
 
   const { registry, runtime, policyEngine } = await buildRuntime({
     manifests: [coreManifest, hospitalManifest],

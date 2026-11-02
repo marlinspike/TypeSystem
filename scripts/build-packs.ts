@@ -1,6 +1,7 @@
 /**
  * Writes each demo domain's pack archive (ADR-0059) to packs/, the files an
- * offline deployment copies and installs:
+ * offline deployment copies and installs and the deployments in deployments/
+ * list (ADR-0102):
  *   npm run packs              write them
  *   npm run packs -- --check   fail if a committed archive has drifted from its domain
  */
@@ -10,10 +11,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { corePack, type PackArchive } from "@typesys/packs";
 import { airforcePack } from "@typesys/domain-airforce";
 import { hospitalPack } from "@typesys/domain-hospital";
+import { coldChainPack, recallPack } from "@typesys/cold-chain";
+import { opsPack } from "@typesys/sortie-readiness";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export const PACKS: readonly PackArchive[] = [corePack, airforcePack, hospitalPack];
+/** Every pack a deployment in deployments/ lists (ADR-0102). */
+export const PACKS: readonly PackArchive[] = [corePack, airforcePack, hospitalPack, coldChainPack, recallPack, opsPack];
 
 export const packFile = (p: PackArchive): string => path.join(root, "packs", `${p.name}-${p.version}.typesys-pack.json`);
 
