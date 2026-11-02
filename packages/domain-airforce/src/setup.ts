@@ -3,13 +3,11 @@ import type {
   SemanticRuntime,
   SemanticRuntimeOptions,
   PolicyRule,
+  PolicyDocument,
   DomainManifest
 } from "@typesys/core";
 import {
-  allOf,
-  anyOf,
-  requireAttributeMatch,
-  requireRole,
+  compilePolicies,
   buildRuntime,
   coreManifest,
   DEMO_LINEAR_CLASSIFICATION,
@@ -47,17 +45,20 @@ export interface AirforceTestbed {
  * lives here now.
  */
 /** This domain's named policy rules — exported so a runtime hosting several domains (the demo web app) can register them alongside others'. */
-export const airforcePolicyRules: Record<string, PolicyRule> = {
+export const airforcePolicyDocument: PolicyDocument = {
   // `ai-enclave` is held only by a model audience (ADR-0067): the squadron's own enclave model may receive what a maintainer reads.
-  "airforce.read-aircraft": requireRole("maintainer", "viewer", "ai-enclave"),
-  "airforce.maintainer-only": requireRole("maintainer", "ai-enclave"),
+  "airforce.read-aircraft": { role: ["maintainer", "viewer", "ai-enclave"] },
+  "airforce.maintainer-only": { role: ["maintainer", "ai-enclave"] },
   // Instance-scoped (ADR-0053): decided on the WorkOrder's own assignedTo.
-  "airforce.work-order-assignee": allOf(requireRole("maintainer"), anyOf(requireRole("lead"), requireAttributeMatch("assignedTo", "displayName"))),
+  "airforce.work-order-assignee": { allOf: [{ role: ["maintainer"] }, { anyOf: [{ role: ["lead"] }, { attributeMatch: { resource: "assignedTo", subject: "displayName" } }] }] },
   // Who approves the GroundForRepair workflow's proposal (ADR-0057).
-  "airforce.maintenance-lead": allOf(requireRole("maintainer"), requireRole("lead")),
+  "airforce.maintenance-lead": { allOf: [{ role: ["maintainer"] }, { role: ["lead"] }] },
   // Who may inspect the enforcement structure and explain others' access (ADR-0088), when a deployment names it as its inspection policy.
-  "airforce.inspect": requireRole("lead")
+  "airforce.inspect": { role: ["lead"] }
 };
+
+/** The same rules, compiled (ADR-0100). */
+export const airforcePolicyRules: Record<string, PolicyRule> = compilePolicies(airforcePolicyDocument);
 
 /**
  * `runtimeOptions` (cache, rate limiter, concurrency, query limits) pass straight through to

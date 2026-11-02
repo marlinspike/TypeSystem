@@ -44,10 +44,12 @@ export * from "./runtime/runtime.js";
 
 export * from "./policy/abac-policy-engine.js";
 export * from "./policy/authorization-plan.js";
+export * from "./policy/policy-document.js";
 export * from "./audit/audit-log.js";
 
 export * from "./testing/registry-store-contract.js";
 export * from "./testing/plan-conformance.js";
+export * from "./testing/policy-parity.js";
 
 export * from "./base/manifest.js";
 export { PartyType } from "./base/types/party.js";

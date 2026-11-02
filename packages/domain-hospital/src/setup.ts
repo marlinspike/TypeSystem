@@ -1,12 +1,9 @@
 import {
-  allOf,
-  allowAllRule,
-  anyOf,
   buildRuntime,
+  compilePolicies,
   coreManifest,
-  requireAttributeMatch,
-  requireRole,
   type Identity,
+  type PolicyDocument,
   type PolicyEngine,
   type PolicyRule,
   type SemanticRegistry,
@@ -36,23 +33,28 @@ export interface HospitalTestbed {
  * running domain alongside airforce.
  */
 /** This domain's named policy rules — exported so a runtime hosting several domains (the demo web app) can register them alongside others'. */
-export const hospitalPolicyRules: Record<string, PolicyRule> = {
+export const hospitalPolicyDocument: PolicyDocument = {
   // Provider directory is not sensitive — anyone can browse clinicians.
-  "hospital.read-provider": allowAllRule,
+  "hospital.read-provider": "always",
   // Per-instance (ADR-0030), decided on each Patient's own attributes: a
   // clinician reads only the patients assigned to them, a patient only their
   // own record, an admin every record.
-  "hospital.read-patient": anyOf(
-    requireRole("admin"),
-    allOf(requireRole("clinician"), requireAttributeMatch("assignedClinicianId", "providerId")),
-    allOf(requireRole("patient"), requireAttributeMatch("id", "patientId"))
-  ),
+  "hospital.read-patient": {
+    anyOf: [
+      { role: ["admin"] },
+      { allOf: [{ role: ["clinician"] }, { attributeMatch: { resource: "assignedClinicianId", subject: "providerId" } }] },
+      { allOf: [{ role: ["patient"] }, { attributeMatch: { resource: "id", subject: "patientId" } }] }
+    ]
+  },
   // Still role-level: which clinicians may see an appointment is a domain
   // choice this demo doesn't make (see ADR-0030's review notes).
-  "hospital.read-appointment": requireRole("clinician", "admin", "patient"),
+  "hospital.read-appointment": { role: ["clinician", "admin", "patient"] },
   // Sensitive identifiers within an otherwise-readable Patient stay staff-only.
-  "hospital.staff-only": requireRole("clinician", "admin")
+  "hospital.staff-only": { role: ["clinician", "admin"] }
 };
+
+/** The same rules, compiled (ADR-0100). */
+export const hospitalPolicyRules: Record<string, PolicyRule> = compilePolicies(hospitalPolicyDocument);
 
 export async function buildHospitalTestbed(opts: { runtimeOptions?: SemanticRuntimeOptions } = {}): Promise<HospitalTestbed> {
   const adapter = new InMemoryRepositoryAdapter(HOSPITAL_DATA_SOURCE_ID, "hospital-repo");

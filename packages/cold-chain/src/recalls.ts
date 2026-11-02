@@ -1,6 +1,6 @@
 import { HttpAdapter } from "@typesys/adapter-http";
-import type { ActionContext, ActionDefinition, Adapter, AdapterCallOptions, DataSource, DomainManifest, Identity, Mapping, PolicyRequest, PolicyRule } from "@typesys/core";
-import { allOf, anyOf, requireRole } from "@typesys/core";
+import type { ActionContext, ActionDefinition, Adapter, AdapterCallOptions, DataSource, DomainManifest, Identity, Mapping, PolicyDocument, PolicyRule } from "@typesys/core";
+import { compilePolicies } from "@typesys/core";
 import { INVENTORY } from "./model.js";
 import { startService, type RunningService } from "./services.js";
 import { buildColdChainHost, coldChainIdentities, resolveColdChainIdentity, type ColdChainHost, type ColdChainHostOptions } from "./setup.js";
@@ -123,16 +123,25 @@ const MODEL = "coldchain-model";
  * public. Built from the combinators, so a carrier, whom no branch admits,
  * is refused a query outright rather than shown an empty list (ADR-0038).
  */
-const publicNotice: PolicyRule = ({ resource }: PolicyRequest) =>
-  // Asked about the Type rather than one notice: some notices are public.
-  !resource.attributes || resource.attributes.embargoed === false ? { allow: true } : { allow: false, reason: "A notice under embargo is need-to-know for quality assurance alone" };
-const readRecall = anyOf(requireRole("qa"), allOf(requireRole("logistics", "auditor", MODEL), publicNotice));
-
-export const recallPolicyRules: Record<string, PolicyRule> = {
-  "coldchain.read-recall": readRecall,
+export const recallPolicyDocument: PolicyDocument = {
+  "coldchain.read-recall": {
+    anyOf: [
+      { role: ["qa"] },
+      {
+        allOf: [
+          { role: ["logistics", "auditor", MODEL] },
+          // Asked about the Type rather than one notice: some notices are public.
+          { resourceValue: { attribute: "embargoed", equals: false, typeLevel: "allow", reason: "A notice under embargo is need-to-know for quality assurance alone" } }
+        ]
+      }
+    ]
+  },
   /** Who may ask to respond to a notice, and carry out the response once it is signed off. */
-  "coldchain.respond-recall": requireRole("logistics", "qa")
+  "coldchain.respond-recall": { role: ["logistics", "qa"] }
 };
+
+/** The same rules, compiled (ADR-0100). */
+export const recallPolicyRules: Record<string, PolicyRule> = compilePolicies(recallPolicyDocument);
 
 /** The exchange, read and written as the distributor's client (HTTP Basic), its `{ data, meta }` envelope and numbered pages unwrapped. */
 export function recallExchangeAdapter(baseUrl: string, client = { id: "coldchain-distributor", secret: "rx-exchange-2026" }): HttpAdapter {
