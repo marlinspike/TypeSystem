@@ -7,7 +7,7 @@ import { tryLoadHost, type LoadedHost, type LoadHostOptions } from "@typesys/eng
 import { resolveConfig, type LlmConfig } from "@typesys/llm";
 import { checkApp, type AppAnalysis, type CheckEnvironment } from "./check.js";
 import type { AppDiagnostic } from "./diagnostics.js";
-import { acceptanceSource, APP_TSCONFIG, contractsCheckSource, contractsSource, extensionStub, indexHtml, modelSource, SERVER_EXTENSION, serverSource } from "./emit/app.js";
+import { acceptanceSource, APP_TSCONFIG, contractJson, contractModuleSource, contractsCheckSource, contractsSource, extensionStub, indexHtml, modelSource, SERVER_EXTENSION, serverSource } from "./emit/app.js";
 import { flowSource } from "./emit/flows.js";
 import { appSource, pageSource } from "./emit/pages.js";
 import type { AppSpec } from "./ir.js";
@@ -142,6 +142,8 @@ export function generate(analysis: AppAnalysis): Generated {
   owned.set("index.html", indexHtml(app));
   owned.set("src/generated/model.ts", modelSource(analysis));
   owned.set("src/generated/contracts.ts", contractsSource(analysis));
+  owned.set("src/generated/contract.ts", contractModuleSource(analysis));
+  owned.set("contract.json", contractJson(analysis));
   owned.set("src/generated/contracts-check.ts", contractsCheckSource(analysis));
   for (const key of flowKeys) owned.set(`src/generated/flows/${key}.ts`, flowSource(analysis.flows[key]!, analysis));
   for (const info of [...analysis.pages].sort((a, b) => a.page.name.localeCompare(b.page.name))) owned.set(`src/generated/pages/${info.page.name}.tsx`, pageSource(info, analysis));

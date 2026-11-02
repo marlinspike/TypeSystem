@@ -28,6 +28,7 @@
     "@typesys/adapter-http": "0.1.0",
     "@typesys/auth-oidc": "0.1.0",
     "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
     "@typesys/http": "0.1.0",
     "@typesys/llm": "0.1.0",
     "@typesys/mcp-server": "0.1.0",

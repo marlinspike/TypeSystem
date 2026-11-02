@@ -1,6 +1,8 @@
 import { generateModel } from "@typesys/sdk";
 import type { AppAnalysis } from "../check.js";
 import type { AppSpec } from "../ir.js";
+import type { GraphUse } from "@typesys/devkit";
+import { appUses } from "../uses.js";
 import { tsType, tsTypeOf } from "../types.js";
 import { GENERATED } from "./flows.js";
 import { comment, ident, moduleAlias, pascal, q } from "./ts.js";
@@ -101,6 +103,45 @@ export async function llmOptions(): Promise<LlmOptions> {
 /** A flow as the server names it: its own prefix, so no flow key can be one of the server's own names (\`path\`, \`host\`). */
 const flowVar = (key: string): string => `flow_${key}`;
 
+/**
+ * The application's consumer contract (ADR-0103): every Type it reads,
+ * filters, shows, follows a relationship to or acts on, each at `^` the
+ * version it was compiled against. A host upgraded within those ranges keeps
+ * serving it; one past them refuses its calls, closed, until it is rebuilt.
+ * Written as \`contract.json\` for a deployment's \`consumers\` and
+ * \`typesys deploy check\`, and as \`src/generated/contract.ts\` for its server.
+ */
+export function consumerContract(analysis: AppAnalysis): Record<string, string> {
+  const versions = new Map(analysis.model.types.map((t) => [t.name, t.version]));
+  const actions = new Map(analysis.model.actions.map((a) => [a.name, a]));
+  const used = new Set<string>();
+  const note = (u: GraphUse) => {
+    if (u.kind === "type" || u.kind === "member" || u.kind === "relationship") used.add(u.type);
+    if (u.kind === "relationship") {
+      const target = analysis.model.types.find((t) => t.name === u.type)?.relationships.find((r) => r.name === u.relationship)?.target;
+      if (target) used.add(target);
+    }
+    if (u.kind === "action") for (const t of actions.get(u.action)?.applicableTypes ?? []) used.add(t);
+  };
+  for (const c of appUses(analysis.app, analysis.model)) {
+    c.uses.forEach(note);
+    for (const p of c.parts) p.uses.forEach(note);
+  }
+  for (const a of analysis.actions) for (const t of actions.get(a)?.applicableTypes ?? []) used.add(t);
+  return Object.fromEntries([...used].filter((t) => versions.has(t)).sort().map((t) => [t, `^${versions.get(t)!}`]));
+}
+
+export function contractJson(analysis: AppAnalysis): string {
+  return `${JSON.stringify({ format: "typesys.consumer/1", name: analysis.app.name, contract: consumerContract(analysis) }, null, 2)}\n`;
+}
+
+export function contractModuleSource(analysis: AppAnalysis): string {
+  return `${GENERATED("the host's model")}
+/** The Types and versions this application was compiled against (ADR-0103): its server serves every request under them. */
+export const contract: Readonly<Record<string, string>> = ${JSON.stringify(consumerContract(analysis), null, 2)};
+`;
+}
+
 /** The application's entry point: what \`dist/server.js\` runs, and what \`verify\` starts. */
 export function serverSource(app: AppSpec, flowKeys: readonly string[]): string {
   const opts = app.host.options ? JSON.stringify(app.host.options) : "";
@@ -113,6 +154,7 @@ import type { Express } from "express";
 import { createAppServer${app.llm ? ", readLlmConfig" : ""} } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from ${q(app.host.module)};
+import { contract } from "./src/generated/contract.js";
 ${flowKeys.map((k) => `import { ${k} as ${flowVar(k)} } from "./src/generated/flows/${k}.js";`).join("\n")}
 ${app.llm ? 'import { llmOptions } from "./src/extensions/server.js";\n' : ""}
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -127,7 +169,8 @@ export async function createApp(): Promise<{ app: Express; workflows: WorkflowEn
     // Each flow is typed by the application's model; the engine registers any workflow.
     flows: [${flowKeys.map(flowVar).join(", ")}] as unknown as AnyWorkflow[],${models.length ? `\n    models: { ${models.join(", ")} },` : ""}${app.llm ? `\n    llm: { config: readLlmConfig(path.join(root, ${q(app.llm)})), options: await llmOptions() },` : ""}
     clientDir: path.join(here, "client"),
-    title: ${q(app.title)}
+    title: ${q(app.title)},
+    contract
   });
 }
 

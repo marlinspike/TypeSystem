@@ -17,6 +17,7 @@ import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AdapterTimeoutError, AdapterUnavailableError, AuthorizationError, AuthorizationPlanError, CircuitOpenError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError, SourceRefusedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
+import { assertContract, contractMismatches, currentContract } from "./contract.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
@@ -962,6 +963,8 @@ export class SemanticRuntime {
   private async requireType(typeName: string): Promise<TypeDefinition> {
     const typeDef = await this.registry.getType(typeName);
     if (!typeDef) throw new NotFoundError(`Unknown type "${typeName}"`);
+    // A consumer's contract (ADR-0103): a Type it was not built for fails the request, closed.
+    assertContract(typeDef);
     return typeDef;
   }
 
@@ -1269,6 +1272,8 @@ export class SemanticRuntime {
   /** The markings of every Type an Action applies to — its result is data of those Types (ADR-0032). */
   private async actionMarkings(action: ActionDefinition): Promise<string[]> {
     const typeDefs = await Promise.all(action.applicableTypes.map((t) => this.registry.getType(t)));
+    // An Action's result is data of these Types, so a consumer's contract covers them too (ADR-0103).
+    for (const typeDef of typeDefs) if (typeDef) assertContract(typeDef);
     return typeDefs.flatMap((typeDef) => (typeDef ? objectMarkings(typeDef) : []));
   }
 
@@ -2348,7 +2353,12 @@ export class SemanticRuntime {
         }
         const { model, withheld } = await this.modelFor(identity, opts);
         await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, ...(withheld ? { withheld } : {}) });
-        return model;
+        // Under a consumer's contract (ADR-0103), say whether the model keeps it, judged on the Types this caller may see.
+        const contract = currentContract();
+        if (!contract) return model;
+        const visible = opts.prefixes ? (await this.modelFor(identity)).model.types : model.types;
+        const mismatches = contractMismatches(contract, new Map(visible.map((t) => [t.name, t.version])));
+        return { ...model, contract: { satisfied: mismatches.length === 0, mismatches } };
       }
     ));
   }

@@ -26,6 +26,7 @@ export * from "./runtime/cache.js";
 export * from "./runtime/rate-limiter.js";
 export * from "./runtime/concurrency.js";
 export * from "./runtime/errors.js";
+export * from "./runtime/contract.js";
 export * from "./runtime/resilience.js";
 export * from "./runtime/classification.js";
 export * from "./runtime/security-profile.js";

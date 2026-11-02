@@ -2,6 +2,7 @@ import type {
   ActionPreview,
   ActionSummary,
   AggregateResult,
+  ConsumerContract,
   ExecutionPlan,
   Identity,
   ProvenanceRef,
@@ -37,23 +38,42 @@ type InProcessRuntime = Pick<
   "query" | "explainQuery" | "getObject" | "getRelationship" | "getProvenance" | "listActions" | "previewAction" | "invokeAction" | "aggregate"
 >;
 
-/** Calls a runtime in this process as one caller. Errors are the runtime's own (`AuthorizationError`, `InvalidInputError`, ...). */
-export function runtimeTransport(runtime: InProcessRuntime, identity: Identity): Transport {
+/**
+ * The `TypeSystem-Contract` header's value for a consumer's contract
+ * (ADR-0103): comma-separated `Type@range`. Send it with every request, as
+ * `httpTransport`'s `contract` option does; for an MCP client, set it among
+ * the Streamable HTTP transport's request headers.
+ */
+export function contractHeader(contract: ConsumerContract): string {
+  return Object.entries(contract)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([type, range]) => `${type}@${range}`)
+    .join(", ");
+}
+
+/**
+ * Calls a runtime in this process as one caller. Errors are the runtime's own (`AuthorizationError`, `InvalidInputError`, ...).
+ * With `contract`, every call is made under the consumer's contract (ADR-0103).
+ */
+export function runtimeTransport(runtime: InProcessRuntime, identity: Identity, opts: { readonly contract?: ConsumerContract } = {}): Transport {
+  // Loaded on use: everything else this package takes from core is a type, which keeps it loadable in a
+  // browser, where a client reaches the runtime over a wire and core's Node-only runtime never loads.
+  const core = () => import("@typesys/core");
+  const run = async <T>(fn: () => Promise<T>): Promise<T> => (opts.contract ? (await core()).runUnderContract(opts.contract, fn) : fn());
   return {
-    query: (q) => runtime.query(q, identity),
-    explain: async (q) => (await runtime.explainQuery(q, identity)).execution,
-    getObject: (type, id, opts) => runtime.getObject(type, id, identity, opts),
-    getRelationship: (type, id, rel) => runtime.getRelationship(type, id, rel, identity),
-    getProvenance: (type, id, property) => runtime.getProvenance(type, id, property, identity),
-    listActions: async (type, id) => {
-      // Loaded on use: everything else this package takes from core is a type, which keeps it loadable in a
-      // browser, where a client reaches the runtime over a wire and core's Node-only runtime never loads.
-      const { summarizeAction } = await import("@typesys/core");
-      return (await runtime.listActions(type, identity, id === undefined ? {} : { objectId: id })).map(summarizeAction);
-    },
-    previewAction: (action, input) => runtime.previewAction(action, input, identity),
-    invokeAction: (action, input) => runtime.invokeAction(action, input, identity),
-    aggregate: (q) => runtime.aggregate(q, identity)
+    query: (q) => run(() => runtime.query(q, identity)),
+    explain: (q) => run(async () => (await runtime.explainQuery(q, identity)).execution),
+    getObject: (type, id, o) => run(() => runtime.getObject(type, id, identity, o)),
+    getRelationship: (type, id, rel) => run(() => runtime.getRelationship(type, id, rel, identity)),
+    getProvenance: (type, id, property) => run(() => runtime.getProvenance(type, id, property, identity)),
+    listActions: (type, id) =>
+      run(async () => {
+        const { summarizeAction } = await core();
+        return (await runtime.listActions(type, identity, id === undefined ? {} : { objectId: id })).map(summarizeAction);
+      }),
+    previewAction: (action, input) => run(() => runtime.previewAction(action, input, identity)),
+    invokeAction: (action, input) => run(() => runtime.invokeAction(action, input, identity)),
+    aggregate: (q) => run(() => runtime.aggregate(q, identity))
   };
 }
 
@@ -111,7 +131,7 @@ export function mcpTransport(client: ToolCaller, opts: { authToken?: string } = 
 /**
  * A refusal or failure from a TypeSys REST API (ADR-0058): its HTTP status, the
  * problem's stable `code` (`forbidden`, `not-found`, `invalid-input`,
- * `precondition-failed`, `rate-limited`, ...) to branch on, and for a
+ * `precondition-failed`, `rate-limited`, `contract-unsatisfied`, ...) to branch on, and for a
  * refusal the policy's `reason`.
  */
 export class ApiError extends Error {
@@ -133,6 +153,13 @@ export interface HttpTransportOptions {
   readonly token?: string | (() => string | undefined | Promise<string | undefined>);
   /** Default: the global `fetch` (browsers, Node 18 and later). */
   readonly fetch?: typeof fetch;
+  /**
+   * The Types and versions this client was built against (ADR-0103), sent
+   * with every request. The API refuses, with `contract-unsatisfied` (412),
+   * any call that touches a Type outside them, rather than answer in a shape
+   * the client does not expect.
+   */
+  readonly contract?: ConsumerContract;
 }
 
 /**
@@ -146,11 +173,12 @@ export type HttpCall = (method: "GET" | "POST", path: string, body?: unknown) =>
 export function httpCall(opts: HttpTransportOptions): HttpCall {
   const base = opts.baseUrl.replace(/\/+$/, "");
   const doFetch = opts.fetch ?? fetch;
+  const contract: Record<string, string> = opts.contract && Object.keys(opts.contract).length > 0 ? { "typesystem-contract": contractHeader(opts.contract) } : {};
   return async (method, path, body) => {
     const token = typeof opts.token === "function" ? await opts.token() : opts.token;
     const res = await doFetch(`${base}${path}`, {
       method,
-      headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }), ...(token ? { authorization: `Bearer ${token}` } : {}), ...contract },
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     });
     const text = await res.text();

@@ -48,7 +48,7 @@ export function openApiDocument(
         type: { type: "string" },
         title: { type: "string" },
         status: { type: "integer" },
-        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "source-refused", "unauthorized", "internal"] },
+        code: { enum: ["forbidden", "not-found", "invalid-input", "precondition-failed", "rate-limited", "conflict", "workflow-diverged", "unavailable", "source-refused", "contract-unsatisfied", "unauthorized", "internal"] },
         detail: { type: "string" },
         reason: { type: "string" },
         errors: {}

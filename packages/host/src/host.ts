@@ -7,6 +7,7 @@ import {
   SemanticRegistry,
   SemanticRuntime,
   compilePolicies,
+  contractMismatches,
   linearClassification,
   mergeBindingRegistries,
   registerDomain,
@@ -320,6 +321,12 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       ...(deployment.trust?.revokedDigests ? { revokedDigests: deployment.trust.revokedDigests } : {})
     });
     for (const m of options.manifests ?? []) await registerDomain(registry, m);
+    // Every consumer the deployment declares must be served at versions its contract accepts (ADR-0103): a build that breaks one does not start.
+    const served = new Map((await registry.listTypes()).map((t) => [t.name, t.version]));
+    const broken = (deployment.consumers ?? []).flatMap((c) =>
+      contractMismatches(c.contract, served).map((m) => `consumers: ${c.name} needs ${m.type} ${m.range}, ${m.version ? `this build has ${m.version}` : "this build has no such Type"}`)
+    );
+    if (broken.length > 0) throw new DeploymentError(broken);
   } catch (err) {
     await closeAll(extensions.values());
     throw err;

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { Identity, PolicyEngine, SemanticRegistry, SemanticRuntime } from "@typesys/core";
+import type { ConsumerContract, Identity, PolicyEngine, SemanticRegistry, SemanticRuntime } from "@typesys/core";
 import { clientRouter, createApiApp } from "@typesys/http";
 import { createLlm, workflowModel, type LlmConfig, type LlmOptions } from "@typesys/llm";
 import { WorkflowEngine, type AiModel, type AnyWorkflow, type WorkflowJournal } from "@typesys/workflow";
@@ -27,6 +27,13 @@ export interface AppServerOptions {
   /** Default: the engine's in-memory journal, which a restart loses. */
   readonly journal?: WorkflowJournal;
   readonly title?: string;
+  /**
+   * The Types and versions the application was compiled against (ADR-0103,
+   * `src/generated/contract.ts`): every request is served under it, so a
+   * host upgraded past it refuses the application's calls with
+   * `contract-unsatisfied` instead of answering in a shape its pages were not built for.
+   */
+  readonly contract?: ConsumerContract;
 }
 
 /**
@@ -71,7 +78,8 @@ export async function createAppServer(opts: AppServerOptions): Promise<{ app: Ex
     backend: opts.backend,
     identityResolver: async (token) => opts.identities(token),
     workflows,
-    ...(opts.title ? { info: { title: opts.title } } : {})
+    ...(opts.title ? { info: { title: opts.title } } : {}),
+    ...(opts.contract ? { contract: opts.contract } : {})
   });
   if (opts.clientDir && existsSync(opts.clientDir)) app.use(clientRouter({ dir: opts.clientDir, spa: true }));
   return { app, workflows };
