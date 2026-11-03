@@ -14,6 +14,11 @@ import type { DomainManifest, Mapping } from "@typesys/core";
 function usage(): void {
   console.log(`typesys — TypeSys declarative authoring CLI
 
+Start here:
+  typesys init <dir> --from postgres <ENV_VAR> --schema <name>   onboard a database into a deployment (ADR-0111)
+  typesys dev <deployment.json>                                  serve it on this machine, rebuilt on change (ADR-0112)
+  typesys deploy test <deployment.json>                          check what each persona may see (ADR-0113)
+
 Usage:
   typesys init <dir> [--name <domainName>] [--force] [--json]
   typesys validate <dir> [--bindings <module.js>] [--json]
@@ -31,7 +36,8 @@ Usage:
   typesys engineer plan|scaffold|verify ...   (with @typesys/engineer installed)
   typesys onboard collect|request|propose|review|check ...   (with @typesys/onboard installed)
   typesys app catalog|explain|context|check|compile|build|verify|diff|migrate|inspect|why|graph|impact|links ...   (with @typesys/compiler installed)
-  typesys deploy build|check ...   (with @typesys/host installed: build a deployment, or check an upgrade before it rolls)
+  typesys deploy build|check|test ...   (with @typesys/host installed: build a deployment, check an upgrade before it rolls, run its policy tests)
+  typesys dev <deployment.json> ...   (with @typesys/host installed: serve a deployment for development)
   typesys audit verify|export|prune ...   (with @typesys/host installed: verify, export or prune a deployment's audit trail)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
@@ -341,7 +347,7 @@ async function main(): Promise<void> {
   }
 
   usage();
-  process.exitCode = command ? 1 : 0;
+  process.exitCode = command && !["help", "--help", "-h"].includes(command) ? 1 : 0;
 }
 
 const readPack = async (file: string) => JSON.parse(await readFile(file, "utf8")) as PackArchive;

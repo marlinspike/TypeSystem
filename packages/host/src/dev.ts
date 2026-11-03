@@ -1,6 +1,7 @@
 import { watchFile, unwatchFile, existsSync } from "node:fs";
 import path from "node:path";
 import { AdapterUnavailableError } from "@typesys/core";
+import { PackError } from "@typesys/packs";
 import { DeploymentError } from "./deployment.js";
 import { buildHost } from "./host.js";
 import { loadDeployment, loadExtensions } from "./load.js";
@@ -57,14 +58,14 @@ function parse(argv: readonly string[]): DevArgs {
 }
 
 /** What to print once a build is serving: where, who, and a first call for each persona. */
-export function welcome(serving: Serving): string {
+export async function welcome(serving: Serving): Promise<string> {
   const { host, port } = serving;
   const base = `http://localhost:${port}`;
   const tokens = host.deployment.identity.kind === "tokens" ? host.deployment.identity.tokens : {};
   const byPersona = new Map<string, string>();
   for (const [token, persona] of Object.entries(tokens)) if (!byPersona.has(persona)) byPersona.set(persona, token);
-  const types = host.packs.length ? [...new Set(Object.values(host.deployment.sources).flatMap((s) => (s.kind === "extension" ? [] : Object.keys(s.types))))] : [];
-  const first = types[0];
+  // A Type of the deployment's own model, not one of core's, for the first call.
+  const first = (await host.registry.listTypes()).map((t) => t.name).filter((n) => !n.startsWith("core.")).sort()[0];
   const lines = [
     `${host.deployment.name} is serving (build ${host.build.slice(0, 19)}…)`,
     `  API  ${base}/api        MCP  ${base}/mcp        index  ${base}/`,
@@ -90,28 +91,46 @@ export function welcome(serving: Serving): string {
   return lines.join("\n");
 }
 
-/** `typesys dev`: resolves with the exit code once it stops (on a signal, or at once when it cannot start). */
-export async function devCommand(argv: readonly string[], out: (s: string) => void = console.log, err: (s: string) => void = console.error): Promise<number> {
-  let args: DevArgs;
-  try {
-    args = parse(argv);
-  } catch (e) {
-    err(`${(e as Error).message}\n\n${DEV_USAGE}`);
-    return 2;
-  }
-  if (args.help || !args.file) {
-    (args.help ? out : err)(DEV_USAGE);
-    return args.help ? 0 : 2;
-  }
-  const file = path.resolve(args.file);
+export interface DevOptions {
+  readonly file: string;
+  /** Default 3939; 0 picks a free port, kept across rebuilds. */
+  readonly port?: number;
+  readonly packsDir?: string;
+  /** Rebuild when the deployment, a pack or the tests change. Default true. */
+  readonly watch?: boolean;
+  readonly out?: (s: string) => void;
+  readonly err?: (s: string) => void;
+}
+
+export interface DevSession {
+  /** What is serving now: the last build that built, or nothing if none has. */
+  serving(): Serving | undefined;
+  /** Builds the deployment again; if it builds, it replaces what is serving. Resolves whether it did. */
+  rebuild(): Promise<boolean>;
+  /** Stops watching and serving. */
+  close(): Promise<void>;
+}
+
+/**
+ * Starts serving a deployment for development (ADR-0112) and, unless
+ * `watch` is false, rebuilds it on change. A build that fails leaves the last
+ * one that did serving; the first build failing leaves nothing serving, and
+ * the session waits for a change that builds.
+ */
+export async function startDev(opts: DevOptions): Promise<DevSession> {
+  const out = opts.out ?? console.log;
+  const err = opts.err ?? console.error;
+  const file = path.resolve(opts.file);
   const testsFile = testsFileFor(file);
-  const port = args.port ?? Number(process.env.PORT ?? 3939);
+  const requested = opts.port ?? 3939;
+  const loadOpts = opts.packsDir ? { packsDir: opts.packsDir } : {};
   let current: Serving | undefined;
 
   const report = (e: unknown) => {
-    if (e instanceof DeploymentError) err(`The deployment does not build:\n${e.problems.map((p) => `  - ${p}`).join("\n")}`);
+    if (e instanceof PackError) err(`The deployment does not build:\n  - ${e.message.replace(/\n/g, "\n    ")}`);
+    else if (e instanceof DeploymentError) err(`The deployment does not build:\n${e.problems.map((p) => `  - ${p}`).join("\n")}`);
     else if (e instanceof AdapterUnavailableError) err(`A source cannot be reached: ${e.message}`);
-    else if ((e as NodeJS.ErrnoException).code === "EADDRINUSE") err(`Port ${port} is in use: stop what is serving there, or pass --port`);
+    else if ((e as NodeJS.ErrnoException).code === "EADDRINUSE") err(`Port ${requested} is in use: stop what is serving there, or pass --port`);
     else err(`Could not serve it: ${(e as Error).message}`);
   };
 
@@ -130,11 +149,12 @@ export async function devCommand(argv: readonly string[], out: (s: string) => vo
 
   /** Builds the deployment; if it builds, swaps it in for what is serving. */
   const start = async (): Promise<boolean> => {
-    const opts = { file, port, ...(args.packsDir ? { packsDir: args.packsDir } : {}) };
+    // The port the first build got, so a rebuild answers where the developer already points.
+    const port = current?.port ?? requested;
     if (current) {
       // Built and checked first, in memory, so a change that does not build never stops what is serving.
       try {
-        const { deployment, packs } = await loadDeployment(file, args.packsDir ? { packsDir: args.packsDir } : {});
+        const { deployment, packs } = await loadDeployment(file, loadOpts);
         const trial = await buildHost(deployment, { packs, extensions: await loadExtensions(deployment), state: "memory" });
         try {
           const problems = await trial.checkSources().catch((e: unknown) => {
@@ -153,29 +173,45 @@ export async function devCommand(argv: readonly string[], out: (s: string) => vo
       current = undefined;
     }
     try {
-      current = await serve(opts);
+      current = await serve({ file, port, ...loadOpts });
     } catch (e) {
       report(e);
       return false;
     }
-    out(welcome(current));
+    out(await welcome(current));
     await runTestsOf(current);
     return true;
   };
 
-  if (!(await start()) && args.once) return 1;
-  if (args.once) out("Serving (--once): Ctrl-C to stop.");
+  let building: Promise<unknown> = start();
+  await building;
 
   // The files a build reads: the deployment, its packs, and its tests.
   const watched = new Set<string>();
+  let timer: NodeJS.Timeout | undefined;
+  const rebuild = (): Promise<boolean> => {
+    const next = building.then(async () => {
+      out(`\nChanged: building ${path.relative(process.cwd(), file)} again`);
+      const ok = await start();
+      if (!ok && current) out(`Still serving the last build that did: ${current.host.build.slice(0, 19)}…`);
+      if (opts.watch !== false) await watchAll();
+      return ok;
+    });
+    building = next;
+    return next;
+  };
+  const changed = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => void rebuild(), 150);
+  };
   const watchAll = async () => {
     const files = new Set<string>([file, testsFile]);
     try {
-      const { deployment } = await loadDeployment(file, args.packsDir ? { packsDir: args.packsDir } : {});
+      const { deployment } = await loadDeployment(file, loadOpts);
+      const dir = path.dirname(file);
       for (const p of deployment.packs) {
-        const dir = path.dirname(file);
         const name = `${p.name}-${p.version}.typesys-pack.json`;
-        const candidates = p.file ? [path.resolve(dir, p.file)] : [path.join(args.packsDir ?? process.env.TYPESYS_PACKS_DIR ?? path.join(dir, "packs"), name), path.join(dir, name), path.join(dir, "..", "packs", name)];
+        const candidates = p.file ? [path.resolve(dir, p.file)] : [path.join(opts.packsDir ?? process.env.TYPESYS_PACKS_DIR ?? path.join(dir, "packs"), name), path.join(dir, name), path.join(dir, "..", "packs", name)];
         for (const c of candidates) files.add(c);
       }
     } catch {
@@ -186,32 +222,43 @@ export async function devCommand(argv: readonly string[], out: (s: string) => vo
     watched.clear();
     for (const f of files) watched.add(f);
   };
-  let timer: NodeJS.Timeout | undefined;
-  let building = Promise.resolve();
-  const changed = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      building = building.then(async () => {
-        out(`\nChanged: building ${path.relative(process.cwd(), file)} again`);
-        if (!(await start()) && current) out(`Still serving the last build that did: ${current.host.build.slice(0, 19)}…`);
-        await watchAll();
-      });
-    }, 150);
-  };
-  if (!args.once) {
+  if (opts.watch !== false) {
     await watchAll();
     out(`Watching ${path.relative(process.cwd(), file)}, its packs and its tests. Ctrl-C to stop.`);
   }
 
-  return new Promise<number>((resolve) => {
-    const stop = () => {
+  return {
+    serving: () => current,
+    rebuild,
+    async close() {
       clearTimeout(timer);
       for (const f of watched) unwatchFile(f);
-      void building.then(async () => {
-        await current?.close();
-        resolve(0);
-      });
-    };
+      watched.clear();
+      await building.catch(() => undefined);
+      await current?.close();
+      current = undefined;
+    }
+  };
+}
+
+/** `typesys dev`: resolves with the exit code once it stops (on a signal, or at once when it cannot start with --once). */
+export async function devCommand(argv: readonly string[], out: (s: string) => void = console.log, err: (s: string) => void = console.error): Promise<number> {
+  let args: DevArgs;
+  try {
+    args = parse(argv);
+  } catch (e) {
+    err(`${(e as Error).message}\n\n${DEV_USAGE}`);
+    return 2;
+  }
+  if (args.help || !args.file) {
+    (args.help ? out : err)(DEV_USAGE);
+    return args.help ? 0 : 2;
+  }
+  const session = await startDev({ file: args.file, port: args.port ?? Number(process.env.PORT ?? 3939), ...(args.packsDir ? { packsDir: args.packsDir } : {}), watch: !args.once, out, err });
+  if (args.once && !session.serving()) return 1;
+  if (args.once) out("Serving (--once): Ctrl-C to stop.");
+  return new Promise<number>((resolve) => {
+    const stop = () => void session.close().then(() => resolve(0));
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });

@@ -6,4 +6,5 @@ export * from "./cli.js";
 export * from "./audit-cli.js";
 export * from "./state.js";
 export * from "./tests.js";
-export { devCommand, DEV_USAGE, welcome } from "./dev.js";
+export { devCommand, startDev, DEV_USAGE, welcome, type DevOptions, type DevSession } from "./dev.js";
+export { hostFromFile, serve, hostedWorkflows, type Serving, type ServeOptions } from "./serve.js";
