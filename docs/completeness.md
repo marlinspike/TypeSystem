@@ -855,6 +855,11 @@ review's M2 (`packages/workflow/test/explain.test.ts`). Not built:
 anchoring checkpoints outside the database, a KMS-held signing key, exact
 comparison of hand-written Cedar policy sets, and down-migrations.
 
+The mandate 8 pressure test
+([`reviews/8-0-pressure-test.md`](reviews/8-0-pressure-test.md)) found 11
+defects, none High; all are fixed, with their reproductions kept as
+`packages/*/test/p8-*.test.ts`, and 19 mutations guard the new code.
+
 ## Real but narrow — the mechanism exists, exercised once
 
 - Property-level policy is exercised on several fields, not just the two

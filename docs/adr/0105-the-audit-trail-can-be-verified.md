@@ -27,12 +27,20 @@ chain, so replicas take no lock in common; appends made while a write is in
 flight are batched into one INSERT, and a batch that fails is retried row by
 row, so one row that cannot be written fails only its own append and never
 leaves a gap. What is hashed is the stored form (millisecond ISO
-timestamps, JSON as it round-trips, U+0000 and lone surrogates replaced),
-so a row read back hashes as it was written.
+timestamps, JSON as it round-trips, U+0000 and lone surrogates replaced in
+keys and values, null optional fields dropped), so a row read back hashes as
+it was written. A write can commit and still report failure; the writer
+then asks the store for the chain's stored head and resumes from it, and if
+the store cannot say, it starts a new chain rather than guess.
 
 A writer given an Ed25519 key signs its chain's head every N rows, at least
 every T seconds while it writes, and when it closes (the generic server
-closes on SIGTERM). Checkpoints live in their own append-only table.
+closes on SIGTERM), and signs an opening checkpoint (sequence 0, the
+genesis hash) before its chain's first row. Checkpoints live in their own
+append-only table. The row hashes use no secret, so anyone who may insert
+rows can compute them; the opening checkpoint is what tells a chain a
+signing writer started from one inserted by someone else, which verify
+reports as `unsigned-chain` in a trail with verify keys.
 
 `verifyAuditLog` walks every chain from its start and reports a row whose
 content no longer hashes to its hash (`altered`), a row that does not link
@@ -48,7 +56,7 @@ older than the cutoff, and keeps that row: its checkpoint signs it, so the
 chain still verifies from there, and a chain pruned whole is still told from
 one deleted. The DELETE trigger allows only that: a session that sets
 `typesys.audit_prune`, a chained row, a checkpoint covering it. The prune is
-itself audited.
+itself audited, before it deletes and again with what it deleted.
 
 ## Consequences
 

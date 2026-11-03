@@ -2273,8 +2273,8 @@
       "adr": "0089",
       "description": "An explanation's own reads as the investigator are charged to their rate limit again.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "if (request?.explanation || request?.charged) return;",
-      "replace": "if (request?.explanation) return;",
+      "find": "    if (request?.charged) return;\n",
+      "replace": "",
       "tests": [
         "packages/domain-hospital/test/explain-disclosure.test.ts"
       ]
@@ -2588,6 +2588,218 @@
       "replace": "for (const c of consumers.filter((x) => !x.satisfied && false)) blocking.push(",
       "tests": [
         "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.edit-not-detected",
+      "adr": "0105",
+      "description": "An edited row is not reported as altered.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (actual !== link.hash) problems.push({ kind: \"altered\"",
+      "replace": "if (actual !== link.hash && false) problems.push({ kind: \"altered\"",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts",
+        "packages/host/test/audit-cli.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.link-not-checked",
+      "adr": "0105",
+      "description": "A row that does not link to the row before it is accepted.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "else if (link.prev !== prevHash) problems.push(",
+      "replace": "else if (link.prev !== prevHash && false) problems.push(",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.truncation-not-detected",
+      "adr": "0105",
+      "description": "Rows removed from a chain's signed tail go unreported.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (to === undefined || seq > to) problems.push({ kind: \"truncated\"",
+      "replace": "if ((to === undefined || seq > to) && false) problems.push({ kind: \"truncated\"",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.signature-not-checked",
+      "adr": "0105",
+      "description": "A checkpoint is trusted without checking its signature.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (sig === \"valid\") validCps.set(cp.seq, cp);",
+      "replace": "if (sig === \"valid\" || true) validCps.set(cp.seq, cp);",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.unsigned-chain-accepted",
+      "adr": "0105",
+      "description": "A chain no key signed passes verification in a signed trail.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (Object.keys(keys).length > 0 && rows > 0 && validCps.size === 0",
+      "replace": "if (Object.keys(keys).length > 0 && rows > 0 && validCps.size < 0",
+      "tests": [
+        "packages/core/test/p8-audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.no-opening-checkpoint",
+      "adr": "0105",
+      "description": "A signing writer does not sign the start of its chain.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (this.options.key) await this.sink.writeCheckpoint(",
+      "replace": "if (this.options.key && false) await this.sink.writeCheckpoint(",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts",
+        "packages/host/test/durable.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.lost-ack-wedges",
+      "adr": "0105",
+      "description": "After a write that committed but reported failure, the writer keeps retrying the same sequence numbers.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "        await this.rotate();\n        return { ok: false, err };\n      }",
+      "replace": "        return { ok: false, err };\n      }",
+      "tests": [
+        "packages/core/test/p8-audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.unhashable-hangs",
+      "adr": "0105",
+      "description": "An event that cannot be hashed fails the whole batch's flush instead of its own append.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "      } catch (err) {\n        p.reject(err);\n        continue;\n      }",
+      "replace": "      } catch (err) {\n        throw err;\n      }",
+      "tests": [
+        "packages/core/test/p8-audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "audit-chain.null-hashed",
+      "adr": "0105",
+      "description": "A null optional field hashes differently from the absent field a store reads back.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "for (const f of OPTIONAL_FIELDS) if (e[f] === null) delete e[f];",
+      "replace": "for (const f of OPTIONAL_FIELDS) if (e[f] === null && false) delete e[f];",
+      "tests": [
+        "packages/registry-store-postgres/test/p8-audit-roundtrip.test.ts"
+      ]
+    },
+    {
+      "id": "audit-prune.unguarded",
+      "adr": "0105",
+      "description": "A prune deletes the checkpointed row it must keep, so the rest no longer verifies.",
+      "file": "packages/registry-store-postgres/src/postgres-audit-log.ts",
+      "find": "DELETE FROM audit_events WHERE chain = $1 AND seq < $2",
+      "replace": "DELETE FROM audit_events WHERE chain = $1 AND seq <= $2",
+      "tests": [
+        "packages/registry-store-postgres/test/audit-chain.test.ts",
+        "packages/host/test/audit-cli.test.ts"
+      ]
+    },
+    {
+      "id": "audit-state.key-mismatch-boots",
+      "adr": "0106",
+      "description": "A signing key that does not match its verify key is accepted at boot.",
+      "file": "packages/host/src/state.ts",
+      "find": "if (!matches) throw new DeploymentError(",
+      "replace": "if (!matches && false) throw new DeploymentError(",
+      "tests": [
+        "packages/host/test/p8-state.test.ts"
+      ]
+    },
+    {
+      "id": "audit-state.readiness-ignores-stores",
+      "adr": "0106",
+      "description": "/readyz reports ready though a declared store is down.",
+      "file": "packages/mcp-server/src/http-transport.ts",
+      "find": "      await given?.ready?.();\n",
+      "replace": "",
+      "tests": [
+        "packages/mcp-server/test/http-health.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.state-downgrade-not-blocking",
+      "adr": "0106",
+      "description": "Giving up a kept audit trail does not block an upgrade.",
+      "file": "packages/host/src/check.ts",
+      "find": "if (stateA.audit === \"postgres\" && stateB.audit !== \"postgres\") blocking.push(",
+      "replace": "if (stateA.audit === \"postgres\" && stateB.audit !== \"postgres\" && false) blocking.push(",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.exact-widening-not-blocking",
+      "adr": "0109",
+      "description": "An exact widening of a rule that decides something does not block.",
+      "file": "packages/host/src/check.ts",
+      "find": "      for (const w of e.widens) blocking.push(`widens: ${at} now admits ${w}`);",
+      "replace": "",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.too-large-passes",
+      "adr": "0109",
+      "description": "A rule too large to compare exactly passes unproven.",
+      "file": "packages/host/src/check.ts",
+      "find": "      if (e.tooLarge) blocking.push(",
+      "replace": "      if (e.tooLarge && false) blocking.push(",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.inspection-policy-ignored",
+      "adr": "0109",
+      "description": "Widening who may inspect and explain does not block.",
+      "file": "packages/host/src/check.ts",
+      "find": "if (deployment.runtime?.inspectionPolicy !== undefined) bySlot.set(",
+      "replace": "if (deployment.runtime?.inspectionPolicy === \"\") bySlot.set(",
+      "tests": [
+        "packages/host/test/p8-check.test.ts"
+      ]
+    },
+    {
+      "id": "policy-diff.proto-assignment",
+      "adr": "0109",
+      "description": "A witness attribute named __proto__ is set by assignment, so the widening through it is missed.",
+      "file": "packages/core/src/policy/policy-diff.ts",
+      "find": "    if (n.startsWith(\"r:\")) put(resource, n.slice(2), v);",
+      "replace": "    if (n.startsWith(\"r:\")) resource[n.slice(2)] = v;",
+      "tests": [
+        "packages/core/test/p8-policy-diff.test.ts"
+      ]
+    },
+    {
+      "id": "policy-diff.witness-not-confirmed",
+      "adr": "0109",
+      "description": "A widening is reported without confirming that the old rule refuses the witness.",
+      "file": "packages/core/src/policy/policy-diff.ts",
+      "find": "      if (ruleFrom && (await decide(ruleFrom, req))) continue;",
+      "replace": "",
+      "tests": [
+        "packages/core/test/policy-diff.test.ts"
+      ]
+    },
+    {
+      "id": "explain.unbounded",
+      "adr": "0089",
+      "description": "An explanation replays any number of operations on one charge.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (n % EXPLANATION_OPERATIONS_PER_CHARGE === 0 && !(await",
+      "replace": "if (n % EXPLANATION_OPERATIONS_PER_CHARGE === -1 && !(await",
+      "tests": [
+        "packages/core/test/p8-explaining.test.ts"
       ]
     }
   ]
