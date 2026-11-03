@@ -226,7 +226,7 @@ On the 4-vCPU cloud container this was built in: `typesys deploy build`
 of the airforce deployment, including process start and loading its
 extension, takes 330 ms; `typesys deploy check` of the blocked example,
 building both and probing 6 objects as 4 personas, takes 520 ms. The full
-suite is 1,816 tests (34 of them the host's own), all passing locally with
+suite is 1,818 tests (35 of them the host's own), all passing locally with
 PostgreSQL and Redis. The five shipped deployments are 2.8 to 13.6 KB each.
 
 ## See all of it running: the developer showcase
@@ -1380,7 +1380,7 @@ The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
 request runs lint, typecheck, the build and the unit suite; the database,
-browser and showcase tests run locally with `npm run check:full`. A catalog of 219 deliberate mutations, each
+browser and showcase tests run locally with `npm run check:full`. A catalog of 230 deliberate mutations, each
 of which a test must catch, runs locally with `npm run mutation`, never
 on GitHub for a change. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a
