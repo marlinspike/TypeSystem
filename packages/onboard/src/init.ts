@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
 import { draftDeployment, DRAFT_ROLES, type DraftResult } from "./deployment.js";
@@ -93,7 +93,7 @@ function draftTests(types: readonly string[], hasRows: Readonly<Record<string, b
   return { format: "typesys.deployment-tests/1", tests };
 }
 
-function readme(domain: string, file: string, draft: DraftResult, variable: string): string {
+function readme(domain: string, file: string, draft: DraftResult, variable: string, readerSees: string): string {
   const t = draft.tokens;
   return `# ${domain}
 
@@ -117,11 +117,22 @@ npx typesys dev ${file}
 
 Every rule starts as one role per kind of rule. Nothing is open to everyone.
 
-| Persona | Roles | Token | Sees |
-|---|---|---|---|
-| reader | ${DRAFT_ROLES.read} | \`${t.reader}\` | every Type, without the parts onboarding marked sensitive |
-| steward | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.sensitive} | \`${t.steward}\` | everything |
-${t.operator ? `| operator | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.invoke} | \`${t.operator}\` | every Type, and may invoke Actions |\n` : ""}| anyone else | none | none | nothing: refused |
+| Persona | Roles | Sees |
+|---|---|---|
+| reader | ${DRAFT_ROLES.read} | every Type, without the parts onboarding marked sensitive |
+| steward | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.sensitive} | the sensitive parts too; not a classified column, which no drafted persona is cleared for |
+${t.operator ? `| operator | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.invoke} | every Type, and may invoke Actions |\n` : ""}| anyone else | none | nothing: refused |
+
+Each persona's token is in \`identity.tokens\` in the deployment, and \`typesys dev\` prints them.
+\`typesys dev\` answers on 127.0.0.1 only, so those tokens answer callers on this machine.
+
+**Review what a reader sees.** Onboarding marks a column sensitive from its name and
+documentation; a column it did not recognize is returned to every reader:
+
+${readerSees}
+To keep one from readers, remove its column from \`sources\` in the deployment, so it is
+not read at all, or reject the property in \`onboarding/review.json\` and run
+\`typesys onboard propose ... --deployment ${file}\` again.
 
 Change a rule in \`policies\`, then run \`npx typesys deploy check\` with the old and new
 files to see who would newly read what, and \`npx typesys deploy test\` to keep the tests true.
@@ -156,6 +167,8 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
   }
   if (args.schemas.length === 0) return fail("--from postgres needs at least one --schema (public, for most databases)");
   const variable = args.variable;
+  // A connection string given in place of its variable's name must not be echoed into a terminal or a CI log.
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable)) return fail("--from postgres takes the name of an environment variable holding the connection string (SHOP_URL), not the connection string itself");
   const connectionString = env[variable];
   if (!connectionString) return fail(`${variable} is not set: export it with the database's connection string, then run init again`);
   const domain = args.domain ?? domainFrom(args.dir);
@@ -163,7 +176,13 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
   const source = args.source ?? `${domain}-db`;
   const dir = path.resolve(args.dir);
   const file = `${domain}.deployment.json`;
-  if (!args.force && (await exists(path.join(dir, file)))) return fail(`${path.join(args.dir, file)} exists: change it with typesys onboard propose --deployment, or pass --force to draft it again`);
+  const outputs = [file, `${domain}.tests.json`, "README.md", ...["sources.json", "proposal.json", "review.json", "approved.json", "pack.json", "adapters.json"].map((f) => path.join("onboarding", f))];
+  // Nothing already there is replaced without --force, and with it each is kept beside as <file>.bak (5.0 pressure test of ADR-0111, H3).
+  const present: string[] = [];
+  for (const f of outputs) if (await exists(path.join(dir, f))) present.push(f);
+  if (!args.force && present.length > 0) {
+    return fail(`${args.dir} already has ${present.join(", ")}: change a deployment with typesys onboard propose --deployment, init into an empty directory, or pass --force to draft them again (each is kept as <file>.bak)`, { present });
+  }
 
   const pool = new pg.Pool({ connectionString, max: 2 });
   let collected;
@@ -184,29 +203,62 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
     }
     const pack = v.pack;
     const packFile = `packs/${pack.name}-${pack.version}.typesys-pack.json`;
+    // The generic server reads only plain identifiers: refuse before writing anything, naming each table or column it could not read.
+    const PLAIN = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+    const unreadable: string[] = [];
+    for (const plan of v.built.adapters) {
+      if (plan.kind !== "postgres-table") continue;
+      for (const m of Object.values(plan.types)) {
+        if (!m.table.split(".").every((x) => PLAIN.test(x)) || m.table.split(".").length > 2) unreadable.push(`table ${m.table}`);
+        for (const c of [m.id, ...Object.values(m.columns).map((c) => (typeof c === "string" ? c : c.column))]) if (!PLAIN.test(c)) unreadable.push(`column ${m.table}.${c}`);
+      }
+    }
+    if (unreadable.length > 0) {
+      return fail(`the generic server reads tables and columns named with letters, digits, _ and $ only, and these are not: ${[...new Set(unreadable)].join(", ")}. Expose them through a view with plain names, in a schema of its own, and init that schema`, { unreadable });
+    }
+    if (await exists(path.join(dir, packFile))) {
+      if (!args.force) return fail(`${path.join(args.dir, packFile)} exists: pass --force to draft it again (it is kept as .bak)`, { present: [packFile] });
+      present.push(packFile);
+    }
     const draft = draftDeployment(pack, v.built.adapters, { name: domain, packFile, connectionEnv: { [source]: variable } });
 
     // Whether each table has rows, for the drafted tests: EXISTS only, so no id or value is read.
     const hasRows: Record<string, boolean> = {};
+    const warnings: string[] = [];
     for (const plan of v.built.adapters) {
       if (plan.kind !== "postgres-table") continue;
       for (const [type, m] of Object.entries(plan.types)) {
         const q = (n: string) => n.split(".").map((p) => `"${p.replace(/"/g, '""')}"`).join(".");
-        hasRows[type] = await pool.query<{ any: boolean }>(`SELECT EXISTS (SELECT 1 FROM ${q(m.table)}) AS any`).then((r) => r.rows[0]?.any === true, () => false);
+        // A table this role cannot read is drafted as having rows, so its steward test fails visibly instead of being left out.
+        hasRows[type] = await pool.query<{ any: boolean }>(`SELECT EXISTS (SELECT 1 FROM ${q(m.table)}) AS any`).then(
+          (r) => r.rows[0]?.any === true,
+          (err: unknown) => {
+            warnings.push(`could not tell whether ${m.table} has rows (${(err as { code?: string }).code ?? "error"}); its tests are drafted as if it does`);
+            return true;
+          }
+        );
       }
     }
     const sensitiveOf: Record<string, string[]> = {};
+    const classifiedOf: Record<string, string[]> = {};
+    const readerOf: Record<string, string[]> = {};
     for (const t of pack.contents.types) {
-      const pp = (t.schema as { "x-policy"?: { propertyPolicies?: Record<string, string> } })["x-policy"]?.propertyPolicies ?? {};
+      const schema = t.schema as { properties?: Record<string, unknown>; "x-policy"?: { propertyPolicies?: Record<string, string> }; "x-provenance"?: { properties?: Record<string, { classification?: string }> } };
+      const pp = schema["x-policy"]?.propertyPolicies ?? {};
+      const marked = schema["x-provenance"]?.properties ?? {};
       sensitiveOf[t.name] = Object.keys(pp).sort();
+      classifiedOf[t.name] = Object.entries(marked).filter(([, x]) => x.classification).map(([k, x]) => `${k} (${x.classification!.replace(/_/g, " ")})`).sort();
+      readerOf[t.name] = Object.keys(schema.properties ?? {}).filter((k) => !Object.hasOwn(pp, k) && !marked[k]?.classification).sort();
     }
+    const readerSees = pack.contents.types.map((t) => `- \`${t.name}\`: ${readerOf[t.name]!.join(", ") || "nothing but its id"}${classifiedOf[t.name]!.length ? `; classified, served to no drafted persona: ${classifiedOf[t.name]!.join(", ")}` : ""}`).join("\n") + "\n";
 
     await mkdir(path.join(dir, "packs"), { recursive: true });
+    for (const f of new Set(present)) await copyFile(path.join(dir, f), path.join(dir, `${f}.bak`));
     await mkdir(path.join(dir, "onboarding"), { recursive: true });
     await write(path.join(dir, packFile), pack);
     await write(path.join(dir, file), draft.deployment);
     await write(path.join(dir, `${domain}.tests.json`), draftTests(pack.contents.types.map((t) => t.name), hasRows, sensitiveOf));
-    await write(path.join(dir, "README.md"), readme(domain, file, draft, variable));
+    await write(path.join(dir, "README.md"), readme(domain, file, draft, variable, readerSees));
     await write(path.join(dir, "onboarding", "sources.json"), { format: SOURCES_FORMAT, sources: [collected] });
     await write(path.join(dir, "onboarding", "proposal.json"), final.proposal);
     await write(path.join(dir, "onboarding", "review.json"), review);
@@ -224,12 +276,17 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
     out(
       [
         `Onboarded ${collected.info.system} into "${domain}": ${m.types} Types, ${m.properties} properties, ${m.relationships} relationship${m.relationships === 1 ? "" : "s"}, ${m.sensitive} sensitive fields`,
-        ...pack.contents.types.map((t) => `  ${t.name}${sensitiveOf[t.name]!.length ? `  (sensitive: ${sensitiveOf[t.name]!.join(", ")})` : ""}`),
+        ...pack.contents.types.map((t) => `  ${t.name}${sensitiveOf[t.name]!.length ? `  (sensitive: ${sensitiveOf[t.name]!.join(", ")})` : ""}${classifiedOf[t.name]!.length ? `  (classified: ${classifiedOf[t.name]!.join(", ")})` : ""}`),
+        "",
+        "A reader is returned every other column. Check none of these should be kept from readers:",
+        ...pack.contents.types.map((t) => `  ${t.name}: ${readerOf[t.name]!.join(", ") || "nothing but its id"}`),
+        ...warnings.map((w) => `Warning: ${w}`),
+        ...(present.length ? [`Kept what was there as .bak: ${[...new Set(present)].join(", ")}`] : []),
         "",
         `Wrote ${rel(file)}, ${rel(`${domain}.tests.json`)}, ${rel(packFile)}, ${rel("README.md")} and ${rel("onboarding/")}`,
         `Policies (each one role, nothing open to everyone): ${[...draft.rules.read, ...draft.rules.sensitive, ...draft.rules.invoke].join(", ")}`,
         "",
-        "Tokens for this machine:",
+        "Tokens (typesys dev answers them on 127.0.0.1 only):",
         ...Object.entries(draft.tokens).map(([p, t]) => `  ${p.padEnd(8)} ${t}`),
         "",
         "Next:",

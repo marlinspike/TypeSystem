@@ -25,9 +25,17 @@ one of:
   `withholds` (none is), or `refused: true` (the read is not authorized);
 - `query: "<Type>"` or a query: `withholds` (no object returned carries
   any), `returns` (some object carries each, and the query returned some),
-  or `refused: true` (nothing returned);
+  or `refused: true` (the runtime refuses the query). A query test reads
+  every page, up to 1,000 objects;
 - `invoke: { action, input }`: an Action preview, authorized or, with
-  `refused: true`, not.
+  `refused: true`, refused by its policy. Only an authorization blocker is
+  a refusal: a target that does not exist or an approval the Action waits
+  for says nothing about who may invoke it.
+
+A test whose answer cannot show what it promises is inconclusive, and
+fails: a refusal or a withholding over a query that returned nothing, or
+an invoke whose target does not exist. Every Type and property a test
+names must be in the model, so a misspelt name cannot pass forever.
 
 `typesys deploy test <deployment> [<tests>]` runs them and exits 1 on any
 failure, naming what was seen. `typesys dev` runs them on every build.

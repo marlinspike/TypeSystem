@@ -97,7 +97,9 @@ describe("declared sources against the model (ADR-0110)", () => {
     try {
       const err = await host.checkSources().catch((e: unknown) => e);
       expect(err).toBeInstanceOf(AdapterUnavailableError);
-      expect((err as Error).message).toMatch(/^sources\["shop-db"\]: Shop DB could not be read: /);
+      expect((err as Error).message).toBe('sources["shop-db"]: Shop DB cannot be reached or is too busy to answer for shop.Customer now');
+      // The driver's text, with the address in it, is kept for the log only (5.0 pressure test of ADR-0110, M3).
+      expect(toProblem(err).detail).not.toContain("127.0.0.1");
     } finally {
       await host.close();
     }
@@ -134,7 +136,10 @@ describe.skipIf(!DATABASE_URL)("declared sources against the database (ADR-0110)
       CREATE TABLE ${schema}.secrets (customer_id text PRIMARY KEY, full_name text, email text, tier text);
       CREATE ROLE ${role} LOGIN PASSWORD 'reader-pw';
       GRANT USAGE ON SCHEMA ${schema} TO ${role};
-      GRANT SELECT ON ${schema}.customers TO ${role};`);
+      GRANT SELECT ON ${schema}.customers TO ${role};
+      CREATE TABLE ${schema}.partial (customer_id text PRIMARY KEY, full_name text, email text, tier text);
+      INSERT INTO ${schema}.partial VALUES ('C-1', 'Ada Lovelace', 'ada@example.com', 'gold');
+      GRANT SELECT (customer_id, full_name, tier) ON ${schema}.partial TO ${role};`);
   });
 
   afterAll(async () => {
@@ -177,5 +182,14 @@ describe.skipIf(!DATABASE_URL)("declared sources against the database (ADR-0110)
     const err = await host.runtime.getObject("shop.Customer", "C-1", host.personas.support!).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SourceRefusedError);
     expect(toProblem(err)).toMatchObject({ status: 502, code: "source-refused" });
+  });
+
+  it("accepts a column-level grant covering every column the mapping reads, and names only the columns it does not cover", async () => {
+    const { email: _email, ...withoutEmail } = CUSTOMER.columns;
+    const covered = await boot(deployment({ "shop.Customer": { ...CUSTOMER, table: "partial", columns: withoutEmail } }), readerUrl);
+    expect(await covered.checkSources()).toEqual([]);
+    expect((await covered.runtime.getObject("shop.Customer", "C-1", covered.personas.support!)).values).toMatchObject({ fullName: "Ada Lovelace" });
+    const uncovered = await boot(deployment({ "shop.Customer": { ...CUSTOMER, table: "partial" } }), readerUrl);
+    expect(await uncovered.checkSources()).toEqual(['sources["shop-db"]: shop.Customer: the connection may not read email of partial (it lacks SELECT on that column)']);
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pg from "pg";
@@ -103,7 +103,12 @@ describe("drafting a deployment from an onboarded pack (ADR-0111)", () => {
     const source = u.deployment.sources["shop-db"] as { url: unknown; types: Record<string, { columns: Record<string, string> }> };
     expect(source.url).toEqual({ $secret: "SHOP_URL" });
     expect(source.types["shop.Customer"]!.columns.phone).toBe("phone");
-    expect(u.changes).toEqual([`pack shop 1.0.0 → 1.1.0 (${pack2.digest.slice(0, 19)}…)`, 'sources["shop-db"]: mapping updated']);
+    expect(u.changes).toEqual([
+      `pack shop 1.0.0 → 1.1.0 (${pack2.digest.slice(0, 19)}…)`,
+      'sources["shop-db"]: mapping updated',
+      // A newly read column is named, with what guards it (5.0 pressure test of ADR-0111, H2).
+      "newly read: shop.Customer.phone, guarded by shop.phone"
+    ]);
     expect(updateDeployment(u.deployment, pack2, plans2, "packs/shop-1.1.0.typesys-pack.json").changes).toEqual([]);
   });
 
@@ -125,6 +130,10 @@ describe("drafting a deployment from an onboarded pack (ADR-0111)", () => {
     expect(await initCommand(["d", "--from", "postgres", "X"], say, { X: "postgres://x" })).toBe(1);
     expect(lines.at(-1)).toMatch(/needs at least one --schema/);
     expect(await initCommand(["d", "--from", "mysql", "X"], say, {})).toBe(2);
+    // A connection string in place of its variable's name is refused, and never echoed (L2).
+    expect(await initCommand(["d", "--from", "postgres", "postgres://svc:hunter2@db.prod/app", "--schema", "public"], say, {})).toBe(1);
+    expect(lines.at(-1)).toMatch(/takes the name of an environment variable/);
+    expect(lines.join("\n")).not.toContain("hunter2");
   });
 });
 
@@ -155,6 +164,9 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
     const text = out.join("\n");
     expect(text).toContain('into "shop": 2 Types');
     expect(text).toMatch(/reader\s+dev-reader-/);
+    // What a reader is returned is listed, for a person to check (H2).
+    expect(text).toContain("A reader is returned every other column");
+    expect(text).toMatch(/shop\.Customer: customerId, tier/);
     expect(text).toContain(`npx typesys dev ${path.join(dir, "shop.deployment.json")}`);
     for (const f of ["shop.deployment.json", "shop.tests.json", "README.md", "packs/shop-1.0.0.typesys-pack.json", "onboarding/review.json", "onboarding/sources.json"]) expect(existsSync(path.join(dir, f))).toBe(true);
     const written = readFileSync(path.join(dir, "shop.deployment.json"), "utf8");
@@ -187,10 +199,45 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
       delete process.env.SHOP_URL;
     }
 
-    // Running init again would overwrite a deployment someone may have edited: refused without --force.
+    // The tokens are in the deployment, not the README someone may commit or share (H1).
+    const tokens = Object.keys((JSON.parse(written) as { identity: { tokens: Record<string, string> } }).identity.tokens);
+    const readme = readFileSync(path.join(dir, "README.md"), "utf8");
+    for (const t of tokens) expect(readme).not.toContain(t);
+    expect(readme).toContain("- `shop.Customer`: customerId, tier");
+
+    // Running init again would replace files someone may have edited: refused without --force, naming each (H3).
+    writeFileSync(path.join(dir, "onboarding/review.json"), '{"mine":true}');
     const again: string[] = [];
     expect(await initCommand([dir, "--from", "postgres", "SHOP_URL", "--schema", schema], (s) => again.push(s), env)).toBe(1);
-    expect(again.at(-1)).toMatch(/shop\.deployment\.json exists: change it with typesys onboard propose --deployment, or pass --force/);
+    expect(again.at(-1)).toMatch(/already has shop\.deployment\.json, shop\.tests\.json, README\.md, .*onboarding\/review\.json.*pass --force/);
+    expect(readFileSync(path.join(dir, "onboarding/review.json"), "utf8")).toBe('{"mine":true}');
+    // With --force, each is kept beside as .bak.
+    expect(await initCommand([dir, "--from", "postgres", "SHOP_URL", "--schema", schema, "--force"], () => undefined, env)).toBe(0);
+    expect(readFileSync(path.join(dir, "onboarding/review.json.bak"), "utf8")).toBe('{"mine":true}');
+    expect(existsSync(path.join(dir, "README.md.bak"))).toBe(true);
+  });
+
+  it("a README already in the directory is not replaced, and a table the server could not read is refused before anything is written", async () => {
+    const dir = path.join(mkdtempSync(path.join(tmpdir(), "typesys-init-")), "proj");
+    dirs.push(path.dirname(dir));
+    mkdirSync(dir);
+    writeFileSync(path.join(dir, "README.md"), "# My project");
+    const out: string[] = [];
+    expect(await initCommand([dir, "--from", "postgres", "SHOP_URL", "--schema", schema, "--domain", "shop"], (s) => out.push(s), { SHOP_URL: url })).toBe(1);
+    expect(out.at(-1)).toMatch(/already has README\.md/);
+    expect(readFileSync(path.join(dir, "README.md"), "utf8")).toBe("# My project");
+
+    const odd = `${schema}_odd`;
+    await admin.query(`CREATE SCHEMA ${odd}; CREATE TABLE ${odd}."order-items" (id text PRIMARY KEY, "unit price" numeric)`);
+    try {
+      const dir2 = path.join(path.dirname(dir), "odd");
+      const out2: string[] = [];
+      expect(await initCommand([dir2, "--from", "postgres", "SHOP_URL", "--schema", odd, "--domain", "odd"], (s) => out2.push(s), { SHOP_URL: url })).toBe(1);
+      expect(out2.at(-1)).toMatch(/letters, digits, _ and \$ only, and these are not: table .*order-items.*column .*unit price/);
+      expect(existsSync(path.join(dir2, "odd.deployment.json"))).toBe(false);
+    } finally {
+      await admin.query(`DROP SCHEMA ${odd} CASCADE`);
+    }
   });
 
   it("onboard propose --deployment brings a new column into the deployment and leaves its rules alone", async () => {
@@ -219,6 +266,19 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
       expect(after.policies).toEqual(before.policies);
       expect(after.identity).toEqual(before.identity);
       expect(out.join("\n")).toContain(`deployment ${file}: pack shop 1.0.0 → 1.1.0`);
+      // The deployment as it was is kept beside it, for the upgrade check the output names (M5).
+      expect(JSON.parse(readFileSync(path.join(dir, "shop.deployment.previous.json"), "utf8"))).toEqual(before);
+      expect(out.join("\n")).toContain(`npx typesys deploy check ${path.join(dir, "shop.deployment.previous.json")} ${file}`);
+      // Proposing at a version whose archive already holds another model would replace what a deployment pins: refused.
+      writeFileSync(path.join(dir, "packs/shop-1.2.0.typesys-pack.json"), JSON.stringify({ digest: `sha256:${"1".repeat(64)}` }));
+      const refused: string[] = [];
+      await onboardCommand(
+        ["propose", path.join(on, "sources.json"), "--domain", "shop", "--out", on, "--review", path.join(on, "review.json"), "--approved", path.join(on, "approved.json"), "--previous", path.join(on, "pack.json"), "--version", "1.2.0", "--deployment", file],
+        (s) => refused.push(s),
+        env
+      );
+      expect(refused.join("\n")).toMatch(/already holds shop@1\.2\.0 with digest sha256:1{12}.* pass --version with the next version/);
+      expect((JSON.parse(readFileSync(file, "utf8")) as DraftDeployment).packs[0]!.version).toBe("1.1.0");
     } finally {
       await admin.query(`ALTER TABLE ${schema}.customers DROP COLUMN region`);
     }

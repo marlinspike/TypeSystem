@@ -131,6 +131,11 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
     }
   }
   if (sub === "check" && args.positionals.length === 2) {
+    // Writing an acceptance is for a person to review before it is used: one run may not write one and pass with it (ADR-0114).
+    if (args.writeAcceptance && args.accept) {
+      console.error("--write-acceptance and --accept do not go together: write the acceptance, review it, then run the check again with --accept");
+      return 2;
+    }
     try {
       const [before, after] = await Promise.all(args.positionals.map((f) => load(f, args.packsDir)));
       const queries = args.queries ? (JSON.parse(await readFile(args.queries, "utf8")) as SemanticQuery[]) : [];
@@ -142,6 +147,11 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
         consumers: await Promise.all(args.consumers.map(readConsumer))
       });
       if (args.writeAcceptance) {
+        if (report.blocking.length === 0) {
+          (report.ok ? process.stdout : process.stderr).write(renderDeployCheck(report));
+          console.error(`Nothing blocks this upgrade, so there is nothing to accept: ${args.writeAcceptance} not written.`);
+          return 0;
+        }
         const acceptance = acceptanceFor(report, args.by ?? "", args.why ?? "");
         await writeFile(args.writeAcceptance, `${JSON.stringify(acceptance, null, 2)}\n`, "utf8");
         console.error(`Wrote ${args.writeAcceptance}: ${acceptance.accepted.length} blocking line${acceptance.accepted.length === 1 ? "" : "s"} accepted by ${acceptance.accepted[0]?.by ?? args.by}. Review it, then pass it with --accept.`);

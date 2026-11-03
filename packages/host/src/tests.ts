@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { AuthorizationError, type Identity, type SemanticQuery } from "@typesys/core";
+import { AuthorizationError, composedProperties, type Identity, type SemanticQuery } from "@typesys/core";
+import { didYouMean } from "@typesys/devkit";
 import { DeploymentError } from "./deployment.js";
 import type { Host } from "./host.js";
 
@@ -50,6 +51,10 @@ export interface TestReport {
   readonly outcomes: readonly TestOutcome[];
 }
 
+/** Objects one query test reads, in pages of PAGE, at most (unless its query sets a limit). */
+const PAGE = 100;
+const MAX_OBJECTS = 1000;
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string" && x !== "");
 
@@ -79,8 +84,37 @@ export function validateTests(doc: unknown, personas: readonly string[]): string
   return out;
 }
 
-/** Reads and checks a tests file against the host's personas. */
-export async function loadTests(file: string, host: Pick<Host, "personas">): Promise<DeploymentTests> {
+/**
+ * Every property a test names that its Type does not have, and every Type
+ * no pack registers: a misspelt `withholds` would otherwise pass forever.
+ */
+async function namingProblems(doc: DeploymentTests, registry: Host["registry"]): Promise<string[]> {
+  const out: string[] = [];
+  const types = await registry.listTypes();
+  const known = new Map<string, string[]>();
+  for (const [i, t] of doc.tests.entries()) {
+    const typeName = t.read ? t.read.slice(0, t.read.indexOf("/")) : t.query ? (typeof t.query === "string" ? t.query : t.query.type) : undefined;
+    if (typeName === undefined) continue;
+    const type = types.find((x) => x.name === typeName);
+    if (!type) {
+      const near = didYouMean(typeName, types.map((x) => x.name));
+      out.push(`tests[${i}]: no pack has a Type ${typeName}${near ? ` (did you mean ${near}?)` : ""}`);
+      continue;
+    }
+    if (!known.has(typeName)) known.set(typeName, [...Object.keys((await composedProperties(registry, type)).properties), ...Object.keys((type.schema as { "x-computed"?: Record<string, unknown> })["x-computed"] ?? {})]);
+    const names = known.get(typeName)!;
+    for (const k of ["returns", "withholds"] as const)
+      for (const p of t[k] ?? []) {
+        if (names.includes(p)) continue;
+        const near = didYouMean(p, names);
+        out.push(`tests[${i}].${k}: ${typeName} has no property "${p}"${near ? ` (did you mean "${near}"?)` : ""}`);
+      }
+  }
+  return out;
+}
+
+/** Reads and checks a tests file against the host's personas and model. */
+export async function loadTests(file: string, host: Pick<Host, "personas" | "registry">): Promise<DeploymentTests> {
   let doc: unknown;
   try {
     doc = JSON.parse(await readFile(file, "utf8"));
@@ -89,6 +123,8 @@ export async function loadTests(file: string, host: Pick<Host, "personas">): Pro
   }
   const problems = validateTests(doc, Object.keys(host.personas));
   if (problems.length > 0) throw new DeploymentError(problems.map((p) => `${file}: ${p}`));
+  const naming = await namingProblems(doc as DeploymentTests, host.registry);
+  if (naming.length > 0) throw new DeploymentError(naming.map((p) => `${file}: ${p}`));
   return doc as DeploymentTests;
 }
 
@@ -106,21 +142,35 @@ async function runOne(host: Host, t: DeploymentTest): Promise<TestOutcome> {
   try {
     if (t.invoke) {
       const preview = await host.runtime.previewAction(t.invoke.action, t.invoke.input, who);
-      const refused = !preview.authorized;
+      // Only the policy's decision counts: a target that does not exist, or an Action that waits for approval, says nothing about who may invoke it.
+      const denied = preview.blockers.filter((b) => b.kind === "authorization");
+      const missing = preview.blockers.find((b) => b.kind === "target");
+      if (missing) return { name, ok: false, detail: `inconclusive: ${missing.message}, so the policy's decision could not be shown; name a target that exists` };
+      const refused = denied.length > 0;
       return refused === refusedWanted
         ? { name, ok: true, detail: refused ? "refused" : "authorized" }
-        : { name, ok: false, detail: refused ? `refused: ${preview.blockers.map((b) => b.message).join("; ")}` : "authorized, and the test says it must be refused" };
+        : { name, ok: false, detail: refused ? `refused: ${denied.map((b) => b.message).join("; ")}` : "authorized, and the test says it must be refused" };
     }
     let objects: Record<string, unknown>[];
     if (t.read) {
       const at = t.read.indexOf("/");
       objects = [(await host.runtime.getObject(t.read.slice(0, at), t.read.slice(at + 1), who)).values];
     } else {
-      const q: SemanticQuery = typeof t.query === "string" ? { type: t.query, limit: 50 } : t.query!;
-      const result = await host.runtime.query(q, who);
-      objects = result.items.map((o) => (o as { values: Record<string, unknown> }).values);
-      // A query the persona may not make at all, or one whose every object the rules hide, returns nothing it may see.
-      if (refusedWanted) return objects.length === 0 ? { name, ok: true, detail: "nothing returned" } : { name, ok: false, detail: `returned ${objects.length} object(s), and the test says it must be refused` };
+      // Every page, up to MAX_OBJECTS, so an object past the first page is checked too.
+      const base: SemanticQuery = typeof t.query === "string" ? { type: t.query } : t.query!;
+      objects = [];
+      let cursor: string | undefined;
+      do {
+        const page = await host.runtime.query({ ...base, limit: Math.min(base.limit ?? PAGE, PAGE), ...(cursor ? { cursor } : {}) }, who);
+        objects.push(...page.items.map((o) => (o as { values: Record<string, unknown> }).values));
+        cursor = page.nextCursor;
+      } while (cursor && objects.length < (base.limit ?? MAX_OBJECTS));
+      // Refused means the runtime refused the query (it throws, below); an empty answer may only mean the table is empty.
+      if (refusedWanted)
+        return objects.length === 0
+          ? { name, ok: false, detail: "inconclusive: the query returned no objects without being refused, so a refusal could not be shown (an empty table, or a rule that decides per object: test a read of one instead)" }
+          : { name, ok: false, detail: `returned ${objects.length} object(s), and the test says it must be refused` };
+      if (objects.length === 0 && t.withholds?.length) return { name, ok: false, detail: "inconclusive: the query returned no objects, so nothing it withholds could be checked" };
     }
     if (refusedWanted) return { name, ok: false, detail: "allowed, and the test says it must be refused" };
     const problems: string[] = [];

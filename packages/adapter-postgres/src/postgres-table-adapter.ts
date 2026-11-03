@@ -122,10 +122,19 @@ export class PostgresTableAdapter implements Adapter {
   private readFailure(typeName: string, err: unknown): Error {
     const code = (err as { code?: string }).code;
     const system = this.config.system;
+    const unavailable = (message: string, retryable = true) => {
+      // The driver's text names hosts, ports and roles: it stays in `cause`, for the server's log, and the caller is told only which system.
+      const failure = new AdapterUnavailableError(message, { retryable });
+      (failure as { cause?: unknown }).cause = err;
+      return failure;
+    };
     // A socket error carries a Node code (ECONNREFUSED), not a five-character SQLSTATE: the server was never reached.
-    if (code === undefined || !/^[0-9A-Z]{5}$/.test(code) || code.startsWith("08") || code.startsWith("57")) {
-      return new AdapterUnavailableError(`${system} could not be read: ${(err as Error).message}`);
+    // 08 connection, 57 shutting down, 53 out of connections or memory, 40 a serialization failure or deadlock, 55P03 a lock not available: each passes.
+    if (code === undefined || !/^[0-9A-Z]{5}$/.test(code) || ["08", "57", "53", "40"].some((c) => code.startsWith(c)) || code === "55P03") {
+      return unavailable(`${system} cannot be reached or is too busy to answer for ${typeName} now`);
     }
+    // 28 the connection's credentials refused, 3D000 a database that does not exist: the deployment's configuration, not a passing failure.
+    if (code.startsWith("28") || code === "3D000") return unavailable(`${system} refused TypeSystem's connection: the deployment's connection settings for it are wrong`, false);
     if (code === "42501") return new SourceRefusedError(`${system} refused TypeSystem's connection permission to read ${typeName}`, this.dataSourceId);
     if (code === "42P01" || code === "42703" || code === "3F000") {
       const failure = new AdapterUnavailableError(
@@ -176,11 +185,18 @@ export class PostgresTableAdapter implements Adapter {
         problems.push(`${type}: ${this.config.system} has no table or view "${m.table}"${hint(m.table, names)}`);
         continue;
       }
-      if (rel.readable === false) problems.push(`${type}: the connection may not read ${m.table} (it lacks SELECT on it)`);
       const columns = (
         await this.pool.query<{ name: string }>(`SELECT attname AS name FROM pg_attribute WHERE attrelid = $1::oid AND attnum > 0 AND NOT attisdropped`, [rel.oid])
       ).rows.map((r) => r.name);
       const has = new Set(columns);
+      if (rel.readable === false) {
+        // No SELECT on the table may still be SELECT on every column it reads (a column-level grant): name only the columns it may not read.
+        const wanted = [...new Set([m.id, ...Object.values(m.columns).map((c) => columnOf(c).column)])].filter((c) => has.has(c));
+        const denied = (
+          await this.pool.query<{ name: string }>(`SELECT c AS name FROM unnest($2::text[]) AS c WHERE NOT has_column_privilege($1::oid, c, 'SELECT')`, [rel.oid, wanted])
+        ).rows.map((r) => r.name);
+        if (denied.length > 0) problems.push(`${type}: the connection may not read ${denied.length === wanted.length ? m.table : `${denied.sort().join(", ")} of ${m.table}`} (it lacks SELECT on ${denied.length === wanted.length ? "it" : denied.length === 1 ? "that column" : "those columns"})`);
+      }
       if (!has.has(m.id)) problems.push(`${type}: ${m.table} has no id column "${m.id}"${hint(m.id, columns)}`);
       for (const [property, c] of Object.entries(m.columns)) {
         const column = columnOf(c).column;

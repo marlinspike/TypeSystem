@@ -40,10 +40,15 @@ Onboarded shop into "shop": 3 Types, 15 properties, 1 relationship, 3 sensitive 
   shop.Order
   shop.Widget  (sensitive: name)
 
+A reader is returned every other column. Check none of these should be kept from readers:
+  shop.Customer: creditLimit, customerId, region, tier
+  shop.Order: customerId, orderId, placedAt, status, total
+  shop.Widget: id, status, tracking
+
 Wrote shop/shop.deployment.json, shop/shop.tests.json, shop/packs/shop-1.0.0.typesys-pack.json, shop/README.md and shop/onboarding/
 Policies (each one role, nothing open to everyone): shop.read-customer, shop.read-order, shop.read-widget, shop.contact, shop.personal-name
 
-Tokens for this machine:
+Tokens (typesys dev answers them on 127.0.0.1 only):
   reader   dev-reader-3C2zEqCh3uhL
   steward  dev-steward-OBatDZEMfEPe
 
@@ -59,10 +64,20 @@ What it wrote (ADR-0111):
 | `shop.deployment.json` | What the generic server serves: the pack by digest, the `postgres` source mapping every table and column, one draft rule per policy, personas and their tokens |
 | `shop.tests.json` | Policy tests: a reader lists each Type without its sensitive fields, a steward sees them, anyone else is refused |
 | `onboarding/` | What was collected, proposed and accepted, so `typesys onboard` can run again as the schema changes |
-| `README.md` | The same, for whoever opens the folder next |
+| `README.md` | The same, for whoever opens the folder next, with every column a reader is returned |
 
-The deployment is marked `demo: true` and its tokens are for this machine
-only. Before serving it to anyone else, replace `identity` with your OIDC
+**Check what a reader is returned.** Onboarding marks a column sensitive
+from its name and documentation (names, emails, phone numbers, government
+and tax ids, card and bank details, dates of birth, locations,
+credentials); every other column goes to every reader. `init` lists them.
+To keep one from readers, remove its column from `sources` in the
+deployment and it is not read at all.
+
+`init` never replaces a file already in the directory without `--force`
+(and then keeps each as `<file>.bak`).
+
+The deployment is marked `demo: true`, and `typesys dev` answers its fixed
+tokens on 127.0.0.1 only. Before serving it to anyone else, replace `identity` with your OIDC
 provider (see [how-to/deploy-with-containers.md](how-to/deploy-with-containers.md)).
 
 ## 3. Serve it
@@ -75,7 +90,7 @@ npx typesys dev shop/shop.deployment.json
 shop is serving (build sha256:992ced6e1975…)
   API  http://localhost:3939/api        MCP  http://localhost:3939/mcp        index  http://localhost:3939/
 
-Personas and their tokens (fixed tokens: this machine only):
+Personas and their tokens (fixed tokens, answered on this machine only):
   reader     dev-reader-3C2zEqCh3uhL   roles: reader
   steward    dev-steward-OBatDZEMfEPe   roles: reader, steward
 
@@ -141,7 +156,9 @@ against the database catalog (ADR-0110); a server refuses to start with
 one, instead of answering bare 500s later.
 
 **The rules are tested.** `npx typesys deploy test shop/shop.deployment.json`
-runs `shop.tests.json` and exits 1 when one fails, so it belongs in CI.
+runs `shop.tests.json` and exits 1 when one fails, so it belongs in CI. A
+test whose answer cannot show its promise (a refusal over an empty table,
+a misspelt property) fails as inconclusive rather than passing.
 Add your own: each test reads, queries or previews an Action as a persona
 and says what must be returned, withheld or refused (ADR-0113, and
 [how-to/add-a-policy-rule.md](how-to/add-a-policy-rule.md)).

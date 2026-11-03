@@ -29,6 +29,8 @@ import { loadApplications, loadDeployment, loadExtensions } from "./load.js";
 export interface ServeOptions {
   readonly file: string;
   readonly port?: number;
+  /** The address to listen on: default every interface (a container's server); `typesys dev` passes 127.0.0.1. */
+  readonly listenHost?: string;
   readonly allowedHosts?: readonly string[];
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Where references resolve; default the process environment. */
@@ -53,12 +55,13 @@ function portOf(value: ConfigString, env: HostEnvironment, at: string): number {
   return port;
 }
 
-function listen(app: { listen(port: number, cb: () => void): Server }, port: number): Promise<{ server: Server; port: number }> {
+function listen(app: { listen(port: number, host: string, cb: () => void): Server; listen(port: number, cb: () => void): Server }, port: number, host?: string): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, () => {
+    const ready = () => {
       const address = server.address();
       resolve({ server, port: typeof address === "object" && address ? address.port : port });
-    });
+    };
+    const server = host === undefined ? app.listen(port, ready) : app.listen(port, host, ready);
     server.once("error", reject);
   });
 }
@@ -182,7 +185,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         ...(allowedHosts ? { allowedHosts } : {})
       })
     );
-    const main = await listen(app, opts.port ?? 3939);
+    const main = await listen(app, opts.port ?? 3939, opts.listenHost);
     servers.push(main.server);
     const ports: Record<string, number> = {};
     for (const a of apps) {
@@ -197,7 +200,8 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
           ...(a.contract ? { contract: a.contract } : {}),
           ...(a.clientDir ? { clientDir: a.clientDir } : {})
         }),
-        port
+        port,
+        opts.listenHost
       );
       servers.push(served.server);
       ports[a.name] = served.port;

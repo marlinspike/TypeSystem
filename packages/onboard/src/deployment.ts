@@ -162,6 +162,15 @@ export function updateDeployment(existing: DraftDeployment, pack: PackArchive, p
     const next = sourceOf(plan, plan.connectionEnv);
     if (current?.url !== undefined) next.url = current.url;
     if (JSON.stringify(current) !== JSON.stringify({ ...current, ...next })) changes.push(`sources["${plan.dataSourceId}"]: mapping ${current ? "updated" : "added"}`);
+    // Each property newly read, and whether a rule guards it: one without is returned to every reader (5.0 pressure test of ADR-0111, H2).
+    const was = (current as { types?: Record<string, { columns?: Record<string, unknown> }> } | undefined)?.types ?? {};
+    for (const [typeName, m] of Object.entries(plan.types)) {
+      const guarded = (pack.contents.types.find((t) => t.name === typeName)?.schema as { "x-policy"?: { propertyPolicies?: Record<string, string> } } | undefined)?.["x-policy"]?.propertyPolicies ?? {};
+      for (const property of Object.keys(m.columns)) {
+        if (Object.hasOwn(was[typeName]?.columns ?? {}, property) || !current) continue;
+        changes.push(`newly read: ${typeName}.${property}, ${guarded[property] ? `guarded by ${guarded[property]}` : "returned to every reader of the Type: check it should be"}`);
+      }
+    }
     sources[plan.dataSourceId] = { ...current, ...next };
   }
   const rules = packRules(pack);

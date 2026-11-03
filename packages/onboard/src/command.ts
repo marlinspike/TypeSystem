@@ -235,15 +235,24 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
           if (existing.format !== "typesys.deployment/1") throw new Error(`${file} is not a typesys.deployment/1 document`);
           const packFile = `packs/${v.pack.name}-${v.pack.version}.typesys-pack.json`;
           const update = updateDeployment(existing, v.pack, v.built.adapters, packFile);
+          // A pack archive is content-addressed: one already written at this version with other contents is what the previous deployment pins.
+          const packPath = path.join(path.dirname(file), packFile);
+          const prior = await readFile(packPath, "utf8").then((t) => (JSON.parse(t) as { digest?: string }).digest, () => undefined);
+          if (prior !== undefined && prior !== v.pack.digest) {
+            throw new Error(`${packPath} already holds ${v.pack.name}@${v.pack.version} with digest ${prior.slice(0, 19)}…, which the deployment as it is pins; this model is ${v.pack.digest.slice(0, 19)}…: pass --version with the next version`);
+          }
+          // The deployment as it was, beside it, so the upgrade check has both builds.
+          const previous = file.replace(/(\.json)?$/, ".previous.json");
+          if (JSON.stringify(update.deployment) !== JSON.stringify(existing)) await put(previous, existing);
           await mkdir(path.join(path.dirname(file), "packs"), { recursive: true });
-          await put(path.join(path.dirname(file), packFile), v.pack);
+          await put(packPath, v.pack);
           await put(file, update.deployment);
           deploymentPayload = { deployment: { file, changes: update.changes, addedPolicies: update.addedPolicies, unusedPolicies: update.unusedPolicies } };
           deploymentLines.push(
             `  deployment ${file}: ${update.changes.length ? update.changes.join("; ") : "already current"}`,
             ...(update.addedPolicies.length ? [`  draft rules added (one role each; review them): ${update.addedPolicies.join(", ")}`] : []),
             ...(update.unusedPolicies.length ? [`  rules the model no longer names, kept for you to remove: ${update.unusedPolicies.join(", ")}`] : []),
-            `  check it before it rolls: npx typesys deploy check <the previous deployment file> ${file}`
+            `  check it before it rolls: npx typesys deploy check ${file.replace(/(\.json)?$/, ".previous.json")} ${file}`
           );
         }
         return print(v.ok, { metrics: m, diagnostics: v.diagnostics, pending: final.review.pending, rejected: final.proposal.rejected, policies: v.built.policies, ...deploymentPayload }, [

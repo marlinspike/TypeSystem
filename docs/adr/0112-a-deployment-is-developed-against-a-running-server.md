@@ -22,8 +22,11 @@ first `curl` on a Type of the deployment's own model, and the
 `claude mcp add --transport http ...` line that connects Claude Code as
 that persona. It runs `<name>.tests.json` beside the deployment when there
 is one. It watches the deployment, its packs and its tests; on a change it
-builds the new deployment in memory and checks its sources first, and only
-if that succeeds replaces what is serving, on the same port. A change that
+builds the new deployment, with its own state, and checks its sources
+first, and only if that succeeds replaces what is serving, on the same
+port. It listens on 127.0.0.1, so a drafted deployment's fixed tokens
+answer only callers on that machine; `--host` changes that, for a
+deployment whose identity is not fixed tokens. A change that
 does not build is reported and the last build that did keeps serving.
 
 `GET /` answers with the deployment's name, build, and where MCP, the API,

@@ -18,17 +18,21 @@ import { loadTests, renderTests, runTests, testsFileFor } from "./tests.js";
  * reported and the last build that did keeps serving. This is restart on
  * change, on one machine; production keeps restarting by rollout.
  */
-export const DEV_USAGE = `typesys dev <deployment.json> [--port <n>] [--packs-dir <dir>] [--once]
+export const DEV_USAGE = `typesys dev <deployment.json> [--port <n>] [--host <address>] [--packs-dir <dir>] [--once]
 
   Serves the deployment on this machine (MCP at /mcp, the API under /api), prints each
   persona's token with a first call to make, runs <name>.tests.json beside it when there
   is one, and serves it again whenever the deployment, its packs or its tests change. A
   change that does not build is reported, and the last build that did keeps serving.
-  --once serves without watching. PORT sets the port when --port is not given.`;
+  It listens on 127.0.0.1 only, so the deployment's fixed tokens answer callers on this
+  machine and no other; --host 0.0.0.0 listens on every interface, for a deployment whose
+  identity is not fixed tokens. --once serves without watching. PORT sets the port when
+  --port is not given.`;
 
 interface DevArgs {
   file?: string;
   port?: number;
+  host?: string;
   packsDir?: string;
   once: boolean;
   help: boolean;
@@ -47,7 +51,8 @@ function parse(argv: readonly string[]): DevArgs {
       const p = Number(next());
       if (!Number.isInteger(p) || p < 0 || p > 65535) throw new Error("--port must be a port number");
       out.port = p;
-    } else if (a === "--packs-dir") out.packsDir = next();
+    } else if (a === "--host") out.host = next();
+    else if (a === "--packs-dir") out.packsDir = next();
     else if (a === "--once") out.once = true;
     else if (a === "--help" || a === "-h") out.help = true;
     else if (a.startsWith("--")) throw new Error(`Unknown option ${a}`);
@@ -58,7 +63,7 @@ function parse(argv: readonly string[]): DevArgs {
 }
 
 /** What to print once a build is serving: where, who, and a first call for each persona. */
-export async function welcome(serving: Serving): Promise<string> {
+export async function welcome(serving: Serving, local = false): Promise<string> {
   const { host, port } = serving;
   const base = `http://localhost:${port}`;
   const tokens = host.deployment.identity.kind === "tokens" ? host.deployment.identity.tokens : {};
@@ -72,7 +77,7 @@ export async function welcome(serving: Serving): Promise<string> {
     ""
   ];
   if (byPersona.size > 0) {
-    lines.push("Personas and their tokens (fixed tokens: this machine only):");
+    lines.push(`Personas and their tokens (fixed tokens${local ? ", answered on this machine only" : ""}):`);
     for (const [persona, token] of byPersona) {
       const roles = host.personas[persona]?.roles ?? [];
       lines.push(`  ${persona.padEnd(10)} ${token}   roles: ${roles.length ? roles.join(", ") : "none"}`);
@@ -95,6 +100,8 @@ export interface DevOptions {
   readonly file: string;
   /** Default 3939; 0 picks a free port, kept across rebuilds. */
   readonly port?: number;
+  /** The address to listen on; default 127.0.0.1, so fixed tokens answer only this machine. */
+  readonly host?: string;
   readonly packsDir?: string;
   /** Rebuild when the deployment, a pack or the tests change. Default true. */
   readonly watch?: boolean;
@@ -123,8 +130,12 @@ export async function startDev(opts: DevOptions): Promise<DevSession> {
   const file = path.resolve(opts.file);
   const testsFile = testsFileFor(file);
   const requested = opts.port ?? 3939;
+  const listenHost = opts.host ?? "127.0.0.1";
   const loadOpts = opts.packsDir ? { packsDir: opts.packsDir } : {};
   let current: Serving | undefined;
+  // The port the first build got, kept, so a rebuild answers where the developer already points even if one fails.
+  let port = requested;
+  let closed = false;
 
   const report = (e: unknown) => {
     if (e instanceof PackError) err(`The deployment does not build:\n  - ${e.message.replace(/\n/g, "\n    ")}`);
@@ -149,13 +160,11 @@ export async function startDev(opts: DevOptions): Promise<DevSession> {
 
   /** Builds the deployment; if it builds, swaps it in for what is serving. */
   const start = async (): Promise<boolean> => {
-    // The port the first build got, so a rebuild answers where the developer already points.
-    const port = current?.port ?? requested;
     if (current) {
-      // Built and checked first, in memory, so a change that does not build never stops what is serving.
+      // Built and checked first, with the deployment's own state, so a change that does not build never stops what is serving.
       try {
         const { deployment, packs } = await loadDeployment(file, loadOpts);
-        const trial = await buildHost(deployment, { packs, extensions: await loadExtensions(deployment), state: "memory" });
+        const trial = await buildHost(deployment, { packs, extensions: await loadExtensions(deployment) });
         try {
           const problems = await trial.checkSources().catch((e: unknown) => {
             if (e instanceof AdapterUnavailableError) return [];
@@ -173,12 +182,18 @@ export async function startDev(opts: DevOptions): Promise<DevSession> {
       current = undefined;
     }
     try {
-      current = await serve({ file, port, ...loadOpts });
+      current = await serve({ file, port, listenHost, ...loadOpts });
+      port = current.port;
     } catch (e) {
       report(e);
       return false;
     }
-    out(await welcome(current));
+    if (closed) {
+      await current.close();
+      current = undefined;
+      return false;
+    }
+    out(await welcome(current, ["127.0.0.1", "localhost", "::1"].includes(listenHost)));
     await runTestsOf(current);
     return true;
   };
@@ -191,16 +206,18 @@ export async function startDev(opts: DevOptions): Promise<DevSession> {
   let timer: NodeJS.Timeout | undefined;
   const rebuild = (): Promise<boolean> => {
     const next = building.then(async () => {
+      if (closed) return false;
       out(`\nChanged: building ${path.relative(process.cwd(), file)} again`);
       const ok = await start();
       if (!ok && current) out(`Still serving the last build that did: ${current.host.build.slice(0, 19)}…`);
-      if (opts.watch !== false) await watchAll();
+      if (opts.watch !== false && !closed) await watchAll();
       return ok;
     });
     building = next;
     return next;
   };
   const changed = () => {
+    if (closed) return;
     clearTimeout(timer);
     timer = setTimeout(() => void rebuild(), 150);
   };
@@ -231,6 +248,7 @@ export async function startDev(opts: DevOptions): Promise<DevSession> {
     serving: () => current,
     rebuild,
     async close() {
+      closed = true;
       clearTimeout(timer);
       for (const f of watched) unwatchFile(f);
       watched.clear();
@@ -254,7 +272,7 @@ export async function devCommand(argv: readonly string[], out: (s: string) => vo
     (args.help ? out : err)(DEV_USAGE);
     return args.help ? 0 : 2;
   }
-  const session = await startDev({ file: args.file, port: args.port ?? Number(process.env.PORT ?? 3939), ...(args.packsDir ? { packsDir: args.packsDir } : {}), watch: !args.once, out, err });
+  const session = await startDev({ file: args.file, port: args.port ?? Number(process.env.PORT ?? 3939), ...(args.host ? { host: args.host } : {}), ...(args.packsDir ? { packsDir: args.packsDir } : {}), watch: !args.once, out, err });
   if (args.once && !session.serving()) return 1;
   if (args.once) out("Serving (--once): Ctrl-C to stop.");
   return new Promise<number>((resolve) => {

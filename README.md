@@ -100,6 +100,11 @@ Onboarded shop into "shop": 3 Types, 15 properties, 1 relationship, 3 sensitive 
   shop.Order
   shop.Widget  (sensitive: name)
 
+A reader is returned every other column. Check none of these should be kept from readers:
+  shop.Customer: creditLimit, customerId, region, tier
+  shop.Order: customerId, orderId, placedAt, status, total
+  shop.Widget: id, status, tracking
+
 Wrote shop/shop.deployment.json, shop/shop.tests.json, shop/packs/shop-1.0.0.typesys-pack.json, shop/README.md and shop/onboarding/
 Policies (each one role, nothing open to everyone): shop.read-customer, shop.read-order, shop.read-widget, shop.contact, shop.personal-name
 ```
@@ -114,7 +119,7 @@ Claude Code, and runs the drafted tests:
 shop is serving (build sha256:992ced6e1975…)
   API  http://localhost:3939/api        MCP  http://localhost:3939/mcp        index  http://localhost:3939/
 
-Personas and their tokens (fixed tokens: this machine only):
+Personas and their tokens (fixed tokens, answered on this machine only):
   reader     dev-reader-3C2zEqCh3uhL   roles: reader
   steward    dev-steward-OBatDZEMfEPe   roles: reader, steward
 ...
@@ -1673,7 +1678,7 @@ The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
 request runs lint, typecheck, the build and the unit suite; the database,
-browser and showcase tests run locally with `npm run check:full`. A catalog of 249 deliberate mutations, each
+browser and showcase tests run locally with `npm run check:full`. A catalog of 257 deliberate mutations, each
 of which a test must catch, runs locally with `npm run mutation`, never
 on GitHub for a change. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a

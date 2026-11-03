@@ -23,7 +23,8 @@ writes one for every line blocking now, and still exits 1. `--accept
 <file>` passes the check only when every blocking line is accepted for
 these two builds; it then prints each accepted line with who and why.
 
-An acceptance for other builds is refused whole. A line the acceptance
+One run may not both write an acceptance and pass with it: a person reviews
+it first. An acceptance for other builds is refused whole. A line the acceptance
 accepts that the check no longer blocks on is itself blocking, since the
 change it answered for is not this one. Nothing else changes: the check
 still compares the same things the same way.

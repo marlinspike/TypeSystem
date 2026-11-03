@@ -82,6 +82,45 @@ describe("policy tests as data (ADR-0113)", () => {
     }
   });
 
+  it("a refusal or a withholding the answer cannot show is inconclusive, not passed (5.0 pressure test of ADR-0113, M1, M2)", async () => {
+    const h = await host();
+    try {
+      const none = { type: "airforce.Aircraft", filter: { property: "tailNumber", operator: "eq", value: "NONE" } } as const;
+      const report = await runTests(h, {
+        format: "typesys.deployment-tests/1",
+        tests: [
+          { as: "maintainer", query: none, refused: true },
+          { as: "maintainer", query: none, withholds: ["maintenanceStatus"] },
+          { as: "maintainer", invoke: { action: "UpdateWorkOrderStatus", input: { workOrderId: "WO-DOES-NOT-EXIST", status: "closed" } }, refused: true },
+          { as: "anonymous", query: "airforce.Aircraft", refused: true }
+        ]
+      });
+      expect(report.outcomes.map((o) => o.ok)).toEqual([false, false, false, true]);
+      expect(report.outcomes[0]!.detail).toMatch(/^inconclusive: the query returned no objects without being refused/);
+      expect(report.outcomes[1]!.detail).toBe("inconclusive: the query returned no objects, so nothing it withholds could be checked");
+      expect(report.outcomes[2]!.detail).toMatch(/^inconclusive: .*WO-DOES-NOT-EXIST.*name a target that exists$/);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("refuses a test naming a property or Type the model does not have, with the name probably meant", async () => {
+    const h = await host();
+    const dir = mkdtempSync(path.join(tmpdir(), "typesys-tests-"));
+    try {
+      const file = path.join(dir, "t.tests.json");
+      writeFileSync(file, JSON.stringify({ format: "typesys.deployment-tests/1", tests: [{ as: "viewer", query: "airforce.Aircraft", withholds: ["maintenanceStatuss"] }, { as: "viewer", read: "airforce.Aircraf/X" }] }));
+      const err = await loadTests(file, h).catch((e: unknown) => e);
+      expect((err as DeploymentError).problems).toEqual([
+        `${file}: tests[0].withholds: airforce.Aircraft has no property "maintenanceStatuss" (did you mean "maintenanceStatus"?)`,
+        `${file}: tests[1]: no pack has a Type airforce.Aircraf (did you mean airforce.Aircraft?)`
+      ]);
+    } finally {
+      await h.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a tests document it cannot run, naming every problem", () => {
     expect(validateTests({ tests: [] }, ["viewer"])).toEqual(['must be a typesys.deployment-tests/1 document: { "format": "typesys.deployment-tests/1", "tests": [...] }']);
     expect(
@@ -120,6 +159,9 @@ describe("policy tests as data (ADR-0113)", () => {
       writeFileSync(failing, JSON.stringify({ format: "typesys.deployment-tests/1", tests: [{ as: "viewer", read: "airforce.Aircraft/AF86-0147", returns: ["maintenanceStatus"] }] }));
       expect(await deployCommand(["test", airforceFile, failing])).toBe(1);
       expect(await deployCommand(["test", airforceFile])).toBe(0);
+      // One run may not write an acceptance and pass with it (L1).
+      const acc = path.join(dir, "acc.json");
+      expect(await deployCommand(["check", airforceFile, airforceFile, "--packs-dir", path.join(root, "packs"), "--write-acceptance", acc, "--by", "x", "--why", "y", "--accept", acc])).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -245,6 +287,9 @@ describe("typesys dev (ADR-0112)", () => {
       const text = out.join("\n");
       expect(text).toContain("airforce is serving");
       expect(text).toContain("maintainer demo-maintainer-token   roles: maintainer");
+      // Fixed tokens are answered on this machine only: dev listens on 127.0.0.1 (H1).
+      expect(text).toContain("fixed tokens, answered on this machine only");
+      expect((await fetch(`http://127.0.0.1:${first.port}/healthz`)).status).toBe(200);
       expect(text).toContain(`claude mcp add --transport http airforce http://localhost:${first.port}/mcp --header "Authorization: Bearer demo-maintainer-token"`);
       expect(text).toContain("PASS: 6 passed, 0 failed");
       expect(await welcome(first)).toContain(`curl -s -X POST http://localhost:${first.port}/api/query`);

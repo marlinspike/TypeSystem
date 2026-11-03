@@ -30,7 +30,8 @@ and the property, with the name probably meant when one is close.
 Against the database, by `Host.checkSources()`: every mapped table or view
 exists and the connection may read it, and it has the id column and every
 property column the mapping names. Only the catalog is read
-(`to_regclass`, `pg_attribute`, `has_table_privilege`), never a row.
+(`to_regclass`, `pg_attribute`, `has_table_privilege`, and
+`has_column_privilege` for a column-level grant), never a row.
 `typesys deploy build` runs it unless `--offline`; the server runs it at
 start and refuses to start on a problem. A database that cannot be reached
 is not a mapping problem: `deploy build` fails naming the source, and the
@@ -41,7 +42,11 @@ An undefined table or column is a non-retryable `AdapterUnavailableError`
 naming the source and the Type (503 `unavailable`), with the database's
 message kept in `cause` for the log, not shown to the caller. A permission
 refusal is the source's refusal (`SourceRefusedError`, 502
-`source-refused`). A socket error is the source being unavailable. The
+`source-refused`). A socket error, SQLSTATE classes 08, 57, 53 and 40, and
+55P03 are the source being unavailable, and retryable; class 28 and 3D000
+are the deployment's connection settings, and not retryable. In every case
+the caller is told which system, and the driver's text, which names hosts
+and ports, stays in `cause`. The
 API's error log now records 5xx problems, not only 500s, so an operator
 sees why.
 

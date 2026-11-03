@@ -172,7 +172,16 @@ const NAME_RULES: readonly { readonly match: (w: string[]) => boolean; readonly 
   { match: (w) => ((w.includes("first") || w.includes("last") || w.includes("full") || w.includes("middle")) && (w.includes("name") || w.includes("nm"))) || w.join(" ") === "name", category: "personal-name", reason: "the name says it holds a person's name" },
   { match: (w) => ["password", "passwd", "secret", "token", "apikey"].some((x) => w.includes(x)) || (w.includes("api") && w.includes("key")), category: "credential", reason: "the name says it holds a credential" },
   { match: (w) => ["salary", "pay", "iban", "account"].some((x) => w.includes(x)), category: "financial", reason: "the name says it holds financial data" },
-  { match: (w) => ["diagnosis", "medical", "health"].some((x) => w.includes(x)), category: "health", reason: "the name says it holds health data" }
+  { match: (w) => ["diagnosis", "medical", "health"].some((x) => w.includes(x)), category: "health", reason: "the name says it holds health data" },
+  // Compound and abbreviated names the rules above miss (5.0 pressure test of ADR-0111, H2): a name joined without separators, a card, a tax or national id, a location.
+  { match: (w) => ["emailaddress", "phonenumber", "phoneno", "mobilenumber", "homeaddress", "streetaddress", "postcode", "zipcode"].some((x) => w.join("").includes(x)) || w.includes("zip") || w.includes("ip"), category: "contact", reason: "the name says it holds contact details" },
+  { match: (w) => ["firstname", "lastname", "fullname", "middlename", "givenname", "surname", "maidenname", "forename"].some((x) => w.join("").includes(x)) || w.includes("surname"), category: "personal-name", reason: "the name says it holds a person's name" },
+  { match: (w) => w.includes("birthday") || w.join("").includes("dateofbirth") || w.join("").includes("birthdate"), category: "date-of-birth", reason: "the name says it holds a date of birth" },
+  { match: (w) => ["nin", "sin", "tin", "nino", "license", "licence", "taxid"].some((x) => w.includes(x)) || (w.includes("tax") && ["id", "number", "no", "ref"].some((x) => w.includes(x))) || (w.includes("national") && w.includes("id")) || w.join("").includes("driverslicense") || w.join("").includes("nationalid"), category: "government-id", reason: "the name says it holds a government identifier" },
+  { match: (w) => ["card", "cc", "cvv", "cvc", "pan", "routing", "bank", "iban", "swift", "bic"].some((x) => w.includes(x)) || w.join("").includes("creditcard") || w.join("").includes("cardnumber"), category: "financial", reason: "the name says it holds payment or bank details" },
+  { match: (w) => ["pwd", "pin", "otp", "hash", "salt"].some((x) => w.includes(x)) || (w.includes("private") && w.includes("key")) || w.join("").includes("privatekey") || w.join("").includes("accesskey"), category: "credential", reason: "the name says it holds a credential" },
+  { match: (w) => ["lat", "lon", "lng", "latitude", "longitude", "geo", "gps", "location"].some((x) => w.includes(x)) || w.join("").includes("latitude") || w.join("").includes("longitude"), category: "location", reason: "the name says it holds a location" },
+  { match: (w) => ["username", "login", "gender", "ethnicity", "religion"].some((x) => w.includes(x) || w.join("") === x), category: "personal", reason: "the name says it holds personal data" }
 ];
 
 /** Classification markings, most restrictive first. */
