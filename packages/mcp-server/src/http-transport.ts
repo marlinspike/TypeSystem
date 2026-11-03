@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { requireBackend, requireIdentityResolver, type McpBackend, type McpServerInfo } from "./backend.js";
 import { createServer as createMcpServer } from "./server.js";
 import type { IdentityResolver } from "./auth.js";
-import type { Audience } from "@typesys/core";
+import { CONTRACT_HEADER, parseContractHeader, runUnderContract, type Audience, type ConsumerContract } from "@typesys/core";
 import { LOCAL_HOSTS, bearerToken, originGuard } from "@typesys/http";
 
 export interface HttpTransportOptions {
@@ -29,6 +29,11 @@ export interface HttpTransportOptions {
   allowedOrigins?: readonly string[];
   /** The model behind the agent this server answers (ADR-0075): every identity is bound to it. */
   audience?: Audience;
+  /**
+   * The contract every request is served under unless it sends its own in a
+   * `TypeSystem-Contract` header (ADR-0103): what an agent was built against.
+   */
+  contract?: ConsumerContract;
 }
 
 function jsonRpcError(res: Response, status: number, code: number, message: string): void {
@@ -89,11 +94,19 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
     // token (from a resource URI/tool argument) is only a fallback.
     const perRequestResolver: IdentityResolver = (inBandToken) => baseResolver(headerToken ?? inBandToken);
 
+    let contract: ConsumerContract | undefined;
+    try {
+      contract = parseContractHeader(req.headers[CONTRACT_HEADER]) ?? given?.contract;
+    } catch (err) {
+      jsonRpcError(res, 400, -32602, err instanceof Error ? err.message : "Invalid TypeSystem-Contract header");
+      return;
+    }
     try {
       const { server } = createMcpServer(backend, perRequestResolver, given?.serverInfo, given?.audience ? { audience: given.audience } : {});
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      // The consumer's contract (ADR-0103) is in force for every runtime call this request's tools and resources make.
+      await runUnderContract(contract, () => transport.handleRequest(req, res, req.body));
       res.on("close", () => {
         // Both return promises; a rejection left unhandled would take the whole process down.
         void Promise.allSettled([transport.close(), server.close()]);

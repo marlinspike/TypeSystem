@@ -242,6 +242,8 @@ export interface AuditEventRow {
   outcome: "success" | "failure" | null;
   details: Record<string, unknown> | null;
   operation: string | null;
+  /** Added by 0007 (ADR-0101); `undefined` only while reading a table migrated no further than 0006. */
+  build?: string | null;
 }
 
 export function auditEventRowToEvent(row: AuditEventRow): AuditEvent {
@@ -250,6 +252,7 @@ export function auditEventRowToEvent(row: AuditEventRow): AuditEvent {
     timestamp: row.timestamp,
     subjectId: row.subject_id,
     ...(row.operation === null ? {} : { operation: row.operation }),
+    ...(row.build === null || row.build === undefined ? {} : { build: row.build }),
     action: row.action,
     resource: {
       typeName: row.resource_type_name,

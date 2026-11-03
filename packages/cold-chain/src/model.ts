@@ -1,5 +1,5 @@
 import type { ActionDefinition, DataSource, DomainManifest, JsonSchema2020, Mapping } from "@typesys/core";
-import { allOf, anyOf, linearClassification, requireAttributeMatch, requireRole, type PolicyRule } from "@typesys/core";
+import { compilePolicies, linearClassification, type PolicyDocument, type PolicyRule } from "@typesys/core";
 
 export const TRACKER = "shipment-tracker";
 export const SENSORS = "sensor-hub";
@@ -219,20 +219,23 @@ function coldChainActions(): ActionDefinition[] {
 const MODEL = "coldchain-model";
 
 /**
- * TypeSystem's own rules. Each service also enforces its own, on the
+ * TypeSystem's own rules, as data (ADR-0100). Each service also enforces its own, on the
  * credential TypeSystem holds for it: a read or write must pass both.
  */
-export const coldChainPolicyRules: Record<string, PolicyRule> = {
+export const coldChainPolicyDocument: PolicyDocument = {
   /** A carrier's dispatcher sees only their own freight; the team sees all of it. */
-  "coldchain.read-shipment": anyOf(requireRole("logistics", "qa", "auditor", MODEL), allOf(requireRole("carrier"), requireAttributeMatch("carrier", "carrier"))),
-  "coldchain.read-site": requireRole("logistics", "qa", "auditor", "carrier", MODEL),
-  "coldchain.telemetry": requireRole("logistics", "qa", "auditor", MODEL),
-  "coldchain.inventory": requireRole("logistics", "qa", "auditor", MODEL),
+  "coldchain.read-shipment": { anyOf: [{ role: ["logistics", "qa", "auditor", MODEL] }, { allOf: [{ role: ["carrier"] }, { attributeMatch: { resource: "carrier", subject: "carrier" } }] }] },
+  "coldchain.read-site": { role: ["logistics", "qa", "auditor", "carrier", MODEL] },
+  "coldchain.telemetry": { role: ["logistics", "qa", "auditor", MODEL] },
+  "coldchain.inventory": { role: ["logistics", "qa", "auditor", MODEL] },
   /** Who may start a disposition, and carry out the writes it makes. */
-  "coldchain.dispose": requireRole("logistics", "qa"),
+  "coldchain.dispose": { role: ["logistics", "qa"] },
   /** Who may sign off a disposition: quality assurance, never the coordinator who asked for it. */
-  "coldchain.qa-release": requireRole("qa"),
-  "coldchain.qa": requireRole("qa"),
+  "coldchain.qa-release": { role: ["qa"] },
+  "coldchain.qa": { role: ["qa"] },
   /** Who may inspect the enforcement structure and explain anyone's access (ADR-0088): quality assurance and the auditor. */
-  "coldchain.inspect": requireRole("qa", "auditor")
+  "coldchain.inspect": { role: ["qa", "auditor"] }
 };
+
+/** The same rules, compiled (ADR-0100). */
+export const coldChainPolicyRules: Record<string, PolicyRule> = compilePolicies(coldChainPolicyDocument);

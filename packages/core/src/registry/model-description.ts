@@ -1,3 +1,4 @@
+import type { ContractMismatch } from "../runtime/contract.js";
 import type { JsonSchema2020 } from "../model/json-schema.js";
 import type { ActionDefinition } from "../model/action.js";
 import type { Cardinality } from "../model/vocabulary.js";
@@ -16,6 +17,13 @@ export interface ModelDescription {
   format: "typesys.model/1";
   types: TypeDescription[];
   actions: ActionDescription[];
+  /**
+   * Present only when the caller described the model under a consumer's
+   * contract (ADR-0103): whether every Type it names is here, at a version
+   * within its range. A Type the caller may not see is reported without a
+   * version, as one that does not exist would be.
+   */
+  contract?: { satisfied: boolean; mismatches: ContractMismatch[] };
 }
 
 export interface TypeDescription {

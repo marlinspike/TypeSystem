@@ -2465,6 +2465,130 @@
       "tests": [
         "packages/domain-hospital/test/explain-disclosure.test.ts"
       ]
+    },
+    {
+      "id": "contract.request-unguarded",
+      "adr": "0103",
+      "description": "A request reads a Type its consumer's contract does not accept.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "    assertContract(typeDef);\n    return typeDef;",
+      "replace": "    return typeDef;",
+      "tests": [
+        "packages/core/test/contract.test.ts",
+        "packages/domain-airforce/test/consumer-contract.test.ts",
+        "packages/http/test/consumer-contract.test.ts"
+      ]
+    },
+    {
+      "id": "contract.action-unguarded",
+      "adr": "0103",
+      "description": "An Action runs, and writes, on a Type its consumer's contract does not accept, before the refusal.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "        await this.assertActionContract(action);\n        const { decision, typeName, target }",
+      "replace": "        const { decision, typeName, target }",
+      "tests": [
+        "packages/domain-airforce/test/consumer-contract.test.ts"
+      ]
+    },
+    {
+      "id": "contract.range-ignored",
+      "adr": "0103",
+      "description": "A contracted Type outside its range is treated as satisfied.",
+      "file": "packages/core/src/runtime/contract.ts",
+      "find": "if (!satisfiesRange(type.version, range)) throw",
+      "replace": "if (false && !satisfiesRange(type.version, range)) throw",
+      "tests": [
+        "packages/core/test/contract.test.ts",
+        "packages/http/test/consumer-contract.test.ts"
+      ]
+    },
+    {
+      "id": "deployment.literal-credential-accepted",
+      "adr": "0102",
+      "description": "A production deployment holds a literal credential.",
+      "file": "packages/host/src/deployment.ts",
+      "find": "if (!demo) out.push(`${at}: a credential must be a",
+      "replace": "if (false) out.push(`${at}: a credential must be a",
+      "tests": [
+        "packages/host/test/deployment.test.ts"
+      ]
+    },
+    {
+      "id": "deployment.secret-default-accepted",
+      "adr": "0102",
+      "description": "A production deployment gives a secret a well-known default.",
+      "file": "packages/host/src/deployment.ts",
+      "find": "if (!demo) out.push(`${at}.default: a default credential",
+      "replace": "if (false) out.push(`${at}.default: a default credential",
+      "tests": [
+        "packages/host/test/deployment.test.ts"
+      ]
+    },
+    {
+      "id": "deployment.fixed-tokens-accepted",
+      "adr": "0102",
+      "description": "A production deployment resolves fixed tokens to personas.",
+      "file": "packages/host/src/deployment.ts",
+      "find": "if (!demo) out.push(\"identity: fixed tokens",
+      "replace": "if (false) out.push(\"identity: fixed tokens",
+      "tests": [
+        "packages/host/test/deployment.test.ts"
+      ]
+    },
+    {
+      "id": "deployment.demo-classification-accepted",
+      "adr": "0102",
+      "description": "A production deployment uses the demonstration classification.",
+      "file": "packages/host/src/deployment.ts",
+      "find": "if (!demo) out.push(\"classification: the demonstration ordering",
+      "replace": "if (false) out.push(\"classification: the demonstration ordering",
+      "tests": [
+        "packages/host/test/deployment.test.ts"
+      ]
+    },
+    {
+      "id": "host.broken-consumer-starts",
+      "adr": "0103",
+      "description": "A deployment starts although it breaks a consumer it declares.",
+      "file": "packages/host/src/host.ts",
+      "find": "if (broken.length > 0) throw new DeploymentError(broken);",
+      "replace": "if (broken.length < 0) throw new DeploymentError(broken);",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.exposure-not-blocking",
+      "adr": "0104",
+      "description": "An upgrade that lets a persona read a value they could not is not blocked.",
+      "file": "packages/host/src/check.ts",
+      "find": "for (const e of impact.exposures) blocking.push(",
+      "replace": "for (const e of impact.exposures.slice(0, 0)) blocking.push(",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.admission-not-blocking",
+      "adr": "0104",
+      "description": "A policy that now admits a persona it refused does not block an upgrade.",
+      "file": "packages/host/src/check.ts",
+      "find": "decisions.filter((x) => x.after === true && x.before !== true)",
+      "replace": "decisions.filter((x) => x.after === true && x.before === true)",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-check.consumer-not-blocking",
+      "adr": "0104",
+      "description": "An upgrade that breaks a consumer's contract is not blocked.",
+      "file": "packages/host/src/check.ts",
+      "find": "for (const c of consumers.filter((x) => !x.satisfied)) blocking.push(",
+      "replace": "for (const c of consumers.filter((x) => !x.satisfied && false)) blocking.push(",
+      "tests": [
+        "packages/host/test/check.test.ts"
+      ]
     }
   ]
 }

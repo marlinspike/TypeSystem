@@ -4,6 +4,39 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../domain-airforce" }, { "path": "../domain-hospital" }, { "path": "../mcp-server" }, { "path": "../llm" }, { "path": "../adapter-in-memory" }, { "path": "../encryption" }, { "path": "../policy-cedar" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../domain-airforce"
+    },
+    {
+      "path": "../domain-hospital"
+    },
+    {
+      "path": "../mcp-server"
+    },
+    {
+      "path": "../llm"
+    },
+    {
+      "path": "../adapter-in-memory"
+    },
+    {
+      "path": "../encryption"
+    },
+    {
+      "path": "../policy-cedar"
+    },
+    {
+      "path": "../host"
+    },
+    {
+      "path": "../packs"
+    }
+  ]
 }

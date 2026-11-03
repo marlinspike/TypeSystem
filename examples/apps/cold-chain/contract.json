@@ -1,0 +1,11 @@
+{
+  "format": "typesys.consumer/1",
+  "name": "cold-chain",
+  "contract": {
+    "coldchain.Excursion": "^1.0.0",
+    "coldchain.Lot": "^1.0.0",
+    "coldchain.Reading": "^1.0.0",
+    "coldchain.Shipment": "^1.0.0",
+    "coldchain.Site": "^1.0.0"
+  }
+}

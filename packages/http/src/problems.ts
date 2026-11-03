@@ -3,6 +3,7 @@ import {
   AdapterUnavailableError,
   AuthorizationError,
   CircuitOpenError,
+  ContractUnsatisfiedError,
   InvalidInputError,
   NotFoundError,
   PreconditionFailedError,
@@ -23,6 +24,7 @@ export type ProblemCode =
   | "workflow-diverged"
   | "unavailable"
   | "source-refused"
+  | "contract-unsatisfied"
   | "unauthorized"
   | "internal";
 
@@ -48,6 +50,8 @@ const MAPPING: readonly [ErrorClass, number, ProblemCode, string][] = [
   [NotFoundError, 404, "not-found", "Not found"],
   [InvalidInputError, 400, "invalid-input", "Invalid input"],
   [PreconditionFailedError, 422, "precondition-failed", "Precondition failed"],
+  // The caller's contract names a Type at a version the model no longer has (ADR-0103): its precondition, unmet.
+  [ContractUnsatisfiedError, 412, "contract-unsatisfied", "Contract not satisfied"],
   [RateLimitExceededError, 429, "rate-limited", "Rate limit exceeded"],
   [WorkflowStateError, 409, "conflict", "Conflict"],
   [JournalConflictError, 409, "conflict", "Conflict"],
@@ -69,7 +73,7 @@ export function toProblem(err: unknown, opts: { withholdReasons?: boolean } = {}
   for (const [ErrorClass, status, code, title] of MAPPING) {
     if (err instanceof ErrorClass) {
       const reason = err instanceof AuthorizationError && !opts.withholdReasons ? err.reason : undefined;
-      const errors = err instanceof InvalidInputError ? err.errors : undefined;
+      const errors = err instanceof InvalidInputError ? err.errors : err instanceof ContractUnsatisfiedError ? err.mismatches : undefined;
       return {
         type: `https://typesys.dev/problems/${code}`,
         title,

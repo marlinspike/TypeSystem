@@ -7,12 +7,15 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./recall-extension": "./dist/recall-extension.js"
   },
   "license": "MIT",
   "dependencies": {
     "@typesys/adapter-http": "0.1.0",
-    "@typesys/core": "0.1.0"
+    "@typesys/core": "0.1.0",
+    "@typesys/host": "0.1.0",
+    "@typesys/packs": "0.1.0"
   },
   "devDependencies": {
     "@typesys/compiler": "0.1.0",

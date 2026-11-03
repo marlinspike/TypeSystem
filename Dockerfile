@@ -1,5 +1,12 @@
 # syntax=docker/dockerfile:1
-# Multi-stage image for the TypeSys MCP server over Streamable HTTP (ADR-0021, ADR-0029).
+# Multi-stage image for the generic TypeSystem server (ADR-0102): one image for every deployment.
+# It serves the deployment file TYPESYS_DEPLOYMENT names, MCP at /mcp and the governed API under /api
+# (ADR-0021, ADR-0029). The default is the airforce demonstration; to run another, mount its file and
+# set TYPESYS_DEPLOYMENT, e.g.
+#   docker run -v $PWD/my.deployment.json:/etc/typesys/deployment.json \
+#     -e TYPESYS_DEPLOYMENT=/etc/typesys/deployment.json typesys
+# A deployment's packs are read from /app/packs (TYPESYS_PACKS_DIR) unless it names their files.
+# Upgrading is a new image or a new deployment file and a restart; GET /version names the build serving.
 #
 # Reference artifact: correct and runnable, NOT production-hardened. A real image would
 # pin the base by digest, scan for CVEs, prune dev dependencies (or use a distroless
@@ -13,6 +20,8 @@ WORKDIR /app
 # tree keeps the workspace install correct (at some cost to layer-cache reuse on source-only edits).
 COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
 COPY packages ./packages
+COPY deployments ./deployments
+COPY packs ./packs
 RUN npm ci
 RUN npm run build
 
@@ -31,4 +40,6 @@ EXPOSE 3939
 # Liveness against /healthz (ADR-0029), using Node 22's global fetch — no extra tools in the image.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3939)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "packages/demo-web/dist/mcp-http.js"]
+ENV TYPESYS_DEPLOYMENT=deployments/airforce.deployment.json
+ENV TYPESYS_PACKS_DIR=/app/packs
+CMD ["node", "packages/host/dist/serve.js"]

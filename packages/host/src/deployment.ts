@@ -1,0 +1,399 @@
+import { createHash } from "node:crypto";
+import { canonical, validatePolicyExpression, type Identity, type PolicyDocument } from "@typesys/core";
+
+/**
+ * A deployment, declared (ADR-0102): everything that makes one governed
+ * TypeSystem runtime, as data. Which packs make the model, which system
+ * serves each data source and with which credential reference, the policy
+ * rules, the classification scheme, how a bearer token becomes an identity,
+ * the personas an upgrade check reads as, and the consumers whose contracts
+ * the deployment must keep. One generic host (`buildHost`) builds the
+ * runtime from it; a change to it is a new build, checked before it rolls.
+ */
+export const DEPLOYMENT_FORMAT = "typesys.deployment/1";
+
+/** A configuration value read from the host's environment when the host is built, never stored in the deployment. */
+export interface EnvRef {
+  readonly $env: string;
+  /** A path resolved against the value as a URL (`/oauth/token` against a service's base URL). */
+  readonly path?: string;
+  /** Used when the variable is unset. */
+  readonly default?: string;
+}
+
+/** A credential, read from the host's secret resolver (by default the environment) when the host is built. */
+export interface SecretRef {
+  readonly $secret: string;
+  /** Put before the value: `ApiKey ` for a header that carries a scheme. */
+  readonly prefix?: string;
+  /** A demonstration's well-known value, used when the secret is unset. Refused unless the deployment is a demo. */
+  readonly default?: string;
+}
+
+/** A string, or a reference resolved when the host is built. */
+export type ConfigString = string | EnvRef;
+export type Credential = string | SecretRef;
+
+export type HttpFieldSpec = string | { readonly from: string; readonly map: Readonly<Record<string, unknown>> };
+
+/** `@typesys/adapter-http`'s mapping, as data. */
+export interface HttpTypeSpec {
+  readonly get: string;
+  readonly record?: string;
+  readonly list: {
+    readonly path: string;
+    readonly items: string;
+    readonly next?: string;
+    readonly cursorParam?: string;
+    readonly pages?: { readonly param: string; readonly more: string; readonly first?: number };
+    readonly pageSizeParam?: string;
+    readonly pageSize?: number;
+    readonly params?: Readonly<Record<string, string>>;
+  };
+  readonly id: string;
+  readonly fields: Readonly<Record<string, HttpFieldSpec>>;
+}
+
+export type HttpAuthSpec =
+  | { readonly kind: "header"; readonly name: string; readonly value: Credential }
+  | { readonly kind: "basic"; readonly username: string; readonly password: Credential }
+  | { readonly kind: "client-credentials"; readonly tokenUrl: ConfigString; readonly clientId: string; readonly clientSecret: Credential; readonly scope?: string };
+
+/** A data source served by `@typesys/adapter-http`, configured entirely here. */
+export interface HttpSourceSpec {
+  readonly kind: "http";
+  readonly system: string;
+  readonly baseUrl: ConfigString;
+  readonly auth?: HttpAuthSpec;
+  readonly types: Readonly<Record<string, HttpTypeSpec>>;
+  readonly actions?: Readonly<Record<string, { readonly method: "POST" | "PUT" | "PATCH" | "DELETE"; readonly path: string; readonly body?: readonly string[] }>>;
+  readonly maxPages?: number;
+}
+
+/** A data source whose adapter is code, supplied by one of the deployment's extensions under this id. */
+export interface ExtensionSourceSpec {
+  readonly kind: "extension";
+  /** The extension that supplies it, by name. */
+  readonly extension: string;
+  readonly system?: string;
+}
+
+export type SourceSpec = HttpSourceSpec | ExtensionSourceSpec;
+
+export type ClassificationSpec =
+  /** Nobody reads marked data: the runtime's default (ADR-0034). */
+  | { readonly kind: "deny-marked" }
+  /** A linear ordering of markings, lowest first. */
+  | { readonly kind: "linear"; readonly name: string; readonly levels: readonly string[] }
+  /** The demonstration ordering (UNCLASSIFIED < CUI < SECRET < TOP SECRET). Refused unless the deployment is a demo. */
+  | { readonly kind: "demo-linear" };
+
+export type IdentitySpec =
+  /** Bearer tokens verified against an OpenID Connect issuer (`@typesys/auth-oidc`). */
+  | {
+      readonly kind: "oidc";
+      readonly issuer: ConfigString;
+      readonly audience?: ConfigString;
+      readonly rolesClaim?: string;
+      readonly clearanceClaim?: string;
+      readonly jwksUrl?: ConfigString;
+    }
+  /** Fixed tokens naming personas. Constants grant roles, so this is refused unless the deployment is a demo. */
+  | { readonly kind: "tokens"; readonly tokens: Readonly<Record<string, string>> }
+  /** A resolver one of the deployment's extensions supplies. */
+  | { readonly kind: "extension"; readonly extension: string };
+
+/** A pack the model is made of: found by name and version, and, when a digest is given, that exact build. */
+export interface PackRef {
+  readonly name: string;
+  readonly version: string;
+  readonly digest?: string;
+  /** Where the loader finds it, relative to the deployment file. */
+  readonly file?: string;
+}
+
+/** An application or agent the deployment serves, and the Type versions it was built against (ADR-0103). */
+export interface ConsumerSpec {
+  readonly name: string;
+  /** Type name → semver range. */
+  readonly contract: Readonly<Record<string, string>>;
+}
+
+export interface Deployment {
+  readonly format: typeof DEPLOYMENT_FORMAT;
+  readonly name: string;
+  readonly description?: string;
+  /**
+   * A demonstration: static tokens, the demonstration classification and
+   * well-known default credentials are allowed. Never set for real traffic.
+   */
+  readonly demo?: boolean;
+  readonly packs: readonly PackRef[];
+  /** Code the deployment needs, by name: bindings, adapters for `extension` sources, an identity resolver. */
+  readonly extensions?: readonly string[];
+  /** Every system the runtime reads or writes, by data source id. Nothing else is reachable. */
+  readonly sources: Readonly<Record<string, SourceSpec>>;
+  readonly policies: PolicyDocument;
+  readonly classification?: ClassificationSpec;
+  readonly identity: IdentitySpec;
+  /** Named identities: what demo tokens resolve to, and who an upgrade check reads as (ADR-0104). */
+  readonly personas?: Readonly<Record<string, Identity>>;
+  readonly runtime?: {
+    /** Per adapter call, in milliseconds (ADR-0026). */
+    readonly callTimeoutMs?: number;
+    /** The policy that decides who may inspect the enforcement structure (ADR-0088). */
+    readonly inspectionPolicy?: string;
+  };
+  readonly trust?: {
+    /** Key id → public key (PEM). When given, every pack must be signed by one of them. */
+    readonly keys?: Readonly<Record<string, string>>;
+    readonly revokedKeys?: Readonly<Record<string, { readonly reason?: string; readonly revokedAt?: string }>>;
+    readonly revokedDigests?: Readonly<Record<string, { readonly reason?: string; readonly revokedAt?: string }>>;
+  };
+  readonly consumers?: readonly ConsumerSpec[];
+}
+
+/** A deployment that is not well formed, with every problem found. */
+export class DeploymentError extends Error {
+  constructor(readonly problems: readonly string[]) {
+    super(`Invalid deployment: ${problems.join("; ")}`);
+    this.name = "DeploymentError";
+  }
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+const NAME = /^[a-z0-9][a-z0-9._-]*$/;
+
+function unknownFields(value: Record<string, unknown>, allowed: readonly string[], at: string, out: string[]): void {
+  for (const k of Object.keys(value)) if (!allowed.includes(k)) out.push(`${at}: unknown field "${k}"`);
+}
+
+function isEnvRef(v: unknown): v is Record<string, unknown> {
+  return isRecord(v) && Object.hasOwn(v, "$env");
+}
+function isSecretRef(v: unknown): v is Record<string, unknown> {
+  return isRecord(v) && Object.hasOwn(v, "$secret");
+}
+
+function checkConfigString(v: unknown, at: string, out: string[]): void {
+  if (typeof v === "string") {
+    if (v === "") out.push(`${at}: must not be empty`);
+    return;
+  }
+  if (!isEnvRef(v)) {
+    out.push(`${at}: must be a string or { "$env": NAME }`);
+    return;
+  }
+  unknownFields(v, ["$env", "path", "default"], at, out);
+  if (!nonEmpty(v.$env)) out.push(`${at}.$env: must name an environment variable`);
+  if (v.path !== undefined && !nonEmpty(v.path)) out.push(`${at}.path: must be a non-empty string`);
+  if (v.default !== undefined && typeof v.default !== "string") out.push(`${at}.default: must be a string`);
+}
+
+function checkCredential(v: unknown, at: string, demo: boolean, out: string[]): void {
+  if (typeof v === "string") {
+    // A literal credential in a document that is reviewed, diffed and signed is a leaked credential (ADR-0102).
+    if (!demo) out.push(`${at}: a credential must be a { "$secret": NAME } reference, not a value (only a demo deployment may hold one)`);
+    return;
+  }
+  if (!isSecretRef(v)) {
+    out.push(`${at}: must be { "$secret": NAME }`);
+    return;
+  }
+  unknownFields(v, ["$secret", "prefix", "default"], at, out);
+  if (!nonEmpty(v.$secret)) out.push(`${at}.$secret: must name a secret`);
+  if (v.prefix !== undefined && typeof v.prefix !== "string") out.push(`${at}.prefix: must be a string`);
+  if (v.default !== undefined) {
+    if (typeof v.default !== "string") out.push(`${at}.default: must be a string`);
+    if (!demo) out.push(`${at}.default: a default credential is allowed only in a demo deployment`);
+  }
+}
+
+function checkHttpSource(s: Record<string, unknown>, at: string, demo: boolean, out: string[]): void {
+  unknownFields(s, ["kind", "system", "baseUrl", "auth", "types", "actions", "maxPages"], at, out);
+  if (!nonEmpty(s.system)) out.push(`${at}.system: must name the system, as provenance reports it`);
+  checkConfigString(s.baseUrl, `${at}.baseUrl`, out);
+  if (!isRecord(s.types) || Object.keys(s.types).length === 0) out.push(`${at}.types: must map at least one Type`);
+  else
+    for (const [type, m] of Object.entries(s.types)) {
+      if (!isRecord(m) || !nonEmpty(m.get) || !nonEmpty(m.id) || !isRecord(m.list) || !isRecord(m.fields)) out.push(`${at}.types["${type}"]: needs get, list, id and fields`);
+    }
+  if (s.actions !== undefined && !isRecord(s.actions)) out.push(`${at}.actions: must map Action names to requests`);
+  if (s.maxPages !== undefined && !(Number.isInteger(s.maxPages) && (s.maxPages as number) > 0)) out.push(`${at}.maxPages: must be a positive integer`);
+  if (s.auth !== undefined) {
+    const a = s.auth;
+    if (!isRecord(a)) {
+      out.push(`${at}.auth: must be an object`);
+      return;
+    }
+    if (a.kind === "header") {
+      unknownFields(a, ["kind", "name", "value"], `${at}.auth`, out);
+      if (!nonEmpty(a.name)) out.push(`${at}.auth.name: must name the header`);
+      checkCredential(a.value, `${at}.auth.value`, demo, out);
+    } else if (a.kind === "basic") {
+      unknownFields(a, ["kind", "username", "password"], `${at}.auth`, out);
+      if (!nonEmpty(a.username)) out.push(`${at}.auth.username: must be a non-empty string`);
+      checkCredential(a.password, `${at}.auth.password`, demo, out);
+    } else if (a.kind === "client-credentials") {
+      unknownFields(a, ["kind", "tokenUrl", "clientId", "clientSecret", "scope"], `${at}.auth`, out);
+      checkConfigString(a.tokenUrl, `${at}.auth.tokenUrl`, out);
+      if (!nonEmpty(a.clientId)) out.push(`${at}.auth.clientId: must be a non-empty string`);
+      checkCredential(a.clientSecret, `${at}.auth.clientSecret`, demo, out);
+      if (a.scope !== undefined && typeof a.scope !== "string") out.push(`${at}.auth.scope: must be a string`);
+    } else out.push(`${at}.auth.kind: must be "header", "basic" or "client-credentials"`);
+  }
+}
+
+/** Every problem with `doc` as a deployment. Empty means it is well formed; `buildHost` still checks it against its packs and extensions. */
+export function validateDeployment(doc: unknown): string[] {
+  const out: string[] = [];
+  if (!isRecord(doc)) return ["deployment: must be an object"];
+  unknownFields(doc, ["format", "name", "description", "demo", "packs", "extensions", "sources", "policies", "classification", "identity", "personas", "runtime", "trust", "consumers"], "deployment", out);
+  if (doc.format !== DEPLOYMENT_FORMAT) out.push(`format: must be "${DEPLOYMENT_FORMAT}"`);
+  if (!nonEmpty(doc.name) || !NAME.test(doc.name)) out.push("name: lower case letters, digits, '.', '-' and '_'");
+  if (doc.description !== undefined && typeof doc.description !== "string") out.push("description: must be a string");
+  if (doc.demo !== undefined && typeof doc.demo !== "boolean") out.push("demo: must be true or false");
+  const demo = doc.demo === true;
+
+  if (!Array.isArray(doc.packs) || doc.packs.length === 0) out.push("packs: must list at least one pack");
+  else {
+    const seen = new Set<string>();
+    doc.packs.forEach((p, i) => {
+      if (!isRecord(p) || !nonEmpty(p.name) || !nonEmpty(p.version)) {
+        out.push(`packs[${i}]: needs a name and a version`);
+        return;
+      }
+      unknownFields(p, ["name", "version", "digest", "file"], `packs[${i}]`, out);
+      if (seen.has(p.name)) out.push(`packs[${i}]: ${p.name} is listed twice`);
+      seen.add(p.name);
+      if (p.digest !== undefined && !(typeof p.digest === "string" && /^sha256:[0-9a-f]{64}$/i.test(p.digest))) out.push(`packs[${i}].digest: must be sha256:<64 hex>`);
+      if (p.file !== undefined && !nonEmpty(p.file)) out.push(`packs[${i}].file: must be a path`);
+    });
+  }
+
+  const extensions = new Set<string>();
+  if (doc.extensions !== undefined) {
+    if (!Array.isArray(doc.extensions) || !doc.extensions.every(nonEmpty)) out.push("extensions: must be a list of extension names");
+    else for (const e of doc.extensions) extensions.add(e);
+  }
+  const needsExtension = (name: unknown, at: string) => {
+    if (!nonEmpty(name)) out.push(`${at}: must name an extension`);
+    else if (!extensions.has(name)) out.push(`${at}: "${name}" is not among the deployment's extensions`);
+  };
+
+  if (!isRecord(doc.sources)) out.push("sources: must map data source ids to their systems");
+  else
+    for (const [id, s] of Object.entries(doc.sources)) {
+      const at = `sources["${id}"]`;
+      if (!isRecord(s)) out.push(`${at}: must be an object`);
+      else if (s.kind === "http") checkHttpSource(s, at, demo, out);
+      else if (s.kind === "extension") {
+        unknownFields(s, ["kind", "extension", "system"], at, out);
+        needsExtension(s.extension, `${at}.extension`);
+      } else out.push(`${at}.kind: must be "http" or "extension"`);
+    }
+
+  if (!isRecord(doc.policies)) out.push("policies: must map rule names to policy expressions");
+  else for (const [name, expr] of Object.entries(doc.policies)) out.push(...validatePolicyExpression(expr, `policies["${name}"]`));
+
+  if (doc.classification !== undefined) {
+    const c = doc.classification;
+    if (!isRecord(c)) out.push("classification: must be an object");
+    else if (c.kind === "deny-marked") unknownFields(c, ["kind"], "classification", out);
+    else if (c.kind === "demo-linear") {
+      unknownFields(c, ["kind"], "classification", out);
+      if (!demo) out.push("classification: the demonstration ordering is allowed only in a demo deployment");
+    } else if (c.kind === "linear") {
+      unknownFields(c, ["kind", "name", "levels"], "classification", out);
+      if (!nonEmpty(c.name)) out.push("classification.name: must name the scheme");
+      if (!Array.isArray(c.levels) || c.levels.length === 0 || !c.levels.every(nonEmpty) || new Set(c.levels).size !== c.levels.length) out.push("classification.levels: must be distinct markings, lowest first");
+    } else out.push('classification.kind: must be "deny-marked", "linear" or "demo-linear"');
+  }
+
+  const personas = isRecord(doc.personas) ? doc.personas : {};
+  if (doc.personas !== undefined) {
+    if (!isRecord(doc.personas)) out.push("personas: must map names to identities");
+    else
+      for (const [name, p] of Object.entries(doc.personas)) {
+        if (!isRecord(p) || !nonEmpty(p.subjectId) || !Array.isArray(p.roles) || !p.roles.every(nonEmpty) || !isRecord(p.attributes)) out.push(`personas["${name}"]: needs subjectId, roles and attributes`);
+        else if (p.clearance !== undefined && !nonEmpty(p.clearance)) out.push(`personas["${name}"].clearance: must be a marking`);
+      }
+  }
+
+  const id = doc.identity;
+  if (!isRecord(id)) out.push("identity: must say how a bearer token becomes an identity");
+  else if (id.kind === "oidc") {
+    unknownFields(id, ["kind", "issuer", "audience", "rolesClaim", "clearanceClaim", "jwksUrl"], "identity", out);
+    checkConfigString(id.issuer, "identity.issuer", out);
+    if (id.audience !== undefined) checkConfigString(id.audience, "identity.audience", out);
+    if (id.jwksUrl !== undefined) checkConfigString(id.jwksUrl, "identity.jwksUrl", out);
+    if (id.rolesClaim !== undefined && !nonEmpty(id.rolesClaim)) out.push("identity.rolesClaim: must be a claim path");
+    if (id.clearanceClaim !== undefined && !nonEmpty(id.clearanceClaim)) out.push("identity.clearanceClaim: must be a claim path");
+  } else if (id.kind === "tokens") {
+    unknownFields(id, ["kind", "tokens"], "identity", out);
+    if (!demo) out.push("identity: fixed tokens grant roles to anyone who knows them, so they are allowed only in a demo deployment");
+    if (!isRecord(id.tokens)) out.push("identity.tokens: must map tokens to persona names");
+    else for (const [token, persona] of Object.entries(id.tokens)) if (!nonEmpty(persona) || !Object.hasOwn(personas, persona)) out.push(`identity.tokens: token "${token.slice(0, 4)}…" names no persona`);
+  } else if (id.kind === "extension") {
+    unknownFields(id, ["kind", "extension"], "identity", out);
+    needsExtension(id.extension, "identity.extension");
+  } else out.push('identity.kind: must be "oidc", "tokens" or "extension"');
+
+  if (doc.runtime !== undefined) {
+    const r = doc.runtime;
+    if (!isRecord(r)) out.push("runtime: must be an object");
+    else {
+      unknownFields(r, ["callTimeoutMs", "inspectionPolicy"], "runtime", out);
+      if (r.callTimeoutMs !== undefined && !(Number.isInteger(r.callTimeoutMs) && (r.callTimeoutMs as number) > 0)) out.push("runtime.callTimeoutMs: must be a positive integer");
+      if (r.inspectionPolicy !== undefined && (!nonEmpty(r.inspectionPolicy) || !isRecord(doc.policies) || !Object.hasOwn(doc.policies, r.inspectionPolicy)))
+        out.push("runtime.inspectionPolicy: must name one of the deployment's policies");
+    }
+  }
+
+  if (doc.trust !== undefined) {
+    const t = doc.trust;
+    if (!isRecord(t)) out.push("trust: must be an object");
+    else {
+      unknownFields(t, ["keys", "revokedKeys", "revokedDigests"], "trust", out);
+      if (t.keys !== undefined && (!isRecord(t.keys) || !Object.values(t.keys).every((k) => typeof k === "string" && k.includes("PUBLIC KEY")))) out.push("trust.keys: must map key ids to PEM public keys");
+      for (const k of ["revokedKeys", "revokedDigests"] as const) if (t[k] !== undefined && !isRecord(t[k])) out.push(`trust.${k}: must be an object`);
+    }
+  }
+
+  if (doc.consumers !== undefined) {
+    if (!Array.isArray(doc.consumers)) out.push("consumers: must be a list");
+    else {
+      const names = new Set<string>();
+      doc.consumers.forEach((c, i) => {
+        if (!isRecord(c) || !nonEmpty(c.name) || !isRecord(c.contract)) {
+          out.push(`consumers[${i}]: needs a name and a contract`);
+          return;
+        }
+        unknownFields(c, ["name", "contract"], `consumers[${i}]`, out);
+        if (names.has(c.name)) out.push(`consumers[${i}]: ${c.name} is listed twice`);
+        names.add(c.name);
+        for (const [type, range] of Object.entries(c.contract)) if (!nonEmpty(range)) out.push(`consumers[${i}].contract["${type}"]: must be a semver range`);
+      });
+    }
+  }
+  return out;
+}
+
+/** Throws `DeploymentError` with every problem, or returns `doc` typed. */
+export function parseDeployment(doc: unknown): Deployment {
+  const problems = validateDeployment(doc);
+  if (problems.length > 0) throw new DeploymentError(problems);
+  return doc as Deployment;
+}
+
+/**
+ * The build id (ADR-0101): SHA-256 over the canonical deployment and the
+ * digest of every pack it installed. References are hashed, never the
+ * values they resolve to, so rotating a secret is not a new build, and a
+ * changed model is, even when the deployment file is unchanged.
+ */
+export function buildIdOf(deployment: Deployment, packDigests: readonly string[]): string {
+  const body = canonical({ deployment: JSON.parse(JSON.stringify(deployment)) as unknown, packs: [...packDigests].sort() });
+  return `sha256:${createHash("sha256").update(body, "utf8").digest("hex")}`;
+}

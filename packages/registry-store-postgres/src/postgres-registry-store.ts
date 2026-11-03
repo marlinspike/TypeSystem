@@ -259,8 +259,8 @@ export class PostgresRegistryStore implements RegistryStore {
   async appendAuditEvent(evt: AuditEvent): Promise<void> {
     await this.pool.query(
       `INSERT INTO audit_events (id, "timestamp", subject_id, action, resource_type_name, resource_object_id,
-                                  resource_property_path, decision, reason, outcome, details, operation)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                                  resource_property_path, decision, reason, outcome, details, operation, build)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         evt.id,
         evt.timestamp,
@@ -273,7 +273,8 @@ export class PostgresRegistryStore implements RegistryStore {
         evt.reason ?? null,
         evt.outcome ?? null,
         toJsonParam(evt.details),
-        evt.operation ?? null
+        evt.operation ?? null,
+        evt.build ?? null
       ]
     );
   }

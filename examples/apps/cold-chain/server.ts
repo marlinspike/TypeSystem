@@ -6,6 +6,7 @@ import type { Express } from "express";
 import { createAppServer, readLlmConfig } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from "@typesys/cold-chain";
+import { contract } from "./src/generated/contract.js";
 import { assess as flow_assess } from "./src/generated/flows/assess.js";
 import { disposition as flow_disposition } from "./src/generated/flows/disposition.js";
 import { llmOptions } from "./src/extensions/server.js";
@@ -24,7 +25,8 @@ export async function createApp(): Promise<{ app: Express; workflows: WorkflowEn
     models: { stability: "stability" },
     llm: { config: readLlmConfig(path.join(root, "typesys.llm.json")), options: await llmOptions() },
     clientDir: path.join(here, "client"),
-    title: "Cold Chain Command"
+    title: "Cold Chain Command",
+    contract
   });
 }
 

@@ -1,9 +1,13 @@
 import express, { type Express, type NextFunction, type Request, type Response, type Router } from "express";
 import {
   AuthorizationError,
+  CONTRACT_HEADER,
   InvalidInputError,
   NotFoundError,
+  parseContractHeader,
+  runUnderContract,
   summarizeAction,
+  type ConsumerContract,
   type Identity,
   type IdentityResolver,
   type ExplainQuestion,
@@ -37,6 +41,12 @@ export interface ApiOptions {
   readonly onError?: (err: unknown, req: Request) => void;
   /** The `info` of the OpenAPI document. */
   readonly info?: { readonly title?: string; readonly version?: string };
+  /**
+   * The contract every request is served under unless it sends its own in a
+   * `TypeSystem-Contract` header (ADR-0103): what an application's server
+   * passes, so its pages are refused a Type it was not built for.
+   */
+  readonly contract?: ConsumerContract;
 }
 
 export interface ApiAppOptions extends ApiOptions {
@@ -93,7 +103,9 @@ export function createApiRouter(opts: ApiOptions): Router {
       return;
     }
     try {
-      res.status(status).json(await handler(req, identity));
+      // A consumer's contract (ADR-0103): its own header, else the server's, in force for every runtime call the handler makes.
+      const contract = parseContractHeader(req.headers[CONTRACT_HEADER]) ?? opts.contract;
+      res.status(status).json(await runUnderContract(contract, () => handler(req, identity)));
     } catch (err) {
       const problem = toProblem(err, { withholdReasons: runtime.discovery !== "open" });
       if (problem.status === 500) onError(err, req);

@@ -135,7 +135,11 @@ says so.
    encryption keys (ADR-0037):* `WrappedKeyProvider` keeps only wrapped
    data keys in configuration and unwraps them through a KMS, with a
    two-phase rotation procedure; every other credential is still an
-   environment variable.
+   environment variable. *Narrowed by ADR-0102:* a deployment document
+   holds credentials only as `$secret` references (a literal is refused
+   outside a demo), resolved through one `HostEnvironment.secret` seam
+   that a secrets manager can implement; the shipped server reads them
+   from the environment, and no rotation is automated.
 7. **A real multi-instance story.** `InMemoryCache` and
    `InMemoryRateLimiter` are per-process by design (ADR-0016/ADR-0019),
    and `PostgresRegistryStore` (ADR-0015) accepted an
@@ -202,7 +206,13 @@ says so.
     `adapter-postgres`/`registry-store-postgres` migrations are tested as
     safely re-runnable (ADR-0015) and, since ADR-0025, safe to run
     concurrently from several replicas; there is no rollback story, no
-    staging/prod parity check, no zero-downtime playbook.
+    staging/prod parity check, no zero-downtime playbook. *Partly addressed
+    by ADR-0101 to ADR-0104:* a deployment is a document built by one
+    generic server, every audit row names its build, consumers pin the
+    Type versions they accept, and `typesys deploy check` blocks an
+    upgrade that breaks a consumer, changes the model incompatibly or
+    exposes data, before it rolls. Rolling back is redeploying the
+    previous document; database migrations are still forward-only.
 12. **Rate-limiter tuning.** The token-bucket mechanics of
     `InMemoryRateLimiter` (ADR-0019) and `RedisRateLimiter` (ADR-0025)
     are tested; nobody has picked real

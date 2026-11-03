@@ -1,0 +1,242 @@
+{
+  "format": "typesys.pack/1",
+  "name": "ops",
+  "version": "1.0.0",
+  "description": "Sortie readiness across a fleet registry, a parts depot and a crew roster: aircraft, requisitions and crew members.",
+  "requires": {
+    "core": "^1.0.0"
+  },
+  "contents": {
+    "types": [
+      {
+        "name": "ops.Aircraft",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/ops/Aircraft/1.0.0",
+          "title": "Aircraft",
+          "description": "An airframe in the fleet registry.",
+          "type": "object",
+          "properties": {
+            "tailNumber": {
+              "type": "string"
+            },
+            "mds": {
+              "type": "string",
+              "description": "Mission design series, e.g. F-16C."
+            },
+            "unit": {
+              "type": "string"
+            },
+            "base": {
+              "type": "string",
+              "description": "ICAO code of its home base."
+            },
+            "missionCapability": {
+              "type": "string",
+              "enum": [
+                "full",
+                "partial",
+                "none"
+              ]
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "tailNumber",
+            "mds"
+          ],
+          "x-relationships": {
+            "crew": {
+              "target": "ops.CrewMember",
+              "cardinality": "one-to-many",
+              "description": "Aircrew assigned to this airframe, from the crew roster.",
+              "resolution": {
+                "dataSourceId": "crew-roster",
+                "operation": "byForeignKey:assignedTail"
+              },
+              "optional": true
+            },
+            "requisitions": {
+              "target": "ops.Requisition",
+              "cardinality": "one-to-many",
+              "description": "Parts requisitioned for this airframe, from the parts depot.",
+              "resolution": {
+                "dataSourceId": "parts-depot",
+                "operation": "byForeignKey:tailNumber"
+              },
+              "optional": true
+            }
+          },
+          "x-policy": {
+            "objectPolicy": "ops.read",
+            "propertyPolicies": {
+              "missionCapability": "ops.maintenance"
+            }
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "ops.Requisition",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/ops/Requisition/1.0.0",
+          "title": "Requisition",
+          "description": "A part ordered for an airframe, in the parts depot.",
+          "type": "object",
+          "properties": {
+            "tailNumber": {
+              "type": "string"
+            },
+            "nsn": {
+              "type": "string",
+              "description": "NATO stock number."
+            },
+            "nomenclature": {
+              "type": "string"
+            },
+            "base": {
+              "type": "string"
+            },
+            "quantity": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "awaiting",
+                "in-transit",
+                "issued"
+              ]
+            },
+            "estimatedDelivery": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "tailNumber",
+            "nsn"
+          ],
+          "x-policy": {
+            "objectPolicy": "ops.maintenance"
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "ops.CrewMember",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/ops/CrewMember/1.0.0",
+          "title": "CrewMember",
+          "description": "An aircrew member in the crew roster.",
+          "type": "object",
+          "properties": {
+            "callsign": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string",
+              "description": "Personal data: planners only, and only when the roster releases it."
+            },
+            "qualifications": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "unit": {
+              "type": "string"
+            },
+            "assignedTail": {
+              "type": "string"
+            },
+            "available": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "callsign"
+          ],
+          "x-policy": {
+            "objectPolicy": "ops.crew",
+            "propertyPolicies": {
+              "name": "ops.planner"
+            }
+          }
+        },
+        "traits": []
+      }
+    ],
+    "traits": [],
+    "actions": [],
+    "dataSources": [
+      {
+        "id": "fleet-registry",
+        "name": "Fleet registry (independent service)",
+        "kind": "http"
+      },
+      {
+        "id": "parts-depot",
+        "name": "Parts depot (independent service)",
+        "kind": "http"
+      },
+      {
+        "id": "crew-roster",
+        "name": "Crew roster (independent service)",
+        "kind": "http"
+      }
+    ],
+    "mappings": [
+      {
+        "id": "map-ops.Aircraft",
+        "typeName": "ops.Aircraft",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "fleet-registry",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-ops.Requisition",
+        "typeName": "ops.Requisition",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "parts-depot",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-ops.CrewMember",
+        "typeName": "ops.CrewMember",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "crew-roster",
+        "operation": "get",
+        "resolutionMode": "live"
+      }
+    ]
+  },
+  "requirements": {
+    "computed": [],
+    "preconditions": [],
+    "policies": [
+      "ops.crew",
+      "ops.maintenance",
+      "ops.planner",
+      "ops.read"
+    ],
+    "dataSources": [
+      "crew-roster",
+      "fleet-registry",
+      "parts-depot"
+    ],
+    "types": [],
+    "actions": []
+  },
+  "digest": "sha256:d082bbae0ef7f270fc13fa7fc3dc8327111d6e96a3d1b5dd1a2c17202aef004b"
+}

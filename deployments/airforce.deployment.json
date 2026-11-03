@@ -1,0 +1,138 @@
+{
+  "format": "typesys.deployment/1",
+  "name": "airforce",
+  "description": "Aircraft, components, maintenance events and work orders across an aircraft repository and a maintenance system. A demonstration: in-memory systems, fixed tokens.",
+  "demo": true,
+  "packs": [
+    {
+      "name": "core",
+      "version": "1.0.0",
+      "digest": "sha256:067648b89dad57e11c2abc44ea4b777f41e3ae046540179335b71e9aaaf9254e"
+    },
+    {
+      "name": "airforce",
+      "version": "1.0.0",
+      "digest": "sha256:3578f50f53ac5c2f085bc4b7b1640876566e261bd9528308f59df521d676a1f7"
+    }
+  ],
+  "extensions": [
+    "@typesys/demo-web/airforce-extension"
+  ],
+  "sources": {
+    "in-memory-airforce-repo": {
+      "kind": "extension",
+      "extension": "@typesys/demo-web/airforce-extension",
+      "system": "airforce-repo"
+    },
+    "mock-remis-rest": {
+      "kind": "extension",
+      "extension": "@typesys/demo-web/airforce-extension",
+      "system": "maintenance (simulated REST)"
+    }
+  },
+  "policies": {
+    "airforce.read-aircraft": {
+      "role": [
+        "maintainer",
+        "viewer",
+        "ai-enclave"
+      ]
+    },
+    "airforce.maintainer-only": {
+      "role": [
+        "maintainer",
+        "ai-enclave"
+      ]
+    },
+    "airforce.work-order-assignee": {
+      "allOf": [
+        {
+          "role": [
+            "maintainer"
+          ]
+        },
+        {
+          "anyOf": [
+            {
+              "role": [
+                "lead"
+              ]
+            },
+            {
+              "attributeMatch": {
+                "resource": "assignedTo",
+                "subject": "displayName"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "airforce.maintenance-lead": {
+      "allOf": [
+        {
+          "role": [
+            "maintainer"
+          ]
+        },
+        {
+          "role": [
+            "lead"
+          ]
+        }
+      ]
+    },
+    "airforce.inspect": {
+      "role": [
+        "lead"
+      ]
+    }
+  },
+  "classification": {
+    "kind": "demo-linear"
+  },
+  "identity": {
+    "kind": "tokens",
+    "tokens": {
+      "demo-maintainer-token": "maintainer",
+      "demo-viewer-token": "viewer",
+      "demo-lead-token": "lead"
+    }
+  },
+  "personas": {
+    "maintainer": {
+      "subjectId": "user-maintainer-1",
+      "roles": [
+        "maintainer"
+      ],
+      "attributes": {
+        "displayName": "SSgt Rivera"
+      },
+      "clearance": "SECRET"
+    },
+    "lead": {
+      "subjectId": "user-lead-1",
+      "roles": [
+        "maintainer",
+        "lead"
+      ],
+      "attributes": {
+        "displayName": "MSgt Okafor"
+      },
+      "clearance": "SECRET"
+    },
+    "viewer": {
+      "subjectId": "user-viewer-1",
+      "roles": [
+        "viewer"
+      ],
+      "attributes": {},
+      "clearance": "CUI"
+    },
+    "anonymous": {
+      "subjectId": "anonymous",
+      "roles": [],
+      "attributes": {}
+    }
+  }
+}

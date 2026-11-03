@@ -3,7 +3,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { loadHost, planMission, scaffoldMission, verifyMission, type MissionSpec } from "@typesys/engineer";
+import { loadHost, planMission, scaffoldMission, verifyMission, type EngineerHost, type MissionSpec } from "@typesys/engineer";
 import type { SortieHost } from "../src/index.js";
 
 /**
@@ -19,7 +19,7 @@ const MISSION = path.resolve(pkg, "../../examples/missions/sortie-readiness/miss
 const WORK = path.join(pkg, ".work");
 const doc = JSON.parse(readFileSync(MISSION, "utf8")) as MissionSpec;
 
-const hosts: SortieHost[] = [];
+const hosts: (EngineerHost & Pick<SortieHost, "services">)[] = [];
 afterAll(async () => {
   for (const h of hosts) await h.services?.stop();
 });

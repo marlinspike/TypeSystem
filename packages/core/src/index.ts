@@ -26,6 +26,7 @@ export * from "./runtime/cache.js";
 export * from "./runtime/rate-limiter.js";
 export * from "./runtime/concurrency.js";
 export * from "./runtime/errors.js";
+export * from "./runtime/contract.js";
 export * from "./runtime/resilience.js";
 export * from "./runtime/classification.js";
 export * from "./runtime/security-profile.js";
@@ -44,10 +45,12 @@ export * from "./runtime/runtime.js";
 
 export * from "./policy/abac-policy-engine.js";
 export * from "./policy/authorization-plan.js";
+export * from "./policy/policy-document.js";
 export * from "./audit/audit-log.js";
 
 export * from "./testing/registry-store-contract.js";
 export * from "./testing/plan-conformance.js";
+export * from "./testing/policy-parity.js";
 
 export * from "./base/manifest.js";
 export { PartyType } from "./base/types/party.js";

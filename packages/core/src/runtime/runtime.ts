@@ -17,6 +17,7 @@ import type { ComputeContext, ActionContext } from "../model/context.js";
 import { InputValidator, type QueryLimits } from "./input-validation.js";
 import { AdapterTimeoutError, AdapterUnavailableError, AuthorizationError, AuthorizationPlanError, CircuitOpenError, InvalidInputError, NotFoundError, ObjectNotFoundError, PreconditionFailedError, RateLimitExceededError, AggregationNotSupportedError, SourceRefusedError } from "./errors.js";
 import { AdapterResilience, type ResiliencePolicy } from "./resilience.js";
+import { assertContract, contractMismatches, currentContract } from "./contract.js";
 import { DENY_MARKED_DATA, isMarked, memberMarkings, objectMarkings, valueMarkings, type ClassificationScheme } from "./classification.js";
 import { type Cache, NoopCache } from "./cache.js";
 import { HIGH_ASSURANCE_V2, SECURITY_PROFILES, SecurityProfileError, type PlanAssurance, type SecurityProfile } from "./security-profile.js";
@@ -962,6 +963,8 @@ export class SemanticRuntime {
   private async requireType(typeName: string): Promise<TypeDefinition> {
     const typeDef = await this.registry.getType(typeName);
     if (!typeDef) throw new NotFoundError(`Unknown type "${typeName}"`);
+    // A consumer's contract (ADR-0103): a Type it was not built for fails the request, closed.
+    assertContract(typeDef);
     return typeDef;
   }
 
@@ -1264,6 +1267,17 @@ export class SemanticRuntime {
     const reason = "An exact authorization plan admitted an object the policy denies";
     await this.audit(identity, "read", resource, { allow: false, reason }, { control: "row-plan", defect: "admitted-denied", ...planSummary(plan) });
     if (this.rowSecurity === "require-exact") throw new AuthorizationPlanError(`Refused under rowSecurity "require-exact": ${reason.toLowerCase()} (${resource.typeName})`);
+  }
+
+  /**
+   * A consumer's contract covers an Action's Types, the ones it applies to
+   * and the one its result is (ADR-0103), and is checked before anything
+   * runs: refusing after the Action wrote would leave its effect behind a 412.
+   */
+  private async assertActionContract(action: ActionDefinition): Promise<void> {
+    if (!currentContract()) return;
+    const names = action.outputType ? [...action.applicableTypes, action.outputType] : action.applicableTypes;
+    for (const typeDef of await Promise.all(names.map((t) => this.registry.getType(t)))) if (typeDef) assertContract(typeDef);
   }
 
   /** The markings of every Type an Action applies to — its result is data of those Types (ADR-0032). */
@@ -2348,7 +2362,12 @@ export class SemanticRuntime {
         }
         const { model, withheld } = await this.modelFor(identity, opts);
         await this.audit(identity, "read", resource, { allow: true }, { discovery: this.discovery, types: model.types.length, actions: model.actions.length, ...(withheld ? { withheld } : {}) });
-        return model;
+        // Under a consumer's contract (ADR-0103), say whether the model keeps it, judged on the Types this caller may see.
+        const contract = currentContract();
+        if (!contract) return model;
+        const visible = opts.prefixes ? (await this.modelFor(identity)).model.types : model.types;
+        const mismatches = contractMismatches(contract, new Map(visible.map((t) => [t.name, t.version])));
+        return { ...model, contract: { satisfied: mismatches.length === 0, mismatches } };
       }
     ));
   }
@@ -2945,6 +2964,7 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
+        await this.assertActionContract(action);
         // A preview describes an Action: refused or withheld as listActions and describeModel are (ADR-0068). A
         // withheld Action is answered exactly as one that does not exist; the audit row says which it was.
         const resource: PolicyResource = { typeName: action.applicableTypes[0] ?? "unknown", actionName: action.name };
@@ -3088,6 +3108,7 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
+        await this.assertActionContract(action);
         const { decision, typeName, target } = await this.gateAction(identity, action, input);
         if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason, identity);
         // Behind a person's sign-off (ADR-0096): the policy admits the caller, but only through an approved workflow step,

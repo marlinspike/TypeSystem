@@ -1,15 +1,34 @@
 # Deploy with containers
 
-Reference artifacts for running the MCP server (the Streamable HTTP transport,
-ADR-0021) as a container, locally with Docker Compose, and as a reference
+One image serves every deployment ([ADR-0102](../adr/0102-one-generic-host-builds-a-declared-deployment.md)):
+the generic server, `packages/host/dist/serve.js`, builds the governed runtime
+from the deployment file `TYPESYS_DEPLOYMENT` names and serves MCP at `/mcp`
+and the governed API under `/api`. What a deployment is (its packs, sources,
+rules, identity, personas and consumers) is in that file, not in the image.
+Upgrading is a new file or a new image, checked with `typesys deploy check`
+([ADR-0104](../adr/0104-an-upgrade-is-checked-before-it-rolls.md)), then a
+restart. `GET /version` on any replica names the build it serves
+([ADR-0101](../adr/0101-every-audit-row-names-its-build.md)).
+
+```bash
+docker build -t typesys .
+docker run -p 3939:3939 typesys                      # deployments/airforce.deployment.json
+docker run -p 3939:3939 \
+  -v $PWD/my.deployment.json:/etc/typesys/deployment.json \
+  -e TYPESYS_DEPLOYMENT=/etc/typesys/deployment.json \
+  -e MY_SERVICE_URL=https://svc.internal -e MY_SERVICE_KEY=... typesys
+curl localhost:3939/version
+```
+
+Below: reference artifacts for running it as a container, locally with Docker Compose, and as a reference
 Kubernetes deployment (ADR-0029). They make the multi-replica design of
 [ADR-0025](../adr/0025-multi-instance-deployment.md) something you can actually
 run — they are **not** a production-blessed deployment (see
 [`PRODUCTION-READINESS.md`](../PRODUCTION-READINESS.md) for what still stands
 between this and real traffic: image scanning, secrets management, TLS, and more).
 
-> **Honest scope note.** The shipped server (`packages/demo-web/dist/mcp-http.js`) uses the in-memory
-> airforce testbed, so it does not itself read Postgres or Redis. The Postgres
+> **Scope note.** The image's default deployment is the in-memory airforce
+> demonstration, so it does not itself read Postgres or Redis. The Postgres
 > and Redis services below, and the migration step, are the infrastructure a
 > *real* domain build wires in (a Postgres `RegistryStore`/adapter and the
 > shared `RedisCache`/`RedisRateLimiter`). `npm run load-test` is what exercises
@@ -55,8 +74,10 @@ docker build -t typesys-mcp-server:latest .
 ```
 
 Multi-stage (`Dockerfile`): a build stage compiles every workspace (`npm ci &&
-npm run build`), and a slim non-root runtime stage runs
-`packages/demo-web/dist/mcp-http.js` (the demo's HTTP entry point, ADR-0050) with a `HEALTHCHECK` against `/healthz`.
+npm run build`), and a slim non-root runtime stage runs the generic server,
+`packages/host/dist/serve.js`, on `TYPESYS_DEPLOYMENT` (default
+`deployments/airforce.deployment.json`), with the pack archives in `/app/packs`
+and a `HEALTHCHECK` against `/healthz`.
 
 ## Run locally with Docker Compose
 
@@ -80,8 +101,14 @@ curl http://localhost:8080/healthz
 kubectl create secret generic typesys-secrets \
   --from-literal=DATABASE_URL='postgresql://user:pass@host:5432/db' \
   --from-literal=REDIS_URL='redis://host:6379'
-# 3. Apply the manifests (ConfigMap, migration Job, Deployment, Service):
+# 3. Put the deployment file in a ConfigMap; the Deployment mounts it at /etc/typesys/deployment.json:
+kubectl create configmap typesys-deployment --from-file=deployment.json=deployments/airforce.deployment.json
+# 4. Apply the manifests (ConfigMap, migration Job, Deployment, Service):
 kubectl apply -f deploy/k8s/typesys.yaml
+# Upgrading: check, replace the file, restart.
+npx typesys deploy check deployments/airforce.deployment.json next.deployment.json
+kubectl create configmap typesys-deployment --from-file=deployment.json=next.deployment.json -o yaml --dry-run=client | kubectl apply -f -
+kubectl rollout restart deployment/typesys-mcp-server
 ```
 
 The `Deployment` runs 2 replicas with `livenessProbe`/`readinessProbe` pointed
@@ -95,12 +122,16 @@ Only what the code actually reads:
 
 | Variable | Read by | Default | Notes |
 |---|---|---|---|
-| `PORT` | `packages/demo-web/src/mcp-http.ts` | `3939` | The HTTP port — the only variable the shipped demo server reads. |
+| `PORT` | `packages/host/src/serve.ts` | `3939` | The HTTP port. |
+| `TYPESYS_DEPLOYMENT` | `packages/host/src/serve.ts` | the image: `deployments/airforce.deployment.json` | The deployment file the server builds (ADR-0102). |
+| `TYPESYS_PACKS_DIR` | `packages/host/src/load.ts` | the image: `/app/packs` | Where a deployment's pack archives are found, unless it names their files. |
+| `MCP_ALLOWED_HOSTS` | `packages/host/src/serve.ts` | localhost only | Host names the server answers to (ADR-0053). |
+| *Each `$env` and `$secret` a deployment names* | `packages/host/src/host.ts` | the reference's `default`, for `$env`; for `$secret`, only in a demo | Service addresses and credentials. A real deployment that names an unset secret does not start, and says which. |
 | `DATABASE_URL` | `@typesys/adapter-postgres` and `@typesys/registry-store-postgres` connection pools; the `migrate` step | — | Used by a Postgres-backed build and by migrations; the in-memory demo server ignores it. |
 | `PG_STATEMENT_TIMEOUT_MS` | `@typesys/adapter-postgres` pool ([ADR-0026](../adr/0026-adapter-call-resilience.md)) | unset (no DB-side limit) | Optional native query deadline. |
 | `REDIS_URL` | The multi-instance tests and `npm run load-test`; a real build passes it to `RedisCache`/`RedisRateLimiter` | — | Not read by library code directly — it's the conventional place to put the Redis URL. |
 
-Identity (OIDC/JWT, [ADR-0018](../adr/0018-oidc-identity-resolution.md)) and
-OpenTelemetry ([ADR-0017](../adr/0017-observability.md)) are configured in code
-(the `IdentityResolver` you pass, the SDK you register), not through environment
-variables the server reads on its own.
+Identity (OIDC/JWT, [ADR-0018](../adr/0018-oidc-identity-resolution.md)) is
+the deployment file's `identity` (`{ "kind": "oidc", "issuer": { "$env": "OIDC_ISSUER" } }`).
+OpenTelemetry ([ADR-0017](../adr/0017-observability.md)) is configured in code
+(the SDK you register).

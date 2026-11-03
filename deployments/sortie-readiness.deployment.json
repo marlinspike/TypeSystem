@@ -1,0 +1,242 @@
+{
+  "format": "typesys.deployment/1",
+  "name": "sortie-readiness",
+  "description": "Sortie readiness across a fleet registry, a parts depot and a crew roster, each written and secured independently, behind one governed model.",
+  "demo": true,
+  "packs": [
+    {
+      "name": "core",
+      "version": "1.0.0",
+      "digest": "sha256:067648b89dad57e11c2abc44ea4b777f41e3ae046540179335b71e9aaaf9254e"
+    },
+    {
+      "name": "ops",
+      "version": "1.0.0",
+      "digest": "sha256:d082bbae0ef7f270fc13fa7fc3dc8327111d6e96a3d1b5dd1a2c17202aef004b"
+    }
+  ],
+  "sources": {
+    "fleet-registry": {
+      "kind": "http",
+      "system": "Fleet registry",
+      "baseUrl": {
+        "$env": "TYPESYS_OPS_FLEET_URL"
+      },
+      "auth": {
+        "kind": "header",
+        "name": "authorization",
+        "value": {
+          "$secret": "TYPESYS_OPS_FLEET_KEY",
+          "prefix": "ApiKey ",
+          "default": "fleet-reader-key"
+        }
+      },
+      "types": {
+        "ops.Aircraft": {
+          "get": "/v1/airframes/{id}",
+          "list": {
+            "path": "/v1/airframes",
+            "items": "/data",
+            "next": "/next",
+            "cursorParam": "cursor",
+            "pageSizeParam": "page_size",
+            "pageSize": 2,
+            "params": {
+              "unit": "unit",
+              "base": "base",
+              "mds": "mds"
+            }
+          },
+          "id": "/tail_no",
+          "fields": {
+            "tailNumber": "/tail_no",
+            "mds": "/mds",
+            "unit": "/unit",
+            "base": "/base",
+            "missionCapability": {
+              "from": "/mc_status",
+              "map": {
+                "FMC": "full",
+                "PMC": "partial",
+                "NMC": "none"
+              }
+            },
+            "updatedAt": "/updated"
+          }
+        }
+      }
+    },
+    "parts-depot": {
+      "kind": "http",
+      "system": "Parts depot",
+      "baseUrl": {
+        "$env": "TYPESYS_OPS_DEPOT_URL"
+      },
+      "auth": {
+        "kind": "header",
+        "name": "x-depot-key",
+        "value": {
+          "$secret": "TYPESYS_OPS_DEPOT_KEY",
+          "default": "depot-hill-key"
+        }
+      },
+      "types": {
+        "ops.Requisition": {
+          "get": "/v1/requisitions/{id}",
+          "list": {
+            "path": "/v1/requisitions",
+            "items": "/items",
+            "params": {
+              "tailNumber": "tail",
+              "base": "base"
+            }
+          },
+          "id": "/doc_no",
+          "fields": {
+            "tailNumber": "/tail",
+            "nsn": "/nsn",
+            "nomenclature": "/noun",
+            "base": "/base",
+            "quantity": "/qty",
+            "status": "/status",
+            "estimatedDelivery": "/eta"
+          }
+        }
+      }
+    },
+    "crew-roster": {
+      "kind": "http",
+      "system": "Crew roster",
+      "baseUrl": {
+        "$env": "TYPESYS_OPS_ROSTER_URL"
+      },
+      "auth": {
+        "kind": "client-credentials",
+        "tokenUrl": {
+          "$env": "TYPESYS_OPS_ROSTER_URL",
+          "path": "/oauth/token"
+        },
+        "clientId": "typesys-ops",
+        "clientSecret": {
+          "$secret": "TYPESYS_OPS_ROSTER_SECRET",
+          "default": "ops-secret"
+        },
+        "scope": "roster.read"
+      },
+      "types": {
+        "ops.CrewMember": {
+          "get": "/api/members/{id}",
+          "list": {
+            "path": "/api/members",
+            "items": "/members",
+            "params": {
+              "unit": "unit",
+              "assignedTail": "assigned_tail"
+            }
+          },
+          "id": "/id",
+          "fields": {
+            "callsign": "/callsign",
+            "name": "/full_name",
+            "qualifications": "/quals",
+            "unit": "/home_unit",
+            "assignedTail": "/assigned_tail",
+            "available": {
+              "from": "/duty",
+              "map": {
+                "available": true,
+                "leave": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "policies": {
+    "ops.read": {
+      "role": [
+        "planner",
+        "maintainer",
+        "viewer"
+      ]
+    },
+    "ops.maintenance": {
+      "role": [
+        "planner",
+        "maintainer"
+      ]
+    },
+    "ops.crew": {
+      "role": [
+        "planner",
+        "maintainer"
+      ]
+    },
+    "ops.planner": {
+      "allOf": [
+        {
+          "role": [
+            "planner"
+          ]
+        },
+        {
+          "attributeMatch": {
+            "resource": "unit",
+            "subject": "unit"
+          }
+        }
+      ]
+    },
+    "ops.sortie-signoff": {
+      "role": [
+        "planner"
+      ]
+    }
+  },
+  "identity": {
+    "kind": "tokens",
+    "tokens": {
+      "demo-planner-token": "planner",
+      "demo-maintainer-token": "maintainer",
+      "demo-viewer-token": "viewer"
+    }
+  },
+  "personas": {
+    "planner": {
+      "subjectId": "user-planner-1",
+      "roles": [
+        "planner"
+      ],
+      "attributes": {
+        "displayName": "Maj Chen",
+        "unit": "388FW"
+      }
+    },
+    "maintainer": {
+      "subjectId": "user-maintainer-2",
+      "roles": [
+        "maintainer"
+      ],
+      "attributes": {
+        "displayName": "TSgt Ruiz",
+        "unit": "388FW"
+      }
+    },
+    "viewer": {
+      "subjectId": "user-viewer-2",
+      "roles": [
+        "viewer"
+      ],
+      "attributes": {}
+    },
+    "anonymous": {
+      "subjectId": "anonymous",
+      "roles": [],
+      "attributes": {}
+    }
+  },
+  "runtime": {
+    "callTimeoutMs": 2000
+  }
+}

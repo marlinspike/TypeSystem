@@ -8,6 +8,13 @@ export interface AuditEvent {
    * preview (ADR-0042). Absent on rows written before it existed.
    */
   operation?: string;
+  /**
+   * The deployment build the row was written under (ADR-0101): the digest of
+   * the deployment manifest the host was built from. During a rolling update
+   * two builds serve at once, and this says which one decided. Absent on rows
+   * written by a runtime built without one, and on rows written before it existed.
+   */
+  build?: string;
   action: string;
   resource: { typeName: string; objectId?: string; propertyPath?: string };
   decision: "allow" | "deny";

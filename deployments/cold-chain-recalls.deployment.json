@@ -1,0 +1,548 @@
+{
+  "format": "typesys.deployment/1",
+  "name": "cold-chain-recalls",
+  "description": "The cold chain with an industry recall exchange added: one runtime, four systems.",
+  "demo": true,
+  "packs": [
+    {
+      "name": "core",
+      "version": "1.0.0",
+      "digest": "sha256:067648b89dad57e11c2abc44ea4b777f41e3ae046540179335b71e9aaaf9254e"
+    },
+    {
+      "name": "coldchain",
+      "version": "1.0.0",
+      "digest": "sha256:33a34196fbc4b1011160385b0cfc47ac06ccf86578612bc9c62806c233604807"
+    },
+    {
+      "name": "coldchain-recalls",
+      "version": "1.0.0",
+      "digest": "sha256:fc332bfe88900db92732655c074963ece663228b2898366a9a42cd3fea33cde5"
+    }
+  ],
+  "sources": {
+    "shipment-tracker": {
+      "kind": "http",
+      "system": "Shipment tracker",
+      "baseUrl": {
+        "$env": "TYPESYS_COLDCHAIN_TRACKER_URL"
+      },
+      "auth": {
+        "kind": "header",
+        "name": "x-api-key",
+        "value": {
+          "$secret": "TYPESYS_COLDCHAIN_TRACKER_KEY",
+          "default": "tracker-shipper-key"
+        }
+      },
+      "types": {
+        "coldchain.Shipment": {
+          "get": "/api/v2/shipments/{id}",
+          "list": {
+            "path": "/api/v2/shipments",
+            "items": "/shipments",
+            "next": "/cursor",
+            "cursorParam": "cursor",
+            "pageSizeParam": "per_page",
+            "pageSize": 3,
+            "params": {
+              "origin": "from",
+              "destination": "to"
+            }
+          },
+          "id": "/ref",
+          "fields": {
+            "origin": "/from_facility",
+            "destination": "/to_facility",
+            "carrier": {
+              "from": "/scac",
+              "map": {
+                "NLCF": "Northline Cold Freight",
+                "SBRX": "Southbridge Reefer",
+                "PLRF": "Polar Freight"
+              }
+            },
+            "status": {
+              "from": "/state",
+              "map": {
+                "IT": "in-transit",
+                "DL": "delivered",
+                "HD": "held"
+              }
+            },
+            "lat": "/gps/lat",
+            "lon": "/gps/lng",
+            "departedAt": "/departed",
+            "eta": "/eta"
+          }
+        }
+      }
+    },
+    "sensor-hub": {
+      "kind": "http",
+      "system": "Sensor hub",
+      "baseUrl": {
+        "$env": "TYPESYS_COLDCHAIN_SENSORS_URL"
+      },
+      "auth": {
+        "kind": "client-credentials",
+        "tokenUrl": {
+          "$env": "TYPESYS_COLDCHAIN_SENSORS_URL",
+          "path": "/oauth/token"
+        },
+        "clientId": "typesys-coldchain",
+        "clientSecret": {
+          "$secret": "TYPESYS_COLDCHAIN_SENSORS_SECRET",
+          "default": "coldchain-secret"
+        },
+        "scope": "telemetry.read excursions.write"
+      },
+      "types": {
+        "coldchain.Reading": {
+          "get": "/v1/readings/{id}",
+          "list": {
+            "path": "/v1/readings",
+            "items": "/readings",
+            "next": "/next_cursor",
+            "cursorParam": "after",
+            "pageSizeParam": "limit",
+            "pageSize": 24,
+            "params": {
+              "shipmentId": "consignment"
+            }
+          },
+          "id": "/seq",
+          "fields": {
+            "shipmentId": "/consignment",
+            "logger": "/logger",
+            "at": "/ts",
+            "temperatureC": "/temp_c"
+          }
+        },
+        "coldchain.Excursion": {
+          "get": "/v1/excursions/{id}",
+          "list": {
+            "path": "/v1/excursions",
+            "items": "/excursions",
+            "params": {
+              "shipmentId": "consignment"
+            }
+          },
+          "id": "/exc_id",
+          "fields": {
+            "shipmentId": "/consignment",
+            "logger": "/logger",
+            "startedAt": "/began",
+            "endedAt": "/ended",
+            "peakC": "/peak_c",
+            "minutesOut": "/minutes_out",
+            "severity": {
+              "from": "/band",
+              "map": {
+                "MINOR": "minor",
+                "MAJOR": "major",
+                "CRITICAL": "critical"
+              }
+            },
+            "status": {
+              "from": "/state",
+              "map": {
+                "OPEN": "open",
+                "CLOSED": "closed"
+              }
+            },
+            "disposition": "/disposition",
+            "note": "/note"
+          }
+        }
+      },
+      "actions": {
+        "CloseExcursion": {
+          "method": "POST",
+          "path": "/v1/excursions/{excursionId}/disposition",
+          "body": [
+            "disposition",
+            "note"
+          ]
+        },
+        "ReopenExcursion": {
+          "method": "POST",
+          "path": "/v1/excursions/{excursionId}/reopen",
+          "body": []
+        }
+      }
+    },
+    "pharmacy-inventory": {
+      "kind": "http",
+      "system": "Pharmacy inventory",
+      "baseUrl": {
+        "$env": "TYPESYS_COLDCHAIN_INVENTORY_URL"
+      },
+      "auth": {
+        "kind": "header",
+        "name": "x-pharmacy-key",
+        "value": {
+          "$secret": "TYPESYS_COLDCHAIN_INVENTORY_KEY",
+          "default": "inventory-ops-key"
+        }
+      },
+      "types": {
+        "coldchain.Site": {
+          "get": "/api/facilities/{id}",
+          "list": {
+            "path": "/api/facilities",
+            "items": "",
+            "params": {
+              "kind": "type"
+            }
+          },
+          "id": "/facility_code",
+          "fields": {
+            "name": "/display_name",
+            "kind": "/facility_type",
+            "city": "/city",
+            "lat": "/coords/0",
+            "lon": "/coords/1"
+          }
+        },
+        "coldchain.Lot": {
+          "get": "/api/lots/{id}",
+          "list": {
+            "path": "/api/lots",
+            "items": "/lots",
+            "params": {
+              "shipmentId": "shipment",
+              "siteId": "facility"
+            }
+          },
+          "id": "/lot_no",
+          "fields": {
+            "product": "/product",
+            "ndc": "/ndc",
+            "manufacturer": "/mfr",
+            "doses": "/doses",
+            "unitCost": "/unit_cost_usd",
+            "status": {
+              "from": "/status",
+              "map": {
+                "AVL": "available",
+                "TRN": "in-transit",
+                "QTN": "quarantined",
+                "DST": "destroyed"
+              }
+            },
+            "expiresOn": "/expiry",
+            "siteId": "/facility",
+            "shipmentId": "/shipment_ref",
+            "minTempC": "/storage/min_c",
+            "maxTempC": "/storage/max_c",
+            "holdReason": "/hold_reason"
+          }
+        }
+      },
+      "actions": {
+        "QuarantineShipmentLots": {
+          "method": "POST",
+          "path": "/api/shipments/{shipmentId}/quarantine",
+          "body": [
+            "reason"
+          ]
+        },
+        "ReleaseShipmentLots": {
+          "method": "POST",
+          "path": "/api/shipments/{shipmentId}/release",
+          "body": []
+        },
+        "QuarantineLot": {
+          "method": "POST",
+          "path": "/api/lots/{lotId}/quarantine",
+          "body": [
+            "reason"
+          ]
+        },
+        "ReleaseLot": {
+          "method": "POST",
+          "path": "/api/lots/{lotId}/release",
+          "body": []
+        }
+      }
+    },
+    "recall-exchange": {
+      "kind": "http",
+      "system": "Recall exchange",
+      "baseUrl": {
+        "$env": "TYPESYS_COLDCHAIN_RECALLS_URL"
+      },
+      "auth": {
+        "kind": "basic",
+        "username": "coldchain-distributor",
+        "password": {
+          "$secret": "TYPESYS_COLDCHAIN_RECALLS_SECRET",
+          "default": "rx-exchange-2026"
+        }
+      },
+      "types": {
+        "coldchain.Recall": {
+          "get": "/exchange/v1/notices/{id}",
+          "record": "/data",
+          "list": {
+            "path": "/exchange/v1/notices",
+            "items": "/data",
+            "pages": {
+              "param": "page",
+              "more": "/meta/hasMore"
+            }
+          },
+          "id": "/recallNumber",
+          "fields": {
+            "firm": "/issuingFirm",
+            "product": "/product/name",
+            "ndc": "/product/ndc11",
+            "recallClass": {
+              "from": "/hazardClass",
+              "map": {
+                "CLASS_I": "I",
+                "CLASS_II": "II",
+                "CLASS_III": "III"
+              }
+            },
+            "lifecycle": {
+              "from": "/lifecycle",
+              "map": {
+                "ACTIVE": "active",
+                "TERMINATED": "terminated"
+              }
+            },
+            "embargoed": {
+              "from": "/disclosure",
+              "map": {
+                "PUBLIC": false,
+                "EMBARGOED": true
+              }
+            },
+            "healthHazard": "/hazardEvaluation",
+            "issuedOn": "/issuedOn",
+            "affectedLots": "/affectedLots",
+            "responseStatus": {
+              "from": "/responseState",
+              "map": {
+                "PENDING": "awaiting",
+                "RECEIVED": "responded"
+              }
+            },
+            "lotsHeld": "/response/lotsQuarantined",
+            "dosesHeld": "/response/dosesQuarantined",
+            "shipmentsInTransit": "/response/shipmentsInTransit",
+            "signedOffBy": "/response/signedOffBy"
+          }
+        }
+      },
+      "actions": {
+        "FileRecallResponse": {
+          "method": "POST",
+          "path": "/exchange/v1/notices/{recallNumber}/responses",
+          "body": [
+            "lotsQuarantined",
+            "dosesQuarantined",
+            "shipmentsInTransit",
+            "signedOffBy"
+          ]
+        }
+      }
+    }
+  },
+  "policies": {
+    "coldchain.read-shipment": {
+      "anyOf": [
+        {
+          "role": [
+            "logistics",
+            "qa",
+            "auditor",
+            "coldchain-model"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "role": [
+                "carrier"
+              ]
+            },
+            {
+              "attributeMatch": {
+                "resource": "carrier",
+                "subject": "carrier"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "coldchain.read-site": {
+      "role": [
+        "logistics",
+        "qa",
+        "auditor",
+        "carrier",
+        "coldchain-model"
+      ]
+    },
+    "coldchain.telemetry": {
+      "role": [
+        "logistics",
+        "qa",
+        "auditor",
+        "coldchain-model"
+      ]
+    },
+    "coldchain.inventory": {
+      "role": [
+        "logistics",
+        "qa",
+        "auditor",
+        "coldchain-model"
+      ]
+    },
+    "coldchain.dispose": {
+      "role": [
+        "logistics",
+        "qa"
+      ]
+    },
+    "coldchain.qa-release": {
+      "role": [
+        "qa"
+      ]
+    },
+    "coldchain.qa": {
+      "role": [
+        "qa"
+      ]
+    },
+    "coldchain.inspect": {
+      "role": [
+        "qa",
+        "auditor"
+      ]
+    },
+    "coldchain.read-recall": {
+      "anyOf": [
+        {
+          "role": [
+            "qa"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "role": [
+                "logistics",
+                "auditor",
+                "coldchain-model"
+              ]
+            },
+            {
+              "resourceValue": {
+                "attribute": "embargoed",
+                "equals": false,
+                "typeLevel": "allow",
+                "reason": "A notice under embargo is need-to-know for quality assurance alone"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "coldchain.respond-recall": {
+      "role": [
+        "logistics",
+        "qa"
+      ]
+    }
+  },
+  "classification": {
+    "kind": "linear",
+    "name": "coldchain-commercial",
+    "levels": [
+      "PUBLIC",
+      "INTERNAL",
+      "CONFIDENTIAL"
+    ]
+  },
+  "identity": {
+    "kind": "tokens",
+    "tokens": {
+      "demo-logistics-token": "logistics",
+      "demo-qa-token": "qa",
+      "demo-auditor-token": "auditor",
+      "demo-carrier-token": "carrier",
+      "demo-qa2-token": "qa2"
+    }
+  },
+  "personas": {
+    "logistics": {
+      "subjectId": "user-logistics-1",
+      "roles": [
+        "logistics"
+      ],
+      "attributes": {
+        "displayName": "Dana Whitfield"
+      },
+      "clearance": "INTERNAL"
+    },
+    "qa": {
+      "subjectId": "user-qa-1",
+      "roles": [
+        "qa"
+      ],
+      "attributes": {
+        "displayName": "Dr. Priya Raman"
+      },
+      "clearance": "CONFIDENTIAL"
+    },
+    "auditor": {
+      "subjectId": "user-auditor-1",
+      "roles": [
+        "auditor"
+      ],
+      "attributes": {
+        "displayName": "Sam Ortega"
+      },
+      "clearance": "INTERNAL"
+    },
+    "carrier": {
+      "subjectId": "user-carrier-1",
+      "roles": [
+        "carrier"
+      ],
+      "attributes": {
+        "displayName": "Northline dispatch",
+        "carrier": "Northline Cold Freight"
+      },
+      "clearance": "PUBLIC"
+    },
+    "anonymous": {
+      "subjectId": "anonymous",
+      "roles": [],
+      "attributes": {}
+    },
+    "qa2": {
+      "subjectId": "user-qa-2",
+      "roles": [
+        "qa"
+      ],
+      "attributes": {
+        "displayName": "Dr. Tomasz Brandt"
+      },
+      "clearance": "CONFIDENTIAL"
+    }
+  },
+  "runtime": {
+    "callTimeoutMs": 2000,
+    "inspectionPolicy": "coldchain.inspect"
+  },
+  "extensions": [
+    "@typesys/cold-chain/recall-extension"
+  ]
+}

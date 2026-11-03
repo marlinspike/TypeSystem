@@ -4,9 +4,15 @@
 # (Helm/Kustomize), pin the image by digest, and add resource requests/limits, a
 # PodDisruptionBudget, and an HPA. Apply with:  kubectl apply -f deploy/k8s/
 #
-# Before applying: replace REGISTRY/typesys-mcp-server:TAG with your built-and-pushed image, and
+# Before applying: replace REGISTRY/typesys-mcp-server:TAG with your built-and-pushed image,
 # create the Secret named `typesys-secrets` out-of-band (see secret.example.yaml) — never commit
-# real secret values.
+# real secret values — and create the deployment file's ConfigMap (ADR-0102):
+#
+#   kubectl create configmap typesys-deployment --from-file=deployment.json=deployments/airforce.deployment.json
+#
+# The image is the generic server; what it serves is that file. An upgrade is a new file (check it
+# first with `typesys deploy check`, ADR-0104) or a new image, then `kubectl rollout restart
+# deployment/typesys-mcp-server`. GET /version on any replica names the build it serves (ADR-0101).
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -17,6 +23,9 @@ data:
   # Host names the MCP endpoint answers to (ADR-0053): the server refuses any other Host, against DNS rebinding.
   # List the name clients reach it by (your Ingress host), and the Service name for in-cluster clients.
   MCP_ALLOWED_HOSTS: "localhost,typesys-mcp-server"
+  # The deployment the generic server builds (ADR-0102), mounted from the typesys-deployment ConfigMap below.
+  TYPESYS_DEPLOYMENT: "/etc/typesys/deployment.json"
+  TYPESYS_PACKS_DIR: "/app/packs"
 ---
 # Runs the advisory-lock-safe migrations (ADR-0025) once before/independently of the rollout.
 apiVersion: batch/v1
@@ -62,6 +71,10 @@ spec:
                 name: typesys-config
             - secretRef:
                 name: typesys-secrets
+          volumeMounts:
+            - name: deployment
+              mountPath: /etc/typesys
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -74,6 +87,10 @@ spec:
               port: 3939
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: deployment
+          configMap:
+            name: typesys-deployment
 ---
 apiVersion: v1
 kind: Service

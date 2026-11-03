@@ -1,0 +1,702 @@
+{
+  "format": "typesys.pack/1",
+  "name": "coldchain",
+  "version": "1.0.0",
+  "description": "A pharmaceutical cold chain across a shipment tracker, a temperature sensor hub and a pharmacy inventory: shipments, sites, readings, excursions and lots, with Actions that quarantine, release and dispose of lots.",
+  "requires": {
+    "core": "^1.0.0"
+  },
+  "contents": {
+    "types": [
+      {
+        "name": "coldchain.Site",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/coldchain/Site/1.0.0",
+          "title": "Site",
+          "description": "A distribution center, hospital pharmacy or clinic, in the pharmacy inventory.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "distribution",
+                "hospital",
+                "clinic"
+              ]
+            },
+            "city": {
+              "type": "string"
+            },
+            "lat": {
+              "type": "number"
+            },
+            "lon": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "x-relationships": {
+            "lots": {
+              "target": "coldchain.Lot",
+              "cardinality": "one-to-many",
+              "description": "Lots held at or bound for this site.",
+              "resolution": {
+                "dataSourceId": "pharmacy-inventory",
+                "operation": "byForeignKey:siteId"
+              },
+              "optional": true
+            }
+          },
+          "x-policy": {
+            "objectPolicy": "coldchain.read-site"
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "coldchain.Shipment",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/coldchain/Shipment/1.0.0",
+          "title": "Shipment",
+          "description": "A refrigerated consignment, in the shipment tracker.",
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "description": "The site it left."
+            },
+            "destination": {
+              "type": "string",
+              "description": "The site it is bound for."
+            },
+            "carrier": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "in-transit",
+                "delivered",
+                "held"
+              ]
+            },
+            "lat": {
+              "type": "number",
+              "description": "Its last GPS fix."
+            },
+            "lon": {
+              "type": "number"
+            },
+            "departedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "eta": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "origin",
+            "destination",
+            "status"
+          ],
+          "x-relationships": {
+            "readings": {
+              "target": "coldchain.Reading",
+              "cardinality": "one-to-many",
+              "description": "Its logger's temperature readings, from the sensor hub.",
+              "resolution": {
+                "dataSourceId": "sensor-hub",
+                "operation": "byForeignKey:shipmentId"
+              },
+              "optional": true
+            },
+            "excursions": {
+              "target": "coldchain.Excursion",
+              "cardinality": "one-to-many",
+              "description": "Times its temperature left the permitted range, from the sensor hub.",
+              "resolution": {
+                "dataSourceId": "sensor-hub",
+                "operation": "byForeignKey:shipmentId"
+              },
+              "optional": true
+            },
+            "lots": {
+              "target": "coldchain.Lot",
+              "cardinality": "one-to-many",
+              "description": "The lots it carries, from the pharmacy inventory.",
+              "resolution": {
+                "dataSourceId": "pharmacy-inventory",
+                "operation": "byForeignKey:shipmentId"
+              },
+              "optional": true
+            },
+            "originSite": {
+              "target": "coldchain.Site",
+              "cardinality": "one-to-one",
+              "description": "The site it left, from the pharmacy inventory.",
+              "resolution": {
+                "dataSourceId": "shipment-tracker",
+                "operation": "byOwnField:origin"
+              },
+              "optional": true
+            },
+            "destinationSite": {
+              "target": "coldchain.Site",
+              "cardinality": "one-to-one",
+              "description": "The site it is bound for, from the pharmacy inventory.",
+              "resolution": {
+                "dataSourceId": "shipment-tracker",
+                "operation": "byOwnField:destination"
+              },
+              "optional": true
+            }
+          },
+          "x-actions": {
+            "actions": [
+              "QuarantineShipmentLots",
+              "ReleaseShipmentLots"
+            ]
+          },
+          "x-policy": {
+            "objectPolicy": "coldchain.read-shipment"
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "coldchain.Reading",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/coldchain/Reading/1.0.0",
+          "title": "Reading",
+          "description": "One temperature reading from a shipment's logger, in the sensor hub.",
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            },
+            "logger": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "temperatureC": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "shipmentId",
+            "at",
+            "temperatureC"
+          ],
+          "x-policy": {
+            "objectPolicy": "coldchain.telemetry"
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "coldchain.Excursion",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/coldchain/Excursion/1.0.0",
+          "title": "Excursion",
+          "description": "A time a shipment's temperature left 2–8 °C, in the sensor hub.",
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            },
+            "logger": {
+              "type": "string"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "peakC": {
+              "type": "number",
+              "description": "The reading furthest from the range."
+            },
+            "minutesOut": {
+              "type": "integer"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "minor",
+                "major",
+                "critical"
+              ]
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "open",
+                "closed"
+              ]
+            },
+            "disposition": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "release",
+                "quarantine",
+                "destroy",
+                null
+              ]
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "shipmentId",
+            "severity",
+            "status"
+          ],
+          "x-actions": {
+            "actions": [
+              "CloseExcursion",
+              "ReopenExcursion"
+            ]
+          },
+          "x-policy": {
+            "objectPolicy": "coldchain.telemetry"
+          }
+        },
+        "traits": []
+      },
+      {
+        "name": "coldchain.Lot",
+        "version": "1.0.0",
+        "schema": {
+          "$id": "https://typesys.dev/types/coldchain/Lot/1.0.0",
+          "title": "Lot",
+          "description": "A manufacturer's lot of a cold-chain product, in the pharmacy inventory.",
+          "type": "object",
+          "properties": {
+            "product": {
+              "type": "string"
+            },
+            "ndc": {
+              "type": "string",
+              "description": "National Drug Code."
+            },
+            "manufacturer": {
+              "type": "string"
+            },
+            "doses": {
+              "type": "integer"
+            },
+            "unitCost": {
+              "type": "number",
+              "description": "Contract price per dose, USD. CONFIDENTIAL."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "available",
+                "in-transit",
+                "quarantined",
+                "destroyed"
+              ]
+            },
+            "expiresOn": {
+              "type": "string",
+              "format": "date"
+            },
+            "siteId": {
+              "type": "string"
+            },
+            "shipmentId": {
+              "type": "string"
+            },
+            "minTempC": {
+              "type": "number"
+            },
+            "maxTempC": {
+              "type": "number"
+            },
+            "holdReason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "product",
+            "status"
+          ],
+          "x-actions": {
+            "actions": [
+              "QuarantineLot",
+              "ReleaseLot"
+            ]
+          },
+          "x-policy": {
+            "objectPolicy": "coldchain.inventory"
+          },
+          "x-provenance": {
+            "properties": {
+              "unitCost": {
+                "classification": "CONFIDENTIAL"
+              }
+            }
+          }
+        },
+        "traits": []
+      }
+    ],
+    "traits": [],
+    "actions": [
+      {
+        "id": "action-coldchain-close-excursion",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "outputSchema": {
+          "type": "object"
+        },
+        "name": "CloseExcursion",
+        "description": "Records the disposition of a temperature excursion in the sensor hub, closing it.",
+        "applicableTypes": [
+          "coldchain.Excursion"
+        ],
+        "target": {
+          "idFrom": "excursionId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "excursionId": {
+              "type": "string"
+            },
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "release",
+                "quarantine",
+                "destroy"
+              ]
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "excursionId",
+            "disposition"
+          ],
+          "additionalProperties": false
+        },
+        "outputType": "coldchain.Excursion",
+        "authorizationPolicy": "coldchain.dispose",
+        "implementation": {
+          "dataSourceId": "sensor-hub",
+          "operation": "POST /v1/excursions/{excursionId}/disposition"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "none",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-reopen-excursion",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "outputSchema": {
+          "type": "object"
+        },
+        "name": "ReopenExcursion",
+        "description": "Reopens a closed excursion: undoes a disposition recorded in error.",
+        "applicableTypes": [
+          "coldchain.Excursion"
+        ],
+        "target": {
+          "idFrom": "excursionId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "excursionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "excursionId"
+          ],
+          "additionalProperties": false
+        },
+        "outputType": "coldchain.Excursion",
+        "authorizationPolicy": "coldchain.dispose",
+        "implementation": {
+          "dataSourceId": "sensor-hub",
+          "operation": "POST /v1/excursions/{excursionId}/reopen"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-quarantine-shipment-lots",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "outputSchema": {
+          "type": "object"
+        },
+        "name": "QuarantineShipmentLots",
+        "description": "Holds every lot a shipment carries in the pharmacy inventory, so none is dispensed.",
+        "applicableTypes": [
+          "coldchain.Shipment"
+        ],
+        "target": {
+          "idFrom": "shipmentId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "shipmentId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "authorizationPolicy": "coldchain.dispose",
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/shipments/{shipmentId}/quarantine"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-release-shipment-lots",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "outputSchema": {
+          "type": "object"
+        },
+        "name": "ReleaseShipmentLots",
+        "description": "Releases a shipment's quarantined lots to the status they had before.",
+        "applicableTypes": [
+          "coldchain.Shipment"
+        ],
+        "target": {
+          "idFrom": "shipmentId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shipmentId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "shipmentId"
+          ],
+          "additionalProperties": false
+        },
+        "authorizationPolicy": "coldchain.dispose",
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/shipments/{shipmentId}/release"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-quarantine-lot",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "outputSchema": {
+          "type": "object"
+        },
+        "name": "QuarantineLot",
+        "description": "Holds one lot in the pharmacy inventory.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "target": {
+          "idFrom": "lotId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "lotId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "outputType": "coldchain.Lot",
+        "authorizationPolicy": "coldchain.qa",
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/quarantine"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      },
+      {
+        "id": "action-coldchain-release-lot",
+        "version": "1.0.0",
+        "auditRequired": true,
+        "outputSchema": {
+          "type": "object"
+        },
+        "name": "ReleaseLot",
+        "description": "Releases one quarantined lot.",
+        "applicableTypes": [
+          "coldchain.Lot"
+        ],
+        "target": {
+          "idFrom": "lotId"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lotId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "lotId"
+          ],
+          "additionalProperties": false
+        },
+        "outputType": "coldchain.Lot",
+        "authorizationPolicy": "coldchain.qa",
+        "implementation": {
+          "dataSourceId": "pharmacy-inventory",
+          "operation": "POST /api/lots/{lotId}/release"
+        },
+        "sideEffects": "mutates",
+        "idempotency": "natural",
+        "preconditions": []
+      }
+    ],
+    "dataSources": [
+      {
+        "id": "shipment-tracker",
+        "name": "Shipment tracker (independent service)",
+        "kind": "http"
+      },
+      {
+        "id": "sensor-hub",
+        "name": "Sensor hub (independent service)",
+        "kind": "http"
+      },
+      {
+        "id": "pharmacy-inventory",
+        "name": "Pharmacy inventory (independent service)",
+        "kind": "http"
+      }
+    ],
+    "mappings": [
+      {
+        "id": "map-coldchain.Site",
+        "typeName": "coldchain.Site",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "pharmacy-inventory",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-coldchain.Shipment",
+        "typeName": "coldchain.Shipment",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "shipment-tracker",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-coldchain.Reading",
+        "typeName": "coldchain.Reading",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "sensor-hub",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-coldchain.Excursion",
+        "typeName": "coldchain.Excursion",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "sensor-hub",
+        "operation": "get",
+        "resolutionMode": "live"
+      },
+      {
+        "id": "map-coldchain.Lot",
+        "typeName": "coldchain.Lot",
+        "target": "property",
+        "targetName": "*",
+        "dataSourceId": "pharmacy-inventory",
+        "operation": "get",
+        "resolutionMode": "live"
+      }
+    ]
+  },
+  "requirements": {
+    "computed": [],
+    "preconditions": [],
+    "policies": [
+      "coldchain.dispose",
+      "coldchain.inventory",
+      "coldchain.qa",
+      "coldchain.read-shipment",
+      "coldchain.read-site",
+      "coldchain.telemetry"
+    ],
+    "dataSources": [
+      "pharmacy-inventory",
+      "sensor-hub",
+      "shipment-tracker"
+    ],
+    "types": [],
+    "actions": []
+  },
+  "digest": "sha256:33a34196fbc4b1011160385b0cfc47ac06ccf86578612bc9c62806c233604807"
+}

@@ -1,5 +1,5 @@
 import type { DataSource, DomainManifest, Mapping } from "@typesys/core";
-import { allOf, requireAttributeMatch, requireRole, type PolicyRule } from "@typesys/core";
+import { compilePolicies, type PolicyDocument, type PolicyRule } from "@typesys/core";
 
 export const FLEET = "fleet-registry";
 export const DEPOT = "parts-depot";
@@ -108,11 +108,14 @@ export const opsManifest: DomainManifest = {
  * TypeSystem's own rules. Each service also enforces its own, on the
  * credential TypeSystem holds for it: a read must pass both.
  */
-export const opsPolicyRules: Record<string, PolicyRule> = {
-  "ops.read": requireRole("planner", "maintainer", "viewer"),
-  "ops.maintenance": requireRole("planner", "maintainer"),
-  "ops.crew": requireRole("planner", "maintainer"),
-  "ops.planner": allOf(requireRole("planner"), requireAttributeMatch("unit", "unit")),
+export const opsPolicyDocument: PolicyDocument = {
+  "ops.read": { role: ["planner", "maintainer", "viewer"] },
+  "ops.maintenance": { role: ["planner", "maintainer"] },
+  "ops.crew": { role: ["planner", "maintainer"] },
+  "ops.planner": { allOf: [{ role: ["planner"] }, { attributeMatch: { resource: "unit", subject: "unit" } }] },
   /** Who may sign off a sortie confirmation (the sortie-readiness mission's approval). */
-  "ops.sortie-signoff": requireRole("planner")
+  "ops.sortie-signoff": { role: ["planner"] }
 };
+
+/** The same rules, compiled (ADR-0100). */
+export const opsPolicyRules: Record<string, PolicyRule> = compilePolicies(opsPolicyDocument);

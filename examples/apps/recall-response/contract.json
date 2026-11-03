@@ -1,0 +1,9 @@
+{
+  "format": "typesys.consumer/1",
+  "name": "recall-response",
+  "contract": {
+    "coldchain.Lot": "^1.0.0",
+    "coldchain.Recall": "^1.0.0",
+    "coldchain.Shipment": "^1.0.0"
+  }
+}

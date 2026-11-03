@@ -6,6 +6,7 @@ import type { Express } from "express";
 import { createAppServer } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from "@typesys/cold-chain";
+import { contract } from "./src/generated/contract.js";
 import { respond as flow_respond } from "./src/generated/flows/respond.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,7 +21,8 @@ export async function createApp(): Promise<{ app: Express; workflows: WorkflowEn
     // Each flow is typed by the application's model; the engine registers any workflow.
     flows: [flow_respond] as unknown as AnyWorkflow[],
     clientDir: path.join(here, "client"),
-    title: "Recall Response"
+    title: "Recall Response",
+    contract
   });
 }
 

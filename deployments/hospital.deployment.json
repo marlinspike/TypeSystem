@@ -1,0 +1,133 @@
+{
+  "format": "typesys.deployment/1",
+  "name": "hospital",
+  "description": "Patients, providers and appointments in one hospital repository, read per instance. A demonstration: an in-memory system, fixed tokens.",
+  "demo": true,
+  "packs": [
+    {
+      "name": "core",
+      "version": "1.0.0",
+      "digest": "sha256:067648b89dad57e11c2abc44ea4b777f41e3ae046540179335b71e9aaaf9254e"
+    },
+    {
+      "name": "hospital",
+      "version": "1.0.0",
+      "digest": "sha256:ce2111d3427a7fffe7d19df841b10df8c21008f9c0061afb0b926096d17c790a"
+    }
+  ],
+  "extensions": [
+    "@typesys/demo-web/hospital-extension"
+  ],
+  "sources": {
+    "in-memory-hospital-repo": {
+      "kind": "extension",
+      "extension": "@typesys/demo-web/hospital-extension",
+      "system": "hospital-repo"
+    }
+  },
+  "policies": {
+    "hospital.read-provider": "always",
+    "hospital.read-patient": {
+      "anyOf": [
+        {
+          "role": [
+            "admin"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "role": [
+                "clinician"
+              ]
+            },
+            {
+              "attributeMatch": {
+                "resource": "assignedClinicianId",
+                "subject": "providerId"
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "role": [
+                "patient"
+              ]
+            },
+            {
+              "attributeMatch": {
+                "resource": "id",
+                "subject": "patientId"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "hospital.read-appointment": {
+      "role": [
+        "clinician",
+        "admin",
+        "patient"
+      ]
+    },
+    "hospital.staff-only": {
+      "role": [
+        "clinician",
+        "admin"
+      ]
+    }
+  },
+  "identity": {
+    "kind": "tokens",
+    "tokens": {
+      "demo-clinician-token": "clinician",
+      "demo-clinician-b-token": "otherClinician",
+      "demo-patient-token": "patient",
+      "demo-admin-token": "admin"
+    }
+  },
+  "personas": {
+    "clinician": {
+      "subjectId": "user-clinician-1",
+      "roles": [
+        "clinician"
+      ],
+      "attributes": {
+        "providerId": "PR-2001"
+      }
+    },
+    "otherClinician": {
+      "subjectId": "user-clinician-2",
+      "roles": [
+        "clinician"
+      ],
+      "attributes": {
+        "providerId": "PR-2002"
+      }
+    },
+    "patient": {
+      "subjectId": "user-patient-1",
+      "roles": [
+        "patient"
+      ],
+      "attributes": {
+        "patientId": "PT-1001"
+      }
+    },
+    "anonymous": {
+      "subjectId": "anonymous",
+      "roles": [],
+      "attributes": {}
+    },
+    "admin": {
+      "subjectId": "user-admin-1",
+      "roles": [
+        "admin"
+      ],
+      "attributes": {}
+    }
+  }
+}

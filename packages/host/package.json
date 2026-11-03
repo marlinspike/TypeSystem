@@ -1,0 +1,44 @@
+{
+  "name": "@typesys/host",
+  "version": "0.1.0",
+  "description": "The generic TypeSystem host: one governed runtime built from a declared deployment (packs, sources, policies as data, identity, personas), and the server that serves it over MCP and HTTP. One image for every deployment.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./serve": "./dist/serve.js"
+  },
+  "bin": {
+    "typesys-host": "./dist/serve.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlinspike/TypeSystem.git",
+    "directory": "packages/host"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@typesys/adapter-http": "0.1.0",
+    "@typesys/auth-oidc": "0.1.0",
+    "@typesys/core": "0.1.0",
+    "@typesys/devkit": "0.1.0",
+    "@typesys/http": "0.1.0",
+    "@typesys/llm": "0.1.0",
+    "@typesys/mcp-server": "0.1.0",
+    "@typesys/packs": "0.1.0",
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "@typesys/cold-chain": "0.1.0",
+    "@typesys/demo-web": "0.1.0",
+    "@typesys/domain-airforce": "0.1.0",
+    "@typesys/sortie-readiness": "0.1.0"
+  }
+}

@@ -95,6 +95,19 @@ describe("compileApp", () => {
     expect(drifted.some((d) => d.at.startsWith("src/generated/contracts-check.ts"))).toBe(true);
   }, 120_000);
 
+  it("writes the application's consumer contract: every Type it uses, at ^ the version it compiled against (ADR-0103)", async () => {
+    const dir = await squadronDir("contract");
+    const { analysis } = await compileApp(dir);
+    const written = JSON.parse(await readFile(path.join(dir, "contract.json"), "utf8")) as { format: string; name: string; contract: Record<string, string> };
+    expect(written.format).toBe("typesys.consumer/1");
+    expect(written.name).toBe(analysis!.app.name);
+    // The board reads Aircraft and their maintenance events and grounds through a WorkOrder Action.
+    expect(written.contract["airforce.Aircraft"]).toBe("^1.0.0");
+    for (const [type, range] of Object.entries(written.contract)) expect(range).toBe(`^${analysis!.model.types.find((t) => t.name === type)!.version}`);
+    expect(await readFile(path.join(dir, "src/generated/contract.ts"), "utf8")).toContain(JSON.stringify(written.contract, null, 2));
+    expect(await readFile(path.join(dir, "server.ts"), "utf8")).toContain("    contract\n");
+  });
+
   it("asks the host who each policy admits, as the engine will", async () => {
     const dir = await squadronDir("admitted");
     const { analysis } = await checkAppDir(dir);

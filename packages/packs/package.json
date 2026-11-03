@@ -35,7 +35,9 @@
   },
   "devDependencies": {
     "@types/semver": "7.8.0",
+    "@typesys/cold-chain": "0.1.0",
     "@typesys/domain-airforce": "0.1.0",
-    "@typesys/domain-hospital": "0.1.0"
+    "@typesys/domain-hospital": "0.1.0",
+    "@typesys/sortie-readiness": "0.1.0"
   }
 }

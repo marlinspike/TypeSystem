@@ -23,6 +23,16 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
+TypeSystem now deploys from a declaration and upgrades by checking it. A
+deployment is one JSON document (its model as signed packs, its systems with
+references to their credentials, its rules as data, its identity, personas
+and consumers), and one image serves any of them. `typesys deploy check`
+builds the current and the next deployment side by side and blocks an
+upgrade that would expose data to someone, break an application's pinned
+contract, or change the model incompatibly. The section
+[Deploy by declaring it, upgrade by checking it](#deploy-by-declaring-it-upgrade-by-checking-it)
+shows it on the shipped deployments.
+
 TypeSystem 5.0 makes the systems behind the model easy to understand. A
 developer, or a coding agent working for one, can ask why a caller sees
 what they see, where each value comes from, what is built on a Type, and
@@ -38,6 +48,186 @@ generates an ordinary TypeScript and React application, and verifies it
 through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
+
+## Deploy by declaring it, upgrade by checking it
+
+A TypeSystem deployment is now one JSON document, and one image serves any
+of them. The document names the model (signed, versioned packs), every
+system the runtime may reach and the reference to its credential, the
+policy rules as data, the classification, how a bearer token becomes an
+identity, the personas, and the applications and agents it serves with the
+Type versions each was built against. The generic server builds the
+governed runtime from it, refuses to start if anything is missing or
+inconsistent, and stamps every audit row with the build id. Upgrading is a
+new document or a new image, checked before it rolls, then a restart.
+Applications and agents keep working across an upgrade that keeps their
+contract, and are refused, never silently misled, by one that does not.
+
+### The deployment document
+
+Every shipped example is one: [`deployments/`](deployments/) holds the
+airforce and hospital demonstrations, the cold chain over three services,
+the cold chain with the recall exchange added, and sortie readiness. Part of
+[`deployments/cold-chain.deployment.json`](deployments/cold-chain.deployment.json),
+trimmed to one source, two rules and one field mapping:
+
+```json
+{
+  "format": "typesys.deployment/1",
+  "name": "cold-chain",
+  "demo": true,
+  "packs": [
+    { "name": "core", "version": "1.0.0", "digest": "sha256:067648b89dad57e11c2abc44ea4b777f41e3ae046540179335b71e9aaaf9254e" },
+    { "name": "coldchain", "version": "1.0.0", "digest": "sha256:33a34196fbc4b1011160385b0cfc47ac06ccf86578612bc9c62806c233604807" }
+  ],
+  "sources": {
+    "shipment-tracker": {
+      "kind": "http",
+      "system": "Shipment tracker",
+      "baseUrl": { "$env": "TYPESYS_COLDCHAIN_TRACKER_URL" },
+      "auth": { "kind": "header", "name": "x-api-key", "value": { "$secret": "TYPESYS_COLDCHAIN_TRACKER_KEY", "default": "tracker-shipper-key" } },
+      "types": {
+        "coldchain.Shipment": {
+          "get": "/api/v2/shipments/{id}",
+          "id": "/ref",
+          "fields": { "carrier": { "from": "/scac", "map": { "NLCF": "Northline Cold Freight", "SBRX": "Southbridge Reefer", "PLRF": "Polar Freight" } } }
+        }
+      }
+    }
+  },
+  "policies": {
+    "coldchain.read-shipment": {
+      "anyOf": [
+        { "role": ["logistics", "qa", "auditor", "coldchain-model"] },
+        { "allOf": [{ "role": ["carrier"] }, { "attributeMatch": { "resource": "carrier", "subject": "carrier" } }] }
+      ]
+    },
+    "coldchain.qa-release": { "role": ["qa"] }
+  },
+  "classification": { "kind": "linear", "name": "coldchain-commercial", "levels": ["PUBLIC", "INTERNAL", "CONFIDENTIAL"] },
+  "identity": { "kind": "tokens", "tokens": { "demo-logistics-token": "logistics", "demo-qa-token": "qa", "demo-auditor-token": "auditor", "demo-carrier-token": "carrier" } },
+  "runtime": { "callTimeoutMs": 2000, "inspectionPolicy": "coldchain.inspect" }
+}
+```
+
+A real deployment drops `demo`, its secrets lose their defaults, and its
+identity is an issuer, `{ "kind": "oidc", "issuer": { "$env": "OIDC_ISSUER" } }`.
+It lists the applications it serves with the contract each was compiled
+against, for example the Cold Chain Command application's:
+`"consumers": [{ "name": "cold-chain", "contract": { "coldchain.Excursion": "^1.0.0", "coldchain.Lot": "^1.0.0", "coldchain.Reading": "^1.0.0", "coldchain.Shipment": "^1.0.0", "coldchain.Site": "^1.0.0" } }]`.
+
+Rules are data ([ADR-0100](docs/adr/0100-policy-rules-are-data.md)):
+`"always"`, `role`, `attributeMatch`, `resourceValue`, `anyOf` and `allOf`
+compile to the same combinators as before, with the same decisions, deny
+reasons, authorization plans and descriptions, which a parity test proves
+for every shipped rule set. A credential is only ever a `$secret`
+reference, so the document can be reviewed, diffed and committed. Fixed
+demo tokens, well-known default credentials and the demonstration
+classification are allowed only in a document marked `"demo": true`; the
+shipped examples are, and a real deployment that uses any of them does not
+start. The cold chain, recall and sortie deployments need no code at all
+beyond one extension for the recall hold, a loop with compensation that no
+single request can express ([ADR-0102](docs/adr/0102-one-generic-host-builds-a-declared-deployment.md)).
+
+### Run one
+
+```bash
+npm install && npm run build
+node packages/host/dist/serve.js deployments/airforce.deployment.json      # MCP at :3939/mcp, API under :3939/api
+curl localhost:3939/version
+# {"deployment":"airforce","build":"sha256:d80094942624cf1e…","packs":["core@1.0.0","airforce@1.0.0"]}
+curl -H 'authorization: Bearer demo-viewer-token' localhost:3939/api/objects/airforce.Aircraft/AF86-0147
+npx typesys deploy build deployments/sortie-readiness.deployment.json      # build it, print its build id, exit
+```
+
+The Docker image is the same server: `docker run -p 3939:3939 typesys` serves
+the airforce demonstration, and mounting another file with
+`TYPESYS_DEPLOYMENT` serves that instead, with its `$env` and `$secret`
+references read from the container's environment. The Kubernetes manifests
+mount the file from a ConfigMap
+([`docs/how-to/deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)).
+A cold chain deployment needs its three services: start them with
+`npm run showcase`, or set `TYPESYS_COLDCHAIN_TRACKER_URL`,
+`TYPESYS_COLDCHAIN_SENSORS_URL` and `TYPESYS_COLDCHAIN_INVENTORY_URL`.
+A build id is SHA-256 over the document and its packs' digests, never the
+values its references resolve to, so rotating a secret is not a new build
+and changing a pack is ([ADR-0101](docs/adr/0101-every-audit-row-names-its-build.md)).
+Every audit row carries it, and the Postgres store keeps it (migration 0007).
+
+### Check an upgrade before it rolls
+
+`typesys deploy check current.json next.json` builds both in one process and
+asks them the same questions as the deployments' own personas: the model's
+contract, the governance structure, each persona's read of each object they
+can see in either build explained value by value, every rule as data and as
+decisions, the queries a consumer depends on, and every consumer's contract
+([ADR-0104](docs/adr/0104-an-upgrade-is-checked-before-it-rolls.md)). It
+exits 1 on a consumer the new build breaks, a breaking model change, a
+persona who may now read what they could not, or a rule that now admits
+someone it refused. Probes are reads; nothing is written.
+
+[`examples/upgrades/`](examples/upgrades/) has two edits of the airforce
+deployment. Adding `viewer` to `airforce.maintainer-only` looks small; the
+check shows what it does:
+
+```text
+$ npx typesys deploy check deployments/airforce.deployment.json \
+    examples/upgrades/airforce-viewers-read-maintenance.deployment.json --packs-dir packs
+airforce sha256:d80094942624… → airforce sha256:9d5f3bd320c5…
+BLOCKED: 5 reasons this must not roll as is.
+  ✗ exposure: viewer reads airforce.Aircraft.maintenanceStatus on airforce.Aircraft/AF86-0147 (now returned to viewer, was withheld)
+  ✗ exposure: viewer reads airforce.Aircraft.readinessStatus on airforce.Aircraft/AF86-0147 (now returned to viewer, was withheld)
+  ✗ exposure: viewer reads airforce.Aircraft.maintenanceStatus on airforce.Aircraft/AF86-0212 (now returned to viewer, was withheld)
+  ✗ exposure: viewer reads airforce.Aircraft.readinessStatus on airforce.Aircraft/AF86-0212 (now returned to viewer, was withheld)
+  ✗ policy airforce.maintainer-only now admits viewer (on airforce.Aircraft, airforce.MaintenanceEvent)
+Policies:
+  ~ airforce.maintainer-only
+  airforce.maintainer-only for viewer: refused → admitted (on airforce.Aircraft, airforce.MaintenanceEvent)
+Governance:
+  [changes] policy:airforce.maintainer-only: rule is role in [maintainer, viewer, ai-enclave], was role in [maintainer, ai-enclave]
+```
+
+`readinessStatus` was never named in the change: it is computed from
+`maintenanceStatus`, so the viewer gets it too, and the observed reads catch
+it. Removing `viewer` from `airforce.read-aircraft` instead only narrows, so
+the check exits 0 and lists it: `[narrows] viewer: 46 values on 6 objects`.
+A new pack version is checked the same way: releasing `readinessStatus` to
+viewers as airforce 1.1.0, with no rule changed, is blocked as the viewer's
+new read of every Aircraft (`packages/host/test/check.test.ts`).
+
+### Applications and agents pin what they were built for
+
+A consumer sends the Types it was built against, with the versions it
+accepts, in a `TypeSystem-Contract` header (`airforce.Aircraft@^1.0.0`), or
+its server sets one for all its requests. The runtime checks it wherever a
+request reads, queries, follows or acts on a Type, and fails closed before
+any source is read ([ADR-0103](docs/adr/0103-consumers-pin-the-type-versions-they-were-built-against.md)):
+
+```text
+$ curl -H 'authorization: Bearer demo-viewer-token' -H 'TypeSystem-Contract: airforce.Aircraft@^2.0.0' \
+    localhost:3939/api/objects/airforce.Aircraft/AF86-0147
+{"type":"https://typesys.dev/problems/contract-unsatisfied","title":"Contract not satisfied","status":412,
+ "code":"contract-unsatisfied","detail":"The model does not satisfy this consumer's contract: airforce.Aircraft ^2.0.0",
+ "errors":[{"type":"airforce.Aircraft","range":"^2.0.0"}]}
+```
+
+`typesys app compile` writes every application's contract: each Type it
+reads, filters, shows, follows or acts on, at `^` the version it compiled
+against ([`examples/apps/cold-chain/contract.json`](examples/apps/cold-chain/contract.json)).
+Its server serves every request under it; `--consumer contract.json` gives
+it to the upgrade check; listed in a deployment's `consumers`, a build that
+breaks it does not start. The SDK takes `contract` (`httpTransport`,
+`runtimeTransport`), MCP over HTTP reads the same header, and
+`describeModel` under a contract says whether the model keeps it.
+
+### Measured
+
+On the 4-vCPU cloud container this was built in: `typesys deploy build`
+of the airforce deployment, including process start and loading its
+extension, takes 330 ms; `typesys deploy check` of the blocked example,
+building both and probing 6 objects as 4 personas, takes 520 ms. The full
+suite is 1,818 tests (35 of them the host's own), all passing locally with
+PostgreSQL and Redis. The five shipped deployments are 2.8 to 13.6 KB each.
 
 ## See all of it running: the developer showcase
 
@@ -1144,6 +1334,8 @@ npm install
 npm run build
 npm run showcase      # http://127.0.0.1:4300: builds what is stale, then everything below at once, with the guide
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
+node packages/host/dist/serve.js deployments/airforce.deployment.json   # the generic server: MCP at :3939/mcp, API under :3939/api
+npx typesys deploy check deployments/airforce.deployment.json examples/upgrades/airforce-viewers-read-maintenance.deployment.json --packs-dir packs
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
 npm run studio        # http://localhost:4400: the semantic workbench: model, explain, graph, impact
 npm run impact:demo   # what releasing readinessStatus to viewers would expose
@@ -1170,15 +1362,16 @@ squadron readiness app built with and without TypeSys).
 
 | Group | Packages |
 |---|---|
-| Runtime | `core` (model, registry, runtime, ABAC policy, audit), `policy-cedar` (Cedar policy engine) |
+| Runtime | `core` (model, registry, runtime, ABAC policy and policies as data, consumer contracts, audit), `policy-cedar` (Cedar policy engine) |
+| Deployment | `host` (the `typesys.deployment/1` document, the generic host and server `typesys-host`, and `typesys deploy build\|check`) |
 | Storage and sources | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, `registry-store-postgres`, `workflow-postgres`, `redis` |
 | Security | `auth-oidc` (JWT identity), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
 | Applications | `compiler` (the `typesys.app/1` checker, code generator, verifier, semantic diff and mission migration), `ui` (React components for tables, detail, charts, timelines, graphs, maps, forms, approvals, runs, an assistant and provenance, with a separate design system), `app` (three-valued expressions, flow helpers and the server compiled applications run on) |
 | Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata), `engineer` (missions drafted, scaffolded and verified) |
 | Showcase | `showcase` (`npm run showcase`: starts every service and surface over shared services, the ten-question guide, the simulated model endpoint, and `models` for model configurations) |
-| Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
-| Examples | `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services, and `examples/apps/recall-response` over four), `examples/services` (seven independent services TypeSys reads over HTTP) |
+| Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `deploy`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
+| Examples | `deployments/` (five deployments the generic server runs) and `examples/upgrades/` (two upgrades to check), `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services, and `examples/apps/recall-response` over four), `examples/services` (seven independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 
 ## Status
@@ -1187,7 +1380,7 @@ The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
 request runs lint, typecheck, the build and the unit suite; the database,
-browser and showcase tests run locally with `npm run check:full`. A catalog of 219 deliberate mutations, each
+browser and showcase tests run locally with `npm run check:full`. A catalog of 230 deliberate mutations, each
 of which a test must catch, runs locally with `npm run mutation`, never
 on GitHub for a change. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a
@@ -1213,7 +1406,7 @@ remains and [`docs/completeness.md`](docs/completeness.md) what is built.
 - [`docs/roadmap-5.md`](docs/roadmap-5.md): the semantic workbench, slice by
   slice; [`docs/roadmap-4.md`](docs/roadmap-4.md): the application compiler;
   and [`docs/evidence/`](docs/evidence/): every measurement.
-- [`docs/adr/`](docs/adr/): 95 architecture decision records.
+- [`docs/adr/`](docs/adr/): 104 architecture decision records.
 
 Versioning uses [changesets](https://github.com/changesets/changesets); see
 [ADR-0020](docs/adr/0020-publish-infrastructure.md) for publishing.

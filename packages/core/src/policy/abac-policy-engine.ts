@@ -213,3 +213,30 @@ export function allOf(...rules: PolicyRule[]): PolicyRule {
     rules.length === 1 ? describeRule(rules[0]!) : `all of (${rules.map(describeRule).join("; ")})`
   );
 }
+
+/** A value `requireResourceValue` compares with: an identifier, a boolean or `null`, compared strictly (`===`). */
+export type PolicyLiteral = string | number | boolean | null;
+
+/**
+ * Allows when the resource's own `attribute` is exactly `equals` (ADR-0100).
+ * A type-level request (no `resource.attributes`) asks about every instance:
+ * it is denied unless `typeLevel` is `"allow"`, which says some instances
+ * are readable, as a list of notices where some are public. The plan admits
+ * the objects holding that value when the value is an identifier; a boolean
+ * or `null` has no predicate form, so the plan is unknown and the post-read
+ * check decides. The deny reason names the attribute, never its value.
+ */
+export function requireResourceValue(attribute: string, equals: PolicyLiteral, opts: { typeLevel?: "allow" | "deny"; reason?: string } = {}): PolicyRule {
+  const typeLevel = opts.typeLevel ?? "deny";
+  const deny = (): PolicyDecision => ({ allow: false, reason: opts.reason ?? `Requires resource.${attribute} to be the value the policy names` });
+  return plannable(
+    ({ resource }) => {
+      if (!resource.attributes) return typeLevel === "allow" ? { allow: true } : deny();
+      return Object.hasOwn(resource.attributes, attribute) && resource.attributes[attribute] === equals ? { allow: true } : deny();
+    },
+    ({ policyName }) =>
+      isPlanIdentifier(equals) ? predicatePlan({ attribute, eq: equals }) : unknownPlan([{ code: "unrepresentable-condition", policyName }]),
+    [],
+    `resource.${attribute} = ${JSON.stringify(equals)}${typeLevel === "allow" ? " (any instance may be, at type level)" : ""}`
+  );
+}

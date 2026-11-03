@@ -4,6 +4,21 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../adapter-http" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../adapter-http"
+    },
+    {
+      "path": "../host"
+    },
+    {
+      "path": "../packs"
+    }
+  ]
 }

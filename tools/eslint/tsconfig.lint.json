@@ -8,7 +8,11 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "paths": { "@typesys/*": ["../../packages/*/src/index.ts"] }
+    "paths": {
+      // Subpath exports name a source file of their own (`@typesys/demo-web/deployments` is src/deployments.ts).
+      "@typesys/demo-web/*": ["../../packages/demo-web/src/*.ts"],
+      "@typesys/*": ["../../packages/*/src/index.ts"]
+    }
   },
   "include": [
     "../../packages/*/src/**/*.ts",
