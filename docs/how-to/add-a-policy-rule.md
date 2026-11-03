@@ -6,6 +6,66 @@ Type's `x-policy.objectPolicy`, an individual property's entry in
 that is a rule by itself; it's a lookup key into whichever `PolicyEngine`
 the runtime was built with ([ADR-0009](../adr/0009-embedded-abac-policy-engine.md)).
 
+## In a deployment: rules as data, with tests
+
+A deployment served by the generic host (`typesys dev`, or the container
+image) writes its rules as data, one per policy name, and no code
+([ADR-0100](../adr/0100-policy-rules-are-data.md)):
+
+```json
+"policies": {
+  "shop.read-customer": { "role": ["reader"] },
+  "shop.contact":       { "anyOf": [{ "role": ["steward"] }, { "attributeMatch": { "subject": "region", "resource": "region" } }] },
+  "shop.read-order":    "always"
+}
+```
+
+`typesys init --from postgres` drafts one rule per policy the model names:
+read policies admit `reader`, sensitive properties admit `steward`, Actions
+admit `operator`. Nothing is open to everyone until you say so.
+
+**Say what the rules must keep true** in `<name>.tests.json` beside the
+deployment ([ADR-0113](../adr/0113-policy-tests-are-data.md)). Each test
+runs as one of the deployment's personas (or `anonymous`), through the
+governed runtime, exactly as a caller with that identity would:
+
+```json
+{
+  "format": "typesys.deployment-tests/1",
+  "tests": [
+    { "as": "reader",    "query": "shop.Customer", "withholds": ["email", "fullName"] },
+    { "as": "steward",   "query": "shop.Customer", "returns": ["email"] },
+    { "as": "anonymous", "query": "shop.Customer", "refused": true },
+    { "as": "reader",    "read": "shop.Customer/C-1", "returns": ["region"] },
+    { "as": "reader",    "invoke": { "action": "shop.RaiseLimit", "input": { "customerId": "C-1" } }, "refused": true }
+  ]
+}
+```
+
+A `read` names one object; a `query` is a Type's name (its first 50
+objects) or a full query; an `invoke` previews an Action without running
+it. `returns` must each be present (for a query, on at least one object,
+and the query must return some); `withholds` must be absent everywhere.
+`npx typesys deploy test shop.deployment.json` runs them and exits 1 on a
+failure; `typesys dev` runs them after every rebuild.
+
+**A widening is blocked, then accepted on the record.** `typesys deploy
+check current.json next.json` blocks any change that lets a persona read
+what it could not, naming each persona, field and object. When the change
+is meant, write an acceptance, review it, commit it beside the change, and
+pass it to the check ([ADR-0114](../adr/0114-a-meant-upgrade-change-is-accepted-not-bypassed.md)):
+
+```bash
+npx typesys deploy check current.json next.json --write-acceptance accept.json --by Reuben --why "support needs email"
+npx typesys deploy check current.json next.json --accept accept.json
+```
+
+The acceptance names both build ids and each blocking line exactly, so it
+answers for this change and no other: change either deployment, or block
+on anything new, and the check blocks again.
+
+The rest of this page is for code that builds a `SemanticRuntime` itself.
+
 ## Register a rule
 
 ```ts

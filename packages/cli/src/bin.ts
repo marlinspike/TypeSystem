@@ -200,6 +200,12 @@ async function main(): Promise<void> {
   if (process.argv[2] === "dev") return delegate("dev", "@typesys/host", "devCommand", process.argv.slice(3));
   // A database onboarded straight into a deployment (ADR-0111); without --from, init scaffolds YAML Types as before.
   if (process.argv[2] === "init" && process.argv.includes("--from")) return delegate("init", "@typesys/onboard", "initCommand", process.argv.slice(3));
+  // A command's own --help is a request for usage, never a directory or a name to act on.
+  if (process.argv[2] && process.argv.slice(3).some((a) => a === "--help" || a === "-h")) {
+    if (process.argv[2] === "init") return delegate("init", "@typesys/onboard", "initCommand", ["--help"]);
+    usage();
+    return;
+  }
   const args = parseArgs(process.argv.slice(2));
   const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 

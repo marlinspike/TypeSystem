@@ -23,6 +23,18 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
+Start with your own database. `typesys init --from postgres` reads a
+PostgreSQL catalog and writes a deployment the generic server serves:
+every table a Type, every foreign key a relationship, every column that
+looks personal withheld from all but a steward, a draft rule for every
+policy, personas with tokens, and policy tests. `typesys dev` serves it,
+prints a first call to make, runs the tests, and rebuilds on every change
+while the last good build keeps serving. A mistyped column is caught
+against the database before it serves, and `typesys deploy check` blocks a
+widening until someone accepts it on the record. The section
+[Your database, governed, in five commands](#your-database-governed-in-five-commands)
+shows it on a real database, with output.
+
 A deployment now keeps its state and proves its history. Its document says
 where the audit trail, the workflow journal, the cache and the rate limit live,
 and the generic server opens them, so replicas share one Postgres and one Redis
@@ -59,6 +71,108 @@ generates an ordinary TypeScript and React application, and verifies it
 through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
+
+## Your database, governed, in five commands
+
+From a clean clone to a governed read of your own PostgreSQL table takes
+five commands and no code
+([ADR-0110](docs/adr/0110-declared-sources-are-checked-against-what-they-name.md) to
+[ADR-0115](docs/adr/0115-yaml-types-are-built-into-a-pack.md)). Measured
+from a fresh clone of this repository against a two-table `shop`
+database (customers with names and emails, orders with a foreign key):
+MEASURED_SUMMARY Before this work the same result took about eleven
+commands and thirty hand-written lines of deployment, and the
+quickstart's first command crashed on a fresh clone
+([evidence](docs/evidence/ease-of-use-2026-11-03.md)).
+
+```bash
+npm install && npm run build
+export SHOP_URL=postgres://user:password@localhost/shop
+npx typesys init shop --from postgres SHOP_URL --schema public
+npx typesys dev shop/shop.deployment.json
+```
+
+```
+Onboarded shop into "shop": 3 Types, 15 properties, 1 relationship, 3 sensitive fields
+  shop.Customer  (sensitive: email, fullName)
+  shop.Order
+  shop.Widget  (sensitive: name)
+
+Wrote shop/shop.deployment.json, shop/shop.tests.json, shop/packs/shop-1.0.0.typesys-pack.json, shop/README.md and shop/onboarding/
+Policies (each one role, nothing open to everyone): shop.read-customer, shop.read-order, shop.read-widget, shop.contact, shop.personal-name
+```
+
+`init` reads only the catalog and whether each table has rows, never a
+row's values, and the connection string stays in `SHOP_URL`: the
+deployment refers to it as `{"$secret": "SHOP_URL"}`. `dev` then prints
+each persona's token, a `curl` and the `claude mcp add` line to connect
+Claude Code, and runs the drafted tests:
+
+```
+shop is serving (build sha256:992ced6e1975…)
+  API  http://localhost:3939/api        MCP  http://localhost:3939/mcp        index  http://localhost:3939/
+
+Personas and their tokens (fixed tokens: this machine only):
+  reader     dev-reader-3C2zEqCh3uhL   roles: reader
+  steward    dev-steward-OBatDZEMfEPe   roles: reader, steward
+...
+Policy tests (shop/shop.tests.json):
+  ✓ a reader lists shop.Customer without email, fullName
+  ✓ a steward sees email, fullName on shop.Customer
+  ✓ anyone else is refused shop.Customer
+  ...
+PASS: 8 passed, 0 failed
+```
+
+The reader's query returns `{"customerId":"C-1","creditLimit":5000,"region":"EU","tier":"gold"}`;
+the steward's adds `"fullName":"Ada Lovelace","email":"ada@example.com"`; a call
+without a token gets a 403 problem saying no object of the Type is
+readable by that subject.
+
+**Mistakes are caught before they serve.** A deployment's sources are
+checked against the model (every mapped Type and property exists) and
+against the database catalog (every table and column exists and is
+readable) by `typesys deploy build`, at server startup and on every `dev`
+rebuild. While `dev` runs, a typo is reported and the last good build
+keeps serving:
+
+```
+The deployment does not build:
+  - sources["shop-db"]: shop.Customer.email: public.customers has no column "e_mail" (did you mean "email"?)
+Still serving the last build that did: sha256:992ced6e1975…
+```
+
+A database that goes away answers 503 with a retry hint and a refused
+grant 502, never a bare 500, and a malformed query says what the query's
+fields are (`typeName` is answered with "did you mean type?").
+
+**Policy tests are data.** `<name>.tests.json` says, per persona, what a
+read, a query or an Action preview must return, withhold or be refused;
+`npx typesys deploy test` runs it and exits 1 on a failure, so it can gate
+CI, and `dev` runs it on every rebuild. `deployments/airforce.tests.json`
+pins what the demonstration's maintainer, viewer and anonymous caller each get.
+
+**A meant widening is accepted, not bypassed.** `deploy check` blocks a
+change that lets anyone read what they could not. When it is intended,
+`--write-acceptance accept.json --by <name> --why <reason>` writes the
+blocking lines for review, and `--accept accept.json` passes the check for
+exactly those two builds; any other change blocks again:
+
+```
+BLOCKED: 4 reasons this must not roll as is.
+  ✗ exposure: reader reads shop.Customer.email on shop.Customer/C-1 (now returned to reader, was withheld)
+  ...
+OK: 4 blocking changes accepted, nothing else blocks this upgrade.
+  ✓ accepted by Reuben (support needs customer email): policy shop.contact now admits reader (on shop.Customer)
+```
+
+When the schema changes, `typesys onboard propose ... --deployment
+shop/shop.deployment.json` updates the pack and the source mapping in
+place and leaves the rules you wrote alone. Types written in YAML become a
+pack with `typesys pack build`, so they are served the same way. Every
+command now works on a fresh clone after `npm run build`, and says so
+when it is run before one. The [quickstart](docs/quickstart.md) walks
+through all of it.
 
 ## Keep the state, prove the history
 
@@ -1497,6 +1611,10 @@ per-record and per-field rules are involved.
 ```bash
 npm install
 npm run build
+npx typesys init shop --from postgres SHOP_URL --schema public   # your own database, as a deployment (SHOP_URL holds its connection string)
+npx typesys dev shop/shop.deployment.json                         # serve it, print tokens and a first call, rebuild on change
+npx typesys dev deployments/airforce.deployment.json              # the same with no database
+npx typesys deploy test deployments/airforce.deployment.json      # the airforce policy tests
 npm run showcase      # http://127.0.0.1:4300: builds what is stale, then everything below at once, with the guide
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
 node packages/host/dist/serve.js deployments/airforce.deployment.json   # the generic server: MCP at :3939/mcp, API under :3939/api
@@ -1536,14 +1654,14 @@ squadron readiness app built with and without TypeSys).
 | Group | Packages |
 |---|---|
 | Runtime | `core` (model, registry, runtime, ABAC policy and policies as data, exact policy comparison, consumer contracts, hash-chained audit and its verifier), `policy-cedar` (Cedar policy engine) |
-| Deployment | `host` (the `typesys.deployment/1` document with its declared state and hosted applications, the generic host and server `typesys-host`, `typesys deploy build\|check` and `typesys audit verify\|export\|prune\|keygen`) |
+| Deployment | `host` (the `typesys.deployment/1` document with its declared state and hosted applications, the generic host and server `typesys-host`, `typesys dev`, `typesys deploy build\|check\|test` with policy tests and acceptances, and `typesys audit verify\|export\|prune\|keygen`) |
 | Storage and sources | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, `registry-store-postgres`, `workflow-postgres`, `redis` |
 | Security | `auth-oidc` (JWT identity), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
 | Applications | `compiler` (the `typesys.app/1` checker, code generator, verifier, semantic diff and mission migration), `ui` (React components for tables, detail, charts, timelines, graphs, maps, forms, approvals, runs, an assistant and provenance, with a separate design system), `app` (three-valued expressions, flow helpers and the server compiled applications run on) |
-| Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata), `engineer` (missions drafted, scaffolded and verified) |
+| Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata, and `typesys init --from postgres` writing a deployment), `engineer` (missions drafted, scaffolded and verified) |
 | Showcase | `showcase` (`npm run showcase`: starts every service and surface over shared services, the ten-question guide, the simulated model endpoint, and `models` for model configurations) |
-| Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `deploy`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
+| Tooling | `cli` (YAML authoring, `typesys pack build`, code generation, and the `typesys app`, `deploy`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
 | Examples | `deployments/` (six deployments the generic server runs, one with durable state) and `examples/upgrades/` (three upgrades to check), `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services, and `examples/apps/recall-response` over four), `examples/services` (seven independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 

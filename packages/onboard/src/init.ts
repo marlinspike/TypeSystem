@@ -23,7 +23,10 @@ export const INIT_USAGE = `typesys init <dir> --from postgres <ENV_VAR> --schema
   decided by --by (default "typesys init"); review onboarding/review.json and
   run typesys onboard again to change any of it.
 
-  Then: npx typesys dev <dir>/<domain>.deployment.json`;
+  Then: npx typesys dev <dir>/<domain>.deployment.json
+
+  Without --from, typesys init <dir> [--name <domain>] scaffolds YAML Types instead
+  (typesys --help lists every command).`;
 
 interface InitArgs {
   dir?: string;

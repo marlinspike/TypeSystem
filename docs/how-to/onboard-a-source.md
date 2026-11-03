@@ -27,6 +27,34 @@ through the runtime, runs the generated checks, adds a column to the
 database and onboards again with no model: everything approved stays as
 approved, and only the new column is pending.
 
+## Straight into a deployment
+
+For a PostgreSQL database, `typesys init` does the whole of the CLI path
+below in one command and writes a deployment the generic server serves
+([ADR-0111](../adr/0111-a-database-is-onboarded-into-a-deployment.md)):
+
+```sh
+export SHOP_URL=postgres://user@localhost/shop
+npx typesys init shop --from postgres SHOP_URL --schema public
+npx typesys dev shop/shop.deployment.json
+```
+
+It accepts what the catalog declares, recorded as decided by `--by`
+(default `typesys init`), drafts a rule for each policy, personas with
+tokens for this machine, and policy tests. See the
+[quickstart](../quickstart.md) for the output. When the schema changes,
+run `collect` again and pass the deployment to `propose`, which updates
+its sources and pack, adds draft rules only for new policy names, and
+lists the ones no longer used, leaving the rules you wrote alone:
+
+```sh
+npx typesys onboard collect --postgres SHOP_URL --schema public --source shop-db --system shop \
+  --out shop/onboarding/sources.json
+npx typesys onboard propose shop/onboarding/sources.json --domain shop --out shop/onboarding --version 1.1.0 \
+  --review shop/onboarding/review.json --approved shop/onboarding/approved.json \
+  --previous shop/onboarding/pack.json --deployment shop/shop.deployment.json
+```
+
 ## Do it with the CLI
 
 Collect evidence, one source at a time, into one file. A database's

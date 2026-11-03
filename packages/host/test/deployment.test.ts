@@ -56,7 +56,7 @@ describe("a deployment document (ADR-0102)", () => {
     const tokens = { identity: { kind: "tokens", tokens: { abc: "p" } }, personas: { p: { subjectId: "p", roles: [], attributes: {} } } };
     expect(problems(tokens)).toContain("allowed only in a demo deployment");
     expect(problems({ ...tokens, demo: true })).toBe("");
-    expect(problems({ ...tokens, demo: true, personas: {} })).toContain("names no persona");
+    expect(problems({ ...tokens, demo: true, personas: {} })).toContain("names persona \"p\", which personas does not declare");
     expect(problems({ classification: { kind: "demo-linear" } })).toContain("allowed only in a demo deployment");
     expect(problems({ classification: { kind: "linear", name: "c", levels: ["A", "A"] } })).toContain("distinct markings");
   });

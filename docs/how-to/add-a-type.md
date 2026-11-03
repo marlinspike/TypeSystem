@@ -60,6 +60,30 @@ Full field reference: `packages/cli/src/yaml-loader.ts`'s
 `YamlTypeDocument` interface — every field maps 1:1 to a
 `SemanticTypeSchema`/`RegisterTypeOptions` field of the same name.
 
+### Serve YAML Types without code
+
+`typesys pack build` turns a directory of YAML Types into a pack a
+deployment lists ([ADR-0115](../adr/0115-yaml-types-are-built-into-a-pack.md)):
+
+```bash
+npx typesys pack build ./fleet --name fleet --version 1.0.0 --out packs/fleet-1.0.0.typesys-pack.json
+```
+
+Every Type is read from one declared source (`fleet-db`, kind `postgres`,
+unless `--source`, `--source-kind` or `--system` say otherwise; `--source
+none` declares none, for a deployment whose extension supplies it). A pack
+whose Types extend `core.*` or use a trait requires core `^1.0.0`. List the
+pack in the deployment with its digest, and map the source's tables:
+
+```json
+"packs": [{ "name": "fleet", "version": "1.0.0", "digest": "sha256:…", "file": "packs/fleet-1.0.0.typesys-pack.json" }],
+"sources": { "fleet-db": { "kind": "postgres", "system": "fleet", "url": { "$secret": "FLEET_URL" },
+  "types": { "fleet.Widget": { "table": "public.widgets", "id": "id", "columns": { "id": "id", "name": "name", "status": "status" } } } } }
+```
+
+`typesys deploy build` then checks every mapped Type and property against
+the model and every table and column against the database.
+
 ## Adding a computed property (either path)
 
 Declare the shape in the schema/YAML; supply the real function separately
