@@ -2652,7 +2652,7 @@
       "description": "A signing writer does not sign the start of its chain.",
       "file": "packages/core/src/audit/chain.ts",
       "find": "if (this.options.key) await this.sink.writeCheckpoint(",
-      "replace": "if (this.options.key && false) await this.sink.writeCheckpoint(",
+      "replace": "if (this.options.key && this.chainId === \"\") await this.sink.writeCheckpoint(",
       "tests": [
         "packages/core/test/audit-chain.test.ts",
         "packages/host/test/durable.test.ts"
@@ -2709,7 +2709,7 @@
       "description": "A signing key that does not match its verify key is accepted at boot.",
       "file": "packages/host/src/state.ts",
       "find": "if (!matches) throw new DeploymentError(",
-      "replace": "if (!matches && false) throw new DeploymentError(",
+      "replace": "if (!matches && declared === \"\") throw new DeploymentError(",
       "tests": [
         "packages/host/test/p8-state.test.ts"
       ]
