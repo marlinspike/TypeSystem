@@ -30,6 +30,23 @@ describe("a consumer's contract", () => {
     await expect(runUnderContract(v2, () => runtime.query({ type: "airforce.Component", limit: 1 }, maintainer))).resolves.toBeDefined();
   });
 
+  it("refuses an Action whose result is a Type outside the range before the Action runs, leaving nothing written", async () => {
+    const { runtime } = await buildAirforceTestbed();
+    const pinned = { "airforce.WorkOrder": "^2.0.0" };
+    const input = { maintenanceEventId: "EVT-9001", assignedTo: "SSgt Rivera" };
+    const workOrders = async () => JSON.stringify(await runtime.query({ type: "airforce.WorkOrder" }, maintainer));
+    const before = await workOrders();
+    await expect(runUnderContract(pinned, () => runtime.invokeAction("CreateMaintenanceWorkOrder", input, maintainer))).rejects.toBeInstanceOf(ContractUnsatisfiedError);
+    await expect(runUnderContract(pinned, () => runtime.previewAction("CreateMaintenanceWorkOrder", input, maintainer))).rejects.toBeInstanceOf(ContractUnsatisfiedError);
+    await expect(
+      runUnderContract({ "airforce.MaintenanceEvent": "^2.0.0" }, () => runtime.invokeAction("CreateMaintenanceWorkOrder", input, maintainer))
+    ).rejects.toBeInstanceOf(ContractUnsatisfiedError);
+    expect(await workOrders()).toBe(before);
+    // Within the range, the same Action runs.
+    await expect(runUnderContract({ "airforce.WorkOrder": "^1.0.0" }, () => runtime.invokeAction("CreateMaintenanceWorkOrder", input, maintainer))).resolves.toBeDefined();
+    expect(await workOrders()).not.toBe(before);
+  });
+
   it("names the Type and the range in its refusal, never the version registered", async () => {
     const { runtime } = await buildAirforceTestbed();
     const err = await runUnderContract({ "airforce.Aircraft": "^2.0.0" }, () => runtime.getObject("airforce.Aircraft", "AF86-0147", viewer)).catch((e: unknown) => e);

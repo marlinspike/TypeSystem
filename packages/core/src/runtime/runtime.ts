@@ -1269,11 +1269,20 @@ export class SemanticRuntime {
     if (this.rowSecurity === "require-exact") throw new AuthorizationPlanError(`Refused under rowSecurity "require-exact": ${reason.toLowerCase()} (${resource.typeName})`);
   }
 
+  /**
+   * A consumer's contract covers an Action's Types, the ones it applies to
+   * and the one its result is (ADR-0103), and is checked before anything
+   * runs: refusing after the Action wrote would leave its effect behind a 412.
+   */
+  private async assertActionContract(action: ActionDefinition): Promise<void> {
+    if (!currentContract()) return;
+    const names = action.outputType ? [...action.applicableTypes, action.outputType] : action.applicableTypes;
+    for (const typeDef of await Promise.all(names.map((t) => this.registry.getType(t)))) if (typeDef) assertContract(typeDef);
+  }
+
   /** The markings of every Type an Action applies to — its result is data of those Types (ADR-0032). */
   private async actionMarkings(action: ActionDefinition): Promise<string[]> {
     const typeDefs = await Promise.all(action.applicableTypes.map((t) => this.registry.getType(t)));
-    // An Action's result is data of these Types, so a consumer's contract covers them too (ADR-0103).
-    for (const typeDef of typeDefs) if (typeDef) assertContract(typeDef);
     return typeDefs.flatMap((typeDef) => (typeDef ? objectMarkings(typeDef) : []));
   }
 
@@ -2955,6 +2964,7 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
+        await this.assertActionContract(action);
         // A preview describes an Action: refused or withheld as listActions and describeModel are (ADR-0068). A
         // withheld Action is answered exactly as one that does not exist; the audit row says which it was.
         const resource: PolicyResource = { typeName: action.applicableTypes[0] ?? "unknown", actionName: action.name };
@@ -3098,6 +3108,7 @@ export class SemanticRuntime {
       { "typesys.action_name": action.name, ...this.telemetry.subject(identity) },
       async () => {
         await this.checkRateLimit(identity);
+        await this.assertActionContract(action);
         const { decision, typeName, target } = await this.gateAction(identity, action, input);
         if (!decision.allow) throw notAuthorized("invoke", { typeName, actionName: action.name }, decision.reason, identity);
         // Behind a person's sign-off (ADR-0096): the policy admits the caller, but only through an approved workflow step,

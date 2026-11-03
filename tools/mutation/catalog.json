@@ -2482,10 +2482,10 @@
     {
       "id": "contract.action-unguarded",
       "adr": "0103",
-      "description": "An Action runs on a Type its consumer's contract does not accept.",
+      "description": "An Action runs, and writes, on a Type its consumer's contract does not accept, before the refusal.",
       "file": "packages/core/src/runtime/runtime.ts",
-      "find": "for (const typeDef of typeDefs) if (typeDef) assertContract(typeDef);",
-      "replace": "for (const typeDef of typeDefs) if (typeDef) void typeDef;",
+      "find": "        await this.assertActionContract(action);\n        const { decision, typeName, target }",
+      "replace": "        const { decision, typeName, target }",
       "tests": [
         "packages/domain-airforce/test/consumer-contract.test.ts"
       ]
