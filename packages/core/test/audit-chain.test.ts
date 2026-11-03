@@ -87,12 +87,14 @@ describe("audit chain (ADR-0105)", () => {
         }
         rows.push(...e);
       },
-      writeCheckpoint: async () => undefined
+      writeCheckpoint: async () => undefined,
+      // The sink can say what it holds, so the writer knows the failed write stored nothing and keeps its chain.
+      headOf: async () => (rows.length ? { seq: rows[rows.length - 1]!.link.seq, hash: rows[rows.length - 1]!.link.hash } : undefined)
     }, { chain: "c1" });
     await expect(writer.append(event(1))).rejects.toThrow("db down");
     await writer.append(event(2));
-    expect(rows.map((r) => r.link.seq)).toEqual([1]);
-    expect((await verifyAuditLog(source(rows, []), keys)).ok).toBe(true);
+    expect(rows.map((r) => [r.link.chain, r.link.seq])).toEqual([["c1", 1]]);
+    expect((await verifyAuditLog(source(rows, []), {})).ok).toBe(true);
   });
 
   it("detects an edited row", async () => {
@@ -149,7 +151,8 @@ describe("audit chain (ADR-0105)", () => {
     const v = await verifyAuditLog(source(rows, [forged]), keys);
     expect(v.problems.map((p) => p.kind)).toEqual(["bad-signature"]);
     const unknown = await verifyAuditLog(source(rows, checkpoints), {});
-    expect(unknown.problems.map((p) => p.kind)).toEqual(["unknown-key"]);
+    // The opening checkpoint and the head's: both name a key the verifier was not given.
+    expect(unknown.problems.map((p) => p.kind)).toEqual(["unknown-key", "unknown-key"]);
   });
 
   it("refuses a checkpoint whose row was replaced", async () => {

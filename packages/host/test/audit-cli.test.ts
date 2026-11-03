@@ -112,7 +112,8 @@ describe.skipIf(!DATABASE_URL)("typesys audit (ADR-0105)", () => {
     const v = await run("verify", file);
     expect(v.code).toBe(0);
     const reader = new PostgresAuditLog(new pg.Pool({ connectionString: url, max: 1 }), { ownsPool: true });
-    expect((await reader.listAuditEvents({ action: "audit.prune" })).items).toHaveLength(1);
+    // Recorded before it deleted anything, and again with what it deleted.
+    expect((await reader.listAuditEvents({ action: "audit.prune" })).items.map((e) => (e.details as { phase: string }).phase)).toEqual(["done", "started"]);
     await reader.close();
   });
 

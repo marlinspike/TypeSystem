@@ -72,7 +72,9 @@ function listen(app: { listen(port: number, cb: () => void): Server }, port: num
 export async function hostedWorkflows(host: Host, apps: readonly HostedApplication[]): Promise<WorkflowEngine> {
   const served = new Map((await host.registry.listTypes()).map((t) => [t.name, t.version]));
   const problems = apps.flatMap((a) =>
-    contractMismatches(a.contract ?? {}, served).map((m) => `application ${a.name} needs ${m.type} ${m.range}, ${m.version ? `this build has ${m.version}` : "this build has no such Type"}`)
+    a.contract === undefined
+      ? [`application ${a.name} declares no contract: compile it with typesys app compile, which writes one`]
+      : contractMismatches(a.contract, served).map((m) => `application ${a.name} needs ${m.type} ${m.range}, ${m.version ? `this build has ${m.version}` : "this build has no such Type"}`)
   );
   const models: Record<string, AiModel> = {};
   const owner: Record<string, string> = {};
@@ -106,7 +108,16 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
   const host = await buildHost(deployment, { packs, extensions, env });
   const servers: Server[] = [];
   const closeAll = async () => {
-    await Promise.allSettled(servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
+    // Open MCP and SSE streams would hold close() forever, and with it the last signed checkpoint: end them too.
+    await Promise.allSettled(
+      servers.map(
+        (s) =>
+          new Promise<void>((r) => {
+            s.close(() => r());
+            s.closeAllConnections();
+          })
+      )
+    );
     await host.close();
   };
   try {

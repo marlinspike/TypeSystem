@@ -1,4 +1,4 @@
-import { createPrivateKey } from "node:crypto";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import type { Pool } from "pg";
 import { createClient } from "redis";
 import {
@@ -26,6 +26,8 @@ export interface HostState {
   readonly journal: WorkflowJournal;
   readonly cache?: Cache;
   readonly rateLimiter?: RateLimiter;
+  /** `state.cache.ttlMs`: the time to live of a cached value whose mapping names none. */
+  readonly cacheTtlMs?: number;
   /** Where each piece is kept, for `/version` and the upgrade check. */
   readonly kinds: { readonly audit: string; readonly workflows: string; readonly cache: string; readonly rateLimit: string };
   /** The Postgres pool for a connection string, opened once however many pieces share it. */
@@ -63,6 +65,18 @@ export function auditSigningKey(spec: AuditStateSpec | undefined, resolve: Resol
     throw new DeploymentError(["state.audit.signing.key: is not a PEM private key"]);
   }
   if (privateKey.asymmetricKeyType !== "ed25519") throw new DeploymentError(["state.audit.signing.key: must be an Ed25519 key"]);
+  // A key whose public half is not the one verifiers are given would sign checkpoints that never verify.
+  const declared = spec.verifyKeys && Object.hasOwn(spec.verifyKeys, spec.signing.keyId) ? spec.verifyKeys[spec.signing.keyId] : undefined;
+  if (declared !== undefined) {
+    const der = (k: ReturnType<typeof createPublicKey>) => k.export({ type: "spki", format: "der" }).toString("base64");
+    let matches: boolean;
+    try {
+      matches = der(createPublicKey(privateKey)) === der(createPublicKey(declared));
+    } catch {
+      throw new DeploymentError([`state.audit.verifyKeys.${spec.signing.keyId}: is not a PEM public key`]);
+    }
+    if (!matches) throw new DeploymentError([`state.audit.signing.key: its public key is not state.audit.verifyKeys.${spec.signing.keyId}`]);
+  }
   return { keyId: spec.signing.keyId, privateKey };
 }
 
@@ -134,7 +148,8 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
 
     const c = state.cache;
     let cache: Cache | undefined;
-    if (c?.kind === "redis") cache = new RedisCache(await redisClient(resolve(c.url, "state.cache.url"), "state.cache"), { ...(c.keyPrefix ? { keyPrefix: c.keyPrefix } : {}) });
+    // Keys are per deployment unless the document says otherwise: two deployments sharing a Redis never read each other's source values.
+    if (c?.kind === "redis") cache = new RedisCache(await redisClient(resolve(c.url, "state.cache.url"), "state.cache"), { keyPrefix: c.keyPrefix ?? `typesys:${deployment.name}:cache:` });
     else if (c?.kind === "memory") cache = new InMemoryCache();
 
     const r = state.rateLimit;
@@ -143,7 +158,7 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
       rateLimiter = new RedisRateLimiter(await redisClient(resolve(r.url!, "state.rateLimit.url"), "state.rateLimit"), {
         capacity: r.capacity,
         refillPerSecond: r.refillPerSecond,
-        ...(r.keyPrefix ? { keyPrefix: r.keyPrefix } : {})
+        keyPrefix: r.keyPrefix ?? `typesys:${deployment.name}:ratelimit:`
       });
     else if (r?.kind === "memory") rateLimiter = new InMemoryRateLimiter({ capacity: r.capacity, refillPerSecond: r.refillPerSecond });
 
@@ -153,6 +168,7 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
       journal,
       ...(cache ? { cache } : {}),
       ...(rateLimiter ? { rateLimiter } : {}),
+      ...(c?.kind === "redis" && c.ttlMs !== undefined ? { cacheTtlMs: c.ttlMs } : {}),
       kinds: { audit: a.kind, workflows: w.kind, cache: c?.kind ?? "none", rateLimit: r?.kind ?? "none" },
       pool,
       async ready() {

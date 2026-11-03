@@ -16,7 +16,7 @@ CREATE UNIQUE INDEX audit_events_chain_seq ON audit_events (chain, seq) WHERE ch
 -- that ended. Append-only like the rows they sign.
 CREATE TABLE audit_checkpoints (
   chain     TEXT NOT NULL,
-  seq       BIGINT NOT NULL CHECK (seq >= 1),
+  seq       BIGINT NOT NULL CHECK (seq >= 0), -- 0: the opening checkpoint, signing the genesis hash
   hash      TEXT NOT NULL,
   at        TEXT NOT NULL,
   key_id    TEXT NOT NULL,

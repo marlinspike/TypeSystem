@@ -44,11 +44,24 @@ export interface PolicyComparison {
 }
 
 /** Too many conjunctions to enumerate: compare by sampling instead. */
-export class PolicyTooLargeError extends Error {
+/** Two policies could not be compared exactly. A caller treats the change as possibly widening. */
+export class PolicyNotComparableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PolicyNotComparableError";
+  }
+}
+
+export class PolicyTooLargeError extends PolicyNotComparableError {
   constructor(readonly conjunctions: number) {
     super(`The policy has more than ${conjunctions} alternatives in normal form; it is too large to compare exactly`);
     this.name = "PolicyTooLargeError";
   }
+}
+
+/** Sets an own property, even one named `__proto__`, which plain assignment would treat as the prototype. */
+function put<T>(bag: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(bag, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
 type Atom =
@@ -131,8 +144,8 @@ function instanceRequest(atoms: readonly Atom[], fresh: () => string): Request |
   const subjectAttributes: Record<string, string | number> = {};
   for (const n of [...nodes].sort()) {
     const v = valueOf.get(find(n))!;
-    if (n.startsWith("r:")) resource[n.slice(2)] = v;
-    else subjectAttributes[n.slice(2)] = v as string | number;
+    if (n.startsWith("r:")) put(resource, n.slice(2), v);
+    else put(subjectAttributes, n.slice(2), v as string | number);
   }
   return { roles: rolesOf(atoms), subjectAttributes, resource: { attributes: resource } };
 }
@@ -191,8 +204,9 @@ async function oneWay(from: PolicyExpression | undefined, to: PolicyExpression):
     const found: Request[] = [];
     for (const req of [instanceRequest(atoms, fresh), typeLevelRequest(atoms)]) {
       if (!req) continue;
-      // The constructed request must satisfy the conjunction under the runtime's own rule, or the construction is wrong.
-      if (!(await decide(ruleTo, req))) continue;
+      // The constructed request must satisfy the conjunction under the runtime's own rule. If it does not, the
+      // construction is wrong, and saying "no widening" would be a guess: refuse to compare instead.
+      if (!(await decide(ruleTo, req))) throw new PolicyNotComparableError(`A request built to satisfy "${describe(atoms)}" was refused by the rule itself; the change cannot be compared exactly`);
       if (ruleFrom && (await decide(ruleFrom, req))) continue;
       found.push(req);
     }

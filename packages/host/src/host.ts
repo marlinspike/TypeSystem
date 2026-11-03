@@ -293,6 +293,9 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
   // State: the audit trail, workflow journal, cache and rate limiter the deployment declares (ADR-0106), reachable before anything is served.
   const resolve = (value: Credential, at: string) => resolveCredential(value, env, demo, at);
   const state = await openState(options.state === "memory" ? { ...deployment, state: {} } : deployment, resolve);
+  // Whatever fails from here on, nothing the state opened (pools, Redis clients, the checkpoint timer) is left open.
+  let started = false;
+  try {
 
   // Adapters: the deployment's own, then each extension's, checked against what the deployment declares.
   const own: Record<string, Adapter> = {};
@@ -304,10 +307,7 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
     }
   }
-  if (problems.length > 0) {
-    await state.close();
-    throw new DeploymentError(problems);
-  }
+  if (problems.length > 0) throw new DeploymentError(problems);
   const adapters = new Map<string, Adapter>(Object.entries(own));
   const supplied: Record<string, string> = {};
   for (const [name, ext] of extensions) {
@@ -332,18 +332,14 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
   } catch (err) {
     problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
   }
-  if (problems.length > 0) {
-    await closeAll(extensions.values());
-    await state.close();
-    throw new DeploymentError(problems);
-  }
+  if (problems.length > 0) throw new DeploymentError(problems);
 
   const build = buildIdOf(deployment, archives.map((a) => a.digest));
   const registry = new SemanticRegistry(withAuditLog(options.store ?? new InMemoryRegistryStore(), state.audit), undefined, { build });
   const allRules = { ...rules, ...options.policyRules };
   const bindings = mergeBindingRegistries(...[...extensions.values()].map((e) => e.bindings ?? { computed: {}, preconditions: {} }));
   let installed: InstalledPack[];
-  try {
+  {
     installed = await installPacks(registry, archives, {
       bindings,
       actor: options.actor ?? "host",
@@ -360,10 +356,6 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       contractMismatches(c.contract, served).map((m) => `consumers: ${c.name} needs ${m.type} ${m.range}, ${m.version ? `this build has ${m.version}` : "this build has no such Type"}`)
     );
     if (broken.length > 0) throw new DeploymentError(broken);
-  } catch (err) {
-    await closeAll(extensions.values());
-    await state.close();
-    throw err;
   }
 
   const policyEngine = new AbacPolicyEngine();
@@ -374,11 +366,13 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     ...(deployment.runtime?.inspectionPolicy ? { inspection: { policy: deployment.runtime.inspectionPolicy } } : {}),
     ...(deployment.runtime?.securityProfile === "high-assurance-v1" ? { securityProfile: HIGH_ASSURANCE_V1 } : {}),
     ...(state.cache ? { cache: state.cache } : {}),
+    ...(state.cacheTtlMs !== undefined ? { defaultCacheTtlMs: state.cacheTtlMs } : {}),
     ...(state.rateLimiter ? { rateLimiter: state.rateLimiter } : {}),
     ...options.runtimeOptions
   });
 
   let closed = false;
+  started = true;
   return {
     registry,
     runtime,
@@ -404,4 +398,10 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       await state.close();
     }
   };
+  } finally {
+    if (!started) {
+      await closeAll(extensions.values());
+      await state.close();
+    }
+  }
 }

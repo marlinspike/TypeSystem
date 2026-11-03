@@ -217,8 +217,8 @@ export async function auditCommand(argv: readonly string[], env: HostEnvironment
       if (!args.before && days === undefined) throw new DeploymentError(["state.audit.retainDays: the deployment keeps its audit trail forever; give --before to prune anyway"]);
       const cutoff = args.before ? new Date(args.before) : new Date(Date.now() - days! * 86_400_000);
       if (Number.isNaN(cutoff.getTime())) throw new Error(`--before: ${args.before} is not a time`);
-      const result = await pg.log.prune(cutoff);
-      // The prune is itself audited, on a chain of its own, signed when the deployment's key is at hand.
+      // The prune is itself audited, on a chain of its own, signed when the deployment's key is at hand. The row saying
+      // it is about to delete is written first: if it cannot be, nothing is deleted, so no prune goes unrecorded.
       let key;
       try {
         key = auditSigningKey(deployment.state?.audit, resolver(deployment, env));
@@ -226,17 +226,30 @@ export async function auditCommand(argv: readonly string[], env: HostEnvironment
         key = undefined;
       }
       const recorder = new PostgresAuditLog(createPool({ connectionString: resolver(deployment, env)((deployment.state!.audit as { url: Credential }).url, "state.audit.url"), max: 1 }), { ...(key ? { key } : {}), ownsPool: true });
-      await recorder.appendAuditEvent({
-        id: ulid(),
-        timestamp: new Date().toISOString(),
-        subjectId: "typesys-audit-prune",
-        action: "audit.prune",
-        resource: { typeName: "audit" },
-        decision: "allow",
-        outcome: "success",
-        details: { before: cutoff.toISOString(), deleted: result.deleted, chains: result.chains.map((c) => ({ chain: c.chain, through: c.through, deleted: c.deleted })) }
-      });
-      await recorder.close();
+      const record = (phase: "started" | "done" | "failed", details: Record<string, unknown>) =>
+        recorder.appendAuditEvent({
+          id: ulid(),
+          timestamp: new Date().toISOString(),
+          subjectId: "typesys-audit-prune",
+          action: "audit.prune",
+          resource: { typeName: "audit" },
+          decision: "allow",
+          ...(phase === "started" ? {} : { outcome: phase === "done" ? ("success" as const) : ("failure" as const) }),
+          details: { phase, before: cutoff.toISOString(), ...details }
+        });
+      let result: Awaited<ReturnType<typeof pg.log.prune>>;
+      try {
+        await record("started", {});
+        try {
+          result = await pg.log.prune(cutoff);
+        } catch (err) {
+          await record("failed", { error: err instanceof Error ? err.message : String(err) }).catch(() => undefined);
+          throw err;
+        }
+        await record("done", { deleted: result.deleted, chains: result.chains.map((c) => ({ chain: c.chain, through: c.through, deleted: c.deleted })) });
+      } finally {
+        await recorder.close();
+      }
       if (args.json) console.log(JSON.stringify({ ok: true, before: cutoff.toISOString(), ...result }));
       else console.log(`pruned ${result.deleted} rows written before ${cutoff.toISOString()} from ${result.chains.length} chain${result.chains.length === 1 ? "" : "s"}; each still verifies from its checkpoint`);
       return 0;

@@ -58,12 +58,33 @@ export interface AuditSigningKey {
 const NUL = String.fromCharCode(0);
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
+const clean = (text: string): string => text.split(NUL).join("\uFFFD").replace(LONE_SURROGATE, "\uFFFD");
+
+/** Strings and keys alike: no store can hold U+0000 or a lone surrogate in text or JSONB. */
+function scrub(value: unknown): unknown {
+  if (typeof value === "string") return clean(value);
+  if (Array.isArray(value)) return value.map(scrub);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) Object.defineProperty(out, clean(k), { value: scrub(v), enumerable: true, writable: true, configurable: true });
+    return out;
+  }
+  return value;
+}
+
+/** Fields a store keeps as SQL NULL and reads back absent: null and absent must hash the same. */
+const OPTIONAL_FIELDS = ["reason", "outcome", "details", "operation", "build"] as const;
+const OPTIONAL_RESOURCE_FIELDS = ["objectId", "propertyPath"] as const;
+
 export function normalizeAuditEvent(event: AuditEvent): AuditEvent {
   const ts = new Date(event.timestamp);
   const json = JSON.stringify({ ...event, timestamp: Number.isNaN(ts.getTime()) ? String(event.timestamp) : ts.toISOString() });
-  // No store can hold U+0000 or a lone surrogate in text or JSONB, and one row that cannot be stored must not
-  // fail the appends batched with it: such characters become U+FFFD, in the hashed form and the stored form alike.
-  return JSON.parse(json, (_k, v: unknown) => (typeof v === "string" ? v.split(NUL).join("\uFFFD").replace(LONE_SURROGATE, "\uFFFD") : v)) as AuditEvent;
+  // One row that cannot be stored must not fail the appends batched with it: unstorable characters become
+  // U+FFFD, in the hashed form and the stored form alike.
+  const e = scrub(JSON.parse(json)) as Record<string, unknown> & { resource?: Record<string, unknown> };
+  for (const f of OPTIONAL_FIELDS) if (e[f] === null) delete e[f];
+  if (e.resource && typeof e.resource === "object") for (const f of OPTIONAL_RESOURCE_FIELDS) if (e.resource[f] === null) delete e.resource[f];
+  return e as unknown as AuditEvent;
 }
 
 function sha256(text: string): string {
@@ -110,6 +131,12 @@ export function checkpointSignatureValid(cp: AuditCheckpoint, keys: Readonly<Rec
 export interface AuditChainSink {
   write(entries: readonly ChainedAuditEvent[]): Promise<void>;
   writeCheckpoint(cp: AuditCheckpoint): Promise<void>;
+  /**
+   * The last row stored for a chain. After a write reports failure, the writer
+   * asks, because a write can commit and still report failure (a lost COMMIT
+   * acknowledgement). A sink without it gets a new chain after any failure.
+   */
+  headOf?(chain: string): Promise<{ readonly seq: number; readonly hash: string } | undefined>;
 }
 
 export interface AuditChainWriterOptions {
@@ -134,12 +161,20 @@ interface Pending {
  * into the next write, in the order they were made, so a busy process pays
  * one round trip per batch, not per row. A failed write rejects every append
  * in it and leaves the chain where it was: the next batch links to the last
- * row that was written, so a failure never leaves a gap.
+ * row that was written, so a failure never leaves a gap. When the writer
+ * cannot tell whether a failed write was stored, it asks the sink for the
+ * chain's head, and if the sink cannot say, it starts a new chain: the old one
+ * then simply ends, and verifies.
+ *
+ * With a key, the writer signs an opening checkpoint (seq 0, the genesis hash)
+ * before a chain's first row, so a verifier can tell a chain this writer
+ * started from one written into the table by anyone else.
  */
 export class AuditChainWriter {
-  readonly chain: string;
+  private chainId: string;
   private seq = 0;
   private hash = AUDIT_GENESIS;
+  private opened = false;
   private pending: Pending[] = [];
   private flushing: Promise<void> | undefined;
   private sinceCheckpoint = 0;
@@ -151,7 +186,7 @@ export class AuditChainWriter {
     private readonly sink: AuditChainSink,
     private readonly options: AuditChainWriterOptions = {}
   ) {
-    this.chain = options.chain ?? randomUUID();
+    this.chainId = options.chain ?? randomUUID();
     if (options.key) {
       const k = privateKeyOf(options.key.privateKey);
       if (k.asymmetricKeyType !== "ed25519") throw new TypeError(`Audit checkpoint key ${options.key.keyId} is not an Ed25519 key`);
@@ -160,21 +195,89 @@ export class AuditChainWriter {
     }
   }
 
+  /** The chain this writer appends to now. It changes only after a write whose outcome could not be known. */
+  get chain(): string {
+    return this.chainId;
+  }
+
   /** The chain's last written row. */
   get head(): { readonly chain: string; readonly seq: number; readonly hash: string } {
-    return { chain: this.chain, seq: this.seq, hash: this.hash };
+    return { chain: this.chainId, seq: this.seq, hash: this.hash };
   }
 
   append(event: AuditEvent): Promise<void> {
     if (this.closed) return Promise.reject(new Error("The audit chain is closed"));
     return new Promise<void>((resolve, reject) => {
       this.pending.push({ event, resolve, reject });
-      this.flushing ??= this.flush();
+      // flush() settles every append it takes; the catch only keeps a defect there from killing the process.
+      this.flushing ??= this.flush().catch(() => undefined);
     });
   }
 
-  private link(event: AuditEvent, seq: number, prev: string): ChainedAuditEvent {
-    return { event, link: { chain: this.chain, seq, prev, hash: auditLinkHash(this.chain, seq, prev, event) } };
+  /** Links each pending event after the current head; an event that cannot be hashed is rejected alone. */
+  private linkAll(batch: readonly Pending[]): { p: Pending; e: ChainedAuditEvent }[] {
+    const out: { p: Pending; e: ChainedAuditEvent }[] = [];
+    let seq = this.seq;
+    let prev = this.hash;
+    for (const p of batch) {
+      let e: ChainedAuditEvent;
+      try {
+        e = { event: p.event, link: { chain: this.chainId, seq: seq + 1, prev, hash: auditLinkHash(this.chainId, seq + 1, prev, p.event) } };
+      } catch (err) {
+        p.reject(err);
+        continue;
+      }
+      seq += 1;
+      prev = e.link.hash;
+      out.push({ p, e });
+    }
+    return out;
+  }
+
+  private async open(): Promise<void> {
+    if (this.opened) return;
+    if (this.options.key) await this.sink.writeCheckpoint(signAuditCheckpoint({ chain: this.chainId, seq: 0, hash: AUDIT_GENESIS }, this.options.key, (this.options.now ?? (() => new Date()))()));
+    this.opened = true;
+  }
+
+  /** Writes linked entries; true when they are stored, whether or not the write said so. */
+  private async store(items: readonly { e: ChainedAuditEvent }[]): Promise<{ ok: true } | { ok: false; err: unknown }> {
+    const entries = items.map((i) => i.e);
+    const last = entries[entries.length - 1]!.link;
+    try {
+      await this.open();
+      await this.sink.write(entries);
+      this.advance(entries.length, last.seq, last.hash);
+      return { ok: true };
+    } catch (err) {
+      if (!this.opened) return { ok: false, err };
+      let stored: { readonly seq: number; readonly hash: string } | undefined;
+      try {
+        if (!this.sink.headOf) throw err;
+        stored = await this.sink.headOf(this.chainId);
+      } catch {
+        await this.rotate();
+        return { ok: false, err };
+      }
+      // A batch is written whole or not at all: either its last row is the stored head, or the head did not move.
+      if (stored && stored.seq === last.seq && stored.hash === last.hash) {
+        this.advance(entries.length, last.seq, last.hash);
+        return { ok: true };
+      }
+      if ((stored?.seq ?? 0) !== this.seq || (stored?.hash ?? AUDIT_GENESIS) !== this.hash) await this.rotate();
+      return { ok: false, err };
+    }
+  }
+
+  /** Ends this chain where it is known to end, signing that head if it can, and starts a new one. */
+  private async rotate(): Promise<void> {
+    await this.checkpoint().catch(() => undefined);
+    this.chainId = randomUUID();
+    this.seq = 0;
+    this.hash = AUDIT_GENESIS;
+    this.opened = false;
+    this.sinceCheckpoint = 0;
+    this.checkpointedSeq = 0;
   }
 
   private async flush(): Promise<void> {
@@ -182,32 +285,19 @@ export class AuditChainWriter {
       while (this.pending.length > 0) {
         const batch = this.pending;
         this.pending = [];
-        let seq = this.seq;
-        let prev = this.hash;
-        const entries = batch.map((p) => {
-          const e = this.link(p.event, ++seq, prev);
-          prev = e.link.hash;
-          return e;
-        });
-        try {
-          await this.sink.write(entries);
-          this.advance(entries.length, seq, prev);
-          for (const p of batch) p.resolve();
-        } catch (err) {
-          if (batch.length === 1) {
-            batch[0]!.reject(err);
-            continue;
-          }
+        const items = this.linkAll(batch);
+        if (items.length === 0) continue;
+        const r = await this.store(items);
+        if (r.ok) for (const { p } of items) p.resolve();
+        else if (items.length === 1) items[0]!.p.reject(r.err);
+        else {
           // One row that cannot be written must not fail the rows batched with it: write them one at a time.
-          for (const p of batch) {
-            const e = this.link(p.event, this.seq + 1, this.hash);
-            try {
-              await this.sink.write([e]);
-              this.advance(1, e.link.seq, e.link.hash);
-              p.resolve();
-            } catch (one) {
-              p.reject(one);
-            }
+          for (const { p } of items) {
+            const [one] = this.linkAll([p]);
+            if (!one) continue;
+            const r1 = await this.store([one]);
+            if (r1.ok) p.resolve();
+            else p.reject(r1.err);
           }
         }
         if (this.options.key && this.sinceCheckpoint >= (this.options.everyRows ?? 1000)) await this.checkpoint().catch(() => undefined);
@@ -228,6 +318,7 @@ export class AuditChainWriter {
     if (!this.options.key || this.seq === 0 || this.seq === this.checkpointedSeq) return undefined;
     const cp = signAuditCheckpoint(this.head, this.options.key, (this.options.now ?? (() => new Date()))());
     await this.sink.writeCheckpoint(cp);
+    if (cp.chain !== this.chainId) return cp;
     this.checkpointedSeq = Math.max(this.checkpointedSeq, cp.seq);
     this.sinceCheckpoint = this.seq - this.checkpointedSeq;
     return cp;
@@ -273,6 +364,8 @@ export type AuditProblemKind =
   | "checkpoint-mismatch"
   /** A checkpoint names a row past the chain's end: rows were removed from its tail. */
   | "truncated"
+  /** In a signed trail, a chain with no valid checkpoint at all: no writer holding the key started it. */
+  | "unsigned-chain"
   | "bad-signature"
   | "unknown-key";
 
@@ -363,6 +456,12 @@ export async function verifyAuditLog(source: AuditChainSource, keys: Readonly<Re
     total += rows;
     let anchoredThrough: number | undefined;
     for (const [seq, cp] of [...validCps].sort(([a], [b]) => a - b)) {
+      // The opening checkpoint (ADR-0105): the writer started this chain, at the genesis hash.
+      if (seq === 0) {
+        if (cp.hash !== AUDIT_GENESIS) problems.push({ kind: "checkpoint-mismatch", chain, seq, message: "the chain's opening checkpoint does not sign the genesis hash" });
+        else anchoredThrough = Math.max(anchoredThrough ?? 0, 0);
+        continue;
+      }
       if (from !== undefined && seq === from - 1) {
         anchoredThrough = Math.max(anchoredThrough ?? 0, seq);
         continue;
@@ -372,6 +471,10 @@ export async function verifyAuditLog(source: AuditChainSource, keys: Readonly<Re
       else if (hashes.get(seq) !== cp.hash) problems.push({ kind: "checkpoint-mismatch", chain, seq, message: `row ${seq} is not the row the checkpoint signed` });
       else anchoredThrough = Math.max(anchoredThrough ?? 0, seq);
     }
+    // Anyone who may insert rows can compute their hashes; only the key holder can sign. In a signed trail a chain
+    // nobody signed, not even its opening, is rows of unknown origin.
+    if (Object.keys(keys).length > 0 && rows > 0 && validCps.size === 0 && !allCheckpoints.some((c) => c.chain === chain))
+      problems.push({ kind: "unsigned-chain", chain, message: `${rows} row${rows === 1 ? "" : "s"} in a chain no key signed: not written by a signing writer` });
     summaries.push({
       chain,
       ...(from !== undefined ? { from } : {}),

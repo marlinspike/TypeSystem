@@ -57,7 +57,7 @@ export class PostgresAuditLog implements AuditLogStore, AuditChainSource {
     options: AuditChainWriterOptions & { readonly ownsPool?: boolean } = {}
   ) {
     this.ownsPool = options.ownsPool ?? false;
-    this.writer = new AuditChainWriter({ write: (e) => this.write(e), writeCheckpoint: (c) => this.writeCheckpoint(c) }, options);
+    this.writer = new AuditChainWriter({ write: (e) => this.write(e), writeCheckpoint: (c) => this.writeCheckpoint(c), headOf: (c) => this.headOf(c) }, options);
   }
 
   private readonly ownsPool: boolean;
@@ -98,7 +98,7 @@ export class PostgresAuditLog implements AuditLogStore, AuditChainSource {
   }
 
   private async writeCheckpoint(cp: AuditCheckpoint): Promise<void> {
-    await this.pool.query(`INSERT INTO audit_checkpoints (chain, seq, hash, at, key_id, signature) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`, [
+    const r = await this.pool.query(`INSERT INTO audit_checkpoints (chain, seq, hash, at, key_id, signature) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`, [
       cp.chain,
       cp.seq,
       cp.hash,
@@ -106,6 +106,15 @@ export class PostgresAuditLog implements AuditLogStore, AuditChainSource {
       cp.keyId,
       cp.signature
     ]);
+    if (r.rowCount === 1) return;
+    // A row already there is ours only if it signs the same head (a retried write whose first try committed).
+    const { rows } = await this.pool.query<{ hash: string }>(`SELECT hash FROM audit_checkpoints WHERE chain = $1 AND seq = $2`, [cp.chain, cp.seq]);
+    if (rows[0]?.hash !== cp.hash) throw new Error(`audit_checkpoints already holds a different checkpoint at ${cp.chain}:${cp.seq}`);
+  }
+
+  private async headOf(chain: string): Promise<{ seq: number; hash: string } | undefined> {
+    const { rows } = await this.pool.query<{ seq: string; hash: string }>(`SELECT seq, hash FROM audit_events WHERE chain = $1 ORDER BY seq DESC LIMIT 1`, [chain]);
+    return rows[0] ? { seq: Number(rows[0].seq), hash: rows[0].hash } : undefined;
   }
 
   appendAuditEvent(evt: AuditEvent): Promise<void> {
@@ -117,7 +126,9 @@ export class PostgresAuditLog implements AuditLogStore, AuditChainSource {
   }
 
   async listChains(): Promise<string[]> {
-    const { rows } = await this.pool.query<{ chain: string }>(`SELECT DISTINCT chain FROM audit_events WHERE chain IS NOT NULL ORDER BY chain`);
+    const { rows } = await this.pool.query<{ chain: string }>(
+      `SELECT chain FROM audit_events WHERE chain IS NOT NULL UNION SELECT chain FROM audit_checkpoints ORDER BY chain`
+    );
     return rows.map((r) => r.chain);
   }
 

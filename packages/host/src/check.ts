@@ -6,6 +6,7 @@ import {
   comparePolicies,
   compilePolicies,
   describeWitness,
+  PolicyNotComparableError,
   PolicyTooLargeError,
   comparePolicyRules,
   contractMismatches,
@@ -101,6 +102,8 @@ export interface ExactPolicyChange {
   readonly narrows: readonly string[];
   /** Too large to enumerate: compared by personas only. */
   readonly tooLarge?: boolean;
+  /** Why the change could not be compared exactly, when not for size. */
+  readonly notComparable?: string;
 }
 
 export interface DeployCheckReport {
@@ -259,12 +262,14 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
     // Exact (ADR-0109): each rule changed in place, and each slot that now names another rule, over every request.
     const exprA = a.deployment.policies;
     const exprB = b.deployment.policies;
-    const decidesIn = (inspection: Baseline["inspection"]) => {
+    const decidesIn = (inspection: Baseline["inspection"], deployment: Deployment) => {
       const bySlot = new Map<string, string>();
       for (const p of inspection?.policies ?? []) for (const d of p.decides) bySlot.set(d, p.name);
+      // Who may explain another subject's access is decided by a rule too, though not on a Type (ADR-0089).
+      if (deployment.runtime?.inspectionPolicy !== undefined) bySlot.set("runtime.inspectionPolicy", deployment.runtime.inspectionPolicy);
       return bySlot;
     };
-    const [slotsA, slotsB] = [decidesIn(baseA.inspection), decidesIn(baseB.inspection)];
+    const [slotsA, slotsB] = [decidesIn(baseA.inspection, a.deployment), decidesIn(baseB.inspection, b.deployment)];
     const decidesB = new Map<string, string[]>();
     for (const [slot, policy] of slotsB) decidesB.set(policy, [...(decidesB.get(policy) ?? []), slot]);
     const exact: ExactPolicyChange[] = [];
@@ -274,8 +279,8 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
         const r = await comparePolicies(before, after);
         if (r.widens.length + r.narrows.length > 0) exact.push({ policy, ...(slot ? { slot } : {}), decides, widens: r.widens.map(describeWitness), narrows: r.narrows.map(describeWitness) });
       } catch (err) {
-        if (!(err instanceof PolicyTooLargeError)) throw err;
-        exact.push({ policy, ...(slot ? { slot } : {}), decides, widens: [], narrows: [], tooLarge: true });
+        if (!(err instanceof PolicyNotComparableError)) throw err;
+        exact.push({ policy, ...(slot ? { slot } : {}), decides, widens: [], narrows: [], ...(err instanceof PolicyTooLargeError ? { tooLarge: true } : { notComparable: err.message }) });
       }
     };
     for (const policy of [...ruleDiff.changed, ...ruleDiff.added].sort()) await compare(policy, Object.hasOwn(exprA, policy) ? exprA[policy] : undefined, exprB[policy]);
@@ -330,11 +335,20 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
       const at = e.slot ? `${e.slot.decides} now names ${e.policy} instead of ${e.slot.before}` : `policy ${e.policy} (deciding ${e.decides.join(", ")})`;
       // Fail closed: a change that cannot be compared is not known not to widen.
       if (e.tooLarge) blocking.push(`unverified: ${at} is too large to compare exactly (over 4,096 conjunctions); split it or review it by hand`);
+      if (e.notComparable) blocking.push(`unverified: ${at} could not be compared exactly (${e.notComparable}); review it by hand`);
       for (const w of e.widens) blocking.push(`widens: ${at} now admits ${w}`);
     }
     if (stateA.audit === "postgres" && stateB.audit !== "postgres") blocking.push("state: the audit trail would no longer be kept: state.audit was postgres");
     if (stateA.signed === "yes" && stateB.signed !== "yes") blocking.push("state: audit checkpoints would no longer be signed");
     if (stateA.workflows === "postgres" && stateB.workflows !== "postgres") blocking.push("state: workflow runs and approvals would no longer be kept: state.workflows was postgres");
+    if (a.deployment.runtime?.securityProfile !== undefined && b.deployment.runtime?.securityProfile !== a.deployment.runtime.securityProfile)
+      blocking.push(`runtime: the security profile ${a.deployment.runtime.securityProfile} would no longer apply`);
+    // A verify key dropped turns every checkpoint it signed into an unknown-key problem: rotate by adding, never by removing.
+    const keysA = a.deployment.state?.audit?.verifyKeys ?? {};
+    const keysB = b.deployment.state?.audit?.verifyKeys ?? {};
+    for (const id of Object.keys(keysA).sort()) if (!Object.hasOwn(keysB, id) || keysB[id] !== keysA[id]) blocking.push(`state: audit verify key ${id} would be ${Object.hasOwn(keysB, id) ? "replaced" : "removed"}; checkpoints it signed would no longer verify`);
+    if (stateA.rateLimit !== "none" && stateB.rateLimit === "none") blocking.push(`state: callers would no longer be rate limited: state.rateLimit was ${stateA.rateLimit}`);
+    else if (stateA.rateLimit === "redis" && stateB.rateLimit === "memory") blocking.push("state: the rate limit would no longer be shared: each replica would admit the whole budget (state.rateLimit was redis)");
 
     const changed =
       blocking.length > 0 ||
@@ -396,6 +410,7 @@ export function renderDeployCheck(r: DeployCheckReport): string {
   for (const e of r.policies.exact) {
     const at = e.slot ? `${e.slot.decides}: ${e.slot.before} → ${e.policy}` : e.policy;
     if (e.tooLarge) lines.push(`  ${at}: too large to compare exactly; compared by personas only, and blocking`);
+    if (e.notComparable) lines.push(`  ${at}: not compared exactly (${e.notComparable}); blocking`);
     for (const w of e.widens) lines.push(`  ${at} [widens, exact] ${w}`);
     for (const n of e.narrows) lines.push(`  ${at} [narrows, exact] ${n}`);
   }
