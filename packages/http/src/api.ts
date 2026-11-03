@@ -133,6 +133,25 @@ export function createApiRouter(opts: ApiOptions): Router {
     return n;
   };
 
+  // Where to start: the routes, by what they do. The same for every caller, so it says nothing about the model; /model and /openapi.json say what this caller may use.
+  router.get("/", (_req, res) =>
+    void res.json({
+      api: "TypeSystem governed REST API (ADR-0058)",
+      authentication: "Authorization: Bearer <token>; every route answers as the identity the token resolves to",
+      routes: {
+        me: "GET /api/me",
+        model: "GET /api/model",
+        openapi: "GET /api/openapi.json",
+        object: "GET /api/objects/{type}/{id}",
+        related: "GET /api/objects/{type}/{id}/related/{relationship}",
+        provenance: "GET /api/objects/{type}/{id}/provenance/{property}",
+        query: 'POST /api/query  {"type": "<Type>", "filter": {"property": "<name>", "operator": "eq", "value": "..."}, "limit": 10}',
+        aggregate: "POST /api/aggregate",
+        explain: "POST /api/query/explain, POST /api/query/validate",
+        actions: "POST /api/actions/{name}/preview, POST /api/actions/{name}/invoke"
+      }
+    })
+  );
   router.get("/me", route(200, async (_req, who) => ({ subjectId: who.subjectId, roles: who.roles, ...(who.clearance ? { clearance: who.clearance } : {}) })));
   // The model as this caller may learn it (ADR-0068): the runtime decides, under the deployment's discovery mode.
   router.get("/model", route(200, (_req, who) => runtime.describeModel(who)));

@@ -176,6 +176,9 @@ async function main(): Promise<void> {
   if (process.argv[2] === "app") return delegate("app", "@typesys/compiler", "appCommand", process.argv.slice(3));
   if (process.argv[2] === "deploy") return delegate("deploy", "@typesys/host", "deployCommand", process.argv.slice(3));
   if (process.argv[2] === "audit") return delegate("audit", "@typesys/host", "auditCommand", process.argv.slice(3));
+  if (process.argv[2] === "dev") return delegate("dev", "@typesys/host", "devCommand", process.argv.slice(3));
+  // A database onboarded straight into a deployment (ADR-0111); without --from, init scaffolds YAML Types as before.
+  if (process.argv[2] === "init" && process.argv.includes("--from")) return delegate("init", "@typesys/onboard", "initCommand", process.argv.slice(3));
   const args = parseArgs(process.argv.slice(2));
   const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 

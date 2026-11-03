@@ -4,6 +4,7 @@ import { checkDeployment, renderDeployCheck } from "./check.js";
 import { DeploymentError, type ConsumerSpec } from "./deployment.js";
 import { buildHost } from "./host.js";
 import { loadDeployment, loadExtensions } from "./load.js";
+import { loadTests, renderTests, runTests, testsFileFor } from "./tests.js";
 
 const USAGE = `typesys deploy — build and check deployments (ADR-0102, ADR-0104)
 
@@ -16,6 +17,11 @@ const USAGE = `typesys deploy — build and check deployments (ADR-0102, ADR-010
       Build both, compare them, and exit 1 when the next one must not roll as is: a consumer
       whose contract it breaks, a breaking change to the model, a persona who may now read
       what they could not, or a policy that now admits someone it refused.
+
+  typesys deploy test <deployment.json> [<tests.json>] [--packs-dir <dir>] [--json]
+      Run the deployment's policy tests (ADR-0113): each reads, queries or previews an Action
+      as one of its personas and says what must be returned, withheld or refused. The tests
+      file defaults to <name>.tests.json beside the deployment. Exits 1 when one fails.
 
 Credentials and addresses come from the environment, as each deployment's $secret and $env
 references name them. Probes are reads, explained as each persona: nothing is written.
@@ -30,10 +36,11 @@ interface Args {
   packsDir?: string;
   json: boolean;
   offline: boolean;
+  help: boolean;
 }
 
 function parse(argv: readonly string[]): Args {
-  const out: Args = { positionals: [], personas: [], objects: [], consumers: [], json: false, offline: false };
+  const out: Args = { positionals: [], personas: [], objects: [], consumers: [], json: false, offline: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const next = () => {
@@ -52,6 +59,7 @@ function parse(argv: readonly string[]): Args {
     else if (a === "--packs-dir") out.packsDir = next();
     else if (a === "--json") out.json = true;
     else if (a === "--offline") out.offline = true;
+    else if (a === "--help" || a === "-h") out.help = true;
     else if (a.startsWith("--")) throw new Error(`Unknown option ${a}`);
     else out.positionals.push(a);
   }
@@ -80,6 +88,10 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     return 2;
+  }
+  if (args.help) {
+    console.log(USAGE);
+    return 0;
   }
   const fail = (err: unknown): number => {
     const problems = err instanceof DeploymentError ? err.problems : [err instanceof Error ? err.message : String(err)];
@@ -120,6 +132,23 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
       if (args.json) console.log(JSON.stringify(report));
       else (report.ok ? process.stdout : process.stderr).write(renderDeployCheck(report));
       return report.ok ? 0 : 1;
+    } catch (err) {
+      return fail(err);
+    }
+  }
+  if (sub === "test" && (args.positionals.length === 1 || args.positionals.length === 2)) {
+    try {
+      const file = args.positionals[0]!;
+      const { deployment, packs, extensions } = await load(file, args.packsDir);
+      const host = await buildHost(deployment, { packs, extensions, state: "memory" });
+      try {
+        const report = await runTests(host, await loadTests(args.positionals[1] ?? testsFileFor(file), host));
+        if (args.json) console.log(JSON.stringify(report));
+        else (report.ok ? process.stdout : process.stderr).write(renderTests(report));
+        return report.ok ? 0 : 1;
+      } finally {
+        await host.close();
+      }
     } catch (err) {
       return fail(err);
     }

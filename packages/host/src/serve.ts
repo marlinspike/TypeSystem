@@ -156,6 +156,19 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         applications: apps.map((a) => a.name)
       })
     );
+    // Where to start, for a person or an agent that opens the server's address (ADR-0112). What /version says, and where things are.
+    app.get("/", (_req, res) =>
+      void res.json({
+        deployment: host.deployment.name,
+        build: host.build,
+        mcp: "/mcp",
+        api: "/api",
+        openapi: "/api/openapi.json",
+        version: "/version",
+        health: { live: "/healthz", ready: "/readyz" },
+        authentication: host.deployment.identity.kind === "oidc" ? "Authorization: Bearer <a token from the deployment's identity provider>" : "Authorization: Bearer <a token the deployment names>"
+      })
+    );
     const personas = Object.values(host.personas);
     app.use(
       createApiApp({
