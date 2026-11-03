@@ -80,7 +80,9 @@ five commands and no code
 [ADR-0115](docs/adr/0115-yaml-types-are-built-into-a-pack.md)). Measured
 from a fresh clone of this repository against a two-table `shop`
 database (customers with names and emails, orders with a foreign key):
-MEASURED_SUMMARY Before this work the same result took about eleven
+five commands after the clone and 25 seconds of machine time
+(install 14.5 s, build 6.9 s, `init` 1.1 s, `dev` serving with its tests
+run 1.7 s), with no file written by hand. Before this work the same result took about eleven
 commands and thirty hand-written lines of deployment, and the
 quickstart's first command crashed on a fresh clone
 ([evidence](docs/evidence/ease-of-use-2026-11-03.md)).
@@ -142,8 +144,8 @@ The deployment does not build:
 Still serving the last build that did: sha256:992ced6e1975…
 ```
 
-A database that goes away answers 503 with a retry hint and a refused
-grant 502, never a bare 500, and a malformed query says what the query's
+A database that goes away answers 503 and a refused grant 502, each a
+problem document saying which source and why, never a bare 500; and a malformed query says what the query's
 fields are (`typeName` is answered with "did you mean type?").
 
 **Policy tests are data.** `<name>.tests.json` says, per persona, what a
