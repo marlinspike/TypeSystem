@@ -24,4 +24,20 @@ describe("HTTP health endpoints (ADR-0029)", () => {
     expect(res.status).toBe(200);
     expect((await res.json()) as { status: string }).toMatchObject({ status: "ready" });
   });
+
+  it("GET /readyz is 503 when the host's own readiness fails, though the registry answers (ADR-0106)", async () => {
+    const down = await startHttpServer(0, {
+      backend: await buildAirforceTestbed(),
+      identityResolver: resolveDemoIdentity,
+      ready: () => Promise.reject(new Error("state.audit: cannot reach Postgres"))
+    });
+    try {
+      const res = await fetch(`http://localhost:${down.port}/readyz`);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ status: "not_ready", error: "state.audit: cannot reach Postgres" });
+      expect((await fetch(`http://localhost:${down.port}/healthz`)).status).toBe(200);
+    } finally {
+      await down.close();
+    }
+  });
 });

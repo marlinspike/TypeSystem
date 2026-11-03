@@ -23,6 +23,17 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
+A deployment now keeps its state and proves its history. Its document says
+where the audit trail, the workflow journal, the cache and the rate limit live,
+and the generic server opens them, so replicas share one Postgres and one Redis
+and nothing is lost on restart. Every audit row is a link in a hash chain with
+signed checkpoints, and `typesys audit verify` names any row that was edited,
+deleted or cut off afterwards. A compiled application runs on the
+deployment's own runtime, a Postgres table is declared as data, and
+`typesys deploy check` now compares policy changes exactly. The section
+[Keep the state, prove the history](#keep-the-state-prove-the-history) shows
+it on the airforce demonstration.
+
 TypeSystem now deploys from a declaration and upgrades by checking it. A
 deployment is one JSON document (its model as signed packs, its systems with
 references to their credentials, its rules as data, its identity, personas
@@ -48,6 +59,157 @@ generates an ordinary TypeScript and React application, and verifies it
 through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
+
+## Keep the state, prove the history
+
+A deployment document now has a `state` section
+([ADR-0106](docs/adr/0106-a-deployment-declares-where-its-state-lives.md)).
+[`deployments/airforce-durable.deployment.json`](deployments/airforce-durable.deployment.json)
+is the airforce demonstration with its state declared, and it is what Docker
+Compose and the Kubernetes manifests now serve:
+
+```json
+"state": {
+  "audit":     { "kind": "postgres", "url": { "$secret": "DATABASE_URL" } },
+  "workflows": { "kind": "postgres", "url": { "$secret": "DATABASE_URL" } },
+  "cache":     { "kind": "redis", "url": { "$secret": "REDIS_URL" } },
+  "rateLimit": { "kind": "redis", "url": { "$secret": "REDIS_URL" }, "capacity": 200, "refillPerSecond": 100 }
+}
+```
+
+The server connects to all of them before it serves, and refuses to start if
+a database is unreachable or its tables are not migrated. `/version` says where
+each piece lives and which audit chain this replica writes, and `/readyz`
+returns 503 while any of them is down:
+
+```text
+$ DATABASE_URL=… REDIS_URL=… node packages/host/dist/serve.js deployments/airforce-durable.deployment.json
+TypeSystem host "airforce-durable" (build sha256:13cabcab4baa…) on http://localhost:3939: MCP at /mcp, API at /api
+state: audit postgres (chain 5230acf9-fc87-42a4-9b05-298fc8c85ddb), workflows postgres, cache redis, rate limit redis
+$ curl localhost:3939/version
+{"deployment":"airforce-durable","build":"sha256:13cabcab4baa…","packs":["core@1.0.0","airforce@1.0.0"],
+ "state":{"audit":"postgres","workflows":"postgres","cache":"redis","rateLimit":"redis"},
+ "auditChain":"5230acf9-fc87-42a4-9b05-298fc8c85ddb","applications":[]}
+```
+
+A deployment that is not marked `"demo": true` must keep its audit trail in
+Postgres and sign it. A missing `state` is the in-memory default the shipped
+demonstrations use, and `typesys deploy check` blocks an upgrade that moves
+any piece of state from durable to in-memory.
+
+### An audit trail that can be verified
+
+Every audit row is now a link in a hash chain
+([ADR-0105](docs/adr/0105-the-audit-trail-can-be-verified.md)): it carries its
+writer's chain id, a sequence number, the previous row's hash and the SHA-256 of
+its own canonical form. Each process writes its own chain, so replicas never
+contend for one counter, and a restart starts a new chain beside the old one.
+Every N rows, every T seconds and on shutdown the writer signs the chain's head
+with Ed25519 and stores the checkpoint. `npm run audit:demo` shows the whole
+loop against a real Postgres: the airforce deployment serves the maintainer,
+the viewer and an anonymous caller, restarts, serves again, and is verified;
+then someone with the table owner's credentials lifts the trigger and rewrites
+the viewer's refusal as an allow:
+
+```text
+$ npm run audit:demo
+== typesys audit verify
+OK: 14 rows in 2 chains verify.
+  chain 08ac36b1-…: rows 1..10, signed through 10, build sha256:d1d4e2f560e6
+  chain ff0456a5-…: rows 1..4, signed through 4, build sha256:d1d4e2f560e6
+
+== Someone with the table owner's credentials rewrites the viewer's refusal as an allow
+  ALTER TABLE audit_events DISABLE TRIGGER audit_events_no_update; UPDATE ... SET decision = 'allow' WHERE id = '01M6GCNVWJAZZJSSS995AJZ9A1'
+
+== typesys audit verify, again
+FAILED: 1 problem in the audit trail.
+  ✗ [altered] chain 08ac36b1-… row 6: row 6 (01M6GCNVWJAZZJSSS995AJZ9A1) was changed after it was written
+exit 1
+```
+
+The same command catches a deleted row, rows out of order, a chain cut off
+after its last checkpoint, and a checkpoint whose signature or key does not
+check. The rest of the tooling runs over a deployment file:
+
+```bash
+npx typesys audit keygen --key-id audit-1 --out-dir .        # Ed25519 pair; prints the state.audit entries to paste
+npx typesys audit verify deployment.json                     # every chain, row and signature; exit 1 on any problem
+npx typesys audit export deployment.json --out trail.jsonl   # typesys.audit-export/1, verifies offline:
+npx typesys audit verify --file trail.jsonl deployment.json
+npx typesys audit prune deployment.json                      # rows older than state.audit.retainDays
+```
+
+Pruning deletes a chain's rows only up to its latest signed checkpoint that is
+older than the cutoff, keeps that row so the rest still verifies, and writes
+its own audit row. A database trigger refuses every other delete. What the
+chain does not stop is someone who holds both the database and the signing
+key; anchoring checkpoints outside the database is the next step
+([`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md), item 9).
+
+### A database table, declared
+
+A Postgres table is now a source in the document, like an HTTP API, with no
+adapter code ([ADR-0107](docs/adr/0107-a-database-table-is-declared-as-data.md)).
+The URL is a secret reference, each column maps to a property, and the
+governance of the Type applies to every read:
+
+```json
+"erp-db": {
+  "kind": "postgres", "system": "Legacy ERP", "url": { "$secret": "ERP_URL" },
+  "types": { "erp.Part": { "table": "parts", "id": "part_no",
+    "columns": { "partNumber": "part_no", "description": "descr",
+                 "onHand": { "column": "qty", "as": "integer" }, "unitCost": { "column": "cost", "as": "number" } } } }
+}
+```
+
+### Applications run on the deployment's runtime
+
+A compiled application no longer builds a runtime of its own. Listed in the
+deployment's `applications`, it is loaded by the generic server and served on
+its own port over the deployment's runtime, workflow engine and audit chain
+([ADR-0108](docs/adr/0108-applications-run-on-the-deployments-runtime.md)):
+
+```json
+"applications": [{ "name": "recall-response", "port": { "$env": "RECALL_PORT", "default": "4100" } }]
+```
+
+A run the application starts is the deployment's run, readable through the
+deployment's API and audited on its one chain. Recall Response passes all 16
+of its hidden checks hosted this way (`packages/host/test/applications.test.ts`).
+Its model roles must not collide with the deployment's, and the server checks
+the application's compiled contract before it serves it.
+
+### Policy changes compared exactly
+
+`typesys deploy check` used to compare rules by asking the deployment's
+personas. It now also compares each changed rule exactly
+([ADR-0109](docs/adr/0109-a-policy-change-is-compared-exactly.md)): every rule
+is put in disjunctive normal form over its roles, attribute matches and
+values, and for each request the new rule admits and the old one refused it
+builds a minimal witness and confirms it with both compiled rules. This finds
+widenings no persona exercises.
+[`examples/upgrades/airforce-assignee-refactor.deployment.json`](examples/upgrades/airforce-assignee-refactor.deployment.json)
+rewrites `airforce.work-order-assignee` in a way that reads like a tidy-up but
+drops the maintainer requirement from the assignee branch. Every persona sees
+the same decisions as before; the exact comparison does not:
+
+```text
+$ npx typesys deploy check deployments/airforce.deployment.json \
+    examples/upgrades/airforce-assignee-refactor.deployment.json --packs-dir packs
+airforce sha256:d80094942624… → airforce sha256:84a2a1d608ff…
+BLOCKED: 1 reason this must not roll as is.
+  ✗ widens: policy airforce.work-order-assignee (deciding UpdateWorkOrderStatus) now admits a subject with no role
+    and a displayName, on an object whose assignedTo equals the subject's displayName
+Policies:
+  ~ airforce.work-order-assignee
+  airforce.work-order-assignee [widens, exact] a subject with no role and a displayName, on an object whose assignedTo equals the subject's displayName
+```
+
+A widening that only touches a rule nothing uses is reported but does not
+block, a rule too large to compare (over 4,096 conjunctions) blocks because it
+cannot be shown not to widen, and narrowings are listed. Explaining a workflow now also charges the
+investigator once for the whole explanation and marks every decision it makes,
+which closes the last open finding of the 5.0 review.
 
 ## Deploy by declaring it, upgrade by checking it
 
@@ -1320,6 +1482,9 @@ decide what may be sent to that model regardless of who is asking
   afterwards.
 - **Writes are explicit.** The only changes possible are the Actions in the
   model, each with a permission check, input validation and preconditions.
+- **The history can be proven.** Every audit row is chained and signed, so
+  an edit, deletion or truncation after the fact is caught by
+  `typesys audit verify`, online or from an export.
 
 **When not to use it:** one application over one database, with simple access
 rules. TypeSys adds a layer, a model to maintain and a few milliseconds per
@@ -1336,6 +1501,7 @@ npm run showcase      # http://127.0.0.1:4300: builds what is stale, then everyt
 npm run demo          # http://localhost:4000: two domains, switch identity and policy engine
 node packages/host/dist/serve.js deployments/airforce.deployment.json   # the generic server: MCP at :3939/mcp, API under :3939/api
 npx typesys deploy check deployments/airforce.deployment.json examples/upgrades/airforce-viewers-read-maintenance.deployment.json --packs-dir packs
+npx typesys deploy check deployments/airforce.deployment.json examples/upgrades/airforce-assignee-refactor.deployment.json --packs-dir packs
 npm run mcp:http      # MCP at http://localhost:3939/mcp, Authorization: Bearer demo-maintainer-token
 npm run studio        # http://localhost:4400: the semantic workbench: model, explain, graph, impact
 npm run impact:demo   # what releasing readinessStatus to viewers would expose
@@ -1350,7 +1516,14 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/typesys
 npm run migrate:postgres     # registry tables, audit_events, objects
 npm test                     # Postgres-backed tests run only when DATABASE_URL is set
 npm run onboard:demo         # propose a governed model from a database's catalog
+npm run audit:demo           # serve, restart, verify the audit chains, tamper with a row, verify again
+REDIS_URL=redis://localhost:6379 node packages/host/dist/serve.js deployments/airforce-durable.deployment.json
+npx typesys audit verify deployments/airforce-durable.deployment.json   # check what that server wrote
 ```
+
+`docker compose up --build --scale app=2` runs the durable deployment as two
+replicas behind nginx, with Postgres, Redis and the migrations
+([`docs/how-to/deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)).
 
 Other commands: `npx tsx scripts/measure-workbench.ts` (the 5.0 measurement), `npm run lint`, `npm run typecheck`,
 `npm run check:terminology`, `npm run smoke:mcp`, `npm run benchmark`,
@@ -1362,8 +1535,8 @@ squadron readiness app built with and without TypeSys).
 
 | Group | Packages |
 |---|---|
-| Runtime | `core` (model, registry, runtime, ABAC policy and policies as data, consumer contracts, audit), `policy-cedar` (Cedar policy engine) |
-| Deployment | `host` (the `typesys.deployment/1` document, the generic host and server `typesys-host`, and `typesys deploy build\|check`) |
+| Runtime | `core` (model, registry, runtime, ABAC policy and policies as data, exact policy comparison, consumer contracts, hash-chained audit and its verifier), `policy-cedar` (Cedar policy engine) |
+| Deployment | `host` (the `typesys.deployment/1` document with its declared state and hosted applications, the generic host and server `typesys-host`, `typesys deploy build\|check` and `typesys audit verify\|export\|prune\|keygen`) |
 | Storage and sources | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, `registry-store-postgres`, `workflow-postgres`, `redis` |
 | Security | `auth-oidc` (JWT identity), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
@@ -1371,7 +1544,7 @@ squadron readiness app built with and without TypeSys).
 | Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata), `engineer` (missions drafted, scaffolded and verified) |
 | Showcase | `showcase` (`npm run showcase`: starts every service and surface over shared services, the ten-question guide, the simulated model endpoint, and `models` for model configurations) |
 | Tooling | `cli` (YAML authoring, code generation, and the `typesys app`, `deploy`, `onboard` and `engineer` commands), `devkit` (discovery, query validation, contract diff, the dependency graph, task-aware context, change impact and link probes), `packs` (signed, versioned domain packages), `studio` (the semantic workbench: model, explanations, dependency graph and change impact in a browser) |
-| Examples | `deployments/` (five deployments the generic server runs) and `examples/upgrades/` (two upgrades to check), `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services, and `examples/apps/recall-response` over four), `examples/services` (seven independent services TypeSys reads over HTTP) |
+| Examples | `deployments/` (six deployments the generic server runs, one with durable state) and `examples/upgrades/` (three upgrades to check), `domain-airforce`, `domain-hospital`, `demo-web`, `mission-readiness`, `sortie-readiness`, `cold-chain` (with `examples/apps/cold-chain`, an application compiled over three services, and `examples/apps/recall-response` over four), `examples/services` (seven independent services TypeSys reads over HTTP) |
 | Evaluation | `evaluation` (harness comparing building with and without TypeSys, judged by hidden checks) |
 
 ## Status
@@ -1406,7 +1579,9 @@ remains and [`docs/completeness.md`](docs/completeness.md) what is built.
 - [`docs/roadmap-5.md`](docs/roadmap-5.md): the semantic workbench, slice by
   slice; [`docs/roadmap-4.md`](docs/roadmap-4.md): the application compiler;
   and [`docs/evidence/`](docs/evidence/): every measurement.
-- [`docs/adr/`](docs/adr/): 104 architecture decision records.
+- [`docs/adr/`](docs/adr/): 109 architecture decision records; ADR-0105 to
+  ADR-0109 cover durable state, the verifiable audit trail, declared tables,
+  hosted applications and exact policy comparison.
 
 Versioning uses [changesets](https://github.com/changesets/changesets); see
 [ADR-0020](docs/adr/0020-publish-infrastructure.md) for publishing.

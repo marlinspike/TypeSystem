@@ -58,6 +58,16 @@ describe("checkDeployment (ADR-0104)", () => {
     expect(renderDeployCheck(report)).toContain("[widens, exact] a subject with role contractor");
   });
 
+  it("blocks a rule change too large to compare exactly, rather than passing it unproven (ADR-0109)", async () => {
+    // 13 two-way choices in a row: 8,192 conjunctions, past the comparison's bound.
+    const huge = { allOf: Array.from({ length: 13 }, (_, i) => ({ anyOf: [{ role: [`a${i}`] }, { role: [`b${i}`] }] })) };
+    const changed: Deployment = { ...airforceDeployment, policies: { ...airforceDeployment.policies, "airforce.maintainer-only": huge } };
+    const report = await checkDeployment(current, next(changed));
+    expect(report.policies.exact.find((e) => e.policy === "airforce.maintainer-only")).toMatchObject({ tooLarge: true });
+    expect(report.blocking.some((b) => b.startsWith("unverified: policy airforce.maintainer-only"))).toBe(true);
+    expect(report.ok).toBe(false);
+  });
+
   it("blocks giving up a kept, signed audit trail (ADR-0106)", async () => {
     const kept: Deployment = { ...airforceDeployment, state: { audit: { kind: "postgres", url: { $secret: "DATABASE_URL" }, signing: { keyId: "k", key: { $secret: "K" } }, verifyKeys: { k: PUBLIC } } } };
     const report = await checkDeployment(next(kept), current);
@@ -131,6 +141,12 @@ describe("typesys deploy", () => {
       expect(blocked.blocking).toContain("exposure: viewer reads airforce.Aircraft.maintenanceStatus on airforce.Aircraft/AF86-0147 (now returned to viewer, was withheld)");
       expect(await run("airforce-viewers-lose-aircraft.deployment.json")).toBe(0);
       expect((JSON.parse(out[1]!) as { ok: boolean; policies: { changed: string[] } }).policies.changed).toEqual(["airforce.read-aircraft"]);
+      // A refactor no persona notices: only the exact comparison blocks it (ADR-0109).
+      expect(await run("airforce-assignee-refactor.deployment.json")).toBe(1);
+      const refactor = JSON.parse(out[2]!) as { blocking: string[] };
+      expect(refactor.blocking).toEqual([
+        "widens: policy airforce.work-order-assignee (deciding UpdateWorkOrderStatus) now admits a subject with no role and a displayName, on an object whose assignedTo equals the subject's displayName"
+      ]);
     } finally {
       Object.assign(console, quiet);
     }

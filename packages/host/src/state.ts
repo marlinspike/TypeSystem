@@ -30,6 +30,13 @@ export interface HostState {
   readonly kinds: { readonly audit: string; readonly workflows: string; readonly cache: string; readonly rateLimit: string };
   /** The Postgres pool for a connection string, opened once however many pieces share it. */
   readonly pool: (url: string) => Pool;
+  /**
+   * Resolves when every declared store answers (a `SELECT 1` on each Postgres
+   * pool, a `PING` on each Redis), and rejects naming the one that does not.
+   * `/readyz` calls it, so a replica whose audit database is down is taken out
+   * of rotation instead of refusing every read.
+   */
+  ready(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -148,6 +155,10 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
       ...(rateLimiter ? { rateLimiter } : {}),
       kinds: { audit: a.kind, workflows: w.kind, cache: c?.kind ?? "none", rateLimit: r?.kind ?? "none" },
       pool,
+      async ready() {
+        for (const p of pools.values()) await p.query("SELECT 1");
+        for (const c of redis.values()) await c.ping();
+      },
       async close() {
         if (closed) return;
         closed = true;

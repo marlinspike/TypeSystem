@@ -326,8 +326,10 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
 
     for (const e of exact) {
       // A rule that decides nothing in the new build admits nobody to anything: listed, not blocking.
-      if (e.widens.length === 0 || e.decides.length === 0) continue;
+      if (e.decides.length === 0) continue;
       const at = e.slot ? `${e.slot.decides} now names ${e.policy} instead of ${e.slot.before}` : `policy ${e.policy} (deciding ${e.decides.join(", ")})`;
+      // Fail closed: a change that cannot be compared is not known not to widen.
+      if (e.tooLarge) blocking.push(`unverified: ${at} is too large to compare exactly (over 4,096 conjunctions); split it or review it by hand`);
       for (const w of e.widens) blocking.push(`widens: ${at} now admits ${w}`);
     }
     if (stateA.audit === "postgres" && stateB.audit !== "postgres") blocking.push("state: the audit trail would no longer be kept: state.audit was postgres");
@@ -393,7 +395,7 @@ export function renderDeployCheck(r: DeployCheckReport): string {
   }
   for (const e of r.policies.exact) {
     const at = e.slot ? `${e.slot.decides}: ${e.slot.before} → ${e.policy}` : e.policy;
-    if (e.tooLarge) lines.push(`  ${at}: too large to compare exactly; compared by personas only`);
+    if (e.tooLarge) lines.push(`  ${at}: too large to compare exactly; compared by personas only, and blocking`);
     for (const w of e.widens) lines.push(`  ${at} [widens, exact] ${w}`);
     for (const n of e.narrows) lines.push(`  ${at} [narrows, exact] ${n}`);
   }

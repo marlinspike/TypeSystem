@@ -6,12 +6,17 @@
 # balancer in front of them (reach the server at http://localhost:8080/mcp, health at
 # /healthz and /readyz).
 #
-# HONEST NOTE: the image's default deployment (deployments/airforce.deployment.json, ADR-0102) is the in-memory airforce demonstration,
-# so it does not itself read Postgres or Redis. Those services, and the `migrate` step,
-# are the infrastructure a REAL domain build wires in (a Postgres RegistryStore/adapter and
-# the shared RedisCache/RedisRateLimiter — ADR-0025); `npm run load-test` is what actually
-# exercises the shared-Redis path across replicas. They are included here so the topology
-# and the migration deploy-step are demonstrable end to end.
+# The replicas serve deployments/airforce-durable.deployment.json (ADR-0106): the airforce
+# demonstration with its state declared, so every replica writes its audit trail, as its own
+# hash chain, to Postgres, runs workflows on the Postgres journal, and shares one Redis cache
+# and one rate limit. `migrate` creates the tables first; the server refuses to start without
+# them. Check the trail every replica wrote with
+#
+#   docker compose run --rm app npx typesys audit verify deployments/airforce-durable.deployment.json
+#
+# The demonstration's checkpoints are not signed. A real deployment signs them: make a key with
+# `npx typesys audit keygen --key-id audit-1 --out-dir .`, give the private key to the app as a secret and put
+# the public key in the deployment's state.audit.verifyKeys (ADR-0105).
 
 services:
   postgres:
@@ -48,6 +53,7 @@ services:
     build: .
     environment:
       PORT: "3939"
+      TYPESYS_DEPLOYMENT: deployments/airforce-durable.deployment.json
       DATABASE_URL: postgresql://typesys:typesys@postgres:5432/typesys
       REDIS_URL: redis://redis:6379
     depends_on:

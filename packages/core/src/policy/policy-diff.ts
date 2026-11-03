@@ -226,9 +226,14 @@ export async function comparePolicies(before: PolicyExpression | undefined, afte
 export function describeWitness(w: PolicyWitness): string {
   const who = w.roles.length ? `a subject with role${w.roles.length > 1 ? "s" : ""} ${w.roles.join(", ")}` : "a subject with no role";
   const attrs = Object.keys(w.subjectAttributes);
-  const subject = attrs.length ? `${who} (and ${attrs.map((a) => `subject.${a}`).join(", ")})` : who;
+  const subject = attrs.length ? `${who} and ${attrs.map((a) => `a ${a}`).join(", ")}` : who;
   if (w.resource === "type-level") return `${subject}, asking about every instance (a list or filter)`;
   const ra = Object.entries(w.resource.attributes);
   if (ra.length === 0) return `${subject}, on any object${w.andTypeLevel ? " and in lists" : ""}`;
-  return ra.length ? `${subject}, on an object where ${ra.map(([k, v]) => (isFresh(v) ? `${k} matches the subject's` : `${k} = ${JSON.stringify(v)}`)).join(", ")}` : `${subject}, on any object`;
+  const condition = ([k, v]: (typeof ra)[number]): string => {
+    if (!isFresh(v)) return `${k} = ${JSON.stringify(v)}`;
+    const same = attrs.find((a) => w.subjectAttributes[a] === v);
+    return same === undefined ? `${k} matches the subject's` : `${k} equals the subject's ${same}`;
+  };
+  return `${subject}, on an object whose ${ra.map(condition).join(" and ")}`;
 }

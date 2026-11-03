@@ -828,6 +828,33 @@ exposures and widened rules (`packages/host/test/check.test.ts`). Not
 built: hot activation of a new build, a build registry, out-of-process
 adapters, serving two majors of a Type at once, and pinning over MCP stdio.
 
+## Durable deployments and a verifiable audit trail
+
+ADR-0105 to ADR-0109. A deployment's `state` section says where its audit
+trail, workflow journal, cache and rate limit live, and `typesys serve`
+opens them; a deployment that is not the in-memory demonstration must keep
+a signed Postgres audit trail (`packages/host/test/deployment.test.ts`,
+`durable.test.ts`, against real Postgres and Redis). Every audit row is a
+link in its writer's hash chain, checkpoints are signed with Ed25519, and
+`verifyAuditLog` reports altered, deleted, reordered, truncated and
+mis-signed history, in memory and in Postgres
+(`packages/core/test/audit-chain.test.ts`,
+`packages/registry-store-postgres/test/audit-chain.test.ts`).
+`typesys audit verify|export|prune|keygen` runs over a deployment file;
+an export verifies offline, and a prune keeps the trail verifiable and
+audits itself (`packages/host/test/audit-cli.test.ts`, `npm run
+audit:demo`). A Postgres table is declared in the deployment as a source
+(ADR-0107). A compiled application attaches to the deployment's runtime
+instead of building its own, and Recall Response passes its 16 hidden
+checks hosted that way (`packages/host/test/applications.test.ts`).
+`typesys deploy check` compares policies exactly and prints a minimal
+witness for every widening (`packages/core/test/policy-diff.test.ts`,
+`packages/host/test/check.test.ts`). Explaining a workflow now charges the
+investigator once and marks every decision it makes, closing the 5.0
+review's M2 (`packages/workflow/test/explain.test.ts`). Not built:
+anchoring checkpoints outside the database, a KMS-held signing key, exact
+comparison of hand-written Cedar policy sets, and down-migrations.
+
 ## Real but narrow — the mechanism exists, exercised once
 
 - Property-level policy is exercised on several fields, not just the two

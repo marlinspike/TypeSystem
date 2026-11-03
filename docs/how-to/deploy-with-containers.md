@@ -27,12 +27,15 @@ run — they are **not** a production-blessed deployment (see
 [`PRODUCTION-READINESS.md`](../PRODUCTION-READINESS.md) for what still stands
 between this and real traffic: image scanning, secrets management, TLS, and more).
 
-> **Scope note.** The image's default deployment is the in-memory airforce
-> demonstration, so it does not itself read Postgres or Redis. The Postgres
-> and Redis services below, and the migration step, are the infrastructure a
-> *real* domain build wires in (a Postgres `RegistryStore`/adapter and the
-> shared `RedisCache`/`RedisRateLimiter`). `npm run load-test` is what exercises
-> the shared-Redis path across replicas today.
+> **What the replicas share.** Compose and the Kubernetes manifests serve
+> `deployments/airforce-durable.deployment.json`, the airforce demonstration
+> with its state declared ([ADR-0106](../adr/0106-a-deployment-declares-where-its-state-lives.md)):
+> the audit trail and the workflow journal in Postgres, the cache and the rate
+> limit in Redis. Every replica writes its audit rows to Postgres as its own hash
+> chain, and `typesys audit verify` checks them all
+> ([ADR-0105](../adr/0105-the-audit-trail-can-be-verified.md)). The image's
+> default, `deployments/airforce.deployment.json`, is still the in-memory
+> demonstration, for a quick `docker run`.
 
 ## Topology
 
@@ -55,7 +58,7 @@ flowchart TB
 
 Only the `app` replicas serve traffic; `migrate` runs to completion before they
 start, and Postgres/Redis are the shared state that makes several replicas
-behave as one (a real domain build reads them — the demo server is in-memory).
+behave as one: a replica refuses to start against a database it cannot reach or that is not migrated.
 
 ## Health endpoints
 
@@ -63,9 +66,10 @@ The HTTP transport exposes two unauthenticated, side-effect-free endpoints an
 orchestrator gates traffic on:
 
 - `GET /healthz` — **liveness**: the process is up. No dependency checks.
-- `GET /readyz` — **readiness**: the registry store answers a cheap read, so
-  this replica can serve. Returns `503` when the store is unreachable (with a
-  Postgres-backed `RegistryStore`, that means Postgres is down).
+- `GET /readyz` — **readiness**: the registry store answers a cheap read, and
+  every store the deployment's `state` declares answers (`SELECT 1` on each
+  Postgres, `PING` on each Redis), so this replica can serve. Returns `503`
+  when any of them is unreachable.
 
 ## Build the image
 
@@ -135,3 +139,29 @@ Identity (OIDC/JWT, [ADR-0018](../adr/0018-oidc-identity-resolution.md)) is
 the deployment file's `identity` (`{ "kind": "oidc", "issuer": { "$env": "OIDC_ISSUER" } }`).
 OpenTelemetry ([ADR-0017](../adr/0017-observability.md)) is configured in code
 (the SDK you register).
+
+## Sign and check the audit trail
+
+A deployment that is not marked `"demo": true` must keep a signed audit trail
+in Postgres. Make a key pair once:
+
+```bash
+npx typesys audit keygen --key-id audit-1 --out-dir .
+# wrote ./audit-1.private.pem (put it in the secret state.audit.signing.key names) and ./audit-1.public.pem
+```
+
+The command also prints the `signing` and `verifyKeys` entries to paste into
+the deployment's `state.audit`. Store the private key as the `AUDIT_SIGNING_KEY`
+secret (see `deploy/k8s/secret.example.yaml`); the public key is not secret and
+lives in the document. Then, from anywhere that can reach the database:
+
+```bash
+npx typesys audit verify deployment.json                 # every chain, every row, every signature
+npx typesys audit export deployment.json --out trail.jsonl
+npx typesys audit verify --file trail.jsonl deployment.json   # offline, against the export
+npx typesys audit prune deployment.json                  # deletes rows older than state.audit.retainDays, only behind a signed checkpoint
+```
+
+`verify` exits 1 and names the row when a row was edited, deleted, reordered or
+cut off, or when a checkpoint's signature or key does not check. Run `prune`
+on a schedule (a Kubernetes CronJob) if the deployment sets `retainDays`.

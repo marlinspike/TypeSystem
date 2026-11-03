@@ -8,7 +8,16 @@
 # create the Secret named `typesys-secrets` out-of-band (see secret.example.yaml) — never commit
 # real secret values — and create the deployment file's ConfigMap (ADR-0102):
 #
-#   kubectl create configmap typesys-deployment --from-file=deployment.json=deployments/airforce.deployment.json
+#   kubectl create configmap typesys-deployment --from-file=deployment.json=deployments/airforce-durable.deployment.json
+#
+# That deployment declares its state (ADR-0106): audit and workflow journal in Postgres
+# (DATABASE_URL), cache and rate limit in Redis (REDIS_URL), so the two replicas below share
+# them, and each writes its own audit chain. Run the migrate Job first; a replica refuses to
+# start against a database without the tables. A real deployment (not "demo": true) must also
+# sign its audit checkpoints: `npx typesys audit keygen --key-id audit-1 --out-dir .` prints the public key
+# for state.audit.verifyKeys and writes the private key you put in the Secret as
+# AUDIT_SIGNING_KEY (see secret.example.yaml). `typesys audit verify deployment.json` checks
+# the trail; `typesys audit prune` (for example from a CronJob) enforces state.audit.retainDays.
 #
 # The image is the generic server; what it serves is that file. An upgrade is a new file (check it
 # first with `typesys deploy check`, ADR-0104) or a new image, then `kubectl rollout restart

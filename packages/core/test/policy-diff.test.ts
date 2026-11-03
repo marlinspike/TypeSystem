@@ -33,7 +33,7 @@ describe("comparePolicies", () => {
     expect((await comparePolicies(own, { anyOf: [own, { allOf: [own, { role: ["x"] }] }] })).widens).toEqual([]);
     const other = await comparePolicies(own, { attributeMatch: { resource: "attendingId", subject: "providerId" } });
     expect(other.widens).toHaveLength(1);
-    expect(describeWitness(other.widens[0]!)).toContain("attendingId matches the subject's");
+    expect(describeWitness(other.widens[0]!)).toBe("a subject with no role and a providerId, on an object whose attendingId equals the subject's providerId");
   });
 
   it("treats type level as its own request: allowing it is a widening", async () => {

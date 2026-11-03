@@ -113,6 +113,14 @@ describe.skipIf(!DATABASE_URL)("a deployment that declares its state (ADR-0106, 
     await host.close();
   });
 
+  it("is ready only while every declared store answers", async () => {
+    const host = await boot();
+    await expect(host.state.ready()).resolves.toBeUndefined();
+    await host.close();
+    // Closed, its pools are gone: a replica in that state must leave rotation.
+    await expect(host.state.ready()).rejects.toThrow();
+  });
+
   it("keeps the audit trail across a restart, one signed chain per process, and both verify", async () => {
     const first = await boot();
     for (let i = 0; i < 3; i++) await first.runtime.getObject("erp.Part", "P-200", first.personas.planner!);

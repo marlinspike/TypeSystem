@@ -118,6 +118,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
       backend: host,
       identityResolver: host.identityResolver,
       serverInfo: { name: host.deployment.name, version: host.build },
+      ready: () => host.state.ready(),
       ...(audience ? { audience } : {}),
       ...(allowedHosts ? { allowedHosts } : {})
     });
