@@ -9,8 +9,8 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "typesys-engineer": "./dist/bin.js",
-    "typesys-engineer-mcp": "./dist/mcp-bin.js"
+    "typesys-engineer": "./bin/typesys-engineer.js",
+    "typesys-engineer-mcp": "./bin/typesys-engineer-mcp.js"
   },
   "license": "MIT",
   "repository": {
@@ -22,7 +22,8 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

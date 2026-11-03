@@ -9,8 +9,8 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "typesys-onboard": "./dist/bin.js",
-    "typesys-onboard-mcp": "./dist/mcp-bin.js"
+    "typesys-onboard": "./bin/typesys-onboard.js",
+    "typesys-onboard-mcp": "./bin/typesys-onboard-mcp.js"
   },
   "license": "MIT",
   "repository": {
@@ -31,7 +31,8 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

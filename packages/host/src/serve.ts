@@ -16,7 +16,7 @@
  */
 import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
-import { contractMismatches } from "@typesys/core";
+import { AdapterUnavailableError, contractMismatches } from "@typesys/core";
 import { applicationApp, type HostedApplication } from "@typesys/app/server";
 import { createApiApp } from "@typesys/http";
 import { agentAudienceFromEnvironment } from "@typesys/llm";
@@ -106,6 +106,18 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
   const { deployment, packs } = await loadDeployment(opts.file, opts.packsDir ? { packsDir: opts.packsDir } : {});
   const extensions = await loadExtensions(deployment);
   const host = await buildHost(deployment, { packs, extensions, env });
+  // A declared table or column the database does not have would fail every read of its Type: refuse to start instead (ADR-0110).
+  // A database that cannot be reached yet is not that: /readyz reports it until it can.
+  try {
+    const problems = await host.checkSources();
+    if (problems.length > 0) throw new DeploymentError(problems);
+  } catch (err) {
+    if (!(err instanceof AdapterUnavailableError)) {
+      await host.close();
+      throw err;
+    }
+    console.warn(`Not checked against its database yet: ${err.message}`);
+  }
   const servers: Server[] = [];
   const closeAll = async () => {
     // Open MCP and SSE streams would hold close() forever, and with it the last signed checkpoint: end them too.
@@ -184,7 +196,8 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
   }
 }
 
-async function main(): Promise<void> {
+/** Runs the server from the command line; the `typesys-host` command calls it. */
+export async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const file = args.find((a) => !a.startsWith("--")) ?? process.env.TYPESYS_DEPLOYMENT;
   if (!file) {
