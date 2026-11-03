@@ -386,8 +386,17 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
 export function renderDeployCheck(r: DeployCheckReport): string {
   const lines: string[] = [];
   lines.push(`${r.before.name} ${r.before.build.slice(0, 19)}… → ${r.after.name} ${r.after.build.slice(0, 19)}…`);
-  lines.push(r.ok ? "OK: nothing blocks this upgrade." : `BLOCKED: ${r.blocking.length} reason${r.blocking.length === 1 ? "" : "s"} this must not roll as is.`);
+  const accepted = (r as Partial<AcceptedReport>).accepted ?? [];
+  lines.push(
+    r.ok
+      ? accepted.length
+        ? `OK: ${accepted.length} blocking change${accepted.length === 1 ? "" : "s"} accepted, nothing else blocks this upgrade.`
+        : "OK: nothing blocks this upgrade."
+      : `BLOCKED: ${r.blocking.length} reason${r.blocking.length === 1 ? "" : "s"} this must not roll as is.`
+  );
   for (const b of r.blocking) lines.push(`  ✗ ${b}`);
+  for (const a of accepted) lines.push(`  ✓ accepted by ${a.by} (${a.why}): ${a.blocking}`);
+  if (!r.ok && accepted.length === 0 && r.blocking.length > 0) lines.push("  If this is meant: write an acceptance with --write-acceptance <file> --by <name> --why <reason>, review it, and pass it with --accept <file>.");
   const list = (title: string, d: { added: readonly string[]; removed: readonly string[]; changed: readonly string[] }) => {
     if (d.added.length + d.removed.length + d.changed.length === 0) return;
     lines.push(`${title}:`);
@@ -449,4 +458,72 @@ export function renderDeployCheck(r: DeployCheckReport): string {
   for (const q of r.queries) lines.push(`Query ${q.query} as ${q.as}: [${q.effect}] ${q.before.outcome} (${q.before.count ?? 0}) → ${q.after.outcome} (${q.after.count ?? 0})`);
   if (r.impact.checks.length) lines.push(`Acceptance checks to run: ${r.impact.checks.join(", ")}`);
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * A reviewer's acceptance of what an upgrade check blocks on (ADR-0114):
+ * each blocking line, exactly as the check printed it, with who accepted it
+ * and why, for one pair of builds. A deliberate change (a rule that is meant
+ * to admit a new role) then passes the check without the check being turned
+ * off, and the acceptance is a file a pull request carries for review.
+ */
+export const DEPLOY_ACCEPTANCE_FORMAT = "typesys.deploy-acceptance/1";
+
+export interface DeployAcceptance {
+  readonly format: typeof DEPLOY_ACCEPTANCE_FORMAT;
+  /** The build being replaced and the build replacing it: an acceptance answers for this change and no other. */
+  readonly from: string;
+  readonly to: string;
+  readonly accepted: readonly { readonly blocking: string; readonly by: string; readonly why: string }[];
+}
+
+/** An acceptance of every line `report` blocks on, by one reviewer for one reason: what `--write-acceptance` writes. */
+export function acceptanceFor(report: DeployCheckReport, by: string, why: string): DeployAcceptance {
+  if (!by.trim()) throw new Error("an acceptance names who accepted it (--by)");
+  if (!why.trim()) throw new Error("an acceptance says why the change is meant (--why)");
+  return { format: DEPLOY_ACCEPTANCE_FORMAT, from: report.before.build, to: report.after.build, accepted: report.blocking.map((blocking) => ({ blocking, by, why })) };
+}
+
+/** Every problem with an acceptance document's shape. */
+export function validateAcceptance(doc: unknown): string[] {
+  const d = doc as Partial<DeployAcceptance> | null;
+  if (typeof d !== "object" || d === null || d.format !== DEPLOY_ACCEPTANCE_FORMAT) return [`must be a ${DEPLOY_ACCEPTANCE_FORMAT} document (write one with typesys deploy check ... --write-acceptance <file> --by <name> --why <reason>)`];
+  const out: string[] = [];
+  if (typeof d.from !== "string" || typeof d.to !== "string") out.push("from and to: must be the two build ids");
+  if (!Array.isArray(d.accepted)) out.push("accepted: must be a list");
+  else
+    d.accepted.forEach((a, i) => {
+      if (typeof a?.blocking !== "string" || typeof a.by !== "string" || !a.by.trim() || typeof a.why !== "string" || !a.why.trim()) out.push(`accepted[${i}]: needs blocking, by and why`);
+    });
+  return out;
+}
+
+export interface AcceptedReport extends DeployCheckReport {
+  /** The blocking lines a reviewer accepted, with who and why. */
+  readonly accepted: DeployAcceptance["accepted"];
+}
+
+/**
+ * The report with an acceptance applied (ADR-0114). It passes only when
+ * every blocking line is accepted, exactly, for these two builds. An
+ * acceptance for other builds is refused whole, and an accepted line the
+ * check no longer blocks on is itself a reason to block: the change it
+ * answered for is not this one.
+ */
+export function applyAcceptance(report: DeployCheckReport, acceptance: DeployAcceptance): AcceptedReport {
+  const blocking: string[] = [];
+  if (acceptance.from !== report.before.build || acceptance.to !== report.after.build) {
+    blocking.push(...report.blocking, `acceptance: it is for ${acceptance.from.slice(0, 19)}… → ${acceptance.to.slice(0, 19)}…, not this change (${report.before.build.slice(0, 19)}… → ${report.after.build.slice(0, 19)}…); write it again for this one`);
+    return { ...report, ok: false, blocking, accepted: [] };
+  }
+  const by = new Map(acceptance.accepted.map((a) => [a.blocking, a]));
+  const accepted: DeployAcceptance["accepted"][number][] = [];
+  for (const line of report.blocking) {
+    const a = by.get(line);
+    if (a) accepted.push(a);
+    else blocking.push(line);
+  }
+  const current = new Set(report.blocking);
+  for (const a of acceptance.accepted) if (!current.has(a.blocking)) blocking.push(`acceptance: accepts "${a.blocking}", which this check does not block on; remove it or write the acceptance again`);
+  return { ...report, ok: blocking.length === 0, blocking, accepted };
 }

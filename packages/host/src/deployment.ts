@@ -551,7 +551,9 @@ export function validateDeployment(doc: unknown): string[] {
     unknownFields(id, ["kind", "tokens"], "identity", out);
     if (!demo) out.push("identity: fixed tokens grant roles to anyone who knows them, so they are allowed only in a demo deployment");
     if (!isRecord(id.tokens)) out.push("identity.tokens: must map tokens to persona names");
-    else for (const [token, persona] of Object.entries(id.tokens)) if (!nonEmpty(persona) || !Object.hasOwn(personas, persona)) out.push(`identity.tokens: token "${token.slice(0, 4)}…" names no persona`);
+    else for (const [token, persona] of Object.entries(id.tokens)) if (!nonEmpty(persona) || !Object.hasOwn(personas, persona)) out.push(
+          `identity.tokens: token "${token.slice(0, 4)}…" names ${nonEmpty(persona) ? `persona "${persona}", which personas does not declare: add "personas": { "${persona}": { "subjectId": "...", "roles": ["..."], "attributes": {} } }` : "no persona"}`
+        );
   } else if (id.kind === "extension") {
     unknownFields(id, ["kind", "extension"], "identity", out);
     needsExtension(id.extension, "identity.extension");

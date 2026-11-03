@@ -256,6 +256,42 @@ export function aggregateQuerySchema(limits: QueryLimits = DEFAULT_QUERY_LIMITS)
   };
 }
 
+/** A query's top-level fields, as `semanticQuerySchema` allows them. */
+const QUERY_FIELDS = ["type", "filter", "search", "sort", "select", "include", "includeProvenance", "limit", "cursor"] as const;
+
+/** What other query languages call these fields, and what a SemanticQuery calls them. */
+const QUERY_SYNONYMS: Readonly<Record<string, (typeof QUERY_FIELDS)[number]>> = {
+  typeName: "type",
+  where: "filter",
+  filters: "filter",
+  orderBy: "sort",
+  order: "sort",
+  fields: "select",
+  properties: "select",
+  expand: "include",
+  take: "limit",
+  first: "limit",
+  pageSize: "limit",
+  after: "cursor",
+  q: "search",
+  text: "search"
+};
+
+/**
+ * Where a malformed query probably went wrong (ADR-0110): the field meant for
+ * each unknown one, and the shape of a query, since a schema error alone
+ * names what is wrong but not what is right.
+ */
+function queryHint(input: unknown, errors: ErrorObject[] | null | undefined): string {
+  const unknown = (errors ?? []).filter((e) => e.instancePath === "" && e.keyword === "additionalProperties").map((e) => String((e.params as { additionalProperty?: unknown }).additionalProperty));
+  const meant = unknown.map((u) => {
+    const m = QUERY_SYNONYMS[u] ?? QUERY_FIELDS.find((f) => f.toLowerCase() === u.toLowerCase());
+    return m ? `"${u}" is "${m}" in a query` : `"${u}" is not a query field (${QUERY_FIELDS.join(", ")})`;
+  });
+  const shape = 'a query looks like {"type": "<Type>", "filter": {"property": "<name>", "operator": "eq", "value": "..."}, "limit": 10}';
+  return `. ${[...meant, input !== null && typeof input === "object" && !Array.isArray(input) ? shape : `${shape}, an object`].join("; ")}`;
+}
+
 function describeErrors(errors: ErrorObject[] | null | undefined): string {
   return (errors ?? []).map((e) => `${e.instancePath || "(root)"} ${e.message ?? "is invalid"}`).join("; ");
 }
@@ -320,7 +356,7 @@ export class InputValidator {
   validateQuery(input: unknown): SemanticQuery & { limit: number } {
     assertJsonDepth(input, "query");
     if (!this.validateQueryShape(input)) {
-      throw new InvalidInputError(`Invalid query: ${describeErrors(this.validateQueryShape.errors)}`, this.validateQueryShape.errors);
+      throw new InvalidInputError(`Invalid query: ${describeErrors(this.validateQueryShape.errors)}${queryHint(input, this.validateQueryShape.errors)}`, this.validateQueryShape.errors);
     }
     const query = input as SemanticQuery;
     if (query.filter) this.checkFilter(query.filter, "filter");

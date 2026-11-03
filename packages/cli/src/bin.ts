@@ -2,13 +2,14 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { SemanticRegistry, InMemoryRegistryStore, coreManifest, coreTraits, describeModel, registerDomain, type BindingRegistry, type ModelDescription } from "@typesys/core";
-import { registerYamlTypesFromDirectory } from "./yaml-loader.js";
+import { loadYamlTypesFromDirectory, registerYamlTypesFromDirectory } from "./yaml-loader.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { generateModel } from "@typesys/sdk";
 import { diffModels, discover, validateQuery } from "@typesys/devkit";
 import { generateModule } from "./codegen.js";
 import { scaffoldDomain } from "./scaffold.js";
-import { checkUpgrade, signPack, verifyPack, type PackArchive, type PackDiagnostic } from "@typesys/packs";
+import { buildPack, checkUpgrade, signPack, verifyPack, type PackArchive, type PackDiagnostic } from "@typesys/packs";
+import type { DomainManifest, Mapping } from "@typesys/core";
 
 function usage(): void {
   console.log(`typesys — TypeSys declarative authoring CLI
@@ -22,6 +23,7 @@ Usage:
   typesys diff <before.json> <after.json> [--json]
   typesys discover <dir> <task words...> [--bindings <module.js>] [--limit <n>] [--json]
   typesys check-query <dir> <query.json> [--bindings <module.js>] [--json]
+  typesys pack build <dir> --name <pack> --version <semver> --out <pack.json> [--source <id> [--source-kind postgres|http] [--system <name>]] [--description <text>] [--json]
   typesys pack inspect <pack.json> [--json]
   typesys pack verify <pack.json> [--trust <keyId>=<public.pem>]... [--revoke <keyId|sha256:digest>]... [--json]
   typesys pack sign <pack.json> --key-id <id> --private-key <private.pem> --out <signed.json>
@@ -60,7 +62,10 @@ traits are always pre-registered, so \`extends: core.Asset\` etc. just works.
   check-query   Check a query JSON file against the model without running
                 it, with the name probably meant for each unknown one.
 
-  pack          Domain packs (ADR-0059), all offline. inspect prints what a
+  pack          Domain packs (ADR-0059), all offline. build makes one from a
+                directory of YAML Types (ADR-0115): each Type read from
+                --source (a data source the deployment declares, default
+                <pack>-db) unless --source none. inspect prints what a
                 pack contains and what a deployment must supply (bindings,
                 policy rules, data sources, other packs). verify checks the
                 digest and, with --trust, an Ed25519 signature by one of the
@@ -103,6 +108,11 @@ interface ParsedArgs {
   installed: string[];
   keyId?: string;
   privateKey?: string;
+  version?: string;
+  source?: string;
+  sourceKind?: string;
+  system?: string;
+  description?: string;
   /** Arguments after `<dir>` that are not flags. */
   positionals: string[];
 }
@@ -123,6 +133,11 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (rest[i] === "--installed") result.installed.push(rest[++i]!);
     else if (rest[i] === "--key-id") result.keyId = rest[++i];
     else if (rest[i] === "--private-key") result.privateKey = rest[++i];
+    else if (rest[i] === "--version") result.version = rest[++i];
+    else if (rest[i] === "--source") result.source = rest[++i];
+    else if (rest[i] === "--source-kind") result.sourceKind = rest[++i];
+    else if (rest[i] === "--system") result.system = rest[++i];
+    else if (rest[i] === "--description") result.description = rest[++i];
     else result.positionals.push(rest[i]!);
   }
   return result;
@@ -332,8 +347,60 @@ async function main(): Promise<void> {
 const readPack = async (file: string) => JSON.parse(await readFile(file, "utf8")) as PackArchive;
 const diagnosticLine = (d: PackDiagnostic) => `${d.code.padEnd(22)} ${d.pack}${d.subject ? ` (${d.subject})` : ""}: ${d.message}`;
 
+/**
+ * `typesys pack build <dir>` (ADR-0115): YAML Types as a pack a deployment can
+ * list. They are first registered as `validate` registers them, so the pack
+ * holds only what registers; each is read from one data source, which the
+ * deployment then declares (a table per Type for a `postgres` source).
+ */
+async function packBuild(dir: string, args: ParsedArgs): Promise<void> {
+  if (!args.name || !args.version || !args.out) throw new Error("pack build needs --name, --version and --out");
+  const bindings = await loadBindings(args.bindings);
+  await buildRegistryFromDir(dir, bindings);
+  const types = await loadYamlTypesFromDirectory(dir, { traitCatalog: coreTraits, computedImplementations: bindings.computed });
+  if (types.length === 0) throw new Error(`${dir} has no .yaml or .yml Types`);
+  const source = args.source ?? `${args.name}-db`;
+  const kind = args.sourceKind ?? "postgres";
+  if (!["postgres", "http"].includes(kind)) throw new Error(`--source-kind must be postgres or http, not "${kind}"`);
+  const mappings: Mapping[] =
+    source === "none"
+      ? []
+      : types.map((t) => ({ id: `map-${t.options.name}`, typeName: t.options.name, target: "property", targetName: "*", dataSourceId: source, operation: "get", resolutionMode: "live" }));
+  const manifest: DomainManifest = {
+    domain: args.name,
+    types: types.map((t) => ({ schema: t.schema, options: t.options })),
+    ...(source === "none" ? {} : { dataSources: [{ id: source, name: args.system ?? source, kind }] }),
+    mappings
+  };
+  // A Type that extends one of core's, or mixes in one of its traits, needs the core pack installed beside this one.
+  const usesCore = types.some((t) => t.options.extends?.startsWith("core.") || (t.options.traits ?? []).length > 0);
+  const pack = buildPack({
+    name: args.name,
+    version: args.version,
+    description: args.description ?? `${args.name}, from the YAML Types in ${path.basename(path.resolve(dir))}`,
+    ...(usesCore ? { requires: { core: "^1.0.0" } } : {}),
+    manifests: [manifest]
+  });
+  await writeFile(args.out, `${JSON.stringify(pack, null, 2)}\n`, "utf8");
+  printResult(args.json, true, { out: args.out, name: pack.name, version: pack.version, digest: pack.digest, types: types.map((t) => t.options.name), source: source === "none" ? null : source, requirements: pack.requirements }, [
+    `Built ${pack.name} ${pack.version} (${pack.digest}): ${types.map((t) => t.options.name).join(", ")} → ${args.out}`,
+    ...(source === "none" ? ["  read from no source: a deployment's extension or another pack maps them"] : [`  read from data source "${source}" (${kind}): declare it in the deployment's sources`]),
+    `  the deployment must supply rules: ${pack.requirements.policies.join(", ") || "none"}`,
+    ...(usesCore ? ["  requires core ^1.0.0: list core in the deployment's packs too"] : [])
+  ]);
+}
+
 async function packCommand(sub: string | undefined, args: ParsedArgs): Promise<void> {
   const [file] = args.positionals;
+  if (sub === "build") {
+    try {
+      if (!file) throw new Error("pack build needs a directory of YAML Types");
+      await packBuild(file, args);
+    } catch (err) {
+      printResult(args.json, false, { error: err instanceof Error ? err.message : String(err) }, [`FAIL — ${err instanceof Error ? err.message : String(err)}`]);
+    }
+    return;
+  }
   if (!file || !["inspect", "verify", "sign", "check-upgrade"].includes(sub ?? "")) {
     usage();
     process.exitCode = 1;
