@@ -13,11 +13,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Deployment } from "@typesys/host";
 import { coldChainDeployment, recallDeployment } from "@typesys/cold-chain";
 import { sortieDeployment } from "@typesys/sortie-readiness";
-import { airforceDeployment, hospitalDeployment } from "@typesys/demo-web/deployments";
+import { airforceDeployment, airforceDurableDeployment, hospitalDeployment } from "@typesys/demo-web/deployments";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export const DEPLOYMENTS: readonly Deployment[] = [airforceDeployment, hospitalDeployment, coldChainDeployment, recallDeployment, sortieDeployment()];
+export const DEPLOYMENTS: readonly Deployment[] = [airforceDeployment, airforceDurableDeployment, hospitalDeployment, coldChainDeployment, recallDeployment, sortieDeployment()];
 
 export const deploymentFile = (d: Deployment): string => path.join(root, "deployments", `${d.name}.deployment.json`);
 

@@ -78,7 +78,86 @@ export interface ExtensionSourceSpec {
   readonly system?: string;
 }
 
-export type SourceSpec = HttpSourceSpec | ExtensionSourceSpec;
+/** How one Type maps onto one table or view of a `postgres` source (ADR-0107). */
+export interface PostgresTypeSpec {
+  /** `schema.table`, or a table on the search path. */
+  readonly table: string;
+  /** The column holding the object id. */
+  readonly id: string;
+  /** Property name → column, or a column with a conversion and value map. */
+  readonly columns: Readonly<
+    Record<string, string | { readonly column: string; readonly as?: "text" | "date" | "date-time" | "number" | "integer" | "boolean" | "json"; readonly map?: Readonly<Record<string, unknown>> }>
+  >;
+}
+
+/** A data source served by `@typesys/adapter-postgres`'s table adapter, read-only, configured entirely here (ADR-0107). */
+export interface PostgresSourceSpec {
+  readonly kind: "postgres";
+  readonly system: string;
+  /** The connection string: it holds a password, so it is a credential. */
+  readonly url: Credential;
+  readonly types: Readonly<Record<string, PostgresTypeSpec>>;
+  /** Most rows one query reads before refusing a partial answer. Default 10,000. */
+  readonly maxRows?: number;
+}
+
+export type SourceSpec = HttpSourceSpec | PostgresSourceSpec | ExtensionSourceSpec;
+
+/** Where the audit trail is kept (ADR-0105, ADR-0106). */
+export type AuditStateSpec =
+  /** In this process: lost when it stops. Allowed only in a demo. */
+  | { readonly kind: "memory"; readonly signing?: AuditSigningSpec; readonly verifyKeys?: Readonly<Record<string, string>> }
+  | {
+      readonly kind: "postgres";
+      readonly url: Credential;
+      /** Signs each chain's head at intervals. Required outside a demo. */
+      readonly signing?: AuditSigningSpec;
+      /** Key id → Ed25519 public key (PEM): what `typesys audit verify` checks checkpoints with. */
+      readonly verifyKeys?: Readonly<Record<string, string>>;
+      /** Rows older than this may be pruned by `typesys audit prune`, and only behind a checkpoint. Default: kept forever. */
+      readonly retainDays?: number;
+    };
+
+export interface AuditSigningSpec {
+  readonly keyId: string;
+  /** The Ed25519 private key, PEM. */
+  readonly key: Credential;
+  /** Default 1,000. */
+  readonly everyRows?: number;
+  /** Default 60. */
+  readonly everySeconds?: number;
+}
+
+/**
+ * Where the deployment keeps what outlives a request (ADR-0106). The model
+ * is always built in-process from the packs (ADR-0102); this is everything
+ * else: the audit trail, workflow runs and approvals, the cache and the rate
+ * budget. Anything left out is kept in the process, and lost with it.
+ */
+export interface StateSpec {
+  readonly audit?: AuditStateSpec;
+  /** Workflow runs, steps and approvals (ADR-0066). */
+  readonly workflows?: { readonly kind: "memory" } | { readonly kind: "postgres"; readonly url: Credential };
+  /** Shared by every replica, so one replica's cached read serves another's (ADR-0025). Marked and encrypted data is never cached in it (ADR-0036). */
+  readonly cache?: { readonly kind: "memory" } | { readonly kind: "redis"; readonly url: Credential; readonly keyPrefix?: string; readonly ttlMs?: number };
+  /** One budget per subject across replicas when `redis` (ADR-0019, ADR-0025). */
+  readonly rateLimit?: { readonly kind: "memory" | "redis"; readonly url?: Credential; readonly capacity: number; readonly refillPerSecond: number; readonly keyPrefix?: string };
+}
+
+/** A compiled application the generic server runs on the deployment's one runtime and workflow engine (ADR-0108). */
+export interface ApplicationSpec {
+  /** The application's name, as its `app.json` gives it. */
+  readonly name: string;
+  /**
+   * An installed package's specifier for its built server module. Default:
+   * `<name>/dist/server.js` under `TYPESYS_APPS_DIR`, else an `apps`
+   * directory beside the deployment, else this repository's `examples/apps`.
+   * Either way the module exports `application`.
+   */
+  readonly module?: string;
+  /** Where its API and pages are served. */
+  readonly port: ConfigString;
+}
 
 export type ClassificationSpec =
   /** Nobody reads marked data: the runtime's default (ADR-0034). */
@@ -133,6 +212,10 @@ export interface Deployment {
   readonly extensions?: readonly string[];
   /** Every system the runtime reads or writes, by data source id. Nothing else is reachable. */
   readonly sources: Readonly<Record<string, SourceSpec>>;
+  /** Where the audit trail, workflow runs, cache and rate budget are kept (ADR-0106). */
+  readonly state?: StateSpec;
+  /** Compiled applications served by this deployment's runtime (ADR-0108). */
+  readonly applications?: readonly ApplicationSpec[];
   readonly policies: PolicyDocument;
   readonly classification?: ClassificationSpec;
   readonly identity: IdentitySpec;
@@ -143,6 +226,8 @@ export interface Deployment {
     readonly callTimeoutMs?: number;
     /** The policy that decides who may inspect the enforcement structure (ADR-0088). */
     readonly inspectionPolicy?: string;
+    /** A security profile the runtime refuses to start without satisfying (ADR-0046). */
+    readonly securityProfile?: "high-assurance-v1";
   };
   readonly trust?: {
     /** Key id → public key (PEM). When given, every pack must be signed by one of them. */
@@ -245,11 +330,142 @@ function checkHttpSource(s: Record<string, unknown>, at: string, demo: boolean, 
   }
 }
 
+const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*)?$/;
+const COLUMN_AS = ["text", "date", "date-time", "number", "integer", "boolean", "json"];
+
+function checkPostgresSource(s: Record<string, unknown>, at: string, demo: boolean, out: string[]): void {
+  unknownFields(s, ["kind", "system", "url", "types", "maxRows"], at, out);
+  if (!nonEmpty(s.system)) out.push(`${at}.system: must name the system, as provenance reports it`);
+  checkCredential(s.url, `${at}.url`, demo, out);
+  if (s.maxRows !== undefined && !(Number.isInteger(s.maxRows) && (s.maxRows as number) > 0)) out.push(`${at}.maxRows: must be a positive integer`);
+  if (!isRecord(s.types) || Object.keys(s.types).length === 0) {
+    out.push(`${at}.types: must map at least one Type`);
+    return;
+  }
+  for (const [type, m] of Object.entries(s.types)) {
+    const t = `${at}.types["${type}"]`;
+    if (!isRecord(m)) {
+      out.push(`${t}: must be an object`);
+      continue;
+    }
+    unknownFields(m, ["table", "id", "columns"], t, out);
+    if (!nonEmpty(m.table) || !IDENT.test(m.table)) out.push(`${t}.table: must be a table name, or schema.table, of letters, digits and _`);
+    if (!nonEmpty(m.id) || !IDENT.test(m.id) || m.id.includes(".")) out.push(`${t}.id: must be a column name`);
+    if (!isRecord(m.columns)) {
+      out.push(`${t}.columns: must map properties to columns`);
+      continue;
+    }
+    for (const [prop, c] of Object.entries(m.columns)) {
+      const cat = `${t}.columns["${prop}"]`;
+      const column = typeof c === "string" ? c : isRecord(c) ? c.column : undefined;
+      if (!nonEmpty(column) || !IDENT.test(column) || column.includes(".")) out.push(`${cat}: must be a column name, or { column, as?, map? }`);
+      if (isRecord(c)) {
+        unknownFields(c, ["column", "as", "map"], cat, out);
+        if (c.as !== undefined && !COLUMN_AS.includes(c.as as string)) out.push(`${cat}.as: must be one of ${COLUMN_AS.join(", ")}`);
+        if (c.map !== undefined && !isRecord(c.map)) out.push(`${cat}.map: must map stored values to model values`);
+      }
+    }
+  }
+}
+
+function checkSigning(v: unknown, at: string, demo: boolean, out: string[]): void {
+  if (!isRecord(v)) {
+    out.push(`${at}: must be { keyId, key }`);
+    return;
+  }
+  unknownFields(v, ["keyId", "key", "everyRows", "everySeconds"], at, out);
+  if (!nonEmpty(v.keyId)) out.push(`${at}.keyId: must name the key`);
+  checkCredential(v.key, `${at}.key`, demo, out);
+  if (v.everyRows !== undefined && !(Number.isInteger(v.everyRows) && (v.everyRows as number) > 0)) out.push(`${at}.everyRows: must be a positive integer`);
+  if (v.everySeconds !== undefined && !(Number.isInteger(v.everySeconds) && (v.everySeconds as number) > 0)) out.push(`${at}.everySeconds: must be a positive integer`);
+}
+
+function checkStore(v: unknown, at: string, kinds: readonly string[], demo: boolean, out: string[], extra: readonly string[] = []): Record<string, unknown> | undefined {
+  if (!isRecord(v)) {
+    out.push(`${at}: must be an object`);
+    return undefined;
+  }
+  if (!kinds.includes(v.kind as string)) {
+    out.push(`${at}.kind: must be ${kinds.map((k) => `"${k}"`).join(" or ")}`);
+    return undefined;
+  }
+  if (v.kind === "memory") unknownFields(v, ["kind", ...extra.filter((e) => e !== "url" && e !== "keyPrefix" && e !== "ttlMs" && e !== "retainDays")], at, out);
+  else {
+    unknownFields(v, ["kind", "url", ...extra], at, out);
+    checkCredential(v.url, `${at}.url`, demo, out);
+  }
+  return v;
+}
+
+function checkState(state: unknown, demo: boolean, out: string[]): void {
+  const audit = isRecord(state) ? state.audit : undefined;
+  if (state !== undefined && !isRecord(state)) {
+    out.push("state: must be an object");
+    return;
+  }
+  if (isRecord(state)) unknownFields(state, ["audit", "workflows", "cache", "rateLimit"], "state", out);
+  // A deployment for real traffic keeps its audit trail, and signs it, so a cut-short trail can be told from one that ended (ADR-0106).
+  if (!demo && (!isRecord(audit) || audit.kind !== "postgres")) out.push('state.audit: a deployment that is not a demo must keep its audit trail: { "kind": "postgres", "url": { "$secret": ... }, "signing": ... }');
+  if (audit !== undefined) {
+    const a = checkStore(audit, "state.audit", ["memory", "postgres"], demo, out, ["signing", "verifyKeys", "retainDays"]);
+    if (a) {
+      if (a.signing !== undefined) checkSigning(a.signing, "state.audit.signing", demo, out);
+      else if (!demo && a.kind === "postgres") out.push("state.audit.signing: a deployment that is not a demo must sign its audit checkpoints");
+      if (a.verifyKeys !== undefined && (!isRecord(a.verifyKeys) || !Object.values(a.verifyKeys).every((k) => typeof k === "string" && k.includes("PUBLIC KEY")))) out.push("state.audit.verifyKeys: must map key ids to PEM public keys");
+      if (isRecord(a.signing) && nonEmpty(a.signing.keyId) && !(isRecord(a.verifyKeys) && Object.hasOwn(a.verifyKeys, a.signing.keyId)))
+        out.push(`state.audit.verifyKeys: must hold the public key for "${a.signing.keyId}", the key checkpoints are signed with`);
+      if (a.retainDays !== undefined && !(Number.isInteger(a.retainDays) && (a.retainDays as number) > 0)) out.push("state.audit.retainDays: must be a positive integer");
+    }
+  }
+  if (!isRecord(state)) return;
+  if (state.workflows !== undefined) checkStore(state.workflows, "state.workflows", ["memory", "postgres"], demo, out);
+  if (state.cache !== undefined) {
+    const c = checkStore(state.cache, "state.cache", ["memory", "redis"], demo, out, ["keyPrefix", "ttlMs"]);
+    if (c?.keyPrefix !== undefined && !nonEmpty(c.keyPrefix)) out.push("state.cache.keyPrefix: must be a non-empty string");
+    if (c?.ttlMs !== undefined && !(Number.isInteger(c.ttlMs) && (c.ttlMs as number) > 0)) out.push("state.cache.ttlMs: must be a positive integer");
+  }
+  if (state.rateLimit !== undefined) {
+    const r = state.rateLimit;
+    if (!isRecord(r)) out.push("state.rateLimit: must be an object");
+    else {
+      unknownFields(r, ["kind", "url", "capacity", "refillPerSecond", "keyPrefix"], "state.rateLimit", out);
+      if (r.kind !== "memory" && r.kind !== "redis") out.push('state.rateLimit.kind: must be "memory" or "redis"');
+      if (r.kind === "redis") checkCredential(r.url, "state.rateLimit.url", demo, out);
+      else if (r.url !== undefined) out.push("state.rateLimit.url: only a redis rate limit has one");
+      if (!(Number.isInteger(r.capacity) && (r.capacity as number) >= 1)) out.push("state.rateLimit.capacity: must be an integer of at least 1");
+      if (!(typeof r.refillPerSecond === "number" && r.refillPerSecond >= 0)) out.push("state.rateLimit.refillPerSecond: must be a number of at least 0");
+      if (r.keyPrefix !== undefined && !nonEmpty(r.keyPrefix)) out.push("state.rateLimit.keyPrefix: must be a non-empty string");
+    }
+  }
+}
+
+function checkApplications(apps: unknown, out: string[]): void {
+  if (apps === undefined) return;
+  if (!Array.isArray(apps)) {
+    out.push("applications: must be a list");
+    return;
+  }
+  const names = new Set<string>();
+  apps.forEach((a, i) => {
+    const at = `applications[${i}]`;
+    if (!isRecord(a)) {
+      out.push(`${at}: must be an object`);
+      return;
+    }
+    unknownFields(a, ["name", "module", "port"], at, out);
+    if (!nonEmpty(a.name) || !NAME.test(a.name)) out.push(`${at}.name: lower case letters, digits, '.', '-' and '_'`);
+    else if (names.has(a.name)) out.push(`${at}: ${a.name} is listed twice`);
+    else names.add(a.name);
+    if (a.module !== undefined && !nonEmpty(a.module)) out.push(`${at}.module: must be an installed package's specifier`);
+    checkConfigString(a.port, `${at}.port`, out);
+  });
+}
+
 /** Every problem with `doc` as a deployment. Empty means it is well formed; `buildHost` still checks it against its packs and extensions. */
 export function validateDeployment(doc: unknown): string[] {
   const out: string[] = [];
   if (!isRecord(doc)) return ["deployment: must be an object"];
-  unknownFields(doc, ["format", "name", "description", "demo", "packs", "extensions", "sources", "policies", "classification", "identity", "personas", "runtime", "trust", "consumers"], "deployment", out);
+  unknownFields(doc, ["format", "name", "description", "demo", "packs", "extensions", "sources", "state", "applications", "policies", "classification", "identity", "personas", "runtime", "trust", "consumers"], "deployment", out);
   if (doc.format !== DEPLOYMENT_FORMAT) out.push(`format: must be "${DEPLOYMENT_FORMAT}"`);
   if (!nonEmpty(doc.name) || !NAME.test(doc.name)) out.push("name: lower case letters, digits, '.', '-' and '_'");
   if (doc.description !== undefined && typeof doc.description !== "string") out.push("description: must be a string");
@@ -288,10 +504,11 @@ export function validateDeployment(doc: unknown): string[] {
       const at = `sources["${id}"]`;
       if (!isRecord(s)) out.push(`${at}: must be an object`);
       else if (s.kind === "http") checkHttpSource(s, at, demo, out);
+      else if (s.kind === "postgres") checkPostgresSource(s, at, demo, out);
       else if (s.kind === "extension") {
         unknownFields(s, ["kind", "extension", "system"], at, out);
         needsExtension(s.extension, `${at}.extension`);
-      } else out.push(`${at}.kind: must be "http" or "extension"`);
+      } else out.push(`${at}.kind: must be "http", "postgres" or "extension"`);
     }
 
   if (!isRecord(doc.policies)) out.push("policies: must map rule names to policy expressions");
@@ -344,7 +561,8 @@ export function validateDeployment(doc: unknown): string[] {
     const r = doc.runtime;
     if (!isRecord(r)) out.push("runtime: must be an object");
     else {
-      unknownFields(r, ["callTimeoutMs", "inspectionPolicy"], "runtime", out);
+      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile"], "runtime", out);
+      if (r.securityProfile !== undefined && r.securityProfile !== "high-assurance-v1") out.push('runtime.securityProfile: must be "high-assurance-v1"');
       if (r.callTimeoutMs !== undefined && !(Number.isInteger(r.callTimeoutMs) && (r.callTimeoutMs as number) > 0)) out.push("runtime.callTimeoutMs: must be a positive integer");
       if (r.inspectionPolicy !== undefined && (!nonEmpty(r.inspectionPolicy) || !isRecord(doc.policies) || !Object.hasOwn(doc.policies, r.inspectionPolicy)))
         out.push("runtime.inspectionPolicy: must name one of the deployment's policies");
@@ -360,6 +578,9 @@ export function validateDeployment(doc: unknown): string[] {
       for (const k of ["revokedKeys", "revokedDigests"] as const) if (t[k] !== undefined && !isRecord(t[k])) out.push(`trust.${k}: must be an object`);
     }
   }
+
+  checkState(doc.state, demo, out);
+  checkApplications(doc.applications, out);
 
   if (doc.consumers !== undefined) {
     if (!Array.isArray(doc.consumers)) out.push("consumers: must be a list");

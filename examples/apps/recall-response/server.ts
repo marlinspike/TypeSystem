@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Express } from "express";
-import { createAppServer } from "@typesys/app/server";
+import { createAppServer, type HostedApplication } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from "@typesys/cold-chain";
 import { contract } from "./src/generated/contract.js";
@@ -13,15 +13,27 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** The application's directory: `dist/` is one level down. */
 const root = path.resolve(here, "..");
 
-/** Recall Response: the governed API over the host, its flows on the workflow engine, its client beside them. */
+/**
+ * Recall Response as a deployment's generic server hosts it (ADR-0108): its flows on the
+ * deployment's one workflow engine, its API and pages on the deployment's one runtime.
+ */
+export const application: HostedApplication = {
+  name: "recall-response",
+  title: "Recall Response",
+  // Each flow is typed by the application's model; the engine registers any workflow.
+  flows: [flow_respond] as unknown as AnyWorkflow[],
+  contract,
+  clientDir: path.join(here, "client")
+};
+
+/** Recall Response on its own, for development: the governed API over the host it builds, its flows on its own engine, its client beside them. */
 export async function createApp(): Promise<{ app: Express; workflows: WorkflowEngine }> {
   return createAppServer({
     backend: await host.buildRecallHost(),
     identities: (token) => host.resolveRecallIdentity(token),
-    // Each flow is typed by the application's model; the engine registers any workflow.
-    flows: [flow_respond] as unknown as AnyWorkflow[],
-    clientDir: path.join(here, "client"),
-    title: "Recall Response",
+    flows: application.flows,
+    clientDir: application.clientDir!,
+    title: application.title!,
     contract
   });
 }

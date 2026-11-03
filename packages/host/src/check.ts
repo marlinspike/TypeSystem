@@ -3,12 +3,17 @@ import {
   ContractUnsatisfiedError,
   NotFoundError,
   canonical,
+  comparePolicies,
   compilePolicies,
+  describeWitness,
+  PolicyNotComparableError,
+  PolicyTooLargeError,
   comparePolicyRules,
   contractMismatches,
   describeModel,
   requireRole,
   type ContractMismatch,
+  type PolicyExpression,
   type Identity,
   type SemanticQuery
 } from "@typesys/core";
@@ -28,7 +33,12 @@ import { buildHost, type Host, type HostEnvironment, type HostExtension } from "
  * - a breaking change to the model's contract (ADR-0056);
  * - an exposure: a persona who may now read a value, or run a query, that
  *   they could not before (ADR-0093's observed changes, plus the queries given);
- * - a policy that now admits a persona it refused, on any Type.
+ * - a policy that now admits a persona it refused, on any Type;
+ * - a policy that now admits anyone it refused, decided exactly over every
+ *   request rather than the personas (ADR-0109), where the rule decides
+ *   something: a rule changed in place, or a Type, property or Action that
+ *   now names another rule;
+ * - an audit trail that was kept and signed and now is not (ADR-0106).
  * Everything else that changed (packs, sources, policies that narrow,
  * classification, identity) is listed for review without blocking.
  */
@@ -81,6 +91,21 @@ export interface PolicyDecisionChange {
   readonly after: boolean | "throws" | "absent";
 }
 
+/** A rule's change decided over every request (ADR-0109), not only the personas'. */
+export interface ExactPolicyChange {
+  readonly policy: string;
+  /** For a Type, property or Action that now names another rule: what it names, and what it named. */
+  readonly slot?: { readonly decides: string; readonly before: string };
+  /** What it now decides, as the new build's inspection reports it. */
+  readonly decides: readonly string[];
+  readonly widens: readonly string[];
+  readonly narrows: readonly string[];
+  /** Too large to enumerate: compared by personas only. */
+  readonly tooLarge?: boolean;
+  /** Why the change could not be compared exactly, when not for size. */
+  readonly notComparable?: string;
+}
+
 export interface DeployCheckReport {
   readonly format: typeof DEPLOY_CHECK_FORMAT;
   readonly before: { readonly name: string; readonly build: string };
@@ -91,7 +116,15 @@ export interface DeployCheckReport {
   readonly blocking: readonly string[];
   readonly packs: { readonly added: readonly string[]; readonly removed: readonly string[]; readonly changed: readonly string[] };
   readonly sources: { readonly added: readonly string[]; readonly removed: readonly string[]; readonly changed: readonly string[] };
-  readonly policies: { readonly added: readonly string[]; readonly removed: readonly string[]; readonly changed: readonly string[]; readonly decisions: readonly PolicyDecisionChange[] };
+  readonly policies: {
+    readonly added: readonly string[];
+    readonly removed: readonly string[];
+    readonly changed: readonly string[];
+    readonly decisions: readonly PolicyDecisionChange[];
+    readonly exact: readonly ExactPolicyChange[];
+  };
+  /** Where each build keeps its audit trail, workflow runs, cache and rate budget (ADR-0106). */
+  readonly state: { readonly before: Readonly<Record<string, string>>; readonly after: Readonly<Record<string, string>> };
   /** Other settings that changed: classification, identity, personas, runtime, trust, extensions. */
   readonly settings: readonly string[];
   readonly consumers: readonly { readonly name: string; readonly satisfied: boolean; readonly mismatches: readonly ContractMismatch[] }[];
@@ -112,7 +145,9 @@ async function buildForCheck(b: DeploymentBuild): Promise<Host> {
     // The check inspects both builds as itself: a rule beside the deployment's, under a name no deployment may use.
     policyRules: { [INSPECT_RULE]: requireRole(CHECKER.roles[0]!) },
     runtimeOptions: { inspection: { policy: INSPECT_RULE } },
-    actor: CHECKER.subjectId
+    actor: CHECKER.subjectId,
+    // The check writes nothing anywhere: its probes are audited in memory, never into the deployment's own trail (ADR-0106).
+    state: "memory"
   });
 }
 
@@ -224,9 +259,48 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
       }
     }
 
+    // Exact (ADR-0109): each rule changed in place, and each slot that now names another rule, over every request.
+    const exprA = a.deployment.policies;
+    const exprB = b.deployment.policies;
+    const decidesIn = (inspection: Baseline["inspection"], deployment: Deployment) => {
+      const bySlot = new Map<string, string>();
+      for (const p of inspection?.policies ?? []) for (const d of p.decides) bySlot.set(d, p.name);
+      // Who may explain another subject's access is decided by a rule too, though not on a Type (ADR-0089).
+      if (deployment.runtime?.inspectionPolicy !== undefined) bySlot.set("runtime.inspectionPolicy", deployment.runtime.inspectionPolicy);
+      return bySlot;
+    };
+    const [slotsA, slotsB] = [decidesIn(baseA.inspection, a.deployment), decidesIn(baseB.inspection, b.deployment)];
+    const decidesB = new Map<string, string[]>();
+    for (const [slot, policy] of slotsB) decidesB.set(policy, [...(decidesB.get(policy) ?? []), slot]);
+    const exact: ExactPolicyChange[] = [];
+    const compare = async (policy: string, before: PolicyExpression | undefined, after: PolicyExpression | undefined, slot?: ExactPolicyChange["slot"]) => {
+      const decides = slot ? [slot.decides] : [...(decidesB.get(policy) ?? [])].sort();
+      try {
+        const r = await comparePolicies(before, after);
+        if (r.widens.length + r.narrows.length > 0) exact.push({ policy, ...(slot ? { slot } : {}), decides, widens: r.widens.map(describeWitness), narrows: r.narrows.map(describeWitness) });
+      } catch (err) {
+        if (!(err instanceof PolicyNotComparableError)) throw err;
+        exact.push({ policy, ...(slot ? { slot } : {}), decides, widens: [], narrows: [], ...(err instanceof PolicyTooLargeError ? { tooLarge: true } : { notComparable: err.message }) });
+      }
+    };
+    for (const policy of [...ruleDiff.changed, ...ruleDiff.added].sort()) await compare(policy, Object.hasOwn(exprA, policy) ? exprA[policy] : undefined, exprB[policy]);
+    for (const [slot, policy] of [...slotsB].sort(([x], [y]) => (x < y ? -1 : 1))) {
+      const was = slotsA.get(slot);
+      if (was === undefined || was === policy || !Object.hasOwn(exprB, policy) || !Object.hasOwn(exprA, was)) continue;
+      await compare(policy, exprA[was], exprB[policy], { decides: slot, before: was });
+    }
+
     const packDiff = diffNamed(keyed(a.packs, (p) => p.name), keyed(b.packs, (p) => p.name), (x, y) => x.digest === y.digest && x.version === y.version);
     const sourceDiff = diffNamed(new Map(Object.entries(a.deployment.sources)), new Map(Object.entries(b.deployment.sources)), sameJson);
-    const settings = (["classification", "identity", "personas", "runtime", "trust", "extensions", "demo"] as const).filter((k) => !sameJson(a.deployment[k], b.deployment[k]));
+    const settings = (["classification", "identity", "personas", "runtime", "trust", "extensions", "demo", "state", "applications"] as const).filter((k) => !sameJson(a.deployment[k], b.deployment[k]));
+    const stateOf = (d: typeof a.deployment) => ({
+      audit: d.state?.audit?.kind ?? "memory",
+      signed: d.state?.audit?.signing ? "yes" : "no",
+      workflows: d.state?.workflows?.kind ?? "memory",
+      cache: d.state?.cache?.kind ?? "none",
+      rateLimit: d.state?.rateLimit?.kind ?? "none"
+    });
+    const [stateA, stateB] = [stateOf(a.deployment), stateOf(b.deployment)];
 
     // Consumers: the new deployment's own, and any given, against what the new build serves.
     const served = new Map((await b.registry.listTypes()).map((t) => [t.name, t.version]));
@@ -255,8 +329,30 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
       blocking.push(`policy ${policy} now admits ${as} (on ${on.join(", ")})`);
     }
 
+    for (const e of exact) {
+      // A rule that decides nothing in the new build admits nobody to anything: listed, not blocking.
+      if (e.decides.length === 0) continue;
+      const at = e.slot ? `${e.slot.decides} now names ${e.policy} instead of ${e.slot.before}` : `policy ${e.policy} (deciding ${e.decides.join(", ")})`;
+      // Fail closed: a change that cannot be compared is not known not to widen.
+      if (e.tooLarge) blocking.push(`unverified: ${at} is too large to compare exactly (over 4,096 conjunctions); split it or review it by hand`);
+      if (e.notComparable) blocking.push(`unverified: ${at} could not be compared exactly (${e.notComparable}); review it by hand`);
+      for (const w of e.widens) blocking.push(`widens: ${at} now admits ${w}`);
+    }
+    if (stateA.audit === "postgres" && stateB.audit !== "postgres") blocking.push("state: the audit trail would no longer be kept: state.audit was postgres");
+    if (stateA.signed === "yes" && stateB.signed !== "yes") blocking.push("state: audit checkpoints would no longer be signed");
+    if (stateA.workflows === "postgres" && stateB.workflows !== "postgres") blocking.push("state: workflow runs and approvals would no longer be kept: state.workflows was postgres");
+    if (a.deployment.runtime?.securityProfile !== undefined && b.deployment.runtime?.securityProfile !== a.deployment.runtime.securityProfile)
+      blocking.push(`runtime: the security profile ${a.deployment.runtime.securityProfile} would no longer apply`);
+    // A verify key dropped turns every checkpoint it signed into an unknown-key problem: rotate by adding, never by removing.
+    const keysA = a.deployment.state?.audit?.verifyKeys ?? {};
+    const keysB = b.deployment.state?.audit?.verifyKeys ?? {};
+    for (const id of Object.keys(keysA).sort()) if (!Object.hasOwn(keysB, id) || keysB[id] !== keysA[id]) blocking.push(`state: audit verify key ${id} would be ${Object.hasOwn(keysB, id) ? "replaced" : "removed"}; checkpoints it signed would no longer verify`);
+    if (stateA.rateLimit !== "none" && stateB.rateLimit === "none") blocking.push(`state: callers would no longer be rate limited: state.rateLimit was ${stateA.rateLimit}`);
+    else if (stateA.rateLimit === "redis" && stateB.rateLimit === "memory") blocking.push("state: the rate limit would no longer be shared: each replica would admit the whole budget (state.rateLimit was redis)");
+
     const changed =
       blocking.length > 0 ||
+      exact.length > 0 ||
       impact.items.length > 0 ||
       queries.length > 0 ||
       decisions.length > 0 ||
@@ -274,7 +370,8 @@ export async function checkDeployment(before: DeploymentBuild, after: Deployment
         changed: packDiff.changed.map((n) => `${n}: ${a.packs.find((p) => p.name === n)!.version} → ${b.packs.find((p) => p.name === n)!.version}`)
       },
       sources: sourceDiff,
-      policies: { ...ruleDiff, decisions },
+      policies: { ...ruleDiff, decisions, exact },
+      state: { before: stateA, after: stateB },
       settings: changed ? settings : [],
       consumers,
       impact,
@@ -310,7 +407,16 @@ export function renderDeployCheck(r: DeployCheckReport): string {
     const [policy, as] = k.split("|");
     lines.push(`  ${policy} for ${as}: ${v.before === "true" ? "admitted" : v.before === "false" ? "refused" : v.before} → ${v.after === "true" ? "admitted" : v.after === "false" ? "refused" : v.after} (on ${v.on.join(", ")})`);
   }
+  for (const e of r.policies.exact) {
+    const at = e.slot ? `${e.slot.decides}: ${e.slot.before} → ${e.policy}` : e.policy;
+    if (e.tooLarge) lines.push(`  ${at}: too large to compare exactly; compared by personas only, and blocking`);
+    if (e.notComparable) lines.push(`  ${at}: not compared exactly (${e.notComparable}); blocking`);
+    for (const w of e.widens) lines.push(`  ${at} [widens, exact] ${w}`);
+    for (const n of e.narrows) lines.push(`  ${at} [narrows, exact] ${n}`);
+  }
   if (r.settings.length) lines.push(`Settings changed: ${r.settings.join(", ")}`);
+  const stateChanges = Object.keys(r.state.after).filter((k) => r.state.before[k] !== r.state.after[k]);
+  if (stateChanges.length) lines.push(`State: ${stateChanges.map((k) => `${k} ${r.state.before[k]} → ${r.state.after[k]}`).join(", ")}`);
   for (const c of r.consumers) lines.push(`Consumer ${c.name}: ${c.satisfied ? "contract kept" : "contract NOT kept"}`);
   const contract = r.impact.items.filter((i) => i.kind === "contract");
   if (contract.length) {

@@ -63,6 +63,26 @@ export const airforceDeployment: Deployment = {
   personas: personas(demoIdentities)
 };
 
+/**
+ * The airforce slice as a replicated deployment keeps it (ADR-0106): its
+ * audit trail and workflow runs in Postgres, its cache and one rate budget in
+ * Redis, so a restart or a second replica loses nothing and splits nothing.
+ * What `docker compose up` serves. Its audit is chained but unsigned, since a
+ * demonstration has no key to hold: give it `state.audit.signing` (from
+ * `typesys audit keygen`) and it signs checkpoints too.
+ */
+export const airforceDurableDeployment: Deployment = {
+  ...airforceDeployment,
+  name: "airforce-durable",
+  description: "The airforce demonstration with its state kept: audit trail and workflow runs in Postgres, cache and rate budget in Redis.",
+  state: {
+    audit: { kind: "postgres", url: { $secret: "DATABASE_URL" } },
+    workflows: { kind: "postgres", url: { $secret: "DATABASE_URL" } },
+    cache: { kind: "redis", url: { $secret: "REDIS_URL" } },
+    rateLimit: { kind: "redis", url: { $secret: "REDIS_URL" }, capacity: 200, refillPerSecond: 100 }
+  }
+};
+
 /** The hospital slice: patients read per instance (a clinician their own patients, a patient their own record). */
 export const hospitalDeployment: Deployment = {
   format: DEPLOYMENT_FORMAT,

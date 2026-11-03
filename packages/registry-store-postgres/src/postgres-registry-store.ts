@@ -280,47 +280,7 @@ export class PostgresRegistryStore implements RegistryStore {
   }
 
   async listAuditEvents(opts: AuditEventListOptions = {}): Promise<QueryResult<AuditEvent>> {
-    const limit = opts.limit ?? 100;
-    // Rows of one action only, when asked (ADR-0069); the cursor pages within them.
-    const actionParam = opts.action === undefined ? [] : [opts.action];
-    const onlyAction = (at: number) => (opts.action === undefined ? "" : ` AND action = $${at}`);
-
-    // Keyset (not OFFSET) pagination on (timestamp, id) DESC: correct and index-friendly
-    // even as this table grows without bound and rows are concurrently inserted —
-    // exactly the property OFFSET-based paging lacks (see ADR-0015).
-    let rows: AuditEventRow[];
-    const cursor = opts.before ? await this.pool.query<{ timestamp: string; id: string }>(
-      `SELECT "timestamp", id FROM audit_events WHERE id = $1`,
-      [opts.before]
-    ) : undefined;
-
-    if (cursor && cursor.rows.length > 0) {
-      const { timestamp, id } = cursor.rows[0]!;
-      ({ rows } = await this.pool.query<AuditEventRow>(
-        `SELECT * FROM audit_events WHERE ("timestamp", id) < ($1, $2)${onlyAction(4)} ORDER BY "timestamp" DESC, id DESC LIMIT $3`,
-        [timestamp, id, limit, ...actionParam]
-      ));
-    } else {
-      // No cursor, or an unrecognized one: fail safe by starting from the newest event —
-      // same fallback behavior as InMemoryRegistryStore.
-      ({ rows } = await this.pool.query<AuditEventRow>(
-        `SELECT * FROM audit_events WHERE TRUE${onlyAction(2)} ORDER BY "timestamp" DESC, id DESC LIMIT $1`,
-        [limit, ...actionParam]
-      ));
-    }
-
-    const items = rows.map(auditEventRowToEvent);
-    let nextCursor: string | undefined;
-    if (items.length === limit) {
-      const last = items[items.length - 1]!;
-      const { rows: probe } = await this.pool.query(
-        `SELECT 1 FROM audit_events WHERE ("timestamp", id) < ($1, $2)${onlyAction(3)} LIMIT 1`,
-        [last.timestamp, last.id, ...actionParam]
-      );
-      if (probe.length > 0) nextCursor = last.id;
-    }
-
-    return { items, nextCursor };
+    return listAuditRows(this.pool, opts);
   }
 }
 
@@ -333,4 +293,49 @@ function groupBy<T, K>(items: T[], key: (item: T) => K): Map<K, T[]> {
     else map.set(k, [item]);
   }
   return map;
+}
+
+/** Newest first, keyset-paged: the audit listing every Postgres audit store shares (ADR-0015). */
+export async function listAuditRows(pool: Pool, opts: AuditEventListOptions = {}): Promise<QueryResult<AuditEvent>> {
+  const limit = opts.limit ?? 100;
+  // Rows of one action only, when asked (ADR-0069); the cursor pages within them.
+  const actionParam = opts.action === undefined ? [] : [opts.action];
+  const onlyAction = (at: number) => (opts.action === undefined ? "" : ` AND action = $${at}`);
+
+  // Keyset (not OFFSET) pagination on (timestamp, id) DESC: correct and index-friendly
+  // even as this table grows without bound and rows are concurrently inserted —
+  // exactly the property OFFSET-based paging lacks (see ADR-0015).
+  let rows: AuditEventRow[];
+  const cursor = opts.before ? await pool.query<{ timestamp: string; id: string }>(
+    `SELECT "timestamp", id FROM audit_events WHERE id = $1`,
+    [opts.before]
+  ) : undefined;
+
+  if (cursor && cursor.rows.length > 0) {
+    const { timestamp, id } = cursor.rows[0]!;
+    ({ rows } = await pool.query<AuditEventRow>(
+      `SELECT * FROM audit_events WHERE ("timestamp", id) < ($1, $2)${onlyAction(4)} ORDER BY "timestamp" DESC, id DESC LIMIT $3`,
+      [timestamp, id, limit, ...actionParam]
+    ));
+  } else {
+    // No cursor, or an unrecognized one: fail safe by starting from the newest event —
+    // same fallback behavior as InMemoryRegistryStore.
+    ({ rows } = await pool.query<AuditEventRow>(
+      `SELECT * FROM audit_events WHERE TRUE${onlyAction(2)} ORDER BY "timestamp" DESC, id DESC LIMIT $1`,
+      [limit, ...actionParam]
+    ));
+  }
+
+  const items = rows.map(auditEventRowToEvent);
+  let nextCursor: string | undefined;
+  if (items.length === limit) {
+    const last = items[items.length - 1]!;
+    const { rows: probe } = await pool.query(
+      `SELECT 1 FROM audit_events WHERE ("timestamp", id) < ($1, $2)${onlyAction(3)} LIMIT 1`,
+      [last.timestamp, last.id, ...actionParam]
+    );
+    if (probe.length > 0) nextCursor = last.id;
+  }
+
+  return { items, nextCursor };
 }

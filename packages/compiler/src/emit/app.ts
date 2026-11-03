@@ -151,7 +151,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Express } from "express";
-import { createAppServer${app.llm ? ", readLlmConfig" : ""} } from "@typesys/app/server";
+import { createAppServer, ${app.llm ? "readLlmConfig, roleModels, " : ""}type HostedApplication } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from ${q(app.host.module)};
 import { contract } from "./src/generated/contract.js";
@@ -161,15 +161,27 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** The application's directory: \`dist/\` is one level down. */
 const root = path.resolve(here, "..");
 
-/** ${comment(app.title)}: the governed API over the host, its flows on the workflow engine, its client beside them. */
+/**
+ * ${comment(app.title)} as a deployment's generic server hosts it (ADR-0108): its flows on the
+ * deployment's one workflow engine, its API and pages on the deployment's one runtime.
+ */
+export const application: HostedApplication = {
+  name: ${q(app.name)},
+  title: ${q(app.title)},
+  // Each flow is typed by the application's model; the engine registers any workflow.
+  flows: [${flowKeys.map(flowVar).join(", ")}] as unknown as AnyWorkflow[],
+  contract,
+  clientDir: path.join(here, "client")${models.length ? `,\n  models: async () => roleModels({ ${models.join(", ")} }, ${app.llm ? `{ config: readLlmConfig(path.join(root, ${q(app.llm)})), options: await llmOptions() }` : "undefined"})` : ""}
+};
+
+/** ${comment(app.title)} on its own, for development: the governed API over the host it builds, its flows on its own engine, its client beside them. */
 export async function createApp(): Promise<{ app: Express; workflows: WorkflowEngine }> {
   return createAppServer({
     backend: await host.${app.host.build}(${opts}),
     identities: (token) => host.${app.host.identities}(token),
-    // Each flow is typed by the application's model; the engine registers any workflow.
-    flows: [${flowKeys.map(flowVar).join(", ")}] as unknown as AnyWorkflow[],${models.length ? `\n    models: { ${models.join(", ")} },` : ""}${app.llm ? `\n    llm: { config: readLlmConfig(path.join(root, ${q(app.llm)})), options: await llmOptions() },` : ""}
-    clientDir: path.join(here, "client"),
-    title: ${q(app.title)},
+    flows: application.flows,${models.length ? `\n    models: { ${models.join(", ")} },` : ""}${app.llm ? `\n    llm: { config: readLlmConfig(path.join(root, ${q(app.llm)})), options: await llmOptions() },` : ""}
+    clientDir: application.clientDir!,
+    title: application.title!,
     contract
   });
 }

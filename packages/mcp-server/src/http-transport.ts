@@ -27,6 +27,12 @@ export interface HttpTransportOptions {
    * allowed host, any port; none at all when `allowedHosts` is `"*"`.
    */
   allowedOrigins?: readonly string[];
+  /**
+   * Further readiness for `/readyz`, beyond the registry answering: resolves
+   * when the server can serve, rejects when it cannot. A host with declared
+   * state passes one that reaches its databases (ADR-0106).
+   */
+  ready?: () => Promise<void>;
   /** The model behind the agent this server answers (ADR-0075): every identity is bound to it. */
   audience?: Audience;
   /**
@@ -81,6 +87,7 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   app.get("/readyz", async (_req: Request, res: Response) => {
     try {
       await backend.registry.listActions();
+      await given?.ready?.();
       res.status(200).json({ status: "ready" });
     } catch (err) {
       res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) });

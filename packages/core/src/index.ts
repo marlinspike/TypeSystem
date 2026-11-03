@@ -46,7 +46,9 @@ export * from "./runtime/runtime.js";
 export * from "./policy/abac-policy-engine.js";
 export * from "./policy/authorization-plan.js";
 export * from "./policy/policy-document.js";
+export * from "./policy/policy-diff.js";
 export * from "./audit/audit-log.js";
+export * from "./audit/chain.js";
 
 export * from "./testing/registry-store-contract.js";
 export * from "./testing/plan-conformance.js";

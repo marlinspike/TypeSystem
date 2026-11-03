@@ -20,8 +20,12 @@ import {
   type IdentityResolver,
   type PolicyRule,
   type RegistryStore,
-  type SemanticRuntimeOptions
+  type SemanticRuntimeOptions,
+  HIGH_ASSURANCE_V1,
+  withAuditLog
 } from "@typesys/core";
+import { PostgresTableAdapter } from "@typesys/adapter-postgres";
+import { openState, type HostState } from "./state.js";
 import { HttpAdapter, type HttpAdapterConfig, type HttpAuth } from "@typesys/adapter-http";
 import { createOidcIdentityResolver } from "@typesys/auth-oidc";
 import { installPacks, type InstalledPack, type PackArchive } from "@typesys/packs";
@@ -33,7 +37,8 @@ import {
   type Credential,
   type Deployment,
   type HttpAuthSpec,
-  type HttpSourceSpec
+  type HttpSourceSpec,
+  type PostgresSourceSpec
 } from "./deployment.js";
 
 /** Where references are resolved: configuration from the environment, credentials from a secret store. */
@@ -86,7 +91,10 @@ export interface HostOptions {
   readonly packs: readonly PackArchive[];
   readonly extensions?: readonly HostExtension[];
   readonly env?: HostEnvironment;
-  /** Default: a registry in this process, built from the packs (ADR-0102). Nothing another replica writes can change it. */
+  /**
+   * Default: a registry in this process, built from the packs (ADR-0102). Nothing another replica writes can change it.
+   * Its audit rows go to the deployment's audit trail (`state.audit`, ADR-0106) whatever store is given.
+   */
   readonly store?: RegistryStore;
   /** Code-only runtime options (a shared cache, a rate limiter, query limits); they override the deployment's own. */
   readonly runtimeOptions?: SemanticRuntimeOptions;
@@ -98,6 +106,12 @@ export interface HostOptions {
    */
   readonly manifests?: readonly DomainManifest[];
   readonly policyRules?: Readonly<Record<string, PolicyRule>>;
+  /**
+   * `declared` (the default) opens the state the deployment declares (ADR-0106). `memory` keeps everything in
+   * this process whatever it declares: what the upgrade check and `typesys deploy build` use, so they write
+   * nothing into a deployment's audit trail or journal.
+   */
+  readonly state?: "declared" | "memory";
   /** Who installs the packs, for the `pack.install` audit row. Default `"host"`. */
   readonly actor?: string;
 }
@@ -112,6 +126,8 @@ export interface Host extends BuiltRuntime {
   readonly packs: readonly InstalledPack[];
   /** Every adapter the runtime has, by data source id. */
   readonly adapters: Readonly<Record<string, Adapter>>;
+  /** What the deployment's `state` opened (ADR-0106): the audit trail, the workflow journal, the cache and rate limiter. */
+  readonly state: HostState;
   /** What this host runs that the deployment does not hold as data. */
   readonly code: {
     readonly extensions: readonly string[];
@@ -206,6 +222,15 @@ function identityResolverOf(deployment: Deployment, env: HostEnvironment, person
   return resolver;
 }
 
+/** The read-only table adapter a deployment's `postgres` source describes (ADR-0107), over the host's pool for its URL. */
+export function postgresAdapterForSource(id: string, spec: PostgresSourceSpec, pool: HostState["pool"], url: string): PostgresTableAdapter {
+  try {
+    return new PostgresTableAdapter(pool(url), { dataSourceId: id, system: spec.system, types: spec.types, ...(spec.maxRows !== undefined ? { maxRows: spec.maxRows } : {}) });
+  } catch (err) {
+    throw new DeploymentError([`sources["${id}"]: ${(err as Error).message}`]);
+  }
+}
+
 /**
  * Builds one governed runtime from a deployment (ADR-0102). Everything is
  * checked before anything is built, and every problem is reported at once:
@@ -265,12 +290,19 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
   for (const id of Object.keys(deployment.sources)) if (!modelSources.has(id)) problems.push(`sources["${id}"]: no pack declares a data source with this id`);
   if (problems.length > 0) throw new DeploymentError(problems);
 
+  // State: the audit trail, workflow journal, cache and rate limiter the deployment declares (ADR-0106), reachable before anything is served.
+  const resolve = (value: Credential, at: string) => resolveCredential(value, env, demo, at);
+  const state = await openState(options.state === "memory" ? { ...deployment, state: {} } : deployment, resolve);
+  // Whatever fails from here on, nothing the state opened (pools, Redis clients, the checkpoint timer) is left open.
+  let started = false;
+  try {
+
   // Adapters: the deployment's own, then each extension's, checked against what the deployment declares.
   const own: Record<string, Adapter> = {};
   for (const [id, spec] of Object.entries(deployment.sources)) {
-    if (spec.kind !== "http") continue;
     try {
-      own[id] = adapterForSource(id, spec, env, demo);
+      if (spec.kind === "http") own[id] = adapterForSource(id, spec, env, demo);
+      else if (spec.kind === "postgres") own[id] = postgresAdapterForSource(id, spec, state.pool, resolve(spec.url, `sources["${id}"].url`));
     } catch (err) {
       problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
     }
@@ -300,17 +332,14 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
   } catch (err) {
     problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
   }
-  if (problems.length > 0) {
-    await closeAll(extensions.values());
-    throw new DeploymentError(problems);
-  }
+  if (problems.length > 0) throw new DeploymentError(problems);
 
   const build = buildIdOf(deployment, archives.map((a) => a.digest));
-  const registry = new SemanticRegistry(options.store ?? new InMemoryRegistryStore(), undefined, { build });
+  const registry = new SemanticRegistry(withAuditLog(options.store ?? new InMemoryRegistryStore(), state.audit), undefined, { build });
   const allRules = { ...rules, ...options.policyRules };
   const bindings = mergeBindingRegistries(...[...extensions.values()].map((e) => e.bindings ?? { computed: {}, preconditions: {} }));
   let installed: InstalledPack[];
-  try {
+  {
     installed = await installPacks(registry, archives, {
       bindings,
       actor: options.actor ?? "host",
@@ -327,9 +356,6 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       contractMismatches(c.contract, served).map((m) => `consumers: ${c.name} needs ${m.type} ${m.range}, ${m.version ? `this build has ${m.version}` : "this build has no such Type"}`)
     );
     if (broken.length > 0) throw new DeploymentError(broken);
-  } catch (err) {
-    await closeAll(extensions.values());
-    throw err;
   }
 
   const policyEngine = new AbacPolicyEngine();
@@ -338,10 +364,15 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     classification: classificationOf(deployment),
     ...(deployment.runtime?.callTimeoutMs !== undefined ? { resilience: { callTimeoutMs: deployment.runtime.callTimeoutMs } } : {}),
     ...(deployment.runtime?.inspectionPolicy ? { inspection: { policy: deployment.runtime.inspectionPolicy } } : {}),
+    ...(deployment.runtime?.securityProfile === "high-assurance-v1" ? { securityProfile: HIGH_ASSURANCE_V1 } : {}),
+    ...(state.cache ? { cache: state.cache } : {}),
+    ...(state.cacheTtlMs !== undefined ? { defaultCacheTtlMs: state.cacheTtlMs } : {}),
+    ...(state.rateLimiter ? { rateLimiter: state.rateLimiter } : {}),
     ...options.runtimeOptions
   });
 
   let closed = false;
+  started = true;
   return {
     registry,
     runtime,
@@ -352,6 +383,7 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     personas,
     packs: installed,
     adapters: Object.fromEntries(adapters),
+    state,
     code: {
       extensions: [...extensions.keys()],
       sources: supplied,
@@ -362,7 +394,14 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       if (closed) return;
       closed = true;
       await closeAll(extensions.values());
-      await registry.close();
+      await registry.close().catch(() => undefined);
+      await state.close();
     }
   };
+  } finally {
+    if (!started) {
+      await closeAll(extensions.values());
+      await state.close();
+    }
+  }
 }

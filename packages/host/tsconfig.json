@@ -31,6 +31,24 @@
     },
     {
       "path": "../devkit"
+    },
+    {
+      "path": "../adapter-postgres"
+    },
+    {
+      "path": "../registry-store-postgres"
+    },
+    {
+      "path": "../redis"
+    },
+    {
+      "path": "../workflow"
+    },
+    {
+      "path": "../workflow-postgres"
+    },
+    {
+      "path": "../app"
     }
   ]
 }

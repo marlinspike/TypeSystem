@@ -11,6 +11,7 @@
     "paths": {
       // Subpath exports name a source file of their own (`@typesys/demo-web/deployments` is src/deployments.ts).
       "@typesys/demo-web/*": ["../../packages/demo-web/src/*.ts"],
+      "@typesys/app/*": ["../../packages/app/src/*.ts"],
       "@typesys/*": ["../../packages/*/src/index.ts"]
     }
   },

@@ -353,6 +353,9 @@ function principalsOf(identity: Identity): { person: Identity; audience?: Identi
 }
 
 /** The call currently executing, if any: the runtime running it, its concurrency budget, and the operation it is (see `withRequest`). */
+/** How many operations an explanation replays for each charge to its investigator. */
+const EXPLANATION_OPERATIONS_PER_CHARGE = 100;
+
 interface RequestContext {
   owner: SemanticRuntime;
   budget: Semaphore;
@@ -364,7 +367,7 @@ interface RequestContext {
    * is also kept here, with its policy's name, and the subject's own rate limit
    * is not charged for an investigation of them.
    */
-  explanation?: { readonly investigator: string; readonly trace: TraceEntry[] };
+  explanation?: { readonly investigator: string; readonly trace: TraceEntry[]; operations?: number };
   /** Set on the investigator's own reads during an explanation, which was charged to them once when it started (ADR-0089). */
   charged?: true;
 }
@@ -716,6 +719,21 @@ export class SemanticRuntime {
     return requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation }, fn);
   }
 
+  /**
+   * Runs `fn` as part of an explanation `investigator` makes (ADR-0089): every
+   * decision it makes, about whichever subject, is audited with `explainedBy`
+   * naming the investigator, and the whole of it is charged to the
+   * investigator once, never to a subject it asks about. For a component that
+   * answers its own "why" over this runtime, such as a workflow explanation
+   * (ADR-0057; 5.0 pressure test M2). Inside a request already explaining, it
+   * runs in that one.
+   */
+  async explaining<T>(investigator: Identity, fn: () => Promise<T>): Promise<T> {
+    if (this.currentRequest()?.explanation) return fn();
+    await this.checkRateLimit(investigator);
+    return requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain", explanation: { investigator: investigator.subjectId, trace: [] } }, fn);
+  }
+
   /** This runtime's request in progress, if any; a request of another runtime instance is not this one's. */
   private currentRequest(): RequestContext | undefined {
     const store = requests.getStore();
@@ -725,7 +743,15 @@ export class SemanticRuntime {
   private async checkRateLimit(identity: Identity): Promise<void> {
     // An investigation is charged to the investigator once, when it starts (ADR-0089), never to the subject it replays.
     const request = this.currentRequest();
-    if (request?.explanation || request?.charged) return;
+    if (request?.explanation) {
+      // Charged once when it started, and once more for every EXPLANATION_OPERATIONS_PER_CHARGE operations it replays, so
+      // an explanation cannot be a way to read without limit (8.0 pressure test L5).
+      const n = (request.explanation.operations = (request.explanation.operations ?? 0) + 1);
+      if (n % EXPLANATION_OPERATIONS_PER_CHARGE === 0 && !(await this.rateLimiter.tryAcquire(request.explanation.investigator)))
+        throw new RateLimitExceededError(`Rate limit exceeded for subject "${request.explanation.investigator}"`);
+      return;
+    }
+    if (request?.charged) return;
     if (!(await this.rateLimiter.tryAcquire(identity.subjectId))) {
       throw new RateLimitExceededError(`Rate limit exceeded for subject "${identity.subjectId}"`);
     }
@@ -3098,6 +3124,8 @@ export class SemanticRuntime {
   }
 
   async invokeAction(actionName: string, input: unknown, identity: Identity, options: InvokeActionOptions = {}): Promise<unknown> {
+    // An explanation replays decisions; it never changes anything (8.0 pressure test L5).
+    if (this.currentRequest()?.explanation) throw new Error(`Action ${actionName} cannot be invoked inside an explanation`);
     const action = await this.registry.getAction(actionName);
     if (!action) throw new NotFoundError(`Unknown action "${actionName}"`);
     const primaryType = action.applicableTypes[0] ?? "unknown";

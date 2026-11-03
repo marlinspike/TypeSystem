@@ -22,6 +22,7 @@ describe("the shipped deployment files", () => {
     expect(await driftedDeployments()).toEqual([]);
     expect(DEPLOYMENTS.map((d) => path.basename(deploymentFile(d)))).toEqual([
       "airforce.deployment.json",
+      "airforce-durable.deployment.json",
       "hospital.deployment.json",
       "cold-chain.deployment.json",
       "cold-chain-recalls.deployment.json",
@@ -74,7 +75,14 @@ describe("the generic server", () => {
     const server = await serve({ file: airforceFile, port: 0 });
     try {
       const at = (p: string, token?: string) => fetch(`http://localhost:${server.port}${p}`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
-      expect(await (await at("/version")).json()).toEqual({ deployment: "airforce", build: server.host.build, packs: ["core@1.0.0", "airforce@1.0.0"] });
+      expect(await (await at("/version")).json()).toEqual({
+        deployment: "airforce",
+        build: server.host.build,
+        packs: ["core@1.0.0", "airforce@1.0.0"],
+        state: { audit: "memory", workflows: "memory", cache: "none", rateLimit: "none" },
+        auditChain: server.host.state.audit.chain,
+        applications: []
+      });
       expect((await at("/healthz")).status).toBe(200);
       const read = async (token?: string) => (await at("/api/objects/airforce.Aircraft/AF86-0147", token)).json() as Promise<{ values?: Record<string, unknown> }>;
       expect((await read("demo-maintainer-token")).values).toHaveProperty("deploymentLocation");

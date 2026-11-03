@@ -62,6 +62,46 @@ export function roleModels(models: Readonly<Record<string, string>>, llm: AppSer
 }
 
 /**
+ * A compiled application as a server hosts it (ADR-0108): what its
+ * generated `server.ts` exports as `application`. The generic server
+ * registers its flows on the deployment's one workflow engine and serves its
+ * API and pages from the deployment's one runtime; `createAppServer` does the
+ * same over a host the application builds itself, for development.
+ */
+export interface HostedApplication {
+  readonly name: string;
+  readonly title?: string;
+  readonly flows: readonly AnyWorkflow[];
+  readonly contract?: ConsumerContract;
+  readonly clientDir?: string;
+  /** The models its AI steps name, by role, built when the server starts. */
+  readonly models?: () => Promise<Readonly<Record<string, AiModel>>>;
+}
+
+/**
+ * One application's API and pages over a runtime and an engine its flows are
+ * registered on: what both `createAppServer` and the generic server mount.
+ */
+export function applicationApp(opts: {
+  readonly backend: AppBackend;
+  readonly identities: (token: string | null | undefined) => Promise<Identity> | Identity;
+  readonly workflows: WorkflowEngine;
+  readonly title?: string;
+  readonly contract?: ConsumerContract;
+  readonly clientDir?: string;
+}): Express {
+  const app = createApiApp({
+    backend: opts.backend,
+    identityResolver: async (token) => opts.identities(token),
+    workflows: opts.workflows,
+    ...(opts.title ? { info: { title: opts.title } } : {}),
+    ...(opts.contract ? { contract: opts.contract } : {})
+  });
+  if (opts.clientDir && existsSync(opts.clientDir)) app.use(clientRouter({ dir: opts.clientDir, spa: true }));
+  return app;
+}
+
+/**
  * The application's server: the governed REST API over the host, with its
  * flows registered on the one workflow engine, and its client served
  * beside it. It adds no decision of its own: every read, Action, start and
@@ -74,13 +114,13 @@ export async function createAppServer(opts: AppServerOptions): Promise<{ app: Ex
     ...(opts.journal ? { journal: opts.journal } : {})
   });
   for (const flow of opts.flows) workflows.register(flow);
-  const app = createApiApp({
+  const app = applicationApp({
     backend: opts.backend,
-    identityResolver: async (token) => opts.identities(token),
+    identities: opts.identities,
     workflows,
-    ...(opts.title ? { info: { title: opts.title } } : {}),
-    ...(opts.contract ? { contract: opts.contract } : {})
+    ...(opts.title ? { title: opts.title } : {}),
+    ...(opts.contract ? { contract: opts.contract } : {}),
+    ...(opts.clientDir ? { clientDir: opts.clientDir } : {})
   });
-  if (opts.clientDir && existsSync(opts.clientDir)) app.use(clientRouter({ dir: opts.clientDir, spa: true }));
   return { app, workflows };
 }

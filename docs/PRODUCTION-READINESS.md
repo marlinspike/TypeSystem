@@ -54,6 +54,14 @@ says so.
    set, running Cedar's formal analysis over it, change control for the
    policy files themselves, and a supply-chain review of the WebAssembly
    dependency.
+   *Partly addressed for change control (2026-11-03, ADR-0109):*
+   `typesys deploy check` now compares a deployment's policies before and
+   after exactly, not by sampling personas. For the combinator policies a
+   deployment declares as data (ADR-0100), it finds every request the new
+   policy allows that the old one denied, prints a minimal witness for
+   each, and blocks the upgrade when the widened rule decides anything. This is
+   not Cedar's own symbolic analysis of a hand-written Cedar policy set,
+   which remains open.
 2. **A hostile-input threat model at the boundary.** The HTTP transport
    (ADR-0021) and the `query` DSL tool (ADR-0011) accept external input,
    and nothing here has been reviewed for injection, resource exhaustion,
@@ -153,9 +161,14 @@ says so.
    cross-instance reads and composition, an interleaved audit log); the
    load test proves replicas sharing Redis admit one budget. A deployment
    with encrypted or marked Types must wrap `RedisCache` in `EncryptedCache`
-   to cache them (ADR-0036); otherwise they read live. Still open:
-   Redis and Postgres high availability and topology, and a rolling-deploy
-   playbook.
+   to cache them (ADR-0036); otherwise they read live.
+   *The generic server now uses it (2026-11-03, ADR-0106):* a deployment
+   declares where its state lives in a `state` section (audit, workflow
+   journal, cache, rate limit), and `typesys serve` opens Postgres and
+   Redis from it, refusing to start if the database is unreachable or not
+   migrated. Each replica writes its own audit chain, so replicas never
+   contend on one sequence. Still open: Redis and Postgres high
+   availability and topology, and a rolling-deploy playbook.
 8. **Per-instance authorization, if the real domain needs it.** Every
    policy rule here is role-based at the Type/property level ("any
    `clinician` can read any `Patient`"), never "this clinician can read
@@ -193,6 +206,19 @@ says so.
    enforced by a DB trigger (ADR-0015), which is a good start, but there
    is no tamper-evidence beyond append-only, no export, and no retention
    policy. Under an accreditation boundary this escalates to Tier 1.
+   *Addressed (2026-11-03, ADR-0105, ADR-0106):* every audit row is now a
+   link in a hash chain (sequence number, previous hash, its own SHA-256),
+   and the writer signs the chain's head with Ed25519 every N rows, every
+   T seconds and on shutdown. `typesys audit verify` walks every chain and
+   reports an edited, deleted, reordered or truncated row, and a checkpoint
+   whose signature or key does not check. `typesys audit export` writes a
+   JSON Lines file that verifies offline, and `typesys audit prune` deletes
+   rows older than the deployment's `retainDays`, only up to a signed
+   checkpoint, and audits itself; a database trigger refuses any other
+   delete. Still open: anchoring checkpoints outside the database (a
+   write-once store or transparency log), and keeping the signing key in a
+   KMS rather than a mounted secret. Someone who holds both the database
+   and the signing key can still rewrite history undetected.
 10. **Observability wired to something real.** The OpenTelemetry hooks
     (ADR-0017) are tested to fire in isolation; nobody has pointed them at
     a real backend (Datadog, Honeycomb, Jaeger) and built dashboards,
