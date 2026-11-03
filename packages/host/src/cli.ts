@@ -7,8 +7,10 @@ import { loadDeployment, loadExtensions } from "./load.js";
 
 const USAGE = `typesys deploy — build and check deployments (ADR-0102, ADR-0104)
 
-  typesys deploy build <deployment.json> [--packs-dir <dir>] [--json]
-      Build the deployment as the generic server would, print its build id, and exit.
+  typesys deploy build <deployment.json> [--packs-dir <dir>] [--offline] [--json]
+      Build the deployment as the generic server would, check every declared database
+      table and column against the database's catalog (no rows are read; --offline skips
+      this), print its build id, and exit.
   typesys deploy check <current.json> <next.json> [--persona <name>]... [--object <Type>/<id>]...
                        [--queries <queries.json>] [--consumer <contract.json>]... [--packs-dir <dir>] [--json]
       Build both, compare them, and exit 1 when the next one must not roll as is: a consumer
@@ -27,10 +29,11 @@ interface Args {
   queries?: string;
   packsDir?: string;
   json: boolean;
+  offline: boolean;
 }
 
 function parse(argv: readonly string[]): Args {
-  const out: Args = { positionals: [], personas: [], objects: [], consumers: [], json: false };
+  const out: Args = { positionals: [], personas: [], objects: [], consumers: [], json: false, offline: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const next = () => {
@@ -48,6 +51,7 @@ function parse(argv: readonly string[]): Args {
     else if (a === "--queries") out.queries = next();
     else if (a === "--packs-dir") out.packsDir = next();
     else if (a === "--json") out.json = true;
+    else if (a === "--offline") out.offline = true;
     else if (a.startsWith("--")) throw new Error(`Unknown option ${a}`);
     else out.positionals.push(a);
   }
@@ -88,8 +92,14 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
       const { deployment, packs, extensions } = await load(args.positionals[0]!, args.packsDir);
       // Built as the server would, but writing nothing into the deployment's audit trail or journal.
       const host = await buildHost(deployment, { packs, extensions, state: "memory" });
+      let sourceProblems: string[];
+      try {
+        sourceProblems = args.offline ? [] : await host.checkSources();
+      } finally {
+        await host.close();
+      }
+      if (sourceProblems.length > 0) throw new DeploymentError(sourceProblems);
       const result = { ok: true, deployment: deployment.name, build: host.build, packs: host.packs.map((p) => `${p.name}@${p.version}`) };
-      await host.close();
       console.log(args.json ? JSON.stringify(result) : `${result.deployment} builds: ${result.build}\npacks: ${result.packs.join(", ")}`);
       return 0;
     } catch (err) {

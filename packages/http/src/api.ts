@@ -108,7 +108,8 @@ export function createApiRouter(opts: ApiOptions): Router {
       res.status(status).json(await runUnderContract(contract, () => handler(req, identity)));
     } catch (err) {
       const problem = toProblem(err, { withholdReasons: runtime.discovery !== "open" });
-      if (problem.status === 500) onError(err, req);
+      // A source failing (503, 502) is logged with the internal errors: its cause, which no caller is shown, is the operator's to read (ADR-0110).
+      if (problem.status >= 500) onError(err, req);
       sendProblem(res, problem);
     }
   };

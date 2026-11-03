@@ -15,7 +15,8 @@ import {
   type RelatedRef,
   type RelationshipDefinition,
   type ResolvedProperties,
-  type SortKey
+  type SortKey,
+  SourceRefusedError
 } from "@typesys/core";
 
 /**
@@ -99,18 +100,94 @@ export class PostgresTableAdapter implements Adapter {
     return `SELECT ${[...cols].map(quoted).join(", ")} FROM ${quoted(m.table)}`;
   }
 
-  private async rows(sql: string, params: unknown[], signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+  private async rows(typeName: string, sql: string, params: unknown[], signal?: AbortSignal): Promise<Record<string, unknown>[]> {
     if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
     try {
       return (await this.pool.query<Record<string, unknown>>(sql, params)).rows;
     } catch (err) {
-      const code = (err as { code?: string }).code;
-      // A connection failure or a server shutting down is the source being unavailable; anything else is a mapping fault.
-      if (code === undefined || code.startsWith("08") || code.startsWith("57")) {
-        throw new AdapterUnavailableError(`${this.config.system} could not be read: ${(err as Error).message}`);
-      }
-      throw err;
+      throw this.readFailure(typeName, err);
     }
+  }
+
+  /**
+   * What a failed read becomes (ADR-0110). A connection failure or a server
+   * shutting down is the source being unavailable, and worth retrying. The
+   * database refusing this connection the table is the source's own
+   * refusal. A table or column the database does not have is the
+   * deployment's mapping not matching the database: not retryable, and
+   * named by Type and source, so the caller gets a problem that says where
+   * to look instead of an internal error. The database's own message stays
+   * in `cause`, for the server's log.
+   */
+  private readFailure(typeName: string, err: unknown): Error {
+    const code = (err as { code?: string }).code;
+    const system = this.config.system;
+    // A socket error carries a Node code (ECONNREFUSED), not a five-character SQLSTATE: the server was never reached.
+    if (code === undefined || !/^[0-9A-Z]{5}$/.test(code) || code.startsWith("08") || code.startsWith("57")) {
+      return new AdapterUnavailableError(`${system} could not be read: ${(err as Error).message}`);
+    }
+    if (code === "42501") return new SourceRefusedError(`${system} refused TypeSystem's connection permission to read ${typeName}`, this.dataSourceId);
+    if (code === "42P01" || code === "42703" || code === "3F000") {
+      const failure = new AdapterUnavailableError(
+        `${system} could not answer for ${typeName}: the deployment's mapping of it names a table or column the database does not have (typesys deploy build lists which)`,
+        { retryable: false }
+      );
+      (failure as { cause?: unknown }).cause = err;
+      return failure;
+    }
+    return err instanceof Error ? err : new Error(String(err));
+  }
+
+  /**
+   * Every problem with this adapter's mapping that the database can see
+   * (ADR-0110): a table or view that does not exist, an id or property
+   * column it does not have, or a table this connection may not read. Each
+   * names the Type, the property and, when one is close, the name probably
+   * meant. Reads the catalog only, never a row. Rejects with
+   * `AdapterUnavailableError` when the database cannot be reached, which is
+   * not a mapping problem.
+   */
+  async checkMapping(): Promise<string[]> {
+    const problems: string[] = [];
+    for (const [type, m] of Object.entries(this.config.types)) {
+      let rel: { oid: string | null; readable: boolean | null; schema: string | null } | undefined;
+      try {
+        [rel] = (
+          await this.pool.query<{ oid: string | null; readable: boolean | null; schema: string | null }>(
+            `SELECT to_regclass($1)::oid::text AS oid,
+                    CASE WHEN to_regclass($1) IS NULL THEN NULL ELSE has_table_privilege(to_regclass($1), 'SELECT') END AS readable,
+                    (SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = to_regclass($1)) AS schema`,
+            [quoted(m.table)]
+          )
+        ).rows;
+      } catch (err) {
+        throw this.readFailure(type, err);
+      }
+      if (!rel?.oid) {
+        const schema = m.table.includes(".") ? m.table.slice(0, m.table.indexOf(".")) : undefined;
+        const names = (
+          await this.pool.query<{ name: string }>(
+            schema
+              ? `SELECT n.nspname || '.' || c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r','v','m','p','f') AND n.nspname = $1`
+              : `SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r','v','m','p','f') AND n.nspname = ANY (current_schemas(false))`,
+            schema ? [schema] : []
+          )
+        ).rows.map((r) => r.name);
+        problems.push(`${type}: ${this.config.system} has no table or view "${m.table}"${hint(m.table, names)}`);
+        continue;
+      }
+      if (rel.readable === false) problems.push(`${type}: the connection may not read ${m.table} (it lacks SELECT on it)`);
+      const columns = (
+        await this.pool.query<{ name: string }>(`SELECT attname AS name FROM pg_attribute WHERE attrelid = $1::oid AND attnum > 0 AND NOT attisdropped`, [rel.oid])
+      ).rows.map((r) => r.name);
+      const has = new Set(columns);
+      if (!has.has(m.id)) problems.push(`${type}: ${m.table} has no id column "${m.id}"${hint(m.id, columns)}`);
+      for (const [property, c] of Object.entries(m.columns)) {
+        const column = columnOf(c).column;
+        if (!has.has(column)) problems.push(`${type}.${property}: ${m.table} has no column "${column}"${hint(column, columns)}`);
+      }
+    }
+    return problems;
   }
 
   private canonical(m: PostgresTableMapping, row: Record<string, unknown>): { objectId: string; values: Record<string, unknown>; provenance: ProvenanceRef[] } | undefined {
@@ -133,7 +210,7 @@ export class PostgresTableAdapter implements Adapter {
 
   async resolveProperties(typeName: string, objectId: string, _propertyNames: string[], opts?: AdapterCallOptions): Promise<ResolvedProperties> {
     const m = this.mapping(typeName);
-    const [row] = await this.rows(`${this.select(m)} WHERE rtrim(${quoted(m.id)}::text) = $1 LIMIT 1`, [objectId], opts?.signal);
+    const [row] = await this.rows(typeName, `${this.select(m)} WHERE rtrim(${quoted(m.id)}::text) = $1 LIMIT 1`, [objectId], opts?.signal);
     const c = row ? this.canonical(m, row) : undefined;
     return c ? { values: c.values, provenance: c.provenance } : { values: {}, provenance: [] };
   }
@@ -153,7 +230,7 @@ export class PostgresTableAdapter implements Adapter {
     }
     const max = this.config.maxRows ?? 10_000;
     const sql = `${this.select(m)}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${quoted(m.id)} LIMIT ${max + 1}`;
-    const rows = await this.rows(sql, params, signal);
+    const rows = await this.rows(typeName, sql, params, signal);
     // The caller's to narrow, not an outage: reading again would answer the same.
     if (rows.length > max) throw new AdapterUnavailableError(`${this.config.system} has more than ${max} rows of ${typeName} for this query; narrow it`, { retryable: false });
     return rows.map((r) => this.canonical(m, r)).filter((c): c is NonNullable<typeof c> => c !== undefined);
@@ -190,6 +267,31 @@ export class PostgresTableAdapter implements Adapter {
   executeAction(action: ActionDefinition): Promise<unknown> {
     return Promise.reject(new Error(`PostgresTableAdapter "${this.dataSourceId}" reads tables another system owns and implements no Actions (asked for ${action.name})`));
   }
+}
+
+/** `(did you mean "x"?)` for the closest of `names`, when one is close: within a third of the name's length in edits. */
+function hint(name: string, names: readonly string[]): string {
+  const bare = (n: string) => n.slice(n.lastIndexOf(".") + 1).toLowerCase();
+  let best: { n: string; d: number } | undefined;
+  for (const n of names) {
+    const d = distance(bare(name), bare(n));
+    if (d <= Math.max(1, Math.floor(bare(name).length / 3)) && (!best || d < best.d)) best = { n, d };
+  }
+  return best ? ` (did you mean "${best.n}"?)` : "";
+}
+
+function distance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const above = row[j]!;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return row[b.length]!;
 }
 
 function convert(raw: unknown, col: PostgresColumn): unknown {
