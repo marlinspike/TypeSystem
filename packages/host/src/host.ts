@@ -41,6 +41,8 @@ import {
   type Deployment,
   type HttpAuthSpec,
   type HttpSourceSpec,
+  type HttpTypeSpec,
+  type PostgresTypeSpec,
   type PostgresSourceSpec
 } from "./deployment.js";
 
@@ -255,7 +257,8 @@ async function sourceMappingProblems(deployment: Deployment, registry: SemanticR
   const names = types.map((t) => t.name);
   for (const [id, spec] of Object.entries(deployment.sources)) {
     if (spec.kind === "extension") continue;
-    for (const [typeName, m] of Object.entries(spec.types)) {
+    const specs = Object.entries(spec.types as Readonly<Record<string, HttpTypeSpec | PostgresTypeSpec>>);
+    for (const [typeName, m] of specs) {
       const at = `sources["${id}"].types["${typeName}"]`;
       const type = types.find((t) => t.name === typeName);
       if (!type) {

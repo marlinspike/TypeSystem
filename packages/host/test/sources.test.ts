@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { AdapterUnavailableError, SourceRefusedError, type DomainManifest } from "@typesys/core";
 import { toProblem } from "@typesys/http";
-import { buildPack, corePack } from "@typesys/packs";
+import { buildPack } from "@typesys/packs";
 import { buildHost, emptyEnvironment, overlayEnvironment, type Host } from "../src/host.js";
 import { DEPLOYMENT_FORMAT, DeploymentError, type Deployment, type PostgresTypeSpec } from "../src/deployment.js";
 
@@ -47,7 +47,7 @@ const deployment = (types: Record<string, PostgresTypeSpec> = { "shop.Customer":
   ...extra
 });
 
-const problemsOf = async (d: Deployment, env = overlayEnvironment({ SHOP_URL: "postgresql://nobody@127.0.0.1:1/none" }, emptyEnvironment)): Promise<string[]> => {
+const problemsOf = async (d: Deployment, env = overlayEnvironment({ SHOP_URL: "postgresql://nobody@127.0.0.1:1/none" }, emptyEnvironment)): Promise<readonly string[]> => {
   const err = await buildHost(d, { packs: [shopPack], env, state: "memory" }).then(
     async (h) => {
       await h.close();

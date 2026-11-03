@@ -492,7 +492,7 @@ export function validateAcceptance(doc: unknown): string[] {
   if (typeof d.from !== "string" || typeof d.to !== "string") out.push("from and to: must be the two build ids");
   if (!Array.isArray(d.accepted)) out.push("accepted: must be a list");
   else
-    d.accepted.forEach((a, i) => {
+    (d.accepted as readonly (Partial<DeployAcceptance["accepted"][number]> | null)[]).forEach((a, i) => {
       if (typeof a?.blocking !== "string" || typeof a.by !== "string" || !a.by.trim() || typeof a.why !== "string" || !a.why.trim()) out.push(`accepted[${i}]: needs blocking, by and why`);
     });
   return out;

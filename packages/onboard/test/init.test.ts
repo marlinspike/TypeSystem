@@ -92,7 +92,7 @@ describe("drafting a deployment from an onboarded pack (ADR-0111)", () => {
       types: [{ ...manifest.types[0]!, schema: { ...manifest.types[0]!.schema, properties: { ...manifest.types[0]!.schema.properties, phone: { type: "string" } }, "x-policy": { objectPolicy: "shop.read-customer", propertyPolicies: { email: "shop.contact", phone: "shop.phone" } } } }]
     };
     const pack2 = buildPack({ name: "shop", version: "1.1.0", description: "x", manifests: [grown] });
-    const plans2: AdapterPlan[] = [{ ...plans[0]!, types: { "shop.Customer": { ...(plans[0] as { types: Record<string, never> }).types["shop.Customer"], table: "public.customers", id: "customer_id", columns: { customerId: "customer_id", email: "email", phone: "phone" } } } } as AdapterPlan];
+    const plans2: AdapterPlan[] = [{ ...plans[0]!, types: { "shop.Customer": { table: "public.customers", id: "customer_id", columns: { customerId: "customer_id", email: "email", phone: "phone" } } } } as AdapterPlan];
     const u = updateDeployment(edited, pack2, plans2, "packs/shop-1.1.0.typesys-pack.json");
     expect(u.deployment.packs).toEqual([{ name: "shop", version: "1.1.0", digest: pack2.digest, file: "packs/shop-1.1.0.typesys-pack.json" }]);
     expect(u.addedPolicies).toEqual(["shop.phone"]);
@@ -160,7 +160,7 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
     const written = readFileSync(path.join(dir, "shop.deployment.json"), "utf8");
     // The connection string is referred to by name, never written.
     expect(written).not.toContain(url!);
-    expect(JSON.parse(written).sources["shop-db"].url).toEqual({ $secret: "SHOP_URL" });
+    expect((JSON.parse(written) as { sources: Record<string, { url: unknown }> }).sources["shop-db"]!.url).toEqual({ $secret: "SHOP_URL" });
     // No value from a row is written into the tests.
     const tests = readFileSync(path.join(dir, "shop.tests.json"), "utf8");
     for (const v of ["C-1", "Ada", "ada@example.com", "gold"]) expect(tests).not.toContain(v);

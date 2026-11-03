@@ -116,7 +116,7 @@ async function runOne(host: Host, t: DeploymentTest): Promise<TestOutcome> {
       const at = t.read.indexOf("/");
       objects = [(await host.runtime.getObject(t.read.slice(0, at), t.read.slice(at + 1), who)).values];
     } else {
-      const q: SemanticQuery = typeof t.query === "string" ? { type: t.query!, limit: 50 } : t.query!;
+      const q: SemanticQuery = typeof t.query === "string" ? { type: t.query, limit: 50 } : t.query!;
       const result = await host.runtime.query(q, who);
       objects = result.items.map((o) => (o as { values: Record<string, unknown> }).values);
       // A query the persona may not make at all, or one whose every object the rules hide, returns nothing it may see.
