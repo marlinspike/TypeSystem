@@ -2,7 +2,7 @@
   "format": "typesys.app.lock/1",
   "spec": "55da4f8a6e4352e099d2155cf403036cf77ef7141a0aa1a18b6dcc31a64b04c7",
   "files": {
-    "server.ts": "4dbfc9bb07be01a0317841accb6012600ff318f2282039ef7d7f2c7f10a6994a",
+    "server.ts": "4cabbe27c7587ab54639f7ac27e057f6a022a8b7eb49f8130773d72d3f2243a9",
     "index.html": "02692be9e62493179d693f806ea6a0feb458822caa9ead924085f64c8084535a",
     "src/generated/model.ts": "6127b259e015ebc6d45140445c6b193c2f03aae3b1e8a7eb6e018d07fa1740b5",
     "src/generated/contracts.ts": "3713ed746d1e08ad78737728d2e7eead527831951af5d2d6d0ba31ba1374a544",

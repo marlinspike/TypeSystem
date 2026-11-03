@@ -52,6 +52,21 @@ describe("WorkflowEngine.explain under need-to-know (5.0 pressure test)", () => 
   });
 });
 
+describe("WorkflowEngine.explain audits the subject's decisions as the investigator's (5.0 pressure test M2)", () => {
+  it("marks every decision it makes to answer with explainedBy, and charges the subject nothing", async () => {
+    const { tb, engine } = await fixture();
+    const before = (await tb.registry.listAuditEvents({ limit: 1000 })).items.length;
+    await engine.explain("airforce.GroundForRepair", demoIdentities.maintainer, { as: demoIdentities.viewer }).catch(() => undefined);
+    await engine.explain("airforce.GroundForRepair", demoIdentities.viewer);
+    const rows = (await tb.registry.listAuditEvents({ limit: 1000 })).items.slice(0, -before || undefined);
+    const decisions = rows.filter((r) => r.action !== "workflow.explain");
+    expect(decisions.length).toBeGreaterThan(0);
+    // Every decision made while answering names who asked: none is left looking like the subject's own read.
+    expect(decisions.filter((r) => (r.details as { explainedBy?: string } | undefined)?.explainedBy === undefined)).toEqual([]);
+    expect(decisions.filter((r) => r.subjectId === demoIdentities.viewer.subjectId).length).toBeGreaterThan(0);
+  });
+});
+
 describe("declared reads (ADR-0090)", () => {
   const readStep = (reads: readonly string[] | undefined) => ({
     kind: "read",

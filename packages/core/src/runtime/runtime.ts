@@ -716,6 +716,21 @@ export class SemanticRuntime {
     return requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation }, fn);
   }
 
+  /**
+   * Runs `fn` as part of an explanation `investigator` makes (ADR-0089): every
+   * decision it makes, about whichever subject, is audited with `explainedBy`
+   * naming the investigator, and the whole of it is charged to the
+   * investigator once, never to a subject it asks about. For a component that
+   * answers its own "why" over this runtime, such as a workflow explanation
+   * (ADR-0057; 5.0 pressure test M2). Inside a request already explaining, it
+   * runs in that one.
+   */
+  async explaining<T>(investigator: Identity, fn: () => Promise<T>): Promise<T> {
+    if (this.currentRequest()?.explanation) return fn();
+    await this.checkRateLimit(investigator);
+    return requests.run({ owner: this, budget: new Semaphore(this.maxConcurrency), operation: "explain", explanation: { investigator: investigator.subjectId, trace: [] } }, fn);
+  }
+
   /** This runtime's request in progress, if any; a request of another runtime instance is not this one's. */
   private currentRequest(): RequestContext | undefined {
     const store = requests.getStore();

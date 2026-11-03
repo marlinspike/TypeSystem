@@ -86,7 +86,8 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
   if (sub === "build" && args.positionals.length === 1) {
     try {
       const { deployment, packs, extensions } = await load(args.positionals[0]!, args.packsDir);
-      const host = await buildHost(deployment, { packs, extensions });
+      // Built as the server would, but writing nothing into the deployment's audit trail or journal.
+      const host = await buildHost(deployment, { packs, extensions, state: "memory" });
       const result = { ok: true, deployment: deployment.name, build: host.build, packs: host.packs.map((p) => `${p.name}@${p.version}`) };
       await host.close();
       console.log(args.json ? JSON.stringify(result) : `${result.deployment} builds: ${result.build}\npacks: ${result.packs.join(", ")}`);

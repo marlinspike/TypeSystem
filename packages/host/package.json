@@ -26,6 +26,8 @@
   ],
   "dependencies": {
     "@typesys/adapter-http": "0.1.0",
+    "@typesys/adapter-postgres": "0.1.0",
+    "@typesys/app": "0.1.0",
     "@typesys/auth-oidc": "0.1.0",
     "@typesys/core": "0.1.0",
     "@typesys/devkit": "0.1.0",
@@ -33,7 +35,14 @@
     "@typesys/llm": "0.1.0",
     "@typesys/mcp-server": "0.1.0",
     "@typesys/packs": "0.1.0",
-    "jose": "6.2.12"
+    "@typesys/redis": "0.1.0",
+    "@typesys/registry-store-postgres": "0.1.0",
+    "@typesys/workflow": "0.1.0",
+    "@typesys/workflow-postgres": "0.1.0",
+    "jose": "6.2.12",
+    "pg": "8.23.0",
+    "redis": "6.2.1",
+    "ulid": "3.0.2"
   },
   "devDependencies": {
     "@typesys/cold-chain": "0.1.0",

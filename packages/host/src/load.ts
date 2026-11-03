@@ -1,5 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
+import type { HostedApplication } from "@typesys/app/server";
 import type { PackArchive } from "@typesys/packs";
 import { DeploymentError, parseDeployment, type Deployment } from "./deployment.js";
 import type { HostExtension } from "./host.js";
@@ -90,4 +92,62 @@ export async function loadExtensions(deployment: Deployment, importer: (specifie
   }
   if (problems.length > 0) throw new DeploymentError(problems);
   return out;
+}
+
+/** A compiled application as the generic server hosts it (ADR-0108). */
+export type { HostedApplication };
+
+/**
+ * Imports each application the deployment serves (ADR-0108): its `module`,
+ * an installed package's specifier, or else `<name>/dist/server.js` in the
+ * applications directory (`TYPESYS_APPS_DIR`, else `apps` beside the
+ * deployment, else this repository's `examples/apps`). The module must
+ * export `application`, named as the deployment names it.
+ */
+export async function loadApplications(
+  deployment: Deployment,
+  file: string,
+  opts: { readonly appsDir?: string; readonly importer?: (specifier: string) => Promise<unknown> } = {}
+): Promise<HostedApplication[]> {
+  const importer = opts.importer ?? ((s: string) => import(s));
+  const dir = path.dirname(path.resolve(file));
+  const problems: string[] = [];
+  const out: HostedApplication[] = [];
+  for (const spec of deployment.applications ?? []) {
+    let target: string;
+    if (spec.module !== undefined) {
+      if (!PACKAGE.test(spec.module) || spec.module.split("/").includes("..")) {
+        problems.push(`applications["${spec.name}"].module: must be an installed package's specifier, not a path`);
+        continue;
+      }
+      target = spec.module;
+    } else {
+      const appsDir = opts.appsDir ?? process.env.TYPESYS_APPS_DIR;
+      const candidates = appsDir ? [path.resolve(appsDir, spec.name)] : [path.join(dir, "apps", spec.name), path.join(dir, "..", "examples", "apps", spec.name)];
+      const found = await firstExisting(candidates.map((c) => path.join(c, "dist", "server.js")));
+      if (!found) {
+        problems.push(`application ${spec.name}: no built server at ${candidates.map((c) => path.relative(process.cwd(), path.join(c, "dist", "server.js"))).join(" or ")} (build it with typesys app build)`);
+        continue;
+      }
+      target = pathToFileURL(found).href;
+    }
+    let mod: unknown;
+    try {
+      mod = await importer(target);
+    } catch (err) {
+      problems.push(`application ${spec.name}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    const app = (mod as { application?: HostedApplication }).application;
+    if (!app || typeof app !== "object" || !Array.isArray(app.flows)) problems.push(`application ${spec.name}: its module exports no \`application\` (compile it again with typesys app compile)`);
+    else if (app.name !== spec.name) problems.push(`application ${spec.name}: its module is the application "${app.name}"`);
+    else out.push(app);
+  }
+  if (problems.length > 0) throw new DeploymentError(problems);
+  return out;
+}
+
+async function firstExisting(files: readonly string[]): Promise<string | undefined> {
+  for (const f of files) if (await access(f).then(() => true, () => false)) return f;
+  return undefined;
 }

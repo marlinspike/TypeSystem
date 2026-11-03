@@ -1,7 +1,10 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { DEPLOYMENT_FORMAT, buildIdOf, parseDeployment, validateDeployment, DeploymentError, type Deployment } from "../src/deployment.js";
 
 /** ADR-0102: a deployment is data, checked before anything is built, with every problem named. */
+
+const auditPublicKey = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
 
 const base: Deployment = {
   format: DEPLOYMENT_FORMAT,
@@ -15,6 +18,9 @@ const base: Deployment = {
       auth: { kind: "header", name: "x-key", value: { $secret: "S_KEY" } },
       types: { "t.T": { get: "/t/{id}", list: { path: "/t", items: "/items" }, id: "/id", fields: { a: "/a" } } }
     }
+  },
+  state: {
+    audit: { kind: "postgres", url: { $secret: "DATABASE_URL" }, signing: { keyId: "audit-1", key: { $secret: "AUDIT_KEY" } }, verifyKeys: { "audit-1": auditPublicKey } }
   },
   policies: { "t.read": { role: ["reader"] } },
   identity: { kind: "oidc", issuer: { $env: "ISSUER" } }
@@ -81,7 +87,7 @@ describe("a deployment document (ADR-0102)", () => {
 describe("the build id (ADR-0101)", () => {
   const digest = `sha256:${"a".repeat(64)}`;
   it("is the same for the same deployment and packs, in any key or pack order", () => {
-    const reordered = JSON.parse(JSON.stringify({ policies: base.policies, identity: base.identity, sources: base.sources, packs: base.packs, name: base.name, format: base.format })) as Deployment;
+    const reordered = JSON.parse(JSON.stringify({ policies: base.policies, state: base.state, identity: base.identity, sources: base.sources, packs: base.packs, name: base.name, format: base.format })) as Deployment;
     expect(buildIdOf(reordered, [digest, "sha256:b"])).toBe(buildIdOf(base, ["sha256:b", digest]));
     expect(buildIdOf(base, [digest])).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
@@ -92,5 +98,42 @@ describe("the build id (ADR-0101)", () => {
     expect(buildIdOf({ ...base, policies: { "t.read": { role: ["reader", "auditor"] } } }, [digest])).not.toBe(id);
     // The deployment holds only the reference; what S_KEY is set to never reaches the hash.
     expect(JSON.stringify(base)).not.toContain("hunter2");
+  });
+
+  it("keeps and signs its audit trail unless it is a demo (ADR-0106)", () => {
+    expect(problems({ state: undefined })).toContain("a deployment that is not a demo must keep its audit trail");
+    expect(problems({ state: { audit: { kind: "memory" } } })).toContain("must keep its audit trail");
+    expect(problems({ state: undefined, demo: true })).toBe("");
+    expect(problems({ state: { audit: { kind: "postgres", url: { $secret: "DATABASE_URL" } } } })).toContain("must sign its audit checkpoints");
+    expect(problems({ state: { audit: { kind: "postgres", url: { $secret: "DATABASE_URL" } } }, demo: true })).toBe("");
+    expect(problems({ state: { audit: { kind: "postgres", url: "postgresql://u:p@db/x", signing: { keyId: "audit-1", key: { $secret: "K" } }, verifyKeys: { "audit-1": auditPublicKey } } } })).toContain("a credential must be a");
+    expect(problems({ state: { audit: { kind: "postgres", url: { $secret: "D" }, signing: { keyId: "other", key: { $secret: "K" } }, verifyKeys: { "audit-1": auditPublicKey } } } })).toContain('must hold the public key for "other"');
+    expect(problems({ state: { audit: { kind: "postgres", url: { $secret: "D" }, signing: { keyId: "audit-1", key: { $secret: "K" } }, verifyKeys: { "audit-1": "not a key" } } } })).toContain("verifyKeys: must map key ids to PEM public keys");
+    expect(problems({ state: { ...base.state, audit: { ...base.state!.audit!, retainDays: 0 } } })).toContain("retainDays");
+  });
+
+  it("checks the rest of its state (ADR-0106)", () => {
+    const with_ = (extra: Record<string, unknown>) => problems({ state: { ...base.state, ...extra } });
+    expect(with_({ workflows: { kind: "postgres", url: { $secret: "DATABASE_URL" } }, cache: { kind: "redis", url: { $secret: "REDIS_URL" } }, rateLimit: { kind: "redis", url: { $secret: "REDIS_URL" }, capacity: 100, refillPerSecond: 50 } })).toBe("");
+    expect(with_({ workflows: { kind: "mongo" } })).toContain('state.workflows.kind: must be "memory" or "postgres"');
+    expect(with_({ cache: { kind: "memory", url: "x" } })).toContain('state.cache: unknown field "url"');
+    expect(with_({ rateLimit: { kind: "redis", capacity: 0, refillPerSecond: -1 } })).toMatch(/state.rateLimit.url[\s\S]*capacity[\s\S]*refillPerSecond/);
+    expect(with_({ rateLimit: { kind: "memory", url: { $secret: "R" }, capacity: 1, refillPerSecond: 1 } })).toContain("only a redis rate limit has one");
+    expect(with_({ surprise: {} })).toContain('state: unknown field "surprise"');
+    expect(problems({ runtime: { securityProfile: "lax" } })).toContain("runtime.securityProfile");
+  });
+
+  it("declares postgres sources as data (ADR-0107)", () => {
+    const pg = { kind: "postgres", system: "Legacy ERP", url: { $secret: "ERP_URL" }, types: { "t.T": { table: "erp.parts", id: "part_no", columns: { a: "descr", b: { column: "qty", as: "integer" } } } } };
+    expect(problems({ sources: { ...base.sources, erp: pg } })).toBe("");
+    expect(problems({ sources: { erp: { ...pg, url: "postgresql://u:p@h/db" } } })).toContain("a credential must be a");
+    expect(problems({ sources: { erp: { ...pg, types: { "t.T": { table: "parts; drop", id: "x", columns: {} } } } } })).toContain(".table: must be a table name");
+    expect(problems({ sources: { erp: { ...pg, types: { "t.T": { table: "p", id: "x", columns: { a: { column: "q", as: "money" } } } } } } })).toContain(".as: must be one of");
+  });
+
+  it("names its applications (ADR-0108)", () => {
+    expect(problems({ applications: [{ name: "recall-response", port: { $env: "RECALL_PORT", default: "4700" } }] })).toBe("");
+    expect(problems({ applications: [{ name: "a", port: "1" }, { name: "a", port: "2" }] })).toContain("a is listed twice");
+    expect(problems({ applications: [{ name: "A b", port: "1", extra: 1 }] })).toMatch(/applications\[0\]: unknown field "extra"[\s\S]*name/);
   });
 });

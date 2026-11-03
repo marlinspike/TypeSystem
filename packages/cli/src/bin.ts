@@ -30,6 +30,7 @@ Usage:
   typesys onboard collect|request|propose|review|check ...   (with @typesys/onboard installed)
   typesys app catalog|explain|context|check|compile|build|verify|diff|migrate|inspect|why|graph|impact|links ...   (with @typesys/compiler installed)
   typesys deploy build|check ...   (with @typesys/host installed: build a deployment, or check an upgrade before it rolls)
+  typesys audit verify|export|prune ...   (with @typesys/host installed: verify, export or prune a deployment's audit trail)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -149,7 +150,7 @@ function printResult(json: boolean, ok: boolean, payload: Record<string, unknown
 /**
  * A command that lives in its own package, so the CLI stays small: `typesys
  * engineer` (ADR-0071), `typesys onboard` (ADR-0076), `typesys app`
- * (ADR-0085) and `typesys deploy` (ADR-0104) run when theirs is installed.
+ * (ADR-0085), `typesys deploy` (ADR-0104) and `typesys audit` (ADR-0105) run when theirs is installed.
  */
 async function delegate(command: string, specifier: string, entry: string, argv: string[]): Promise<void> {
   let mod: Record<string, (argv: readonly string[]) => Promise<number>>;
@@ -174,6 +175,7 @@ async function main(): Promise<void> {
   if (process.argv[2] === "onboard") return delegate("onboard", "@typesys/onboard", "onboardCommand", process.argv.slice(3));
   if (process.argv[2] === "app") return delegate("app", "@typesys/compiler", "appCommand", process.argv.slice(3));
   if (process.argv[2] === "deploy") return delegate("deploy", "@typesys/host", "deployCommand", process.argv.slice(3));
+  if (process.argv[2] === "audit") return delegate("audit", "@typesys/host", "auditCommand", process.argv.slice(3));
   const args = parseArgs(process.argv.slice(2));
   const { command, dir, bindings: bindingsPath, out, name, json, force, check, limit, positionals } = args;
 

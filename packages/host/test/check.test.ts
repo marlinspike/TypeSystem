@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { buildPack, corePack } from "@typesys/packs";
 import { airforceManifest, airforcePack, releaseReadinessToViewers } from "@typesys/domain-airforce";
@@ -8,6 +9,8 @@ import { DeploymentError, type Deployment } from "../src/deployment.js";
 import { deployCommand } from "../src/cli.js";
 
 /** ADR-0104: the upgrade check builds both deployments and blocks what must not roll unreviewed. */
+
+const PUBLIC = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
 
 const current: DeploymentBuild = { deployment: airforceDeployment, packs: [corePack, airforcePack], extensions: [airforceExtension], env: emptyEnvironment };
 
@@ -39,6 +42,30 @@ describe("checkDeployment (ADR-0104)", () => {
     // The viewer's read of an Aircraft now returns the maintainer-only values: observed, not only predicted.
     expect(report.impact.exposures.some((e) => e.as === "viewer")).toBe(true);
     expect(report.blocking.some((b) => b.startsWith("exposure: viewer"))).toBe(true);
+  });
+
+  it("blocks a rule widened to a role no persona holds: found exactly, not by sampling (ADR-0109)", async () => {
+    const widened: Deployment = { ...airforceDeployment, policies: { ...airforceDeployment.policies, "airforce.maintainer-only": { role: ["maintainer", "ai-enclave", "contractor"] } } };
+    const report = await checkDeployment(current, next(widened));
+    // No persona is a contractor, so no persona's decision or read changes.
+    expect(report.policies.decisions).toEqual([]);
+    expect(report.impact.exposures).toEqual([]);
+    const exact = report.policies.exact.find((e) => e.policy === "airforce.maintainer-only")!;
+    expect(exact.widens).toEqual(["a subject with role contractor, on any object and in lists"]);
+    expect(exact.decides.length).toBeGreaterThan(0);
+    expect(report.blocking.some((b) => b.startsWith("widens: policy airforce.maintainer-only") && b.includes("role contractor"))).toBe(true);
+    expect(report.ok).toBe(false);
+    expect(renderDeployCheck(report)).toContain("[widens, exact] a subject with role contractor");
+  });
+
+  it("blocks giving up a kept, signed audit trail (ADR-0106)", async () => {
+    const kept: Deployment = { ...airforceDeployment, state: { audit: { kind: "postgres", url: { $secret: "DATABASE_URL" }, signing: { keyId: "k", key: { $secret: "K" } }, verifyKeys: { k: PUBLIC } } } };
+    const report = await checkDeployment(next(kept), current);
+    expect(report.blocking).toContain("state: the audit trail would no longer be kept: state.audit was postgres");
+    expect(report.blocking).toContain("state: audit checkpoints would no longer be signed");
+    expect(report.state).toEqual({ before: { audit: "postgres", signed: "yes", workflows: "memory", cache: "none", rateLimit: "none" }, after: { audit: "memory", signed: "no", workflows: "memory", cache: "none", rateLimit: "none" } });
+    // The check built the kept deployment without reaching its database: it writes nothing anywhere.
+    expect(report.settings).toContain("state");
   });
 
   it("does not block a policy that only narrows, and lists it for review", async () => {

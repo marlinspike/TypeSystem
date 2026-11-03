@@ -42,6 +42,11 @@ async function ruleOf(engine: PolicyEngine, policy: string): Promise<string | un
 
 /** Explains `workflow` for `as` (default the investigator). Another subject's access needs the runtime's inspection policy (ADR-0088). */
 export async function explainWorkflow(ctx: WorkflowExplainContext, workflow: AnyWorkflow, investigator: Identity, opts: { as?: Identity } = {}): Promise<WorkflowExplanation> {
+  // Every decision made to answer is the investigator's question: audited with explainedBy, charged to them (5.0 pressure test M2).
+  return ctx.runtime.explaining(investigator, () => explainOnce(ctx, workflow, investigator, opts));
+}
+
+async function explainOnce(ctx: WorkflowExplainContext, workflow: AnyWorkflow, investigator: Identity, opts: { as?: Identity }): Promise<WorkflowExplanation> {
   const subject = opts.as ?? investigator;
   const inspector = await ctx.runtime.canInspect(investigator);
   if (opts.as !== undefined && !inspector) throw new AuthorizationError("Not authorized: explain another subject's access", "Explaining another subject's access needs the inspection policy");

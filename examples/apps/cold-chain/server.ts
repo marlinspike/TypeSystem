@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Express } from "express";
-import { createAppServer, readLlmConfig } from "@typesys/app/server";
+import { createAppServer, readLlmConfig, roleModels, type HostedApplication } from "@typesys/app/server";
 import type { AnyWorkflow, WorkflowEngine } from "@typesys/workflow";
 import * as host from "@typesys/cold-chain";
 import { contract } from "./src/generated/contract.js";
@@ -15,17 +15,30 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** The application's directory: `dist/` is one level down. */
 const root = path.resolve(here, "..");
 
-/** Cold Chain Command: the governed API over the host, its flows on the workflow engine, its client beside them. */
+/**
+ * Cold Chain Command as a deployment's generic server hosts it (ADR-0108): its flows on the
+ * deployment's one workflow engine, its API and pages on the deployment's one runtime.
+ */
+export const application: HostedApplication = {
+  name: "cold-chain",
+  title: "Cold Chain Command",
+  // Each flow is typed by the application's model; the engine registers any workflow.
+  flows: [flow_assess, flow_disposition] as unknown as AnyWorkflow[],
+  contract,
+  clientDir: path.join(here, "client"),
+  models: async () => roleModels({ stability: "stability" }, { config: readLlmConfig(path.join(root, "typesys.llm.json")), options: await llmOptions() })
+};
+
+/** Cold Chain Command on its own, for development: the governed API over the host it builds, its flows on its own engine, its client beside them. */
 export async function createApp(): Promise<{ app: Express; workflows: WorkflowEngine }> {
   return createAppServer({
     backend: await host.buildColdChainHost(),
     identities: (token) => host.resolveColdChainIdentity(token),
-    // Each flow is typed by the application's model; the engine registers any workflow.
-    flows: [flow_assess, flow_disposition] as unknown as AnyWorkflow[],
+    flows: application.flows,
     models: { stability: "stability" },
     llm: { config: readLlmConfig(path.join(root, "typesys.llm.json")), options: await llmOptions() },
-    clientDir: path.join(here, "client"),
-    title: "Cold Chain Command",
+    clientDir: application.clientDir!,
+    title: application.title!,
     contract
   });
 }
