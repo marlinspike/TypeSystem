@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { AdapterUnavailableError, SourceRefusedError, type DomainManifest } from "@typesys/core";
@@ -114,10 +115,12 @@ describe.skipIf(!DATABASE_URL)("declared sources against the database (ADR-0110)
     return u.href;
   })();
   const role = `${schema}_reader`;
+  // Made per run: a throwaway role in a throwaway schema, never a fixed credential in the source.
+  const rolePassword = randomBytes(12).toString("hex");
   const readerUrl = (() => {
     const u = new URL(url);
     u.username = role;
-    u.password = "reader-pw";
+    u.password = rolePassword;
     return u.href;
   })();
   let admin: pg.Pool;
@@ -134,7 +137,7 @@ describe.skipIf(!DATABASE_URL)("declared sources against the database (ADR-0110)
       CREATE TABLE ${schema}.customers (customer_id text PRIMARY KEY, full_name text, email text, tier text);
       INSERT INTO ${schema}.customers VALUES ('C-1', 'Ada Lovelace', 'ada@example.com', 'gold');
       CREATE TABLE ${schema}.secrets (customer_id text PRIMARY KEY, full_name text, email text, tier text);
-      CREATE ROLE ${role} LOGIN PASSWORD 'reader-pw';
+      CREATE ROLE ${role} LOGIN PASSWORD '${rolePassword}';
       GRANT USAGE ON SCHEMA ${schema} TO ${role};
       GRANT SELECT ON ${schema}.customers TO ${role};
       CREATE TABLE ${schema}.partial (customer_id text PRIMARY KEY, full_name text, email text, tier text);

@@ -131,9 +131,9 @@ describe("drafting a deployment from an onboarded pack (ADR-0111)", () => {
     expect(lines.at(-1)).toMatch(/needs at least one --schema/);
     expect(await initCommand(["d", "--from", "mysql", "X"], say, {})).toBe(2);
     // A connection string in place of its variable's name is refused, and never echoed (L2).
-    expect(await initCommand(["d", "--from", "postgres", "postgres://svc:hunter2@db.prod/app", "--schema", "public"], say, {})).toBe(1);
+    expect(await initCommand(["d", "--from", "postgres", "postgresql://db.prod.internal/app", "--schema", "public"], say, {})).toBe(1);
     expect(lines.at(-1)).toMatch(/takes the name of an environment variable/);
-    expect(lines.join("\n")).not.toContain("hunter2");
+    expect(lines.join("\n")).not.toContain("db.prod.internal");
   });
 });
 
