@@ -23,6 +23,18 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
+TypeSystem now goes from your laptop to a shared server that people and
+agents sign in to. `typesys deploy promote` turns the development deployment
+`init` wrote into a shared one (your OpenID Connect provider, a signed audit
+trail in Postgres, a map from your provider's groups to its roles),
+`typesys migrate` readies its database, and `typesys deploy package` writes
+the Docker Compose or Kubernetes files that run it on the published image.
+An MCP client such as Claude Code pointed at the server is told where to sign
+in and does, a token minted for another application is refused, and every
+request leaves one JSON log line with no value in it. The section
+[From your laptop to a shared server](#from-your-laptop-to-a-shared-server)
+shows it on a real database, with output.
+
 Start with your own database. `typesys init --from postgres` reads a
 PostgreSQL catalog and writes a deployment the generic server serves:
 every table a Type, every foreign key a relationship, every column that
@@ -71,6 +83,116 @@ generates an ordinary TypeScript and React application, and verifies it
 through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
+
+## From your laptop to a shared server
+
+Four commands take the deployment `typesys init` drafted to one a team can
+use ([ADR-0116](docs/adr/0116-clients-sign-in-through-the-deployments-provider.md) to
+[ADR-0121](docs/adr/0121-telemetry-and-request-logs-are-declared.md)). Measured
+on the two-table `shop` database below: `init` and `promote` together took
+1.6 s, and `deploy check`, `migrate`, `deploy build` and `deploy package` 6.0 s,
+with one edit by hand (the provider's group names).
+
+```bash
+npx typesys deploy promote shop/shop.deployment.json --issuer https://login.example.com --audience api://shop --roles-claim groups
+```
+
+```
+Wrote shop.shared.deployment.json and its audit signing key secrets/audit-1.private.pem (git-ignored).
+
+Roles its policies use: reader, steward. In identity.roleMap, replace each key with the name your
+provider puts in the "groups" claim for it (a group or app role); a value not listed grants nothing.
+
+Secrets and settings to provide when it runs:
+  SHOP_URL
+  TYPESYS_AUDIT_SIGNING_KEY  (the contents of secrets/audit-1.private.pem)
+  TYPESYS_STATE_URL
+```
+
+The model, sources, rules and personas are left as they were, so
+`typesys deploy check shop.deployment.json shop.shared.deployment.json` shows
+only what sharing changes (`identity, demo, state`; `audit memory → postgres,
+signed no → yes`). Put your provider's names in the role map:
+
+```json
+"identity": {
+  "kind": "oidc", "issuer": "https://login.example.com", "audience": "api://shop", "rolesClaim": "groups",
+  "roleMap": { "shop-readers": ["reader"], "shop-stewards": ["reader", "steward"] }
+}
+```
+
+Then ready the database and write what runs it:
+
+```
+$ npx typesys deploy build shop.shared.deployment.json
+FAIL
+  - state.audit: 8 migrations not applied (0001_init.sql, ..., 0008_audit_chain.sql): run `typesys migrate <deployment.json>`
+
+$ npx typesys migrate shop.shared.deployment.json
+state.audit: applied 0001_init.sql, 0002_audit_operation.sql, ..., 0008_audit_chain.sql
+
+$ npx typesys deploy build shop.shared.deployment.json
+shop builds: sha256:e8fe033acd6ef2fdf682a8ddcad35c652560424c7c0e2ef03b070682316e53a9
+
+$ npx typesys deploy package shop.shared.deployment.json --target compose --out deploy --host shop.example.com
+Wrote deploy/ for Docker Compose: 7 files.
+
+Fill in .env (from .env.example): SHOP_URL, MCP_ALLOWED_HOSTS, STATE_DB_PASSWORD.
+Then: cd deploy && docker compose up -d
+```
+
+`deploy/` holds the deployment and its pack byte for byte (the packaged copy
+builds to the same id), a Compose project with a state database, a `migrate`
+step the server waits on, the server on `ghcr.io/marlinspike/typesystem`, the
+signing key as a Compose secret, and an `audit-verify` service
+(`docker compose --profile ops run --rm audit-verify`). `--target k8s` writes a
+Kustomize directory instead: an init container that migrates, probes, a
+disruption budget, and CronJobs that verify (and, with `retainDays`, prune) the
+audit trail. Any secret can be a file: `TYPESYS_AUDIT_SIGNING_KEY_FILE=/run/secrets/...`.
+
+**Signing in.** The server publishes OAuth Protected Resource Metadata
+(RFC 9728) and answers a call without a token the way the MCP authorization
+specification asks, so an MCP client finds your provider by itself (measured
+against a local OpenID Connect provider; addresses shown as a real server's):
+
+```
+$ curl -i -X POST https://shop.example.com/mcp ...         # no token
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://shop.example.com/.well-known/oauth-protected-resource"
+
+$ curl https://shop.example.com/.well-known/oauth-protected-resource
+{"resource":"https://shop.example.com","authorization_servers":["https://login.example.com"],"bearer_methods_supported":["header"],"resource_name":"shop"}
+```
+
+A token in the `shop-readers` group reads
+`{"customerId":"C1","region":"EU","tier":"gold","creditLimit":5000}`; a token
+the same provider issued for another application gets `401` with
+`error="invalid_token"`; a signed-in user in no mapped group gets `403`. Keys
+are found through the provider's OpenID Connect discovery, so Microsoft Entra
+ID, Okta and Keycloak need only their issuer, and a deployment
+that is not a demo must name its audience. A provider that cannot be reached
+answers `503`, never anonymous.
+
+**Day two.** Every request is one JSON line on stdout, with ids taken out of
+the route and no query, header or value:
+
+```json
+{"ts":"2026-11-04T14:07:47.387Z","level":"info","event":"http","deployment":"shop","build":"sha256:e8fe033acd6e…","requestId":"88e29c67-f4cf-47d4-855b-9b0b66f21f43","method":"GET","route":"/api/objects/shop.Customer/:id","status":200,"ms":55.3}
+```
+
+`"runtime": { "telemetry": { "otlpEndpoint": "http://otel-collector:4318" } }`
+sends the runtime's traces and metrics to an OpenTelemetry collector, named
+for the deployment and its build, with no object or subject id on a span.
+`typesys audit verify` on the same server's trail: `OK: 5 rows in 1 chain verify.`
+
+**The image.** Once a maintainer has run the hand-started `Image` workflow
+(it never runs on a pull request), `docker run -p 3939:3939 ghcr.io/marlinspike/typesystem:0.1.0`
+serves the airforce demonstration, and mounting a deployment serves yours. Two
+faults on main kept it from working at all, and are fixed: the Dockerfile did
+not copy the client bundler the build needs, and the server's start command
+hung forever on a deployment whose extension imports `@typesys/host`.
+[Operate a deployment](docs/how-to/operate-a-deployment.md) covers upgrades,
+key rotation, provider setup and telemetry.
 
 ## Your database, governed, in five commands
 
@@ -1620,6 +1742,9 @@ npm install
 npm run build
 npx typesys init shop --from postgres SHOP_URL --schema public   # your own database, as a deployment (SHOP_URL holds its connection string)
 npx typesys dev shop/shop.deployment.json                         # serve it, print tokens and a first call, rebuild on change
+npx typesys deploy promote shop/shop.deployment.json --issuer <url> --audience <aud>   # a shared deployment: sign-in, signed audit
+npx typesys migrate shop/shop.shared.deployment.json              # ready its database
+npx typesys deploy package shop/shop.shared.deployment.json --target compose   # or k8s: the files that run it
 npx typesys dev deployments/airforce.deployment.json              # the same with no database
 npx typesys deploy test deployments/airforce.deployment.json      # the airforce policy tests
 npm run showcase      # http://127.0.0.1:4300: builds what is stale, then everything below at once, with the guide
@@ -1646,7 +1771,7 @@ REDIS_URL=redis://localhost:6379 node packages/host/dist/serve.js deployments/ai
 npx typesys audit verify deployments/airforce-durable.deployment.json   # check what that server wrote
 ```
 
-`docker compose up --build --scale app=2` runs the durable deployment as two
+`docker compose up --build --scale app=2` runs the airforce durable deployment as two
 replicas behind nginx, with Postgres, Redis and the migrations
 ([`docs/how-to/deploy-with-containers.md`](docs/how-to/deploy-with-containers.md)).
 
@@ -1661,9 +1786,9 @@ squadron readiness app built with and without TypeSys).
 | Group | Packages |
 |---|---|
 | Runtime | `core` (model, registry, runtime, ABAC policy and policies as data, exact policy comparison, consumer contracts, hash-chained audit and its verifier), `policy-cedar` (Cedar policy engine) |
-| Deployment | `host` (the `typesys.deployment/1` document with its declared state and hosted applications, the generic host and server `typesys-host`, `typesys dev`, `typesys deploy build\|check\|test` with policy tests and acceptances, and `typesys audit verify\|export\|prune\|keygen`) |
+| Deployment | `host` (the `typesys.deployment/1` document with its declared state, sign-in, telemetry and hosted applications, the generic host and server `typesys-host`, `typesys dev`, `typesys deploy build\|check\|test\|promote\|package` with policy tests and acceptances, `typesys migrate`, and `typesys audit verify\|export\|prune\|keygen`) |
 | Storage and sources | `adapter-postgres`, `adapter-http`, `adapter-mock-rest`, `adapter-in-memory`, `registry-store-postgres`, `workflow-postgres`, `redis` |
-| Security | `auth-oidc` (JWT identity), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
+| Security | `auth-oidc` (OpenID Connect sign-in: discovery, required audience, role maps), `encryption` (field encryption at rest with blind indexes for equality), `kms-aws` (KMS-wrapped keys) |
 | Access surfaces | `http` (REST API), `mcp-server`, `sdk`, `react`, `workflow` |
 | Applications | `compiler` (the `typesys.app/1` checker, code generator, verifier, semantic diff and mission migration), `ui` (React components for tables, detail, charts, timelines, graphs, maps, forms, approvals, runs, an assistant and provenance, with a separate design system), `app` (three-valued expressions, flow helpers and the server compiled applications run on) |
 | Models and agents | `llm` (provider-agnostic models behind two protocols, release to model audiences), `onboard` (a governed model proposed from source metadata, and `typesys init --from postgres` writing a deployment), `engineer` (missions drafted, scaffolded and verified) |
@@ -1678,13 +1803,14 @@ The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
 request runs lint, typecheck, the build and the unit suite; the database,
-browser and showcase tests run locally with `npm run check:full`. A catalog of 257 deliberate mutations, each
+browser and showcase tests run locally with `npm run check:full`. A catalog of 267 deliberate mutations, each
 of which a test must catch, runs locally with `npm run mutation`, never
 on GitHub for a change. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a
 failed read shown as known. It has not had an
 external security review, validation against a real KMS, or production-scale
-load and high-availability testing. No package is published to npm yet.
+load and high-availability testing. No package is published to npm yet; the
+server's image is published to GitHub Container Registry by a hand-started workflow.
 [`docs/PRODUCTION-READINESS.md`](docs/PRODUCTION-READINESS.md) lists what
 remains and [`docs/completeness.md`](docs/completeness.md) what is built.
 
@@ -1704,9 +1830,12 @@ remains and [`docs/completeness.md`](docs/completeness.md) what is built.
 - [`docs/roadmap-5.md`](docs/roadmap-5.md): the semantic workbench, slice by
   slice; [`docs/roadmap-4.md`](docs/roadmap-4.md): the application compiler;
   and [`docs/evidence/`](docs/evidence/): every measurement.
-- [`docs/adr/`](docs/adr/): 109 architecture decision records; ADR-0105 to
-  ADR-0109 cover durable state, the verifiable audit trail, declared tables,
-  hosted applications and exact policy comparison.
+- [`docs/how-to/operate-a-deployment.md`](docs/how-to/operate-a-deployment.md):
+  sign-in with Entra ID, Okta or Keycloak, upgrades, key rotation,
+  audit checks and telemetry.
+- [`docs/adr/`](docs/adr/): 121 architecture decision records; ADR-0116 to
+  ADR-0121 cover sign-in, migration, promotion, packaging, the image and
+  telemetry.
 
 Versioning uses [changesets](https://github.com/changesets/changesets); see
 [ADR-0020](docs/adr/0020-publish-infrastructure.md) for publishing.

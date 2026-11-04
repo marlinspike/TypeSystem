@@ -203,6 +203,6 @@ async function migrated(pool: Pool): Promise<void> {
     await pool.query("SELECT chain, seq, prev_hash, hash FROM audit_events LIMIT 0");
     await pool.query("SELECT chain FROM audit_checkpoints LIMIT 0");
   } catch {
-    throw new DeploymentError(["state.audit: the audit tables are not migrated for chaining: run `npm run migrate:postgres` (migration 0008) first"]);
+    throw new DeploymentError(["state.audit: the audit tables are not migrated for chaining: run `typesys migrate <deployment.json>` first"]);
   }
 }

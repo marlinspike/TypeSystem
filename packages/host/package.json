@@ -26,6 +26,13 @@
     "bin"
   ],
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/context-async-hooks": "2.11.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.222.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-metrics": "2.11.0",
+    "@opentelemetry/sdk-trace-base": "2.11.0",
     "@typesys/adapter-http": "0.1.0",
     "@typesys/adapter-postgres": "0.1.0",
     "@typesys/app": "0.1.0",
@@ -40,12 +47,16 @@
     "@typesys/registry-store-postgres": "0.1.0",
     "@typesys/workflow": "0.1.0",
     "@typesys/workflow-postgres": "0.1.0",
+    "express": "5.2.1",
     "jose": "6.2.12",
+    "js-yaml": "5.4.2",
     "pg": "8.23.0",
     "redis": "6.2.1",
     "ulid": "3.0.2"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/js-yaml": "4.0.9",
     "@typesys/cold-chain": "0.1.0",
     "@typesys/demo-web": "0.1.0",
     "@typesys/domain-airforce": "0.1.0",

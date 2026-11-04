@@ -13,6 +13,14 @@ export interface LoadedDeployment {
   readonly packs: readonly PackArchive[];
 }
 
+/** Where a pack the deployment lists is looked for, in order: its `file` relative to the deployment, else by name and version. */
+export function packCandidates(dir: string, ref: Deployment["packs"][number], packsDir: string | undefined = process.env.TYPESYS_PACKS_DIR): string[] {
+  const name = `${ref.name}-${ref.version}.typesys-pack.json`;
+  if (ref.file) return [path.resolve(dir, ref.file)];
+  if (packsDir) return [path.resolve(packsDir, name)];
+  return [path.join(dir, "packs", name), path.join(dir, name), path.join(dir, "..", "packs", name)];
+}
+
 /**
  * Reads a deployment file and the pack archives it lists (ADR-0102). A pack
  * is read from its `file`, relative to the deployment, or else from
@@ -35,13 +43,7 @@ export async function loadDeployment(file: string, opts: { packsDir?: string } =
   const problems: string[] = [];
   const packs: PackArchive[] = [];
   for (const ref of deployment.packs) {
-    const name = `${ref.name}-${ref.version}.typesys-pack.json`;
-    const packsDir = opts.packsDir ?? process.env.TYPESYS_PACKS_DIR;
-    const candidates = ref.file
-      ? [path.resolve(dir, ref.file)]
-      : packsDir
-        ? [path.resolve(packsDir, name)]
-        : [path.join(dir, "packs", name), path.join(dir, name), path.join(dir, "..", "packs", name)];
+    const candidates = packCandidates(dir, ref, opts.packsDir);
     let found: PackArchive | undefined;
     for (const c of candidates) {
       const text = await readFile(c, "utf8").catch(() => undefined);

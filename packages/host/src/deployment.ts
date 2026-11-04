@@ -172,10 +172,24 @@ export type IdentitySpec =
   | {
       readonly kind: "oidc";
       readonly issuer: ConfigString;
+      /** The `aud` a token must carry. Required unless the deployment is a demo (ADR-0116): without it, a token the provider issued for any other application is accepted. */
       readonly audience?: ConfigString;
       readonly rolesClaim?: string;
+      /** The provider's group or role names → the deployment's roles. When given, only what it lists grants a role (ADR-0116). */
+      readonly roleMap?: Readonly<Record<string, readonly string[]>>;
       readonly clearanceClaim?: string;
+      /** The provider's key set. Default: `jwks_uri` from its discovery document (ADR-0116). */
       readonly jwksUrl?: ConfigString;
+      /**
+       * The address clients reach this server by (`https://typesys.example.com`),
+       * which MCP clients are told to sign in for (RFC 9728, ADR-0116).
+       * Default: the address each request was made to.
+       */
+      readonly resource?: ConfigString;
+      /** Scopes a client asks the provider for, when the provider needs them named. */
+      readonly scopes?: readonly string[];
+      /** Serve a request with no token as anonymous instead of asking the client to sign in. Default false. */
+      readonly allowAnonymous?: boolean;
     }
   /** Fixed tokens naming personas. Constants grant roles, so this is refused unless the deployment is a demo. */
   | { readonly kind: "tokens"; readonly tokens: Readonly<Record<string, string>> }
@@ -228,6 +242,20 @@ export interface Deployment {
     readonly inspectionPolicy?: string;
     /** A security profile the runtime refuses to start without satisfying (ADR-0046). */
     readonly securityProfile?: "high-assurance-v1";
+    /**
+     * Send the runtime's traces and metrics (ADR-0017) to an OpenTelemetry
+     * collector over OTLP/HTTP (ADR-0121). Spans carry no values.
+     */
+    readonly telemetry?: {
+      /** The collector's base URL, such as `http://otel-collector:4318`. */
+      readonly otlpEndpoint: ConfigString;
+      /** Default `typesys-<deployment name>`. */
+      readonly serviceName?: string;
+      /** Default 60. */
+      readonly metricsIntervalSeconds?: number;
+    };
+    /** One JSON line per request on standard output, never a value, token or query (ADR-0121). Default true. */
+    readonly requestLog?: boolean;
   };
   readonly trust?: {
     /** Key id → public key (PEM). When given, every pack must be signed by one of them. */
@@ -541,10 +569,22 @@ export function validateDeployment(doc: unknown): string[] {
   const id = doc.identity;
   if (!isRecord(id)) out.push("identity: must say how a bearer token becomes an identity");
   else if (id.kind === "oidc") {
-    unknownFields(id, ["kind", "issuer", "audience", "rolesClaim", "clearanceClaim", "jwksUrl"], "identity", out);
+    unknownFields(id, ["kind", "issuer", "audience", "rolesClaim", "roleMap", "clearanceClaim", "jwksUrl", "resource", "scopes", "allowAnonymous"], "identity", out);
     checkConfigString(id.issuer, "identity.issuer", out);
     if (id.audience !== undefined) checkConfigString(id.audience, "identity.audience", out);
+    // A token for another application of the same provider must not read this deployment's data (ADR-0116).
+    else if (!demo) out.push('identity.audience: required outside a demo, or a token the provider issued for any other application is accepted: the value your provider puts in "aud" for this server (often its address, or an application id)');
     if (id.jwksUrl !== undefined) checkConfigString(id.jwksUrl, "identity.jwksUrl", out);
+    if (id.resource !== undefined) checkConfigString(id.resource, "identity.resource", out);
+    if (typeof id.resource === "string" && !/^https?:\/\/[^/?#]+\/?$/.test(id.resource)) out.push("identity.resource: must be the server's origin, such as https://typesys.example.com, with no path");
+    if (id.scopes !== undefined && (!Array.isArray(id.scopes) || !id.scopes.every(nonEmpty))) out.push("identity.scopes: must be a list of scope names");
+    if (id.allowAnonymous !== undefined && typeof id.allowAnonymous !== "boolean") out.push("identity.allowAnonymous: must be true or false");
+    if (id.roleMap !== undefined) {
+      if (!isRecord(id.roleMap)) out.push("identity.roleMap: must map the provider's group or role names to lists of roles");
+      else
+        for (const [k, v] of Object.entries(id.roleMap))
+          if (!Array.isArray(v) || !v.every(nonEmpty)) out.push(`identity.roleMap.${k}: must be a list of roles`);
+    }
     if (id.rolesClaim !== undefined && !nonEmpty(id.rolesClaim)) out.push("identity.rolesClaim: must be a claim path");
     if (id.clearanceClaim !== undefined && !nonEmpty(id.clearanceClaim)) out.push("identity.clearanceClaim: must be a claim path");
   } else if (id.kind === "tokens") {
@@ -563,7 +603,20 @@ export function validateDeployment(doc: unknown): string[] {
     const r = doc.runtime;
     if (!isRecord(r)) out.push("runtime: must be an object");
     else {
-      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile"], "runtime", out);
+      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile", "telemetry", "requestLog"], "runtime", out);
+      if (r.requestLog !== undefined && typeof r.requestLog !== "boolean") out.push("runtime.requestLog: must be true or false");
+      if (r.telemetry !== undefined) {
+        const t = r.telemetry;
+        if (!isRecord(t)) out.push("runtime.telemetry: must be { \"otlpEndpoint\": ... }");
+        else {
+          unknownFields(t, ["otlpEndpoint", "serviceName", "metricsIntervalSeconds"], "runtime.telemetry", out);
+          checkConfigString(t.otlpEndpoint, "runtime.telemetry.otlpEndpoint", out);
+          if (typeof t.otlpEndpoint === "string" && !/^https?:\/\//.test(t.otlpEndpoint)) out.push("runtime.telemetry.otlpEndpoint: must be an http(s) URL, such as http://otel-collector:4318");
+          if (t.serviceName !== undefined && !nonEmpty(t.serviceName)) out.push("runtime.telemetry.serviceName: must be a non-empty string");
+          if (t.metricsIntervalSeconds !== undefined && !(Number.isInteger(t.metricsIntervalSeconds) && (t.metricsIntervalSeconds as number) >= 1))
+            out.push("runtime.telemetry.metricsIntervalSeconds: must be a whole number of seconds, at least 1");
+        }
+      }
       if (r.securityProfile !== undefined && r.securityProfile !== "high-assurance-v1") out.push('runtime.securityProfile: must be "high-assurance-v1"');
       if (r.callTimeoutMs !== undefined && !(Number.isInteger(r.callTimeoutMs) && (r.callTimeoutMs as number) > 0)) out.push("runtime.callTimeoutMs: must be a positive integer");
       if (r.inspectionPolicy !== undefined && (!nonEmpty(r.inspectionPolicy) || !isRecord(doc.policies) || !Object.hasOwn(doc.policies, r.inspectionPolicy)))

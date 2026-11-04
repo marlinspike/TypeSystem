@@ -70,7 +70,8 @@ export async function readAuditExport(file: string): Promise<AuditChainSource> {
   };
 }
 
-function resolver(deployment: Deployment, env: HostEnvironment) {
+/** Resolves a deployment's `$secret` references from `env`, as the server does: a default only in a demo. */
+export function credentialResolver(deployment: Deployment, env: HostEnvironment) {
   return (value: Credential, at: string): string => {
     if (typeof value === "string") return value;
     const v = env.secret(value.$secret) ?? (deployment.demo ? value.default : undefined);
@@ -82,7 +83,7 @@ function resolver(deployment: Deployment, env: HostEnvironment) {
 function postgresAudit(deployment: Deployment, env: HostEnvironment): { log: PostgresAuditLog; close(): Promise<void> } {
   const a = deployment.state?.audit;
   if (a?.kind !== "postgres") throw new DeploymentError([`${deployment.name}: state.audit is not postgres: its trail is kept in the serving process and goes with it`]);
-  const pool = createPool({ connectionString: resolver(deployment, env)(a.url, "state.audit.url"), max: 2 });
+  const pool = createPool({ connectionString: credentialResolver(deployment, env)(a.url, "state.audit.url"), max: 2 });
   return { log: new PostgresAuditLog(pool), close: () => pool.end() };
 }
 
@@ -221,11 +222,11 @@ export async function auditCommand(argv: readonly string[], env: HostEnvironment
       // it is about to delete is written first: if it cannot be, nothing is deleted, so no prune goes unrecorded.
       let key;
       try {
-        key = auditSigningKey(deployment.state?.audit, resolver(deployment, env));
+        key = auditSigningKey(deployment.state?.audit, credentialResolver(deployment, env));
       } catch {
         key = undefined;
       }
-      const recorder = new PostgresAuditLog(createPool({ connectionString: resolver(deployment, env)((deployment.state!.audit as { url: Credential }).url, "state.audit.url"), max: 1 }), { ...(key ? { key } : {}), ownsPool: true });
+      const recorder = new PostgresAuditLog(createPool({ connectionString: credentialResolver(deployment, env)((deployment.state!.audit as { url: Credential }).url, "state.audit.url"), max: 1 }), { ...(key ? { key } : {}), ownsPool: true });
       const record = (phase: "started" | "done" | "failed", details: Record<string, unknown>) =>
         recorder.appendAuditEvent({
           id: ulid(),

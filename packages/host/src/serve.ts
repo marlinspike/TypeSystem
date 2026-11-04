@@ -23,7 +23,9 @@ import { agentAudienceFromEnvironment } from "@typesys/llm";
 import { createHttpApp } from "@typesys/mcp-server";
 import { WorkflowEngine, type AiModel } from "@typesys/workflow";
 import { DeploymentError, type ConfigString } from "./deployment.js";
-import { buildHost, processEnvironment, type Host, type HostEnvironment } from "./host.js";
+import express from "express";
+import { buildHost, processEnvironment, resolveConfig, type Host, type HostEnvironment } from "./host.js";
+import { requestLog, startTelemetry, type Telemetry } from "./telemetry.js";
 import { loadApplications, loadDeployment, loadExtensions } from "./load.js";
 
 export interface ServeOptions {
@@ -39,6 +41,10 @@ export interface ServeOptions {
   readonly appsDir?: string;
   /** Where packs are found when the deployment names no file (default `TYPESYS_PACKS_DIR`, then beside the deployment). */
   readonly packsDir?: string;
+  /** `false` turns the request log off whatever the deployment says: `typesys dev`, which prints its own. */
+  readonly requestLog?: boolean;
+  /** Where each request log line goes. Default standard output. */
+  readonly logLine?: (line: string) => void;
 }
 
 /** Loads and builds the host a deployment file describes. */
@@ -122,6 +128,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
     console.warn(`Not checked against its database yet: ${err.message}`);
   }
   const servers: Server[] = [];
+  let telemetry: Telemetry | undefined;
   const closeAll = async () => {
     // Open MCP and SSE streams would hold close() forever, and with it the last signed checkpoint: end them too.
     await Promise.allSettled(
@@ -134,8 +141,20 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
       )
     );
     await host.close();
+    await telemetry?.shutdown();
   };
   try {
+    const t = deployment.runtime?.telemetry;
+    if (t)
+      telemetry = await startTelemetry(
+        {
+          endpoint: resolveConfig(t.otlpEndpoint, env, "runtime.telemetry.otlpEndpoint"),
+          serviceName: t.serviceName ?? `typesys-${deployment.name}`,
+          metricsIntervalMs: (t.metricsIntervalSeconds ?? 60) * 1000
+        },
+        deployment,
+        host.build
+      );
     const apps = await loadApplications(deployment, opts.file, { ...(opts.appsDir ? { appsDir: opts.appsDir } : {}) });
     const workflows = await hostedWorkflows(host, apps);
     const audience = await agentAudienceFromEnvironment(opts.env ?? process.env);
@@ -145,6 +164,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
       identityResolver: host.identityResolver,
       serverInfo: { name: host.deployment.name, version: host.build },
       ready: () => host.state.ready(),
+      ...(host.signIn ? { signIn: host.signIn } : {}),
       ...(audience ? { audience } : {}),
       ...(allowedHosts ? { allowedHosts } : {})
     });
@@ -169,7 +189,11 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         openapi: "/api/openapi.json",
         version: "/version",
         health: { live: "/healthz", ready: "/readyz" },
-        authentication: host.deployment.identity.kind === "oidc" ? "Authorization: Bearer <a token from the deployment's identity provider>" : "Authorization: Bearer <a token the deployment names>"
+        authentication:
+          host.deployment.identity.kind === "oidc"
+            ? "Authorization: Bearer <a token from the deployment's identity provider>; MCP clients sign in through /.well-known/oauth-protected-resource"
+            : "Authorization: Bearer <a token the deployment names>",
+        ...(host.signIn ? { signIn: { issuer: host.signIn.issuer, metadata: "/.well-known/oauth-protected-resource" } } : {})
       })
     );
     const personas = Object.values(host.personas);
@@ -177,6 +201,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
       createApiApp({
         backend: host,
         identityResolver: host.identityResolver,
+        ...(host.signIn ? { signIn: host.signIn } : {}),
         workflows,
         subjects: {
           list: async () => personas.map((p) => ({ subjectId: p.subjectId })),
@@ -185,7 +210,12 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         ...(allowedHosts ? { allowedHosts } : {})
       })
     );
-    const main = await listen(app, opts.port ?? 3939, opts.listenHost);
+    // Every request logged once answered, with no value in it (ADR-0121), ahead of everything the server serves.
+    const root = express();
+    root.disable("x-powered-by");
+    if (deployment.runtime?.requestLog !== false && opts.requestLog !== false) root.use(requestLog(deployment.name, host.build, opts.logLine));
+    root.use(app);
+    const main = await listen(root, opts.port ?? 3939, opts.listenHost);
     servers.push(main.server);
     const ports: Record<string, number> = {};
     for (const a of apps) {
@@ -216,9 +246,15 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
 /** Runs the server from the command line; the `typesys-host` command calls it. */
 export async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  // The image's one-shot migrate step (ADR-0117): `typesys-host migrate [deployment.json]`, the same as `typesys migrate`.
+  if (args[0] === "migrate") {
+    const { migrateCommand } = await import("./migrate.js");
+    process.exitCode = await migrateCommand(args.slice(1));
+    return;
+  }
   const file = args.find((a) => !a.startsWith("--")) ?? process.env.TYPESYS_DEPLOYMENT;
   if (!file) {
-    console.error("Usage: typesys-host <deployment.json> [--check]   (or set TYPESYS_DEPLOYMENT)");
+    console.error("Usage: typesys-host <deployment.json> [--check]   (or set TYPESYS_DEPLOYMENT)\n       typesys-host migrate [<deployment.json>]");
     process.exitCode = 2;
     return;
   }
@@ -263,4 +299,10 @@ export async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+// Not awaited at the top level: a deployment's extension may import @typesys/host, which imports this module, and a
+// module still awaiting at its top level cannot be imported until it finishes, so the server would wait on itself forever.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main().catch((err: unknown) => {
+    console.error(err);
+    process.exitCode = 1;
+  });

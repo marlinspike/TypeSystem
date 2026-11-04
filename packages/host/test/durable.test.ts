@@ -66,7 +66,7 @@ describe.skipIf(!DATABASE_URL)("a deployment that declares its state (ADR-0106, 
       ...(REDIS_URL ? { rateLimit: { kind: "redis" as const, url: { $secret: "REDIS_URL" }, capacity: 6, refillPerSecond: 0, keyPrefix: `${schema}:rl:` }, cache: { kind: "redis" as const, url: { $secret: "REDIS_URL" }, keyPrefix: `${schema}:c:` } } : {})
     },
     policies: { "erp.read": { role: ["planner", "buyer"] }, "erp.finance": { role: ["buyer"] } },
-    identity: { kind: "oidc", issuer: "https://issuer.example" },
+    identity: { kind: "oidc", issuer: "https://issuer.example", audience: "erp" },
     personas: {
       planner: { subjectId: "planner-1", roles: ["planner"], attributes: {} },
       buyer: { subjectId: "buyer-1", roles: ["buyer"], attributes: {} }
@@ -155,7 +155,7 @@ describe.skipIf(!DATABASE_URL)("a deployment that declares its state (ADR-0106, 
       u.searchParams.set("options", `-c search_path=${bare}`);
       const err = await buildHost(deployment(), { packs: [corePack, erpPack], env: overlayEnvironment({ DATABASE_URL: u.href }, env) }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(DeploymentError);
-      expect((err as DeploymentError).problems.join("\n")).toContain("migrate:postgres");
+      expect((err as DeploymentError).problems.join("\n")).toContain("typesys migrate");
     } finally {
       await admin.query(`DROP SCHEMA ${bare} CASCADE`);
     }

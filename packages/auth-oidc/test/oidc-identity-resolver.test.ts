@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { generateKeyPair, SignJWT, exportJWK, createLocalJWKSet, type JWTVerifyGetKey } from "jose";
-import { createOidcIdentityResolver, anonymousIdentity } from "../src/oidc-identity-resolver.js";
+import { IdentityProviderUnavailableError } from "@typesys/core";
+import { createOidcIdentityResolver, anonymousIdentity, wellKnown } from "../src/oidc-identity-resolver.js";
 
 const ISSUER = "https://idp.example.com";
 const AUDIENCE = "typesys-demo";
@@ -106,5 +107,49 @@ describe("createOidcIdentityResolver", () => {
 
     const resolver = createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks });
     expect(await resolver(forgedToken)).toEqual(anonymousIdentity());
+  });
+
+  it("maps the provider's groups to roles through roleMap, and grants nothing for a group it does not list (ADR-0116)", async () => {
+    const token = await mintToken({ sub: "u", groups: ["Fleet Maintainers", "Everyone", "constructor"] });
+    const resolver = createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks, rolesClaim: "groups", roleMap: { "Fleet Maintainers": ["maintainer", "viewer"], Readers: ["viewer"] } });
+    expect((await resolver(token)).roles).toEqual(["maintainer", "viewer"]);
+    // A single group sent as a string is one value, mapped the same way.
+    expect((await resolver(await mintToken({ sub: "u", groups: "Readers" }))).roles).toEqual(["viewer"]);
+    // Without a roleMap, the claim's values are the roles, as before.
+    expect((await createOidcIdentityResolver({ issuer: ISSUER, jwks: localJwks, rolesClaim: "groups" })(token)).roles).toEqual(["Fleet Maintainers", "Everyone", "constructor"]);
+  });
+
+  it("finds keys through the discovery document, however the issuer ends", () => {
+    expect(wellKnown("https://tenant.auth0.com/", "openid-configuration").href).toBe("https://tenant.auth0.com/.well-known/openid-configuration");
+    expect(wellKnown("https://login.example.com/realms/x", "openid-configuration").href).toBe("https://login.example.com/realms/x/.well-known/openid-configuration");
+  });
+
+  it("refuses a discovery document for another issuer, and says the provider is unavailable rather than the token bad (ADR-0116)", async () => {
+    const token = await mintToken({ sub: "u" });
+    const wrongIssuer = (async () => new Response(JSON.stringify({ issuer: "https://other.example", jwks_uri: "https://other.example/keys" }))) as unknown as typeof fetch;
+    const resolver = createOidcIdentityResolver({ issuer: ISSUER, fetch: wrongIssuer, failOpenToAnonymous: false });
+    const err = await resolver(token).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IdentityProviderUnavailableError);
+    expect((err as Error).message).toContain("is for issuer");
+    const down = (async () => new Response("", { status: 502 })) as unknown as typeof fetch;
+    expect(await createOidcIdentityResolver({ issuer: ISSUER, fetch: down, failOpenToAnonymous: false })(token).catch((e: unknown) => e)).toBeInstanceOf(IdentityProviderUnavailableError);
+    // Failing open (the library default), an unreachable provider still reads as anonymous.
+    expect(await createOidcIdentityResolver({ issuer: ISSUER, fetch: down })(token)).toEqual(anonymousIdentity());
+  });
+
+  it("calls a forged header a bad token, not the provider down: an alg no key set holds, or an unknown kid (ADR-0116)", async () => {
+    const publicJwk = await exportJWK((await generateKeyPair("RS256")).publicKey);
+    const provider = (async (url: URL | string) =>
+      String(url).endsWith("/openid-configuration")
+        ? new Response(JSON.stringify({ issuer: ISSUER, jwks_uri: `${ISSUER}/keys` }))
+        : new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: "k1", alg: "RS256" }] }))) as unknown as typeof fetch;
+    const resolver = createOidcIdentityResolver({ issuer: ISSUER, audience: AUDIENCE, fetch: provider, failOpenToAnonymous: false });
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    for (const header of [{ alg: "HS256", kid: "k1" }, { alg: "made-up", kid: "k1" }, { alg: "RSA-OAEP", kid: "k1" }, { alg: "RS256", kid: "unknown" }]) {
+      const forged = `${b64(header)}.${b64({ iss: ISSUER, aud: AUDIENCE, sub: "x" })}.c2ln`;
+      const err = await resolver(forged).catch((e: unknown) => e);
+      expect(err, JSON.stringify(header)).toBeInstanceOf(Error);
+      expect(err, JSON.stringify(header)).not.toBeInstanceOf(IdentityProviderUnavailableError);
+    }
   });
 });

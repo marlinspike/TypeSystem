@@ -7,6 +7,13 @@ free no-op until *your application* registers a real provider
 ([ADR-0017](../adr/0017-observability.md)). This page is about that one
 step, done in your app's entrypoint, not in this codebase.
 
+**On the generic server, it is one line of the deployment**
+([ADR-0121](../adr/0121-telemetry-and-request-logs-are-declared.md)):
+`"runtime": { "telemetry": { "otlpEndpoint": "http://otel-collector:4318" } }`
+registers the SDK with OTLP/HTTP exporters, and every request is logged as a
+JSON line. See [operate-a-deployment.md](operate-a-deployment.md#logs-and-telemetry).
+The rest of this page is for an application that embeds the runtime.
+
 ## Register a real SDK
 
 ```ts

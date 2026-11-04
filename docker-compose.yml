@@ -1,4 +1,6 @@
-# Reference multi-replica topology for the TypeSys MCP server (ADR-0025, ADR-0029).
+# Reference multi-replica topology for the TypeSystem server (ADR-0025, ADR-0029), serving the airforce
+# demonstration. For your own deployment, `npx typesys deploy package <deployment.json> --target compose`
+# writes a project like this one for it (ADR-0119).
 #
 #   docker compose up --build --scale app=2
 #
@@ -12,7 +14,7 @@
 # and one rate limit. `migrate` creates the tables first; the server refuses to start without
 # them. Check the trail every replica wrote with
 #
-#   docker compose run --rm app npx typesys audit verify deployments/airforce-durable.deployment.json
+#   docker compose run --rm app node packages/cli/dist/bin.js audit verify deployments/airforce-durable.deployment.json
 #
 # The demonstration's checkpoints are not signed. A real deployment signs them: make a key with
 # `npx typesys audit keygen --key-id audit-1 --out-dir .`, give the private key to the app as a secret and put
@@ -39,11 +41,12 @@ services:
       timeout: 5s
       retries: 10
 
-  # Runs the advisory-lock-safe migrations (ADR-0025) to completion before the app starts.
+  # Creates or updates the tables the deployment's state section names (ADR-0117), before the app starts.
   migrate:
     build: .
-    command: ["npm", "run", "migrate:postgres"]
+    command: ["node", "packages/host/dist/serve.js", "migrate"]
     environment:
+      TYPESYS_DEPLOYMENT: deployments/airforce-durable.deployment.json
       DATABASE_URL: postgresql://typesys:typesys@postgres:5432/typesys
     depends_on:
       postgres:

@@ -3,3 +3,4 @@ export * from "./guard.js";
 export * from "./openapi.js";
 export * from "./problems.js";
 export * from "./client.js";
+export * from "./sign-in.js";

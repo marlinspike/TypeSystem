@@ -1,4 +1,4 @@
-import { createRemoteJWKSet } from "jose";
+import { readFileSync } from "node:fs";
 import {
   AbacPolicyEngine,
   DEMO_LINEAR_CLASSIFICATION,
@@ -31,6 +31,7 @@ import { PostgresTableAdapter } from "@typesys/adapter-postgres";
 import { openState, type HostState } from "./state.js";
 import { HttpAdapter, type HttpAdapterConfig, type HttpAuth } from "@typesys/adapter-http";
 import { createOidcIdentityResolver } from "@typesys/auth-oidc";
+import type { SignIn } from "@typesys/http";
 import { installPacks, type InstalledPack, type PackArchive } from "@typesys/packs";
 import {
   DeploymentError,
@@ -50,12 +51,32 @@ import {
 export interface HostEnvironment {
   env(name: string): string | undefined;
   secret(name: string): string | undefined;
+  /** How the identity provider's discovery document and keys are fetched (ADR-0116). Default: the global `fetch`. */
+  readonly fetch?: typeof fetch;
 }
 
-/** Both from `process.env`: what a container gets from its ConfigMap and Secret. */
+/**
+ * A secret from `vars[name]`, or else from the file `vars[name_FILE]` names
+ * (ADR-0119): the convention Docker and Kubernetes secrets mounted as files
+ * use, so a multi-line key need never be put in an environment variable.
+ * One trailing newline is dropped, as a file written by an editor has one.
+ */
+export function secretFromEnvironment(vars: Readonly<Record<string, string | undefined>>, name: string): string | undefined {
+  const direct = vars[name];
+  if (direct !== undefined && direct !== "") return direct;
+  const file = vars[`${name}_FILE`];
+  if (!file) return direct;
+  try {
+    return readFileSync(file, "utf8").replace(/\r?\n$/, "");
+  } catch (err) {
+    throw new DeploymentError([`secret ${name}: ${name}_FILE names ${file}, which cannot be read (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`]);
+  }
+}
+
+/** Both from `process.env`: what a container gets from its ConfigMap and Secret. A secret may also be a file `<NAME>_FILE` names. */
 export const processEnvironment: HostEnvironment = {
   env: (name) => process.env[name],
-  secret: (name) => process.env[name]
+  secret: (name) => secretFromEnvironment(process.env, name)
 };
 
 /** Nothing set: every reference falls back to its default, or fails. */
@@ -126,6 +147,8 @@ export interface Host extends BuiltRuntime {
   /** The build id every audit row of this host names (ADR-0101). */
   readonly build: string;
   readonly identityResolver: IdentityResolver;
+  /** How callers sign in, for a deployment whose identity is OpenID Connect (ADR-0116): served by every transport. */
+  readonly signIn?: SignIn;
   /** The deployment's personas, `anonymous` always among them. */
   readonly personas: Readonly<Record<string, Identity>>;
   readonly packs: readonly InstalledPack[];
@@ -160,7 +183,8 @@ async function closeAll(extensions: Iterable<HostExtension>): Promise<void> {
   await Promise.allSettled([...extensions].map(async (e) => e.close?.()));
 }
 
-function resolveConfig(value: ConfigString, env: HostEnvironment, at: string): string {
+/** A `ConfigString` from the environment, as the host resolves every one: a set variable, else its default, else an error naming it. */
+export function resolveConfig(value: ConfigString, env: HostEnvironment, at: string): string {
   if (typeof value === "string") return value;
   const raw = env.env(value.$env) ?? value.default;
   if (raw === undefined || raw === "") throw new DeploymentError([`${at}: environment variable ${value.$env} is not set`]);
@@ -212,28 +236,49 @@ function classificationOf(deployment: Deployment): ClassificationScheme {
   return DENY_MARKED_DATA;
 }
 
-function identityResolverOf(deployment: Deployment, env: HostEnvironment, personas: Readonly<Record<string, Identity>>, extensions: ReadonlyMap<string, HostExtension>): IdentityResolver {
+function identityResolverOf(
+  deployment: Deployment,
+  env: HostEnvironment,
+  personas: Readonly<Record<string, Identity>>,
+  extensions: ReadonlyMap<string, HostExtension>
+): { resolver: IdentityResolver; signIn?: SignIn } {
   const spec = deployment.identity;
   if (spec.kind === "oidc") {
     const issuer = resolveConfig(spec.issuer, env, "identity.issuer");
     const audience = spec.audience !== undefined ? resolveConfig(spec.audience, env, "identity.audience") : undefined;
     const jwksUrl = spec.jwksUrl !== undefined ? resolveConfig(spec.jwksUrl, env, "identity.jwksUrl") : undefined;
-    return createOidcIdentityResolver({
+    const resource = spec.resource !== undefined ? resolveConfig(spec.resource, env, "identity.resource").replace(/\/+$/, "") : undefined;
+    if (resource !== undefined && !/^https?:\/\/[^/?#]+$/.test(resource)) throw new DeploymentError([`identity.resource: ${resource} is not an origin such as https://typesys.example.com`]);
+    const resolver = createOidcIdentityResolver({
       issuer,
       ...(audience ? { audience } : {}),
       ...(spec.rolesClaim ? { rolesClaim: spec.rolesClaim } : {}),
+      ...(spec.roleMap ? { roleMap: spec.roleMap } : {}),
       ...(spec.clearanceClaim ? { clearanceClaim: spec.clearanceClaim } : {}),
-      ...(jwksUrl ? { jwks: createRemoteJWKSet(new URL(jwksUrl)) } : {})
+      ...(jwksUrl ? { jwksUrl } : {}),
+      ...(env.fetch ? { fetch: env.fetch } : {}),
+      // A bad token is refused (401) and a provider that cannot be reached is a 503, never quietly anonymous (ADR-0116).
+      failOpenToAnonymous: false
     });
+    return {
+      resolver,
+      signIn: {
+        issuer,
+        resourceName: deployment.name,
+        requireToken: spec.allowAnonymous !== true,
+        ...(resource ? { resource } : {}),
+        ...(spec.scopes?.length ? { scopes: spec.scopes } : {})
+      }
+    };
   }
   if (spec.kind === "tokens") {
     const tokens = spec.tokens;
     // Own properties only: "constructor" and "__proto__" are not tokens.
-    return (token) => Promise.resolve(token && Object.hasOwn(tokens, token) ? personas[tokens[token]!]! : personas.anonymous!);
+    return { resolver: (token) => Promise.resolve(token && Object.hasOwn(tokens, token) ? personas[tokens[token]!]! : personas.anonymous!) };
   }
   const resolver = extensions.get(spec.extension)?.identityResolver;
   if (!resolver) throw new DeploymentError([`identity: extension "${spec.extension}" supplies no identity resolver`]);
-  return resolver;
+  return { resolver };
 }
 
 /** The read-only table adapter a deployment's `postgres` source describes (ADR-0107), over the host's pool for its URL. */
@@ -379,8 +424,9 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
 
   const personas: Record<string, Identity> = { anonymous: ANONYMOUS, ...(deployment.personas ?? {}) };
   let identityResolver: IdentityResolver | undefined;
+  let signIn: SignIn | undefined;
   try {
-    identityResolver = identityResolverOf(deployment, env, personas, extensions);
+    ({ resolver: identityResolver, signIn } = identityResolverOf(deployment, env, personas, extensions));
   } catch (err) {
     problems.push(...(err instanceof DeploymentError ? err.problems : [String(err)]));
   }
@@ -423,6 +469,8 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     ...(state.cache ? { cache: state.cache } : {}),
     ...(state.cacheTtlMs !== undefined ? { defaultCacheTtlMs: state.cacheTtlMs } : {}),
     ...(state.rateLimiter ? { rateLimiter: state.rateLimiter } : {}),
+    // Spans leave the process once a deployment names a collector (ADR-0121): no object or subject id goes with them.
+    telemetryIdentity: "none",
     ...options.runtimeOptions
   });
 
@@ -435,6 +483,7 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     deployment,
     build,
     identityResolver: identityResolver!,
+    ...(signIn ? { signIn } : {}),
     personas,
     packs: installed,
     adapters: Object.fromEntries(adapters),

@@ -221,6 +221,21 @@ npx typesys pack build ./fleet --name fleet --version 1.0.0 --out packs/fleet-1.
 a deployment lists the pack and maps that source's tables. See
 [how-to/add-a-type.md](how-to/add-a-type.md).
 
+## Share it
+
+The deployment `init` wrote answers fixed tokens on your machine. To serve it
+to a team that signs in through your OpenID Connect provider, with a signed
+audit trail in Postgres:
+
+```bash
+npx typesys deploy promote shop/shop.deployment.json --issuer https://login.example.com --audience api://shop
+npx typesys migrate shop/shop.shared.deployment.json          # needs TYPESYS_STATE_URL
+npx typesys deploy package shop/shop.shared.deployment.json --target compose --out deploy
+```
+
+[how-to/operate-a-deployment.md](how-to/operate-a-deployment.md) covers each
+step, setting up Entra ID, Okta or Keycloak, and running it day to day.
+
 ## Where to go next
 
 - **Change the model as the database changes** →

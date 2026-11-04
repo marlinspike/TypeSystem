@@ -148,6 +148,14 @@ says so.
    outside a demo), resolved through one `HostEnvironment.secret` seam
    that a secrets manager can implement; the shipped server reads them
    from the environment, and no rotation is automated.
+   *Narrowed by ADR-0119 (2026-11-04):* any secret may be read from a file
+   (`<NAME>_FILE`), so Compose secrets, Kubernetes secret volumes and
+   secrets-manager CSI drivers supply it without an environment variable,
+   and `typesys deploy package` mounts the audit signing key that way. The
+   key's rotation is a documented procedure
+   ([operate a deployment](how-to/operate-a-deployment.md)), not automated.
+   Still open: a secrets-manager client in the server, and rotation of
+   database credentials without a restart.
 7. **A real multi-instance story.** `InMemoryCache` and
    `InMemoryRateLimiter` are per-process by design (ADR-0016/ADR-0019),
    and `PostgresRegistryStore` (ADR-0015) accepted an
@@ -167,8 +175,13 @@ says so.
    journal, cache, rate limit), and `typesys serve` opens Postgres and
    Redis from it, refusing to start if the database is unreachable or not
    migrated. Each replica writes its own audit chain, so replicas never
-   contend on one sequence. Still open: Redis and Postgres high
-   availability and topology, and a rolling-deploy playbook.
+   contend on one sequence.
+   *Rolling deploys (2026-11-04, ADR-0117, ADR-0119):* `typesys deploy package
+   --target k8s` writes two replicas whose init container migrates (locked and
+   idempotent), readiness on the declared stores, a disruption budget and
+   audit CronJobs, and [operate a deployment](how-to/operate-a-deployment.md)
+   is the upgrade playbook. Still open: Redis and Postgres high availability
+   and topology, and migrations that are not forward-only.
 8. **Per-instance authorization, if the real domain needs it.** Every
    policy rule here is role-based at the Type/property level ("any
    `clinician` can read any `Patient`"), never "this clinician can read
