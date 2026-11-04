@@ -10,7 +10,7 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "typesys-showcase": "./dist/bin.js"
+    "typesys-showcase": "./bin/typesys-showcase.js"
   },
   "license": "MIT",
   "dependencies": {

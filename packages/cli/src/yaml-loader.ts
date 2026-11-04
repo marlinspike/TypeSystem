@@ -136,3 +136,20 @@ export async function registerYamlTypesFromDirectory(
   }
   return results;
 }
+
+/**
+ * Every `.yaml`/`.yml` file in `dir`, loaded in alphabetical order, without
+ * registering anything: the Types `typesys pack build` puts in a pack.
+ */
+export async function loadYamlTypesFromDirectory(dir: string, opts: LoadYamlTypeOptions = {}): Promise<LoadedYamlType[]> {
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
+  const out: LoadedYamlType[] = [];
+  for (const file of files) {
+    try {
+      out.push(loadTypeYaml(await readFile(path.join(dir, file), "utf8"), opts));
+    } catch (err) {
+      throw new Error(`${file}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+    }
+  }
+  return out;
+}

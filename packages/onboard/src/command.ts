@@ -6,6 +6,7 @@ import { insideRoot } from "@typesys/devkit";
 import type { PackArchive } from "@typesys/packs";
 import { recordedModel, recordRefinement } from "./agent.js";
 import { adaptersFor } from "./build.js";
+import { updateDeployment, type DraftDeployment } from "./deployment.js";
 import { baseline, type Proposal } from "./proposal.js";
 import { refine, refinementRequest, type Refinement } from "./refine.js";
 import { decide, REVIEW_FORMAT, type Review } from "./review.js";
@@ -35,11 +36,16 @@ export const ONBOARD_USAGE = `typesys onboard — describe existing sources as a
   typesys onboard propose <sources.json> --domain <name> --out <dir>
         [--answer <refinement.json> | --model <id> [--llm-config <file>]] [--marking <m>...]
         [--review <review.json>] [--approved <approved.json>] [--previous <pack.json>] [--version <semver>]
+        [--deployment <deployment.json>]
       Baseline, refinement (an agent's answer, a configured model, or
       neither), what was approved before carried forward, the review
       applied, and the approved model verified. Writes proposal.json,
       pending.json, approved.json and, when it verifies, pack.json and
-      adapters.json. Exits 1 if verification fails.
+      adapters.json. Exits 1 if verification fails. With --deployment, also
+      puts the new pack in that deployment (ADR-0111): its version, digest and
+      file under packs/ beside it, every PostgreSQL source's mapping, and a
+      draft rule for each rule the model now names. Its existing rules are
+      never changed.
 
   typesys onboard review <dir> --review <review.json> --by <name>
         [--accept <id>...] [--reject <id>=<why>...] [--rename <id>=<Name>[/<inverse>]...] [--accept-rest]
@@ -67,7 +73,7 @@ function parse(argv: readonly string[]): Args {
       continue;
     }
     const name = a.slice(2);
-    const boolean = name === "json" || name === "accept-rest";
+    const boolean = name === "json" || name === "accept-rest" || name === "help";
     const value = boolean ? "true" : argv[++i];
     if (value === undefined) throw new Error(`--${name} needs a value`);
     flags.set(name, [...(flags.get(name) ?? []), value]);
@@ -156,6 +162,7 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
         }
         const sources = [...existing.filter((s) => s.info.id !== collected.info.id), collected];
         sourceModel(sources); // ids must be unique across sources
+        await mkdir(path.dirname(path.resolve(target)), { recursive: true });
         await put(target, { format: SOURCES_FORMAT, sources });
         return print(true, { source: collected.info, evidence: collected.evidence.length }, [`Collected ${collected.info.id} (${collected.info.kind}): ${collected.entities.length} entities, ${collected.operations.length} operations, ${collected.evidence.length} facts → ${target}`]);
       }
@@ -220,12 +227,41 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
         await put(path.join(dir, "checks.json"), final.verification.checks);
         const v = final.verification;
         const m = final.metrics;
-        return print(v.ok, { metrics: m, diagnostics: v.diagnostics, pending: final.review.pending, rejected: final.proposal.rejected, policies: v.built.policies }, [
+        const deploymentLines: string[] = [];
+        let deploymentPayload: Record<string, unknown> = {};
+        if (one("deployment") && v.ok && v.pack) {
+          const file = one("deployment")!;
+          const existing = await json<DraftDeployment>(file);
+          if (existing.format !== "typesys.deployment/1") throw new Error(`${file} is not a typesys.deployment/1 document`);
+          const packFile = `packs/${v.pack.name}-${v.pack.version}.typesys-pack.json`;
+          const update = updateDeployment(existing, v.pack, v.built.adapters, packFile);
+          // A pack archive is content-addressed: one already written at this version with other contents is what the previous deployment pins.
+          const packPath = path.join(path.dirname(file), packFile);
+          const prior = await readFile(packPath, "utf8").then((t) => (JSON.parse(t) as { digest?: string }).digest, () => undefined);
+          if (prior !== undefined && prior !== v.pack.digest) {
+            throw new Error(`${packPath} already holds ${v.pack.name}@${v.pack.version} with digest ${prior.slice(0, 19)}…, which the deployment as it is pins; this model is ${v.pack.digest.slice(0, 19)}…: pass --version with the next version`);
+          }
+          // The deployment as it was, beside it, so the upgrade check has both builds.
+          const previous = file.replace(/(\.json)?$/, ".previous.json");
+          if (JSON.stringify(update.deployment) !== JSON.stringify(existing)) await put(previous, existing);
+          await mkdir(path.join(path.dirname(file), "packs"), { recursive: true });
+          await put(packPath, v.pack);
+          await put(file, update.deployment);
+          deploymentPayload = { deployment: { file, changes: update.changes, addedPolicies: update.addedPolicies, unusedPolicies: update.unusedPolicies } };
+          deploymentLines.push(
+            `  deployment ${file}: ${update.changes.length ? update.changes.join("; ") : "already current"}`,
+            ...(update.addedPolicies.length ? [`  draft rules added (one role each; review them): ${update.addedPolicies.join(", ")}`] : []),
+            ...(update.unusedPolicies.length ? [`  rules the model no longer names, kept for you to remove: ${update.unusedPolicies.join(", ")}`] : []),
+            `  check it before it rolls: npx typesys deploy check ${file.replace(/(\.json)?$/, ".previous.json")} ${file}`
+          );
+        }
+        return print(v.ok, { metrics: m, diagnostics: v.diagnostics, pending: final.review.pending, rejected: final.proposal.rejected, policies: v.built.policies, ...deploymentPayload }, [
           `${v.ok ? "OK" : "FAILED"} — ${domain}: ${m.approved.types} Types approved, ${m.pending} items pending review, ${m.rejected} model items refused`,
           ...final.proposal.rejected.map((r) => `  refused ${r.kind}: ${r.reason}`),
           ...final.review.pending.map((p) => `  pending ${p.id} (${p.reason}): ${p.summary}`),
           ...v.diagnostics.map((d) => `  ${d.severity} ${d.code}: ${d.message}`),
-          ...(v.built.policies.length ? [`  policy rules to write: ${v.built.policies.join(", ")}`] : []),
+          ...(v.built.policies.length && !one("deployment") ? [`  policy rules to write: ${v.built.policies.join(", ")}`] : []),
+          ...deploymentLines,
           `  → ${dir}`
         ]);
       }
@@ -270,7 +306,7 @@ export async function onboardCommand(argv: readonly string[], out: (s: string) =
     return print(false, { error: (err as Error).message }, [`FAIL — ${(err as Error).message}`]);
   }
   out(ONBOARD_USAGE);
-  return 1;
+  return sub === undefined || sub === "help" || sub === "--help" || args.flags.has("help") ? 0 : 1;
 }
 
 async function readReview(file: string, domain: string): Promise<Review> {

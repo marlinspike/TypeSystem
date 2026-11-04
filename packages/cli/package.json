@@ -9,7 +9,7 @@
     ".": "./dist/index.js"
   },
   "bin": {
-    "typesys": "./dist/bin.js"
+    "typesys": "./bin/typesys.js"
   },
   "license": "MIT",
   "repository": {
@@ -29,7 +29,8 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "dependencies": {
     "@typesys/core": "0.1.0",

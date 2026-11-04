@@ -16,7 +16,7 @@
  */
 import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
-import { contractMismatches } from "@typesys/core";
+import { AdapterUnavailableError, contractMismatches } from "@typesys/core";
 import { applicationApp, type HostedApplication } from "@typesys/app/server";
 import { createApiApp } from "@typesys/http";
 import { agentAudienceFromEnvironment } from "@typesys/llm";
@@ -29,6 +29,8 @@ import { loadApplications, loadDeployment, loadExtensions } from "./load.js";
 export interface ServeOptions {
   readonly file: string;
   readonly port?: number;
+  /** The address to listen on: default every interface (a container's server); `typesys dev` passes 127.0.0.1. */
+  readonly listenHost?: string;
   readonly allowedHosts?: readonly string[];
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Where references resolve; default the process environment. */
@@ -53,12 +55,13 @@ function portOf(value: ConfigString, env: HostEnvironment, at: string): number {
   return port;
 }
 
-function listen(app: { listen(port: number, cb: () => void): Server }, port: number): Promise<{ server: Server; port: number }> {
+function listen(app: { listen(port: number, host: string, cb: () => void): Server; listen(port: number, cb: () => void): Server }, port: number, host?: string): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, () => {
+    const ready = () => {
       const address = server.address();
       resolve({ server, port: typeof address === "object" && address ? address.port : port });
-    });
+    };
+    const server = host === undefined ? app.listen(port, ready) : app.listen(port, host, ready);
     server.once("error", reject);
   });
 }
@@ -106,6 +109,18 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
   const { deployment, packs } = await loadDeployment(opts.file, opts.packsDir ? { packsDir: opts.packsDir } : {});
   const extensions = await loadExtensions(deployment);
   const host = await buildHost(deployment, { packs, extensions, env });
+  // A declared table or column the database does not have would fail every read of its Type: refuse to start instead (ADR-0110).
+  // A database that cannot be reached yet is not that: /readyz reports it until it can.
+  try {
+    const problems = await host.checkSources();
+    if (problems.length > 0) throw new DeploymentError(problems);
+  } catch (err) {
+    if (!(err instanceof AdapterUnavailableError)) {
+      await host.close();
+      throw err;
+    }
+    console.warn(`Not checked against its database yet: ${err.message}`);
+  }
   const servers: Server[] = [];
   const closeAll = async () => {
     // Open MCP and SSE streams would hold close() forever, and with it the last signed checkpoint: end them too.
@@ -144,6 +159,19 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         applications: apps.map((a) => a.name)
       })
     );
+    // Where to start, for a person or an agent that opens the server's address (ADR-0112). What /version says, and where things are.
+    app.get("/", (_req, res) =>
+      void res.json({
+        deployment: host.deployment.name,
+        build: host.build,
+        mcp: "/mcp",
+        api: "/api",
+        openapi: "/api/openapi.json",
+        version: "/version",
+        health: { live: "/healthz", ready: "/readyz" },
+        authentication: host.deployment.identity.kind === "oidc" ? "Authorization: Bearer <a token from the deployment's identity provider>" : "Authorization: Bearer <a token the deployment names>"
+      })
+    );
     const personas = Object.values(host.personas);
     app.use(
       createApiApp({
@@ -157,7 +185,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         ...(allowedHosts ? { allowedHosts } : {})
       })
     );
-    const main = await listen(app, opts.port ?? 3939);
+    const main = await listen(app, opts.port ?? 3939, opts.listenHost);
     servers.push(main.server);
     const ports: Record<string, number> = {};
     for (const a of apps) {
@@ -172,7 +200,8 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
           ...(a.contract ? { contract: a.contract } : {}),
           ...(a.clientDir ? { clientDir: a.clientDir } : {})
         }),
-        port
+        port,
+        opts.listenHost
       );
       servers.push(served.server);
       ports[a.name] = served.port;
@@ -184,7 +213,8 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
   }
 }
 
-async function main(): Promise<void> {
+/** Runs the server from the command line; the `typesys-host` command calls it. */
+export async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const file = args.find((a) => !a.startsWith("--")) ?? process.env.TYPESYS_DEPLOYMENT;
   if (!file) {

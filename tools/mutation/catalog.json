@@ -2801,6 +2801,94 @@
       "tests": [
         "packages/core/test/p8-explaining.test.ts"
       ]
+    },
+    {
+      "id": "acceptance.any-build",
+      "adr": "0114",
+      "description": "An acceptance written for one upgrade passes a different one.",
+      "file": "packages/host/src/check.ts",
+      "find": "  if (acceptance.from !== report.before.build || acceptance.to !== report.after.build) {",
+      "replace": "  if (false) {",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "acceptance.unlisted-line",
+      "adr": "0114",
+      "description": "A blocking line the acceptance does not name is accepted anyway.",
+      "file": "packages/host/src/check.ts",
+      "find": "    else blocking.push(line);",
+      "replace": "    else accepted.push({ blocking: line, by: \"\", why: \"\" });",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "policy-tests.withholds-ignored",
+      "adr": "0113",
+      "description": "A policy test's withholds passes even when the property is returned.",
+      "file": "packages/host/src/tests.ts",
+      "find": "      if (seen > 0) problems.push(",
+      "replace": "      if (seen < 0) problems.push(",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "policy-tests.empty-is-refused",
+      "adr": "0113",
+      "description": "An empty query result counts as the persona being refused.",
+      "file": "packages/host/src/tests.ts",
+      "find": "          ? { name, ok: false, detail: \"inconclusive: the query returned no objects without being refused",
+      "replace": "          ? { name, ok: true, detail: \"inconclusive: the query returned no objects without being refused",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "policy-tests.missing-target-is-refused",
+      "adr": "0113",
+      "description": "An Action preview whose target does not exist counts as a refusal.",
+      "file": "packages/host/src/tests.ts",
+      "find": "      if (missing) return { name, ok: false,",
+      "replace": "      if (missing) return { name, ok: refusedWanted,",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "dev.every-interface",
+      "adr": "0112",
+      "description": "typesys dev listens on every interface, so its fixed tokens answer other machines.",
+      "file": "packages/host/src/dev.ts",
+      "find": "  const listenHost = opts.host ?? \"127.0.0.1\";",
+      "replace": "  const listenHost = opts.host ?? \"0.0.0.0\";",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "source-check.unknown-property",
+      "adr": "0110",
+      "description": "A deployment mapping a property its Type does not have builds.",
+      "file": "packages/host/src/host.ts",
+      "find": "        if (Object.hasOwn(properties, property)) continue;",
+      "replace": "        continue;",
+      "tests": [
+        "packages/host/test/sources.test.ts"
+      ]
+    },
+    {
+      "id": "init.overwrites",
+      "adr": "0111",
+      "description": "typesys init replaces files already in the directory without --force.",
+      "file": "packages/onboard/src/init.ts",
+      "find": "  if (!args.force && present.length > 0) {",
+      "replace": "  if (false) {",
+      "tests": [
+        "packages/onboard/test/init.test.ts"
+      ]
     }
   ]
 }

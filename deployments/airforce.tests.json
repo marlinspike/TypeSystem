@@ -1,0 +1,69 @@
+{
+  "format": "typesys.deployment-tests/1",
+  "tests": [
+    {
+      "name": "a maintainer reads AF86-0147 whole, maintenance status and deployment location included",
+      "as": "maintainer",
+      "read": "airforce.Aircraft/AF86-0147",
+      "returns": [
+        "tailNumber",
+        "maintenanceStatus",
+        "deploymentLocation",
+        "readinessStatus",
+        "needsAttention"
+      ]
+    },
+    {
+      "name": "a viewer reads AF86-0147 and whether it needs attention, without its maintenance status (a policy rule), its deployment location (SECRET), or the readiness computed from them",
+      "as": "viewer",
+      "read": "airforce.Aircraft/AF86-0147",
+      "returns": [
+        "tailNumber",
+        "needsAttention"
+      ],
+      "withholds": [
+        "maintenanceStatus",
+        "deploymentLocation",
+        "readinessStatus"
+      ]
+    },
+    {
+      "name": "anyone else is refused the aircraft",
+      "as": "anonymous",
+      "read": "airforce.Aircraft/AF86-0147",
+      "refused": true
+    },
+    {
+      "name": "no viewer's list of aircraft carries a maintenance status",
+      "as": "viewer",
+      "query": "airforce.Aircraft",
+      "withholds": [
+        "maintenanceStatus",
+        "deploymentLocation"
+      ]
+    },
+    {
+      "name": "a maintainer may open a work order",
+      "as": "maintainer",
+      "invoke": {
+        "action": "CreateMaintenanceWorkOrder",
+        "input": {
+          "maintenanceEventId": "EVT-9001",
+          "assignedTo": "SSgt Rivera"
+        }
+      }
+    },
+    {
+      "name": "a viewer may not",
+      "as": "viewer",
+      "invoke": {
+        "action": "CreateMaintenanceWorkOrder",
+        "input": {
+          "maintenanceEventId": "EVT-9001",
+          "assignedTo": "SSgt Rivera"
+        }
+      },
+      "refused": true
+    }
+  ]
+}

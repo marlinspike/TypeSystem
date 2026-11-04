@@ -10,7 +10,7 @@
     "./serve": "./dist/serve.js"
   },
   "bin": {
-    "typesys-host": "./dist/serve.js"
+    "typesys-host": "./bin/typesys-host.js"
   },
   "license": "MIT",
   "repository": {
@@ -22,7 +22,8 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "dependencies": {
     "@typesys/adapter-http": "0.1.0",

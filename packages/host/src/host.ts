@@ -22,8 +22,11 @@ import {
   type RegistryStore,
   type SemanticRuntimeOptions,
   HIGH_ASSURANCE_V1,
+  AdapterUnavailableError,
+  composedProperties,
   withAuditLog
 } from "@typesys/core";
+import { didYouMean } from "@typesys/devkit";
 import { PostgresTableAdapter } from "@typesys/adapter-postgres";
 import { openState, type HostState } from "./state.js";
 import { HttpAdapter, type HttpAdapterConfig, type HttpAuth } from "@typesys/adapter-http";
@@ -38,6 +41,8 @@ import {
   type Deployment,
   type HttpAuthSpec,
   type HttpSourceSpec,
+  type HttpTypeSpec,
+  type PostgresTypeSpec,
   type PostgresSourceSpec
 } from "./deployment.js";
 
@@ -128,6 +133,15 @@ export interface Host extends BuiltRuntime {
   readonly adapters: Readonly<Record<string, Adapter>>;
   /** What the deployment's `state` opened (ADR-0106): the audit trail, the workflow journal, the cache and rate limiter. */
   readonly state: HostState;
+  /**
+   * Checks every declared `postgres` source against its database's catalog
+   * (ADR-0110): each mapped table or view exists and may be read, and has
+   * the id and property columns the mapping names. Reads no rows. Resolves
+   * with every problem found, each naming the source, the Type and the
+   * column; rejects with `AdapterUnavailableError` when a database cannot
+   * be reached, which says nothing about the mapping.
+   */
+  checkSources(): Promise<string[]>;
   /** What this host runs that the deployment does not hold as data. */
   readonly code: {
     readonly extensions: readonly string[];
@@ -232,6 +246,42 @@ export function postgresAdapterForSource(id: string, spec: PostgresSourceSpec, p
 }
 
 /**
+ * What a deployment's own sources map that the model does not have
+ * (ADR-0110): a Type no pack registers, a Type whose mapping in the model
+ * reads another source, and a property the Type does not have. Each comes
+ * with the name probably meant, when one is close.
+ */
+async function sourceMappingProblems(deployment: Deployment, registry: SemanticRegistry): Promise<string[]> {
+  const problems: string[] = [];
+  const types = await registry.listTypes();
+  const names = types.map((t) => t.name);
+  for (const [id, spec] of Object.entries(deployment.sources)) {
+    if (spec.kind === "extension") continue;
+    const specs = Object.entries(spec.types as Readonly<Record<string, HttpTypeSpec | PostgresTypeSpec>>);
+    for (const [typeName, m] of specs) {
+      const at = `sources["${id}"].types["${typeName}"]`;
+      const type = types.find((t) => t.name === typeName);
+      if (!type) {
+        const near = didYouMean(typeName, names);
+        problems.push(`${at}: no pack has a Type ${typeName}${near ? ` (did you mean ${near}?)` : ""}`);
+        continue;
+      }
+      const readers = new Set((await registry.listMappings(typeName)).map((x) => x.dataSourceId));
+      if (readers.size > 0 && !readers.has(id)) problems.push(`${at}: the model reads ${typeName} from ${[...readers].sort().join(", ")}, not from "${id}"`);
+      const { properties } = await composedProperties(registry, type);
+      const known = Object.keys(properties);
+      const mapped = "columns" in m ? Object.keys(m.columns) : Object.keys(m.fields);
+      for (const property of mapped) {
+        if (Object.hasOwn(properties, property)) continue;
+        const near = didYouMean(property, known);
+        problems.push(`${at}: ${typeName} has no property "${property}"${near ? ` (did you mean "${near}"?)` : ""}`);
+      }
+    }
+  }
+  return problems;
+}
+
+/**
  * Builds one governed runtime from a deployment (ADR-0102). Everything is
  * checked before anything is built, and every problem is reported at once:
  * the packs offered are exactly the ones listed, every extension named is
@@ -283,8 +333,10 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
   for (const name of Object.keys(options.policyRules ?? {})) if (Object.hasOwn(rules, name)) problems.push(`code policy "${name}" would replace the deployment's rule of that name`);
 
   // Every source a model declares must be declared here, and every source declared here must be one a model declares.
+  // From every pack listed by name, even one refused above for its version or digest: its sources are still the ones meant, so they are not reported again.
+  const listed = deployment.packs.map((p) => byName.get(p.name)).filter((a): a is PackArchive => a !== undefined);
   const modelSources = new Set<string>([
-    ...archives.flatMap((a) => a.contents.dataSources.map((d) => d.id)),
+    ...listed.flatMap((a) => (a.contents?.dataSources ?? []).map((d) => d.id)),
     ...(options.manifests ?? []).flatMap((m) => (m.dataSources ?? []).map((d) => d.id))
   ]);
   for (const id of Object.keys(deployment.sources)) if (!modelSources.has(id)) problems.push(`sources["${id}"]: no pack declares a data source with this id`);
@@ -356,6 +408,9 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
       contractMismatches(c.contract, served).map((m) => `consumers: ${c.name} needs ${m.type} ${m.range}, ${m.version ? `this build has ${m.version}` : "this build has no such Type"}`)
     );
     if (broken.length > 0) throw new DeploymentError(broken);
+    // Every Type and property a declared source maps must be one the model has (ADR-0110): a misspelt one would otherwise be silently never read.
+    const mappingProblems = await sourceMappingProblems(deployment, registry);
+    if (mappingProblems.length > 0) throw new DeploymentError(mappingProblems);
   }
 
   const policyEngine = new AbacPolicyEngine();
@@ -384,6 +439,20 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     packs: installed,
     adapters: Object.fromEntries(adapters),
     state,
+    async checkSources() {
+      const problems: string[] = [];
+      for (const [id, spec] of Object.entries(deployment.sources)) {
+        const adapter = own[id];
+        if (spec.kind !== "postgres" || !(adapter instanceof PostgresTableAdapter)) continue;
+        try {
+          problems.push(...(await adapter.checkMapping()).map((p) => `sources["${id}"]: ${p}`));
+        } catch (err) {
+          if (err instanceof AdapterUnavailableError) throw new AdapterUnavailableError(`sources["${id}"]: ${err.message}`);
+          throw err;
+        }
+      }
+      return problems;
+    },
     code: {
       extensions: [...extensions.keys()],
       sources: supplied,
