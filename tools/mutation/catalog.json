@@ -2889,6 +2889,94 @@
       "tests": [
         "packages/onboard/test/init.test.ts"
       ]
+    },
+    {
+      "id": "signin.audience-optional",
+      "adr": "0116",
+      "description": "An oidc deployment that is not a demo builds without an audience, so a token issued for any other application is accepted.",
+      "file": "packages/host/src/deployment.ts",
+      "find": "    else if (!demo) out.push('identity.audience: required outside a demo",
+      "replace": "    else if (false) out.push('identity.audience: required outside a demo",
+      "tests": [
+        "packages/host/test/sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "signin.no-token-is-anonymous",
+      "adr": "0116",
+      "description": "A request without a token is served as anonymous instead of being asked to sign in.",
+      "file": "packages/http/src/sign-in.ts",
+      "find": "  if (!token && signIn && signIn.requireToken !== false) return { kind: \"missing\" };",
+      "replace": "  if (false) return { kind: \"missing\" };",
+      "tests": [
+        "packages/host/test/sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "signin.provider-down-is-invalid",
+      "adr": "0116",
+      "description": "An identity provider that cannot be reached is reported as a bad token (401) instead of 503.",
+      "file": "packages/http/src/sign-in.ts",
+      "find": "    if (err instanceof IdentityProviderUnavailableError) return { kind: \"unavailable\", message: err.message };",
+      "replace": "",
+      "tests": [
+        "packages/host/test/sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "oidc.discovery-issuer-unchecked",
+      "adr": "0116",
+      "description": "A discovery document for another issuer is trusted for its keys.",
+      "file": "packages/auth-oidc/src/oidc-identity-resolver.ts",
+      "find": "    if (doc.issuer !== config.issuer) throw",
+      "replace": "    if (false) throw",
+      "tests": [
+        "packages/auth-oidc/test"
+      ]
+    },
+    {
+      "id": "oidc.rolemap-passthrough",
+      "adr": "0116",
+      "description": "With a roleMap, a provider value it does not list is granted as a role of the same name.",
+      "file": "packages/auth-oidc/src/oidc-identity-resolver.ts",
+      "find": "(Object.hasOwn(roleMap, v) ? roleMap[v]! : [])",
+      "replace": "(Object.hasOwn(roleMap, v) ? roleMap[v]! : [v])",
+      "tests": [
+        "packages/auth-oidc/test"
+      ]
+    },
+    {
+      "id": "telemetry.ids-on-spans",
+      "adr": "0121",
+      "description": "The generic host puts object and subject ids on spans it sends to a collector.",
+      "file": "packages/host/src/host.ts",
+      "find": "    telemetryIdentity: \"none\",",
+      "replace": "    telemetryIdentity: \"clear\",",
+      "tests": [
+        "packages/host/test/telemetry.test.ts"
+      ]
+    },
+    {
+      "id": "requestlog.keeps-query",
+      "adr": "0121",
+      "description": "The request log keeps the query string, which carries values.",
+      "file": "packages/host/src/telemetry.ts",
+      "find": "  const segments = path.split(\"?\")[0]!.split(\"/\");",
+      "replace": "  const segments = path.split(\"/\");",
+      "tests": [
+        "packages/host/test/telemetry.test.ts"
+      ]
+    },
+    {
+      "id": "requestlog.any-request-id",
+      "adr": "0121",
+      "description": "Any caller-supplied X-Request-Id is logged and echoed as is.",
+      "file": "packages/host/src/telemetry.ts",
+      "find": "given && /^[A-Za-z0-9._-]{1,64}$/.test(given) ? given",
+      "replace": "given ? given",
+      "tests": [
+        "packages/host/test/telemetry.test.ts"
+      ]
     }
   ]
 }
