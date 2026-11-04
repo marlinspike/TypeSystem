@@ -18,15 +18,23 @@ import {
 } from "@typesys/core";
 import { GRAPH_VIEWS, discover, governedBaseline, governedGraph, governedImpact, isBaseline, queryGraph, validateQuery, type GraphConsumer, type GraphViewName, type SemanticGraph } from "@typesys/devkit";
 import { workflowUses, type WorkflowEngine } from "@typesys/workflow";
-import { LOCAL_HOSTS, bearerToken, originGuard } from "./guard.js";
+import { LOCAL_HOSTS, originGuard } from "./guard.js";
 import { openApiDocument } from "./openapi.js";
-import { bodyProblem, notFound, sendProblem, toProblem, unauthorized } from "./problems.js";
+import { bodyProblem, identityUnavailable, notFound, sendProblem, toProblem, unauthenticated, unauthorized } from "./problems.js";
+import { challengeHeader, checkSignIn, resolveCaller, type SignIn } from "./sign-in.js";
 
 export interface ApiOptions {
   /** What every request is served from: a registry and the runtime over it (what `buildRuntime` returns). */
   readonly backend: { readonly registry: SemanticRegistry; readonly runtime: SemanticRuntime };
   /** Bearer token to `Identity`, on every request. Required: the API assumes no identity of its own (ADR-0050). */
   readonly identityResolver: IdentityResolver;
+  /**
+   * How callers sign in (ADR-0116). With it, a request with no token is
+   * answered 401 with a challenge naming the protected resource metadata,
+   * and so is a token the resolver refuses; a provider that cannot be
+   * reached is a 503. Without it, the resolver decides what no token means.
+   */
+  readonly signIn?: SignIn;
   /** Serves the workflow routes when given (ADR-0057). */
   readonly workflows?: WorkflowEngine;
   /** What is built on the model besides the engine's workflows, for `/graph` (ADR-0090): `appUses(spec)` for each application. */
@@ -87,6 +95,7 @@ const body = <T>(req: Request): T => (req.body ?? {}) as T;
 export function createApiRouter(opts: ApiOptions): Router {
   if (!opts?.backend?.registry || !opts.backend.runtime) throw new TypeError("createApiRouter needs a backend: { registry, runtime }");
   if (typeof opts.identityResolver !== "function") throw new TypeError("createApiRouter needs an identity resolver; it assumes no identity of its own");
+  if (opts.signIn) checkSignIn(opts.signIn);
   const { runtime } = opts.backend;
   const onError = opts.onError ?? ((err: unknown) => console.error("TypeSys API error:", err));
   const router = express.Router();
@@ -94,14 +103,21 @@ export function createApiRouter(opts: ApiOptions): Router {
   router.use(express.json({ limit: "256kb" }));
 
   const route = (status: number, handler: Handler) => async (req: Request, res: Response) => {
-    let identity: Identity;
-    try {
-      identity = await opts.identityResolver(bearerToken(req) ?? null);
-    } catch {
-      // A token the resolver refuses (expired, bad signature) is the caller's fault, not the server's.
-      sendProblem(res.setHeader("WWW-Authenticate", "Bearer"), unauthorized());
+    const caller = await resolveCaller(req, opts.identityResolver, opts.signIn);
+    if (caller.kind !== "identity") {
+      // No token, or one the resolver refuses (expired, bad signature, another audience): the caller's to fix, by signing in.
+      // A provider that cannot be reached is the server's problem: not 401, which would send a client to sign in again for nothing.
+      if (caller.kind === "unavailable") {
+        onError(new Error(caller.message), req);
+        sendProblem(res, identityUnavailable());
+      } else
+        sendProblem(
+          res.setHeader("WWW-Authenticate", opts.signIn ? challengeHeader(opts.signIn, req, caller.kind === "invalid" ? "invalid_token" : undefined) : "Bearer"),
+          caller.kind === "missing" ? unauthenticated() : unauthorized()
+        );
       return;
     }
+    const identity: Identity = caller.identity;
     try {
       // A consumer's contract (ADR-0103): its own header, else the server's, in force for every runtime call the handler makes.
       const contract = parseContractHeader(req.headers[CONTRACT_HEADER]) ?? opts.contract;

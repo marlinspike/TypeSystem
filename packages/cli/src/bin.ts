@@ -39,6 +39,7 @@ Usage:
   typesys deploy build|check|test ...   (with @typesys/host installed: build a deployment, check an upgrade before it rolls, run its policy tests)
   typesys dev <deployment.json> ...   (with @typesys/host installed: serve a deployment for development)
   typesys audit verify|export|prune ...   (with @typesys/host installed: verify, export or prune a deployment's audit trail)
+  typesys migrate <deployment.json>   (with @typesys/host installed: create or update the tables the deployment keeps its state in)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical
 order (name files so base types sort before subtypes that extend them).
@@ -198,6 +199,7 @@ async function main(): Promise<void> {
   if (process.argv[2] === "deploy") return delegate("deploy", "@typesys/host", "deployCommand", process.argv.slice(3));
   if (process.argv[2] === "audit") return delegate("audit", "@typesys/host", "auditCommand", process.argv.slice(3));
   if (process.argv[2] === "dev") return delegate("dev", "@typesys/host", "devCommand", process.argv.slice(3));
+  if (process.argv[2] === "migrate") return delegate("migrate", "@typesys/host", "migrateCommand", process.argv.slice(3));
   // A database onboarded straight into a deployment (ADR-0111); without --from, init scaffolds YAML Types as before.
   if (process.argv[2] === "init" && process.argv.includes("--from")) return delegate("init", "@typesys/onboard", "initCommand", process.argv.slice(3));
   // A command's own --help is a request for usage, never a directory or a name to act on.

@@ -4,13 +4,22 @@ import { requireBackend, requireIdentityResolver, type McpBackend, type McpServe
 import { createServer as createMcpServer } from "./server.js";
 import type { IdentityResolver } from "./auth.js";
 import { CONTRACT_HEADER, parseContractHeader, runUnderContract, type Audience, type ConsumerContract } from "@typesys/core";
-import { LOCAL_HOSTS, bearerToken, originGuard } from "@typesys/http";
+import { LOCAL_HOSTS, PROTECTED_RESOURCE_PATHS, bearerToken, challengeHeader, originGuard, protectedResourceRouter, resolveCaller, type SignIn } from "@typesys/http";
 
 export interface HttpTransportOptions {
   /** What every request is served from — built once by the caller, so every transport and every request enforces identical governance against identical state (see server.ts). */
   backend: McpBackend;
   /** The whole of authentication: a bearer token in, an `Identity` out. Required — there is no default (ADR-0050). Pass `@typesys/auth-oidc`'s `createOidcIdentityResolver(...)` for real verification. */
   identityResolver: IdentityResolver;
+  /**
+   * How MCP clients sign in (ADR-0116): the server serves RFC 9728 Protected
+   * Resource Metadata naming the deployment's identity provider, and answers
+   * a request without a usable token 401 with a `WWW-Authenticate` challenge
+   * pointing at it, as the MCP authorization specification has it, so a
+   * client such as Claude Code can sign the person in. The token is checked
+   * once per request, before the MCP server sees it.
+   */
+  signIn?: SignIn;
   /** What each per-request server announces in `initialize`. */
   serverInfo?: McpServerInfo;
   /**
@@ -71,6 +80,12 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
   const app = express();
   const guard = originGuard(given?.allowedHosts ?? LOCAL_HOSTS, given?.allowedOrigins, (res, message) => jsonRpcError(res, 403, -32000, message));
   app.use("/mcp", guard);
+  const signIn = given?.signIn;
+  if (signIn) {
+    // Behind the same Host check as /mcp: the metadata names this server by the Host it was asked under.
+    for (const path of PROTECTED_RESOURCE_PATHS) app.use(path, guard);
+    app.use(protectedResourceRouter(signIn));
+  }
   app.use(express.json());
 
   // Liveness (ADR-0029): the process is up and serving HTTP. Deliberately no
@@ -99,7 +114,24 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
     // A fresh resolver per request, closing over *this* request's header —
     // the header is the authoritative source when present; the in-band
     // token (from a resource URI/tool argument) is only a fallback.
-    const perRequestResolver: IdentityResolver = (inBandToken) => baseResolver(headerToken ?? inBandToken);
+    let perRequestResolver: IdentityResolver = (inBandToken) => baseResolver(headerToken ?? inBandToken);
+    if (signIn) {
+      // Checked before the MCP server runs (ADR-0116): an MCP client learns it must sign in from the HTTP status, not from a tool's error.
+      const caller = await resolveCaller(req, baseResolver, signIn);
+      if (caller.kind === "missing" || caller.kind === "invalid") {
+        res.setHeader("WWW-Authenticate", challengeHeader(signIn, req, caller.kind === "invalid" ? "invalid_token" : undefined));
+        jsonRpcError(res, 401, -32001, caller.kind === "missing" ? "Unauthorized: sign in with the deployment's identity provider" : "Unauthorized: the bearer token was not accepted");
+        return;
+      }
+      if (caller.kind === "unavailable") {
+        console.error("Identity provider unavailable:", caller.message);
+        jsonRpcError(res, 503, -32002, "The identity provider could not be reached to check the token");
+        return;
+      }
+      // The header's identity, resolved once; a request that sent no header (allowed only when no token is required) still has its in-band token checked.
+      const resolved = caller.identity;
+      perRequestResolver = (inBandToken) => (headerToken ? Promise.resolve(resolved) : baseResolver(inBandToken));
+    }
 
     let contract: ConsumerContract | undefined;
     try {

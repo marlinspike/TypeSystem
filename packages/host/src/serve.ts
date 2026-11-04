@@ -145,6 +145,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
       identityResolver: host.identityResolver,
       serverInfo: { name: host.deployment.name, version: host.build },
       ready: () => host.state.ready(),
+      ...(host.signIn ? { signIn: host.signIn } : {}),
       ...(audience ? { audience } : {}),
       ...(allowedHosts ? { allowedHosts } : {})
     });
@@ -169,7 +170,11 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         openapi: "/api/openapi.json",
         version: "/version",
         health: { live: "/healthz", ready: "/readyz" },
-        authentication: host.deployment.identity.kind === "oidc" ? "Authorization: Bearer <a token from the deployment's identity provider>" : "Authorization: Bearer <a token the deployment names>"
+        authentication:
+          host.deployment.identity.kind === "oidc"
+            ? "Authorization: Bearer <a token from the deployment's identity provider>; MCP clients sign in through /.well-known/oauth-protected-resource"
+            : "Authorization: Bearer <a token the deployment names>",
+        ...(host.signIn ? { signIn: { issuer: host.signIn.issuer, metadata: "/.well-known/oauth-protected-resource" } } : {})
       })
     );
     const personas = Object.values(host.personas);
@@ -177,6 +182,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
       createApiApp({
         backend: host,
         identityResolver: host.identityResolver,
+        ...(host.signIn ? { signIn: host.signIn } : {}),
         workflows,
         subjects: {
           list: async () => personas.map((p) => ({ subjectId: p.subjectId })),
@@ -216,9 +222,15 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
 /** Runs the server from the command line; the `typesys-host` command calls it. */
 export async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  // The image's one-shot migrate step (ADR-0117): `typesys-host migrate [deployment.json]`, the same as `typesys migrate`.
+  if (args[0] === "migrate") {
+    const { migrateCommand } = await import("./migrate.js");
+    process.exitCode = await migrateCommand(args.slice(1));
+    return;
+  }
   const file = args.find((a) => !a.startsWith("--")) ?? process.env.TYPESYS_DEPLOYMENT;
   if (!file) {
-    console.error("Usage: typesys-host <deployment.json> [--check]   (or set TYPESYS_DEPLOYMENT)");
+    console.error("Usage: typesys-host <deployment.json> [--check]   (or set TYPESYS_DEPLOYMENT)\n       typesys-host migrate [<deployment.json>]");
     process.exitCode = 2;
     return;
   }

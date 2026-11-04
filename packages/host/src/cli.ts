@@ -4,14 +4,15 @@ import { acceptanceFor, applyAcceptance, checkDeployment, renderDeployCheck, val
 import { DeploymentError, type ConsumerSpec } from "./deployment.js";
 import { buildHost } from "./host.js";
 import { loadDeployment, loadExtensions } from "./load.js";
+import { stateProblems } from "./migrate.js";
 import { loadTests, renderTests, runTests, testsFileFor } from "./tests.js";
 
 const USAGE = `typesys deploy — build and check deployments (ADR-0102, ADR-0104)
 
   typesys deploy build <deployment.json> [--packs-dir <dir>] [--offline] [--json]
       Build the deployment as the generic server would, check every declared database
-      table and column against the database's catalog (no rows are read; --offline skips
-      this), print its build id, and exit.
+      table and column against the database's catalog and that its audit database is
+      migrated (no rows are read; --offline skips both), print its build id, and exit.
   typesys deploy check <current.json> <next.json> [--persona <name>]... [--object <Type>/<id>]...
                        [--queries <queries.json>] [--consumer <contract.json>]... [--packs-dir <dir>]
                        [--accept <acceptance.json>] [--write-acceptance <file> --by <name> --why <reason>] [--json]
@@ -122,6 +123,8 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
       } finally {
         await host.close();
       }
+      // What the server would refuse to start over: an audit database not migrated (ADR-0117).
+      if (!args.offline) sourceProblems.push(...(await stateProblems(deployment)));
       if (sourceProblems.length > 0) throw new DeploymentError(sourceProblems);
       const result = { ok: true, deployment: deployment.name, build: host.build, packs: host.packs.map((p) => `${p.name}@${p.version}`) };
       console.log(args.json ? JSON.stringify(result) : `${result.deployment} builds: ${result.build}\npacks: ${result.packs.join(", ")}`);

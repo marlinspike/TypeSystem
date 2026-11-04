@@ -93,6 +93,12 @@ const plain = (status: number, code: ProblemCode, title: string, detail: string)
 /** A bearer token the identity resolver refused: expired, badly signed, or for someone else. */
 export const unauthorized = (): Problem => plain(401, "unauthorized", "Not authenticated", "The bearer token was not accepted");
 
+/** No bearer token, on a server that requires one (ADR-0116). */
+export const unauthenticated = (): Problem => plain(401, "unauthorized", "Not authenticated", "Sign in: send Authorization: Bearer <token> from the deployment's identity provider");
+
+/** The identity provider could not be asked about the token (ADR-0116): the server's problem, retryable. */
+export const identityUnavailable = (): Problem => plain(503, "unavailable", "Identity provider unavailable", "The token could not be checked: the identity provider could not be reached");
+
 /** A route the API does not serve. */
 export const notFound = (): Problem => plain(404, "not-found", "Not found", "No such route");
 

@@ -76,3 +76,16 @@ export async function runMigrations(pool: Pool, migrationsDir: string = DEFAULT_
     client.release(!unlocked);
   }
 }
+
+/**
+ * The migrations not yet applied to this database, in order, without
+ * applying any (ADR-0117): what `typesys deploy build` reports, so an
+ * unmigrated audit database is found before a server refuses to start on it.
+ */
+export async function pendingMigrations(pool: Pool, migrationsDir: string = DEFAULT_MIGRATIONS_DIR): Promise<string[]> {
+  const files = (await readdir(migrationsDir)).filter((f) => f.endsWith(".sql")).sort();
+  const { rows } = await pool.query<{ exists: string | null }>("SELECT to_regclass($1) AS exists", [TRACKING_TABLE]);
+  if (!rows[0]?.exists) return files;
+  const applied = new Set((await pool.query<{ id: string }>(`SELECT id FROM ${TRACKING_TABLE}`)).rows.map((r) => r.id));
+  return files.filter((f) => !applied.has(f));
+}

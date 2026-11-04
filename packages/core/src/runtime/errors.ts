@@ -110,6 +110,19 @@ export class AdapterUnavailableError extends Error {
 }
 
 /**
+ * The identity provider could not be asked whether a token is good: its
+ * discovery document or signing keys could not be fetched (ADR-0116). The
+ * server's problem, not the caller's: answered 503, never 401 and never
+ * anonymous, so an outage is not mistaken for a bad token.
+ */
+export class IdentityProviderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IdentityProviderUnavailableError";
+  }
+}
+
+/**
  * A data source refused the credential TypeSystem holds for it (ADR-0072):
  * the source's own authorization, not the caller's. Not retryable, and
  * never reported as "nothing found".

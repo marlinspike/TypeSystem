@@ -23,7 +23,7 @@ const base: Deployment = {
     audit: { kind: "postgres", url: { $secret: "DATABASE_URL" }, signing: { keyId: "audit-1", key: { $secret: "AUDIT_KEY" } }, verifyKeys: { "audit-1": auditPublicKey } }
   },
   policies: { "t.read": { role: ["reader"] } },
-  identity: { kind: "oidc", issuer: { $env: "ISSUER" } }
+  identity: { kind: "oidc", issuer: { $env: "ISSUER" }, audience: "https://typesys.example" }
 };
 
 const problems = (patch: Record<string, unknown>) => validateDeployment({ ...base, ...patch }).join("\n");
