@@ -5,9 +5,10 @@ import { DeploymentError, type ConsumerSpec } from "./deployment.js";
 import { buildHost } from "./host.js";
 import { loadDeployment, loadExtensions } from "./load.js";
 import { stateProblems } from "./migrate.js";
+import { PROMOTE_USAGE, promoteCommand } from "./promote.js";
 import { loadTests, renderTests, runTests, testsFileFor } from "./tests.js";
 
-const USAGE = `typesys deploy — build and check deployments (ADR-0102, ADR-0104)
+const USAGE = () => `typesys deploy — build and check deployments (ADR-0102, ADR-0104)
 
   typesys deploy build <deployment.json> [--packs-dir <dir>] [--offline] [--json]
       Build the deployment as the generic server would, check every declared database
@@ -28,6 +29,7 @@ const USAGE = `typesys deploy — build and check deployments (ADR-0102, ADR-010
       as one of its personas and says what must be returned, withheld or refused. The tests
       file defaults to <name>.tests.json beside the deployment. Exits 1 when one fails.
 
+${PROMOTE_USAGE}
 Credentials and addresses come from the environment, as each deployment's $secret and $env
 references name them. Probes are reads, explained as each persona: nothing is written.
 `;
@@ -95,6 +97,8 @@ async function load(file: string, packsDir: string | undefined) {
 /** `typesys deploy ...`: the exit code. */
 export async function deployCommand(argv: readonly string[]): Promise<number> {
   const [sub, ...rest] = argv;
+  // Its own options (ADR-0118): parsed by its own command.
+  if (sub === "promote" && !rest.includes("--help") && !rest.includes("-h")) return promoteCommand(rest);
   let args: Args;
   try {
     args = parse(rest);
@@ -103,7 +107,7 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
     return 2;
   }
   if (args.help) {
-    console.log(USAGE);
+    console.log(USAGE());
     return 0;
   }
   const fail = (err: unknown): number => {
@@ -189,6 +193,6 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
       return fail(err);
     }
   }
-  console.error(USAGE);
+  console.error(USAGE());
   return sub === undefined || sub === "help" || sub === "--help" ? 0 : 2;
 }

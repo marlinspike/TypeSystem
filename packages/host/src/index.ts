@@ -9,3 +9,4 @@ export * from "./tests.js";
 export { devCommand, startDev, DEV_USAGE, welcome, type DevOptions, type DevSession } from "./dev.js";
 export { hostFromFile, serve, hostedWorkflows, type Serving, type ServeOptions } from "./serve.js";
 export * from "./migrate.js";
+export * from "./promote.js";

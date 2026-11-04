@@ -140,11 +140,17 @@ files to see who would newly read what, and \`npx typesys deploy test\` to keep 
 ## Before anyone else uses it
 
 This is a demo deployment (\`"demo": true\`): its tokens are fixed, so anyone who has one
-holds its roles, and its audit trail is kept in memory. For a shared deployment, remove
-\`demo\`, replace \`identity\` with your identity provider
-(\`{ "kind": "oidc", "issuer": { "$env": "OIDC_ISSUER" } }\`), and keep the audit trail in
-Postgres with signed checkpoints (\`state.audit\`, see docs/how-to/deploy-with-containers.md).
-\`npx typesys deploy build\` names everything still missing.
+holds its roles, and its audit trail is kept in memory. To share it, write a shared
+deployment beside it, signed in through your identity provider and keeping a signed audit
+trail in Postgres, then the files to run it:
+
+\`\`\`bash
+npx typesys deploy promote ${file} --issuer https://login.example.com --audience <your app's audience>
+npx typesys migrate ${file.replace(/\.deployment\.json$/, "")}.shared.deployment.json
+npx typesys deploy package ${file.replace(/\.deployment\.json$/, "")}.shared.deployment.json --target compose
+\`\`\`
+
+See docs/how-to/deploy-with-containers.md.
 `;
 }
 
