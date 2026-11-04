@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   AbacPolicyEngine,
   DEMO_LINEAR_CLASSIFICATION,
@@ -54,10 +55,28 @@ export interface HostEnvironment {
   readonly fetch?: typeof fetch;
 }
 
-/** Both from `process.env`: what a container gets from its ConfigMap and Secret. */
+/**
+ * A secret from `vars[name]`, or else from the file `vars[name_FILE]` names
+ * (ADR-0119): the convention Docker and Kubernetes secrets mounted as files
+ * use, so a multi-line key need never be put in an environment variable.
+ * One trailing newline is dropped, as a file written by an editor has one.
+ */
+export function secretFromEnvironment(vars: Readonly<Record<string, string | undefined>>, name: string): string | undefined {
+  const direct = vars[name];
+  if (direct !== undefined && direct !== "") return direct;
+  const file = vars[`${name}_FILE`];
+  if (!file) return direct;
+  try {
+    return readFileSync(file, "utf8").replace(/\r?\n$/, "");
+  } catch (err) {
+    throw new DeploymentError([`secret ${name}: ${name}_FILE names ${file}, which cannot be read (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`]);
+  }
+}
+
+/** Both from `process.env`: what a container gets from its ConfigMap and Secret. A secret may also be a file `<NAME>_FILE` names. */
 export const processEnvironment: HostEnvironment = {
   env: (name) => process.env[name],
-  secret: (name) => process.env[name]
+  secret: (name) => secretFromEnvironment(process.env, name)
 };
 
 /** Nothing set: every reference falls back to its default, or fails. */

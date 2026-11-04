@@ -5,6 +5,7 @@ import { DeploymentError, type ConsumerSpec } from "./deployment.js";
 import { buildHost } from "./host.js";
 import { loadDeployment, loadExtensions } from "./load.js";
 import { stateProblems } from "./migrate.js";
+import { PACKAGE_USAGE, packageCommand } from "./package.js";
 import { PROMOTE_USAGE, promoteCommand } from "./promote.js";
 import { loadTests, renderTests, runTests, testsFileFor } from "./tests.js";
 
@@ -30,6 +31,7 @@ const USAGE = () => `typesys deploy — build and check deployments (ADR-0102, A
       file defaults to <name>.tests.json beside the deployment. Exits 1 when one fails.
 
 ${PROMOTE_USAGE}
+${PACKAGE_USAGE}
 Credentials and addresses come from the environment, as each deployment's $secret and $env
 references name them. Probes are reads, explained as each persona: nothing is written.
 `;
@@ -99,6 +101,7 @@ export async function deployCommand(argv: readonly string[]): Promise<number> {
   const [sub, ...rest] = argv;
   // Its own options (ADR-0118): parsed by its own command.
   if (sub === "promote" && !rest.includes("--help") && !rest.includes("-h")) return promoteCommand(rest);
+  if (sub === "package" && !rest.includes("--help") && !rest.includes("-h")) return packageCommand(rest);
   let args: Args;
   try {
     args = parse(rest);

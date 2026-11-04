@@ -10,3 +10,4 @@ export { devCommand, startDev, DEV_USAGE, welcome, type DevOptions, type DevSess
 export { hostFromFile, serve, hostedWorkflows, type Serving, type ServeOptions } from "./serve.js";
 export * from "./migrate.js";
 export * from "./promote.js";
+export * from "./package.js";

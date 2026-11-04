@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { airforceDeployment } from "@typesys/demo-web/deployments";
 import { validateDeployment, type Deployment } from "../src/deployment.js";
 import { serve, type Serving } from "../src/serve.js";
@@ -27,7 +28,18 @@ async function provider() {
     if (req.url === "/.well-known/openid-configuration") {
       discoveryHits++;
       res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ issuer, jwks_uri: `${issuer}/keys` }));
+      res.end(
+        JSON.stringify({
+          issuer,
+          jwks_uri: `${issuer}/keys`,
+          authorization_endpoint: `${issuer}/authorize`,
+          token_endpoint: `${issuer}/token`,
+          response_types_supported: ["code"],
+          subject_types_supported: ["public"],
+          id_token_signing_alg_values_supported: ["RS256"],
+          code_challenge_methods_supported: ["S256"]
+        })
+      );
     } else if (req.url === "/keys") {
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ keys: [jwk] }));
@@ -125,6 +137,28 @@ describe("signing in to a deployment (ADR-0116)", () => {
     expect(((await res.json()) as { error: { message: string } }).error.message).toContain("sign in");
   });
 
+  it("is signed in to by the MCP SDK's own client: it finds the provider and asks it for a token for this server", async () => {
+    let redirected: URL | undefined;
+    const provider: OAuthClientProvider = {
+      redirectUrl: "http://127.0.0.1:9/callback",
+      clientMetadata: { redirect_uris: ["http://127.0.0.1:9/callback"], client_name: "test" },
+      clientInformation: () => ({ client_id: "claude-test" }),
+      tokens: () => undefined,
+      saveTokens: () => undefined,
+      redirectToAuthorization: (url) => {
+        redirected = url;
+      },
+      saveCodeVerifier: () => undefined,
+      codeVerifier: () => "v"
+    };
+    expect(await auth(provider, { serverUrl: `${base}/mcp` })).toBe("REDIRECT");
+    expect(redirected?.origin + redirected!.pathname).toBe(`${idp.issuer}/authorize`);
+    // RFC 8707: the token is asked for this server, which is what its audience is checked against.
+    expect(redirected?.searchParams.get("resource")).toBe(`${base}/`);
+    expect(redirected?.searchParams.get("scope")).toBe("api://typesys/read");
+    expect(redirected?.searchParams.get("client_id")).toBe("claude-test");
+  });
+
   it("answers the API without a token 401 with the same challenge", async () => {
     const res = await fetch(`${base}/api/objects/airforce.Aircraft/AF86-0147`);
     expect(res.status).toBe(401);
@@ -138,9 +172,11 @@ describe("signing in to a deployment (ADR-0116)", () => {
     const aircraft = (await (await fetch(`${base}/api/objects/airforce.Aircraft/AF86-0147`, { headers: { authorization: `Bearer ${token}` } })).json()) as { values: Record<string, unknown> };
     expect(aircraft.values.tailNumber).toBe("AF86-0147");
     expect(aircraft.values).not.toHaveProperty("maintenanceStatus");
+    const hits = idp.discoveryHits();
     expect((await mcp({ authorization: `Bearer ${token}` })).status).toBe(200);
-    // Discovery is read once and kept.
-    expect(idp.discoveryHits()).toBe(1);
+    expect((await fetch(`${base}/api/me`, { headers: { authorization: `Bearer ${await idp.token({ sub: "bob", groups: ["Fleet Maintainers"] })}` } })).status).toBe(200);
+    // Discovery is read once and kept: later tokens are checked without asking for it again.
+    expect(idp.discoveryHits()).toBe(hits);
   });
 
   it("refuses a token issued for another application, an expired one and another issuer's, 401 invalid_token", async () => {
