@@ -14,8 +14,8 @@ const envOf = (vars: Record<string, string>): HostEnvironment => ({ env: (n) => 
 
 describe("typesys migrate without Postgres state (ADR-0117)", () => {
   it("has nothing to do for a deployment that keeps its state in the process", async () => {
-    expect(await migrateDeployment(airforceDeployment as Deployment, emptyEnvironment)).toEqual([]);
-    expect(await stateProblems(airforceDeployment as Deployment, emptyEnvironment)).toEqual([]);
+    expect(await migrateDeployment(airforceDeployment, emptyEnvironment)).toEqual([]);
+    expect(await stateProblems(airforceDeployment, emptyEnvironment)).toEqual([]);
   });
 
   it("names a missing secret, and never repeats a connection string it was given", async () => {
@@ -76,9 +76,9 @@ describe.skipIf(!DATABASE_URL)("typesys migrate against Postgres (ADR-0117)", ()
 
     const [a, b] = await Promise.all([migrateDeployment(d, env), migrateDeployment(d, env)]);
     // The advisory lock serializes them: one applies everything, the other finds it applied.
-    const audit = [a!, b!].map((r) => r.find((s) => s.store === "state.audit")!);
+    const audit = [a, b].map((r) => r.find((s) => s.store === "state.audit")!);
     expect(audit.map((r) => r.applied.length).sort()).toEqual([0, audit[0]!.applied.length + audit[1]!.applied.length]);
-    expect([a, b].every((r) => r!.some((s) => s.store === "state.workflows"))).toBe(true);
+    expect([a, b].every((r) => r.some((s) => s.store === "state.workflows"))).toBe(true);
 
     expect(await stateProblems(d, env)).toEqual([]);
     const again = await migrateDeployment(d, env);

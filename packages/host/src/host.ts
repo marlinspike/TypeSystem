@@ -183,7 +183,8 @@ async function closeAll(extensions: Iterable<HostExtension>): Promise<void> {
   await Promise.allSettled([...extensions].map(async (e) => e.close?.()));
 }
 
-function resolveConfig(value: ConfigString, env: HostEnvironment, at: string): string {
+/** A `ConfigString` from the environment, as the host resolves every one: a set variable, else its default, else an error naming it. */
+export function resolveConfig(value: ConfigString, env: HostEnvironment, at: string): string {
   if (typeof value === "string") return value;
   const raw = env.env(value.$env) ?? value.default;
   if (raw === undefined || raw === "") throw new DeploymentError([`${at}: environment variable ${value.$env} is not set`]);
@@ -468,6 +469,8 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     ...(state.cache ? { cache: state.cache } : {}),
     ...(state.cacheTtlMs !== undefined ? { defaultCacheTtlMs: state.cacheTtlMs } : {}),
     ...(state.rateLimiter ? { rateLimiter: state.rateLimiter } : {}),
+    // Spans leave the process once a deployment names a collector (ADR-0121): no object or subject id goes with them.
+    telemetryIdentity: "none",
     ...options.runtimeOptions
   });
 

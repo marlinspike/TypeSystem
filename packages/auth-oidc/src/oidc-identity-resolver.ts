@@ -55,7 +55,7 @@ export function anonymousIdentity(): Identity {
 
 function readClaimPath(payload: JWTPayload, claimPath: string): unknown {
   return claimPath.split(".").reduce<unknown>((acc, key) => {
-    if (acc && typeof acc === "object" && Object.hasOwn(acc as Record<string, unknown>, key)) {
+    if (acc && typeof acc === "object" && Object.hasOwn(acc, key)) {
       return (acc as Record<string, unknown>)[key];
     }
     return undefined;

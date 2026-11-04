@@ -54,7 +54,7 @@ async function provider() {
     new SignJWT(claims)
       .setProtectedHeader({ alg: "RS256", kid: "k1" })
       .setIssuer(opts.issuer ?? issuer)
-      .setSubject(String(claims.sub ?? "someone"))
+      .setSubject(typeof claims.sub === "string" ? claims.sub : "someone")
       .setAudience(opts.audience ?? "typesys-airforce")
       .setIssuedAt()
       .setExpirationTime(opts.expired ? "-1m" : "10m")
@@ -253,12 +253,12 @@ describe("signing in to a deployment (ADR-0116)", () => {
 });
 
 describe("a deployment's identity, validated (ADR-0116)", () => {
-  const shared = (identity: Record<string, unknown>) => validateDeployment({ ...airforceDeployment, demo: false, identity } as unknown as Deployment).join("\n");
+  const shared = (identity: Record<string, unknown>) => validateDeployment({ ...airforceDeployment, demo: false, identity }).join("\n");
 
   it("requires an audience outside a demo", () => {
     expect(shared({ kind: "oidc", issuer: "https://idp.example" })).toContain("identity.audience: required outside a demo");
     expect(shared({ kind: "oidc", issuer: "https://idp.example", audience: "typesys" })).not.toContain("identity.audience");
-    expect(validateDeployment({ ...airforceDeployment, identity: { kind: "oidc", issuer: "https://idp.example" } } as unknown as Deployment).join("\n")).not.toContain("identity.audience");
+    expect(validateDeployment({ ...airforceDeployment, identity: { kind: "oidc", issuer: "https://idp.example" } }).join("\n")).not.toContain("identity.audience");
   });
 
   it("checks the resource, scopes, roleMap and allowAnonymous", () => {

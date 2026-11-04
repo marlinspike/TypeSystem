@@ -55,7 +55,7 @@ function whereUsed(deployment: Deployment): Map<string, string> {
     if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
     else if (v && typeof v === "object") {
       const r = v as Record<string, unknown>;
-      for (const k of ["$secret", "$env"]) if (typeof r[k] === "string" && !out.has(r[k] as string)) out.set(r[k] as string, at);
+      for (const k of ["$secret", "$env"]) if (typeof r[k] === "string" && !out.has(r[k])) out.set(r[k], at);
       for (const k of Object.keys(r)) walk(r[k], at ? `${at}.${k}` : k);
     }
   };

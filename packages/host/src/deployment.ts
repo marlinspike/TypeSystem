@@ -242,6 +242,20 @@ export interface Deployment {
     readonly inspectionPolicy?: string;
     /** A security profile the runtime refuses to start without satisfying (ADR-0046). */
     readonly securityProfile?: "high-assurance-v1";
+    /**
+     * Send the runtime's traces and metrics (ADR-0017) to an OpenTelemetry
+     * collector over OTLP/HTTP (ADR-0121). Spans carry no values.
+     */
+    readonly telemetry?: {
+      /** The collector's base URL, such as `http://otel-collector:4318`. */
+      readonly otlpEndpoint: ConfigString;
+      /** Default `typesys-<deployment name>`. */
+      readonly serviceName?: string;
+      /** Default 60. */
+      readonly metricsIntervalSeconds?: number;
+    };
+    /** One JSON line per request on standard output, never a value, token or query (ADR-0121). Default true. */
+    readonly requestLog?: boolean;
   };
   readonly trust?: {
     /** Key id → public key (PEM). When given, every pack must be signed by one of them. */
@@ -589,7 +603,20 @@ export function validateDeployment(doc: unknown): string[] {
     const r = doc.runtime;
     if (!isRecord(r)) out.push("runtime: must be an object");
     else {
-      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile"], "runtime", out);
+      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile", "telemetry", "requestLog"], "runtime", out);
+      if (r.requestLog !== undefined && typeof r.requestLog !== "boolean") out.push("runtime.requestLog: must be true or false");
+      if (r.telemetry !== undefined) {
+        const t = r.telemetry;
+        if (!isRecord(t)) out.push("runtime.telemetry: must be { \"otlpEndpoint\": ... }");
+        else {
+          unknownFields(t, ["otlpEndpoint", "serviceName", "metricsIntervalSeconds"], "runtime.telemetry", out);
+          checkConfigString(t.otlpEndpoint, "runtime.telemetry.otlpEndpoint", out);
+          if (typeof t.otlpEndpoint === "string" && !/^https?:\/\//.test(t.otlpEndpoint)) out.push("runtime.telemetry.otlpEndpoint: must be an http(s) URL, such as http://otel-collector:4318");
+          if (t.serviceName !== undefined && !nonEmpty(t.serviceName)) out.push("runtime.telemetry.serviceName: must be a non-empty string");
+          if (t.metricsIntervalSeconds !== undefined && !(Number.isInteger(t.metricsIntervalSeconds) && (t.metricsIntervalSeconds as number) >= 1))
+            out.push("runtime.telemetry.metricsIntervalSeconds: must be a whole number of seconds, at least 1");
+        }
+      }
       if (r.securityProfile !== undefined && r.securityProfile !== "high-assurance-v1") out.push('runtime.securityProfile: must be "high-assurance-v1"');
       if (r.callTimeoutMs !== undefined && !(Number.isInteger(r.callTimeoutMs) && (r.callTimeoutMs as number) > 0)) out.push("runtime.callTimeoutMs: must be a positive integer");
       if (r.inspectionPolicy !== undefined && (!nonEmpty(r.inspectionPolicy) || !isRecord(doc.policies) || !Object.hasOwn(doc.policies, r.inspectionPolicy)))

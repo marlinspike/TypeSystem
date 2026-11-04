@@ -155,7 +155,7 @@ describe.skipIf(!DATABASE_URL)("a deployment that declares its state (ADR-0106, 
       u.searchParams.set("options", `-c search_path=${bare}`);
       const err = await buildHost(deployment(), { packs: [corePack, erpPack], env: overlayEnvironment({ DATABASE_URL: u.href }, env) }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(DeploymentError);
-      expect((err as DeploymentError).problems.join("\n")).toContain("migrate:postgres");
+      expect((err as DeploymentError).problems.join("\n")).toContain("typesys migrate");
     } finally {
       await admin.query(`DROP SCHEMA ${bare} CASCADE`);
     }
