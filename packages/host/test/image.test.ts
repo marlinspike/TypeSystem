@@ -31,7 +31,7 @@ describe("the image's server (ADR-0120)", () => {
     expect(dockerfile).toMatch(/^CMD \["node", "packages\/host\/dist\/serve\.js"\]$/m);
     // Never built on a pull request: the image workflow is started by hand only.
     const workflow = readFileSync(path.join(root, ".github/workflows/image.yml"), "utf8");
-    expect(workflow).toMatch(/^on:\n {2}workflow_dispatch:/m);
-    expect(workflow).not.toMatch(/^\s+(pull_request|push|schedule|workflow_call):/m);
+    const triggers = /^on:\n((?: .*\n)+)/m.exec(workflow)?.[1] ?? "";
+    expect(triggers.match(/^ {2}[a-z_]+:/gm)).toEqual(["  workflow_dispatch:"]);
   });
 });
