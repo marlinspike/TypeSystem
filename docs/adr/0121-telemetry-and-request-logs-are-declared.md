@@ -19,7 +19,10 @@ to read when a caller reported an error.
 - `runtime.telemetry: { otlpEndpoint, serviceName?, metricsIntervalSeconds? }`
   registers the SDK with OTLP/HTTP exporters for traces and metrics. The
   resource names the service, the deployment and its build id. Closing the
-  server flushes what is buffered, waiting at most five seconds.
+  server flushes what is buffered, waiting at most five seconds. The SDK is
+  loaded only when the deployment declares it. Core's metric instruments are
+  made again when the global provider changes, because a meter taken before
+  a provider is registered stays a no-op (the API has no proxy meter).
 - The generic host runs the runtime with `telemetryIdentity: "none"`: no object
   or subject id is put on a span.
 - Every request is logged as one JSON line on stdout with its time, level

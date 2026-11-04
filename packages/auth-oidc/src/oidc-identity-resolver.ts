@@ -81,8 +81,12 @@ export function wellKnown(issuer: string, name: string): URL {
   return new URL(`${issuer.replace(/\/+$/, "")}/.well-known/${name}`);
 }
 
-/** Errors that say the token is wrong, not that the keys could not be fetched. */
-const TOKEN_FAULTS = new Set(["ERR_JWKS_NO_MATCHING_KEY", "ERR_JWKS_MULTIPLE_MATCHING_KEYS"]);
+/**
+ * Errors that say the token is wrong, not that the keys could not be fetched:
+ * no key for its `kid`, or an `alg` no key set can hold (`HS256`, made up).
+ * A forged header must be a 401, never a 503 that reads as the provider down.
+ */
+const TOKEN_FAULTS = new Set(["ERR_JWKS_NO_MATCHING_KEY", "ERR_JWKS_MULTIPLE_MATCHING_KEYS", "ERR_JOSE_NOT_SUPPORTED", "ERR_JOSE_ALG_NOT_ALLOWED", "ERR_JWS_INVALID"]);
 
 /**
  * The provider's keys, found through its discovery document unless named,

@@ -136,4 +136,20 @@ describe("createOidcIdentityResolver", () => {
     // Failing open (the library default), an unreachable provider still reads as anonymous.
     expect(await createOidcIdentityResolver({ issuer: ISSUER, fetch: down })(token)).toEqual(anonymousIdentity());
   });
+
+  it("calls a forged header a bad token, not the provider down: an alg no key set holds, or an unknown kid (ADR-0116)", async () => {
+    const publicJwk = await exportJWK((await generateKeyPair("RS256")).publicKey);
+    const provider = (async (url: URL | string) =>
+      String(url).endsWith("/openid-configuration")
+        ? new Response(JSON.stringify({ issuer: ISSUER, jwks_uri: `${ISSUER}/keys` }))
+        : new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: "k1", alg: "RS256" }] }))) as unknown as typeof fetch;
+    const resolver = createOidcIdentityResolver({ issuer: ISSUER, audience: AUDIENCE, fetch: provider, failOpenToAnonymous: false });
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    for (const header of [{ alg: "HS256", kid: "k1" }, { alg: "made-up", kid: "k1" }, { alg: "RSA-OAEP", kid: "k1" }, { alg: "RS256", kid: "unknown" }]) {
+      const forged = `${b64(header)}.${b64({ iss: ISSUER, aud: AUDIENCE, sub: "x" })}.c2ln`;
+      const err = await resolver(forged).catch((e: unknown) => e);
+      expect(err, JSON.stringify(header)).toBeInstanceOf(Error);
+      expect(err, JSON.stringify(header)).not.toBeInstanceOf(IdentityProviderUnavailableError);
+    }
+  });
 });

@@ -146,7 +146,7 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
   try {
     const t = deployment.runtime?.telemetry;
     if (t)
-      telemetry = startTelemetry(
+      telemetry = await startTelemetry(
         {
           endpoint: resolveConfig(t.otlpEndpoint, env, "runtime.telemetry.otlpEndpoint"),
           serviceName: t.serviceName ?? `typesys-${deployment.name}`,

@@ -1803,7 +1803,7 @@ The runtime is tested end to end against real PostgreSQL, Redis and a KMS
 emulator, including mutation testing of the security checks and independent
 adversarial reviews (in [`docs/reviews/`](docs/reviews/)). Every pull
 request runs lint, typecheck, the build and the unit suite; the database,
-browser and showcase tests run locally with `npm run check:full`. A catalog of 265 deliberate mutations, each
+browser and showcase tests run locally with `npm run check:full`. A catalog of 267 deliberate mutations, each
 of which a test must catch, runs locally with `npm run mutation`, never
 on GitHub for a change. Among them are a compile that overwrites a hand
 edit, a lock entry outside the application, and a figure computed from a

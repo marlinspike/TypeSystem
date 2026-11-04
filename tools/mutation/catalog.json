@@ -2977,6 +2977,28 @@
       "tests": [
         "packages/host/test/telemetry.test.ts"
       ]
+    },
+    {
+      "id": "oidc.forged-alg-is-provider-down",
+      "adr": "0116",
+      "description": "A token whose alg no key set can hold is reported as the identity provider being down (503), not as a bad token.",
+      "file": "packages/auth-oidc/src/oidc-identity-resolver.ts",
+      "find": "\"ERR_JWKS_MULTIPLE_MATCHING_KEYS\", \"ERR_JOSE_NOT_SUPPORTED\",",
+      "replace": "\"ERR_JWKS_MULTIPLE_MATCHING_KEYS\",",
+      "tests": [
+        "packages/auth-oidc/test/oidc-identity-resolver.test.ts"
+      ]
+    },
+    {
+      "id": "telemetry.metrics-bound-at-import",
+      "adr": "0121",
+      "description": "The runtime's instruments are made once, so a provider registered after core loaded never receives a measurement.",
+      "file": "packages/core/src/observability/metrics.ts",
+      "find": "  if (current?.provider !== provider) current",
+      "replace": "  if (!current) current",
+      "tests": [
+        "packages/host/test/telemetry.test.ts"
+      ]
     }
   ]
 }

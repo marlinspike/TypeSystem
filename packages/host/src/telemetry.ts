@@ -1,12 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { context, metrics, trace } from "@opentelemetry/api";
-import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
-import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
-import { BasicTracerProvider, BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Deployment } from "./deployment.js";
 
 /** What `runtime.telemetry` resolved to: where spans and metrics are sent (ADR-0121). */
@@ -29,7 +23,16 @@ export interface Telemetry {
  * that registration, made by the deployment instead of by code. Spans carry
  * what the runtime puts on them, which is never a value it read.
  */
-export function startTelemetry(config: TelemetryConfig, deployment: Deployment, build: string): Telemetry {
+export async function startTelemetry(config: TelemetryConfig, deployment: Deployment, build: string): Promise<Telemetry> {
+  // Loaded only when a deployment names a collector: the SDK and its exporters add a tenth of a second to every start otherwise.
+  const [{ AsyncHooksContextManager }, { OTLPMetricExporter }, { OTLPTraceExporter }, { resourceFromAttributes }, { MeterProvider, PeriodicExportingMetricReader }, { BasicTracerProvider, BatchSpanProcessor }] = await Promise.all([
+    import("@opentelemetry/context-async-hooks"),
+    import("@opentelemetry/exporter-metrics-otlp-http"),
+    import("@opentelemetry/exporter-trace-otlp-http"),
+    import("@opentelemetry/resources"),
+    import("@opentelemetry/sdk-metrics"),
+    import("@opentelemetry/sdk-trace-base")
+  ]);
   const resource = resourceFromAttributes({ "service.name": config.serviceName, "service.version": build, "typesys.deployment": deployment.name });
   const base = config.endpoint.replace(/\/+$/, "");
   const contextManager = new AsyncHooksContextManager().enable();

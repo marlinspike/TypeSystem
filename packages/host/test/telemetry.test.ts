@@ -95,5 +95,10 @@ describe("telemetry declared in the deployment (ADR-0121)", () => {
     expect(body).toContain(build);
     expect(body).toContain("SemanticRuntime.getObject");
     for (const leaked of ["AF86-0147", "demo-maintainer", "F-16C", "FOB ALPHA", "degraded"]) expect(body).not.toContain(leaked);
+    // The runtime's metrics too, though its instruments were made before the deployment registered a provider.
+    const metricBody = received.filter((r) => r.path === "/v1/metrics").map((t) => t.body).join("\n");
+    expect(metricBody).toContain("typesys.operation.duration");
+    expect(metricBody).toContain("typesys.policy.decisions");
+    for (const leaked of ["AF86-0147", "demo-maintainer", "F-16C"]) expect(metricBody).not.toContain(leaked);
   });
 });
