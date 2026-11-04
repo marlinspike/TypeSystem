@@ -1,0 +1,73 @@
+name: Image
+
+# Optional, and never hooked up: it runs only when a maintainer starts it by hand
+# from the Actions tab (ADR-0120). It builds the generic server's image from the
+# Dockerfile, checks that it serves the airforce demonstration and runs its
+# migrate step, and publishes it to GitHub Container Registry as
+# ghcr.io/<owner>/typesystem:<version> (the @typesys/host version) and
+# :sha-<commit>, and :latest when asked. Pull requests never build it.
+on:
+  workflow_dispatch:
+    inputs:
+      latest:
+        description: "Also tag this build :latest"
+        type: boolean
+        default: false
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Name the image
+        id: meta
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          version="$(node -p "require('./packages/host/package.json').version")"
+          image="ghcr.io/${owner}/typesystem"
+          tags="${image}:${version},${image}:sha-${GITHUB_SHA::12}"
+          if [ "${{ inputs.latest }}" = "true" ]; then tags="${tags},${image}:latest"; fi
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: typesystem:check
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check it serves and migrates
+        run: |
+          docker run -d --name typesys -p 3939:3939 typesystem:check
+          for i in $(seq 1 30); do curl -sf localhost:3939/version && break; sleep 1; done
+          curl -sf localhost:3939/version
+          curl -sf -H 'authorization: Bearer demo-viewer-token' localhost:3939/api/objects/airforce.Aircraft/AF86-0147
+          docker run --rm typesystem:check node packages/host/dist/serve.js migrate
+          docker rm -f typesys
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha

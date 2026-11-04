@@ -1,4 +1,6 @@
-# Reference Kubernetes manifests for the TypeSys MCP server (ADR-0025, ADR-0029).
+# Reference Kubernetes manifests for the TypeSystem server (ADR-0025, ADR-0029), serving the airforce
+# demonstration. For your own deployment, `npx typesys deploy package <deployment.json> --target k8s`
+# writes Kustomize-ready manifests for it (ADR-0119).
 #
 # Flat YAML on purpose — tool-agnostic and readable. A real deployment would template these
 # (Helm/Kustomize), pin the image by digest, and add resource requests/limits, a
@@ -49,10 +51,20 @@ spec:
       containers:
         - name: migrate
           image: REGISTRY/typesys-mcp-server:TAG
-          command: ["npm", "run", "migrate:postgres"]
+          command: ["node", "packages/host/dist/serve.js", "migrate"]
           envFrom:
+            - configMapRef:
+                name: typesys-config
             - secretRef:
                 name: typesys-secrets
+          volumeMounts:
+            - name: deployment
+              mountPath: /etc/typesys
+              readOnly: true
+      volumes:
+        - name: deployment
+          configMap:
+            name: typesys-deployment
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -275,4 +275,10 @@ export async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+// Not awaited at the top level: a deployment's extension may import @typesys/host, which imports this module, and a
+// module still awaiting at its top level cannot be imported until it finishes, so the server would wait on itself forever.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main().catch((err: unknown) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
