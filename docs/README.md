@@ -66,6 +66,7 @@ instead of re-explaining it.
 | [`run-multiple-instances.md`](how-to/run-multiple-instances.md) | Run several replicas with a shared cache and rate limiter, and load-test them. |
 | [`run-mcp-over-http.md`](how-to/run-mcp-over-http.md) | Serve the MCP server to a real network client instead of a local stdio process. |
 | [`deploy-with-containers.md`](how-to/deploy-with-containers.md) | Run the MCP server as a container, locally with Docker Compose, and as reference Kubernetes manifests. |
+| [`operate-a-deployment.md`](how-to/operate-a-deployment.md) | Take a deployment from your laptop to a shared server people sign in to, then upgrade, rotate keys, check the audit trail and send telemetry. |
 | [`combine-multiple-sources.md`](how-to/combine-multiple-sources.md) | Stitch one object's (or one graph's) data together from more than one backend system. |
 
 ## Building an AI agent integration?

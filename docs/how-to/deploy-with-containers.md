@@ -10,6 +10,22 @@ Upgrading is a new file or a new image, checked with `typesys deploy check`
 restart. `GET /version` on any replica names the build it serves
 ([ADR-0101](../adr/0101-every-audit-row-names-its-build.md)).
 
+**Your own deployment.** `typesys deploy package` writes the files that run
+it on the published image, `ghcr.io/marlinspike/typesystem:<version>`
+([ADR-0119](../adr/0119-a-deployment-is-packaged-to-run.md),
+[ADR-0120](../adr/0120-one-published-image-runs-every-deployment.md)):
+
+```bash
+npx typesys deploy promote my.deployment.json --issuer <url> --audience <aud>   # once, from a development deployment
+npx typesys deploy package my.shared.deployment.json --target compose --out deploy   # or --target k8s
+cd deploy && cp .env.example .env && docker compose up -d
+```
+
+[Operate a deployment](operate-a-deployment.md) walks through it, with
+sign-in, upgrades, key rotation and telemetry. The rest of this page describes
+the image and the reference files in this repository, which serve the airforce
+demonstration.
+
 ```bash
 docker build -t typesys .
 docker run -p 3939:3939 typesys                      # deployments/airforce.deployment.json
@@ -99,26 +115,31 @@ curl http://localhost:8080/healthz
 
 ## Deploy to Kubernetes (reference)
 
+For your own deployment, `typesys deploy package <file> --target k8s` writes a
+Kustomize directory (`kubectl apply -k`). The flat reference below serves the
+airforce demonstration:
+
 ```bash
-# 1. Build, tag, and push to your registry; edit deploy/k8s/typesys.yaml's image ref.
+# 1. Use the published image, or build, tag, and push to your registry; edit deploy/k8s/typesys.yaml's image ref.
 # 2. Create the Secret (never commit real values — see deploy/k8s/secret.example.yaml):
 kubectl create secret generic typesys-secrets \
   --from-literal=DATABASE_URL='postgresql://user:pass@host:5432/db' \
   --from-literal=REDIS_URL='redis://host:6379'
-# 3. Put the deployment file in a ConfigMap; the Deployment mounts it at /etc/typesys/deployment.json:
-kubectl create configmap typesys-deployment --from-file=deployment.json=deployments/airforce.deployment.json
-# 4. Apply the manifests (ConfigMap, migration Job, Deployment, Service):
+# 3. Put the deployment file in a ConfigMap; the Deployment and the migration Job mount it at /etc/typesys/deployment.json:
+kubectl create configmap typesys-deployment --from-file=deployment.json=deployments/airforce-durable.deployment.json
+# 4. Apply the manifests (migration Job, Deployment, Service):
 kubectl apply -f deploy/k8s/typesys.yaml
 # Upgrading: check, replace the file, restart.
-npx typesys deploy check deployments/airforce.deployment.json next.deployment.json
+npx typesys deploy check deployments/airforce-durable.deployment.json next.deployment.json
 kubectl create configmap typesys-deployment --from-file=deployment.json=next.deployment.json -o yaml --dry-run=client | kubectl apply -f -
 kubectl rollout restart deployment/typesys-mcp-server
 ```
 
 The `Deployment` runs 2 replicas with `livenessProbe`/`readinessProbe` pointed
-at `/healthz` and `/readyz`. The migration `Job` runs `migrate:postgres` to
-completion. These are flat manifests on purpose; template them (Helm/Kustomize)
-and add resource limits, an HPA, and a PodDisruptionBudget for a real deployment.
+at `/healthz` and `/readyz`. The migration `Job` runs `node
+packages/host/dist/serve.js migrate` on the mounted deployment
+([ADR-0117](../adr/0117-typesys-migrate-reads-the-deployment.md)) to
+completion.
 
 ## Environment variables
 
@@ -131,14 +152,18 @@ Only what the code actually reads:
 | `TYPESYS_PACKS_DIR` | `packages/host/src/load.ts` | the image: `/app/packs` | Where a deployment's pack archives are found, unless it names their files. |
 | `MCP_ALLOWED_HOSTS` | `packages/host/src/serve.ts` | localhost only | Host names the server answers to (ADR-0053). |
 | *Each `$env` and `$secret` a deployment names* | `packages/host/src/host.ts` | the reference's `default`, for `$env`; for `$secret`, only in a demo | Service addresses and credentials. A real deployment that names an unset secret does not start, and says which. |
+| *`<NAME>_FILE` for each secret* | `packages/host/src/host.ts` | — | The secret read from that file instead (a trailing newline dropped): Compose secrets and Kubernetes secret volumes ([ADR-0119](../adr/0119-a-deployment-is-packaged-to-run.md)). |
 | `DATABASE_URL` | `@typesys/adapter-postgres` and `@typesys/registry-store-postgres` connection pools; the `migrate` step | — | Used by a Postgres-backed build and by migrations; the in-memory demo server ignores it. |
 | `PG_STATEMENT_TIMEOUT_MS` | `@typesys/adapter-postgres` pool ([ADR-0026](../adr/0026-adapter-call-resilience.md)) | unset (no DB-side limit) | Optional native query deadline. |
 | `REDIS_URL` | The multi-instance tests and `npm run load-test`; a real build passes it to `RedisCache`/`RedisRateLimiter` | — | Not read by library code directly — it's the conventional place to put the Redis URL. |
 
-Identity (OIDC/JWT, [ADR-0018](../adr/0018-oidc-identity-resolution.md)) is
-the deployment file's `identity` (`{ "kind": "oidc", "issuer": { "$env": "OIDC_ISSUER" } }`).
-OpenTelemetry ([ADR-0017](../adr/0017-observability.md)) is configured in code
-(the SDK you register).
+Identity (OIDC/JWT, [ADR-0018](../adr/0018-oidc-identity-resolution.md),
+[ADR-0116](../adr/0116-clients-sign-in-through-the-deployments-provider.md)) is
+the deployment file's `identity` (`{ "kind": "oidc", "issuer": { "$env": "OIDC_ISSUER" }, "audience": "api://my-server" }`);
+a client without a token is told where to sign in. OpenTelemetry is the
+deployment's `runtime.telemetry` (`{ "otlpEndpoint": "http://otel-collector:4318" }`,
+[ADR-0121](../adr/0121-telemetry-and-request-logs-are-declared.md)), and every
+request is logged as one JSON line on stdout.
 
 ## Sign and check the audit trail
 
