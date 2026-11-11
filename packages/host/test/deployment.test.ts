@@ -123,6 +123,17 @@ describe("the build id (ADR-0101)", () => {
     expect(problems({ runtime: { securityProfile: "lax" } })).toContain("runtime.securityProfile");
   });
 
+  it("separates the server's role from the tables' owner, and sets discovery (ADR-0124)", () => {
+    const audit = { ...base.state!.audit!, ownerUrl: { $secret: "STATE_OWNER_URL" } };
+    expect(problems({ state: { audit, workflows: { kind: "postgres", url: { $secret: "DATABASE_URL" }, ownerUrl: { $secret: "STATE_OWNER_URL" } } } })).toBe("");
+    expect(problems({ state: { audit: { ...audit, ownerUrl: "postgres://owner@db/x" } } })).toContain("state.audit.ownerUrl: a credential must be a");
+    expect(problems({ state: { audit, workflows: { kind: "memory", ownerUrl: { $secret: "X" } } } })).toContain('state.workflows: unknown field "ownerUrl"');
+    for (const discovery of ["open", "authenticated", "need-to-know"]) expect(problems({ runtime: { discovery } })).toBe("");
+    expect(problems({ runtime: { discovery: "closed" } })).toContain('runtime.discovery: must be "open", "authenticated" or "need-to-know"');
+    expect(problems({ runtime: { securityProfile: "high-assurance-v2" } })).toBe("");
+    expect(problems({ runtime: { securityProfile: "high-assurance-v2", discovery: "open" } })).toContain('high-assurance-v2 requires "need-to-know"');
+  });
+
   it("declares postgres sources as data (ADR-0107)", () => {
     const pg = { kind: "postgres", system: "Legacy ERP", url: { $secret: "ERP_URL" }, types: { "t.T": { table: "erp.parts", id: "part_no", columns: { a: "descr", b: { column: "qty", as: "integer" } } } } };
     expect(problems({ sources: { ...base.sources, erp: pg } })).toBe("");

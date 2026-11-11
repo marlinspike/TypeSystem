@@ -133,6 +133,7 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
       const p = pool(resolve(a.url, "state.audit.url"));
       await reachable(p, "state.audit");
       await migrated(p);
+      await warnIfOwner(p, ["audit_events", "audit_checkpoints"], "state.audit", deployment.demo === true);
       audit = new PostgresAudit(p, writer);
     } else audit = new MemoryAudit(writer);
 
@@ -141,8 +142,13 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
     if (w.kind === "postgres") {
       const p = pool(resolve(w.url, "state.workflows.url"));
       await reachable(p, "state.workflows");
-      // Idempotent and serialized by an advisory lock (ADR-0066): every replica may run it at start.
-      await migrateWorkflowJournal(p);
+      // Idempotent and serialized by an advisory lock (ADR-0066): every replica may run it at start, unless the tables
+      // have an owner of their own, which `typesys migrate` signs in as (ADR-0124): then the server only checks for them.
+      if (w.ownerUrl === undefined) await migrateWorkflowJournal(p);
+      else
+        await p.query("SELECT run_id FROM typesys_workflow_runs LIMIT 0").catch(() => {
+          throw new DeploymentError(["state.workflows: the workflow journal's tables are not in place: run `typesys migrate <deployment.json>` first"]);
+        });
       journal = new PostgresWorkflowJournal(p);
     } else journal = new InMemoryJournal();
 
@@ -199,6 +205,25 @@ async function reachable(pool: Pool, at: string): Promise<void> {
   } catch (err) {
     throw new DeploymentError([`${at}: cannot reach Postgres (${(err as Error).message})`]);
   }
+}
+
+/**
+ * A server whose role owns its audit tables, or is a superuser, can lift their
+ * append-only triggers, and so can anyone holding its credential (ADR-0124).
+ * Said at start, as a warning: a demo or a laptop may well run that way.
+ */
+async function warnIfOwner(pool: Pool, tables: readonly string[], at: string, demo: boolean): Promise<void> {
+  if (demo) return;
+  const { rows } = await pool
+    .query<{ owns: boolean }>(
+      "SELECT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) OR EXISTS (SELECT 1 FROM pg_tables WHERE tablename = ANY($1) AND pg_has_role(current_user, tableowner, 'USAGE')) AS owns",
+      [tables]
+    )
+    .catch(() => ({ rows: [] as { owns: boolean }[] }));
+  if (rows[0]?.owns)
+    console.warn(
+      `${at}: the server signs in as a role that owns these tables (or a superuser), so anyone holding its credential can lift the append-only triggers and delete a whole chain. Set ${at}.ownerUrl to the owner, give url a role of its own and run "typesys migrate" (ADR-0124).`
+    );
 }
 
 /** The audit tables must be migrated through ADR-0105's chain columns; the host never migrates them itself (ADR-0015). */

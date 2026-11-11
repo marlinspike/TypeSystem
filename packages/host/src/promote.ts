@@ -17,6 +17,8 @@ export interface PromoteOptions {
   readonly rolesClaim?: string;
   /** The secret holding the state database's connection string. Default `TYPESYS_STATE_URL`. */
   readonly stateSecret?: string;
+  /** The secret holding the owner's connection string, for `typesys migrate` and `audit prune` only (ADR-0124). Default `TYPESYS_STATE_OWNER_URL`. */
+  readonly ownerSecret?: string;
   /** The secret holding the audit signing key. Default `TYPESYS_AUDIT_SIGNING_KEY`. */
   readonly signingSecret?: string;
   /** The signing key's id. Default `audit-1`. */
@@ -56,6 +58,23 @@ function policyRoles(e: PolicyExpression, out: Set<string>): void {
   else if ("allOf" in e) e.allOf.forEach((x) => policyRoles(x, out));
 }
 
+/**
+ * What a provider group named after each role should grant (ADR-0124): the
+ * role, and every role each persona holding it also holds. A steward persona
+ * with [reader, steward] makes the steward group grant both, while the reader
+ * group, held also by a persona with reader alone, grants reader alone.
+ */
+export function impliedRoles(deployment: Deployment): Record<string, string[]> {
+  const personas = Object.values(deployment.personas ?? {}).map((p) => new Set(p.roles));
+  return Object.fromEntries(
+    rolesOf(deployment).map((r) => {
+      const holding = personas.filter((p) => p.has(r));
+      const implied = holding.length === 0 ? [r] : [...holding[0]!].filter((x) => holding.every((p) => p.has(x)));
+      return [r, [...new Set([r, ...implied])].sort()];
+    })
+  );
+}
+
 /** The roles a deployment's policies and personas name, sorted. */
 export function rolesOf(deployment: Deployment): string[] {
   const out = new Set<string>();
@@ -80,15 +99,16 @@ const configOf = (v: string): ConfigString => (ENV_NAME.test(v) ? { $env: v } : 
 export function promoteDeployment(dev: Deployment, opts: PromoteOptions): Deployment {
   const keyId = opts.keyId ?? "audit-1";
   const stateSecret = opts.stateSecret ?? "TYPESYS_STATE_URL";
-  const roles = rolesOf(dev);
+  const ownerSecret = opts.ownerSecret ?? "TYPESYS_STATE_OWNER_URL";
   const identity: IdentitySpec = {
     kind: "oidc",
     issuer: configOf(opts.issuer),
     audience: configOf(opts.audience),
     ...(opts.resource ? { resource: configOf(opts.resource) } : {}),
     rolesClaim: opts.rolesClaim ?? "roles",
-    // Each role as itself: replace a key with the provider's group name. A value not listed grants nothing.
-    roleMap: Object.fromEntries(roles.map((r) => [r, [r]]))
+    // A group per role, granting what every persona with that role also holds: replace a key with the provider's group
+    // name. A value not listed grants nothing.
+    roleMap: impliedRoles(dev)
   };
   const { demo: _demo, ...rest } = dev;
   const previousAudit = dev.state?.audit;
@@ -100,14 +120,18 @@ export function promoteDeployment(dev: Deployment, opts: PromoteOptions): Deploy
       audit: {
         kind: "postgres",
         url: previousAudit?.kind === "postgres" ? previousAudit.url : { $secret: stateSecret },
+        // The server reads and appends; only migrate and prune sign in as the tables' owner (ADR-0124).
+        ownerUrl: previousAudit?.kind === "postgres" && previousAudit.ownerUrl ? previousAudit.ownerUrl : { $secret: ownerSecret },
         signing: { keyId, key: { $secret: opts.signingSecret ?? "TYPESYS_AUDIT_SIGNING_KEY" } },
         verifyKeys: { ...(previousAudit?.verifyKeys ?? {}), [keyId]: opts.publicKey },
         ...(previousAudit?.kind === "postgres" && previousAudit.retainDays !== undefined ? { retainDays: previousAudit.retainDays } : {})
       },
       // Applications run workflows whose approvals must outlive a restart (ADR-0106).
-      ...(dev.applications?.length && dev.state?.workflows?.kind !== "postgres" ? { workflows: { kind: "postgres" as const, url: { $secret: stateSecret } } } : {})
+      ...(dev.applications?.length && dev.state?.workflows?.kind !== "postgres" ? { workflows: { kind: "postgres" as const, url: { $secret: stateSecret }, ownerUrl: { $secret: ownerSecret } } } : {})
     },
-    identity
+    identity,
+    // Shared: an anonymous caller learns nothing of the model, and a refusal names no roles (ADR-0068, ADR-0124). Kept if set.
+    runtime: { ...dev.runtime, discovery: dev.runtime?.discovery ?? "authenticated" }
   };
 }
 
@@ -119,11 +143,14 @@ export function sharedFileFor(file: string): string {
 
 export const PROMOTE_USAGE = `  typesys deploy promote <dev.deployment.json> --issuer <url|ENV> --audience <aud|ENV>
                          [--resource <url|ENV>] [--roles-claim <claim>] [--key-id <id>]
-                         [--state-secret <NAME>] [--signing-secret <NAME>] [--out <file>] [--force]
+                         [--state-secret <NAME>] [--owner-secret <NAME>] [--signing-secret <NAME>]
+                         [--out <file>] [--force]
       Write a shared deployment beside a development one (ADR-0118): not a demo, signed in
       through your OpenID Connect provider (an ENV name becomes a reference to that variable),
-      its audit trail in Postgres with signed checkpoints, and a roleMap listing every role its
-      policies use, to put your provider's group names in. Makes the signing key: the private
+      its audit trail in Postgres with signed checkpoints, kept by a role the server signs in as
+      that does not own the tables (ADR-0124), and a roleMap with a group per role its policies
+      use, granting what every persona with that role also holds, to put your provider's group
+      names in. Makes the signing key: the private
       half in secrets/ beside it (git-ignored), the public half in the deployment. Prints the
       secrets to provide and what to run next.
 `;
@@ -136,6 +163,7 @@ interface PromoteArgs {
   rolesClaim?: string;
   keyId?: string;
   stateSecret?: string;
+  ownerSecret?: string;
   signingSecret?: string;
   out?: string;
   force: boolean;
@@ -150,6 +178,7 @@ function parsePromote(argv: readonly string[]): PromoteArgs {
     "--roles-claim": "rolesClaim",
     "--key-id": "keyId",
     "--state-secret": "stateSecret",
+    "--owner-secret": "ownerSecret",
     "--signing-secret": "signingSecret",
     "--out": "out"
   };
@@ -180,7 +209,7 @@ export async function promoteCommand(argv: readonly string[], log: (s: string) =
     err(`typesys deploy promote needs a development deployment, --issuer and --audience\n\n${PROMOTE_USAGE}`);
     return 2;
   }
-  for (const [flag, v] of [["--state-secret", args.stateSecret], ["--signing-secret", args.signingSecret]] as const)
+  for (const [flag, v] of [["--state-secret", args.stateSecret], ["--owner-secret", args.ownerSecret], ["--signing-secret", args.signingSecret]] as const)
     if (v !== undefined && !ENV_NAME.test(v)) {
       err(`${flag} names a secret, such as TYPESYS_STATE_URL: upper-case letters, digits and _`);
       return 2;
@@ -224,6 +253,7 @@ export async function promoteCommand(argv: readonly string[], log: (s: string) =
     ...(args.resource ? { resource: args.resource } : {}),
     ...(args.rolesClaim ? { rolesClaim: args.rolesClaim } : {}),
     ...(args.stateSecret ? { stateSecret: args.stateSecret } : {}),
+    ...(args.ownerSecret ? { ownerSecret: args.ownerSecret } : {}),
     ...(args.signingSecret ? { signingSecret: args.signingSecret } : {}),
     keyId,
     publicKey: publicKey.export({ type: "spki", format: "pem" }).toString()
@@ -244,13 +274,16 @@ export async function promoteCommand(argv: readonly string[], log: (s: string) =
     `provider puts in the "${shared.identity.kind === "oidc" ? (shared.identity.rolesClaim ?? "roles") : "roles"}" claim for it (a group or app role); a value not listed grants nothing.`,
     "",
     "Secrets and settings to provide when it runs:",
-    ...refs.secrets.map((s) => `  ${s}${s === (args.signingSecret ?? "TYPESYS_AUDIT_SIGNING_KEY") ? `  (the contents of ${privFile})` : ""}`),
+    ...refs.secrets.map(
+      (s) =>
+        `  ${s}${s === (args.signingSecret ?? "TYPESYS_AUDIT_SIGNING_KEY") ? `  (the contents of ${privFile})` : s === (args.ownerSecret ?? "TYPESYS_STATE_OWNER_URL") ? "  (the tables' owner: for migrate and audit prune only, never the server)" : ""}`
+    ),
     ...refs.env.map((e) => `  ${e}`),
     ...(remaining.length > 0 ? ["", "Still to change before it serves (deploy build says the same):", ...remaining.map((p) => `  - ${p}`)] : []),
     "",
     "Next:",
     `  npx typesys deploy check ${args.file} ${out}     what promoting changes`,
-    `  npx typesys migrate ${out}                   create the audit tables`,
+    `  npx typesys migrate ${out}                   create the audit tables, and the server's role`,
     `  npx typesys deploy package ${out} --target compose   files to run it`
   ];
   log(lines.join("\n"));

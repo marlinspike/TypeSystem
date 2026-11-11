@@ -44,6 +44,9 @@ ENV NODE_ENV=production
 WORKDIR /app
 # Owned by root and readable by all: the unprivileged `node` user that runs it cannot change its own code.
 COPY --from=build /app ./
+# The one directory it may write: where `typesys audit verify --witness` keeps what it saw (ADR-0124). A volume mounted
+# here starts with this ownership.
+RUN mkdir -p /var/lib/typesys && chown node:node /var/lib/typesys
 USER node
 ENV PORT=3939
 EXPOSE 3939
