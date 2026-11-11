@@ -105,7 +105,9 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
       await given?.ready?.();
       res.status(200).json({ status: "ready" });
     } catch (err) {
-      res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) });
+      // Unauthenticated: the cause (a driver's text naming hosts and roles) goes to the server's log, never to the caller (ADR-0123).
+      console.error("Not ready:", err instanceof Error ? err.message : String(err));
+      res.status(503).json({ status: "not_ready" });
     }
   });
 

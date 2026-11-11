@@ -322,7 +322,7 @@ Compose and the Kubernetes manifests now serve:
 
 The server connects to all of them before it serves, and refuses to start if
 a database is unreachable or its tables are not migrated. `/version` says where
-each piece lives and which audit chain this replica writes, and `/readyz`
+each piece lives (the startup line names the audit chain this replica writes), and `/readyz`
 returns 503 while any of them is down:
 
 ```text
@@ -331,8 +331,7 @@ TypeSystem host "airforce-durable" (build sha256:13cabcab4baa…) on http://loca
 state: audit postgres (chain 5230acf9-fc87-42a4-9b05-298fc8c85ddb), workflows postgres, cache redis, rate limit redis
 $ curl localhost:3939/version
 {"deployment":"airforce-durable","build":"sha256:13cabcab4baa…","packs":["core@1.0.0","airforce@1.0.0"],
- "state":{"audit":"postgres","workflows":"postgres","cache":"redis","rateLimit":"redis"},
- "auditChain":"5230acf9-fc87-42a4-9b05-298fc8c85ddb","applications":[]}
+ "state":{"audit":"postgres","workflows":"postgres","cache":"redis","rateLimit":"redis"},"applications":[]}
 ```
 
 A deployment that is not marked `"demo": true` must keep its audit trail in

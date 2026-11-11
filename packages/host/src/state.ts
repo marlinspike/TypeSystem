@@ -163,6 +163,10 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
     else if (r?.kind === "memory") rateLimiter = new InMemoryRateLimiter({ capacity: r.capacity, refillPerSecond: r.refillPerSecond });
 
     let closed = false;
+    // Readiness is the state's: the pools opened so far. A source's pool, opened later through `pool`, is not in it, so one
+    // source that is down answers 503 for its own Types instead of taking every replica out of rotation (ADR-0123).
+    const statePools = [...pools.values()];
+    const stateRedis = [...redis.values()];
     return {
       audit,
       journal,
@@ -172,8 +176,8 @@ export async function openState(deployment: Deployment, resolve: ResolveCredenti
       kinds: { audit: a.kind, workflows: w.kind, cache: c?.kind ?? "none", rateLimit: r?.kind ?? "none" },
       pool,
       async ready() {
-        for (const p of pools.values()) await p.query("SELECT 1");
-        for (const c of redis.values()) await c.ping();
+        for (const p of statePools) await p.query("SELECT 1");
+        for (const c of stateRedis) await c.ping();
       },
       async close() {
         if (closed) return;

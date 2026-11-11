@@ -34,7 +34,8 @@ describe("HTTP health endpoints (ADR-0029)", () => {
     try {
       const res = await fetch(`http://localhost:${down.port}/readyz`);
       expect(res.status).toBe(503);
-      expect(await res.json()).toEqual({ status: "not_ready", error: "state.audit: cannot reach Postgres" });
+      // The cause is the server's to log: an unauthenticated probe is told only that it is not ready (ADR-0123).
+      expect(await res.json()).toEqual({ status: "not_ready" });
       expect((await fetch(`http://localhost:${down.port}/healthz`)).status).toBe(200);
     } finally {
       await down.close();

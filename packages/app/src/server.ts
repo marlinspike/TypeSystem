@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ConsumerContract, Identity, PolicyEngine, SemanticRegistry, SemanticRuntime } from "@typesys/core";
-import { clientRouter, createApiApp } from "@typesys/http";
+import { clientRouter, createApiApp, type SignIn } from "@typesys/http";
 import { createLlm, workflowModel, type LlmConfig, type LlmOptions } from "@typesys/llm";
 import { WorkflowEngine, type AiModel, type AnyWorkflow, type WorkflowJournal } from "@typesys/workflow";
 import type { Express } from "express";
@@ -89,11 +89,17 @@ export function applicationApp(opts: {
   readonly title?: string;
   readonly contract?: ConsumerContract;
   readonly clientDir?: string;
+  /** Host names the application answers to (ADR-0053): the deployment's, so it is reached by the name the server is. Default this machine only. */
+  readonly allowedHosts?: readonly string[] | "*";
+  /** How its callers sign in (ADR-0116): a request with no token is challenged here as on the deployment's own API. */
+  readonly signIn?: SignIn;
 }): Express {
   const app = createApiApp({
     backend: opts.backend,
     identityResolver: async (token) => opts.identities(token),
     workflows: opts.workflows,
+    ...(opts.allowedHosts ? { allowedHosts: opts.allowedHosts } : {}),
+    ...(opts.signIn ? { signIn: opts.signIn } : {}),
     ...(opts.title ? { info: { title: opts.title } } : {}),
     ...(opts.contract ? { contract: opts.contract } : {})
   });

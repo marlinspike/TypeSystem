@@ -196,3 +196,18 @@ describe.skipIf(!DATABASE_URL)("declared sources against the database (ADR-0110)
     expect(await uncovered.checkSources()).toEqual(['sources["shop-db"]: shop.Customer: the connection may not read email of partial (it lacks SELECT on that column)']);
   });
 });
+
+describe("readiness is the state's, not every source's (ADR-0123)", () => {
+  it("stays ready while a declared source cannot be reached, which answers 503 for its own Types", async () => {
+    const host = await buildHost(deployment(), { packs: [shopPack], env: overlayEnvironment({ SHOP_URL: "postgresql://nobody@127.0.0.1:1/none" }, emptyEnvironment), state: "memory" });
+    try {
+      await expect(host.state.ready()).resolves.toBeUndefined();
+      const sales = host.personas.sales!;
+      const err = await host.runtime.getObject("shop.Customer", "C1", sales).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AdapterUnavailableError);
+      expect(toProblem(err).status).toBe(503);
+    } finally {
+      await host.close();
+    }
+  });
+});

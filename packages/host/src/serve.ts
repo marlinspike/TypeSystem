@@ -175,7 +175,6 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
         build: host.build,
         packs: host.packs.map((p) => `${p.name}@${p.version}`),
         state: host.state.kinds,
-        auditChain: host.state.audit.chain,
         applications: apps.map((a) => a.name)
       })
     );
@@ -228,7 +227,10 @@ export async function serve(opts: ServeOptions): Promise<Serving> {
           workflows,
           ...(a.title ? { title: a.title } : {}),
           ...(a.contract ? { contract: a.contract } : {}),
-          ...(a.clientDir ? { clientDir: a.clientDir } : {})
+          ...(a.clientDir ? { clientDir: a.clientDir } : {}),
+          // Reached by the same names as the deployment's own server, and signed in to the same way (ADR-0123).
+          ...(allowedHosts ? { allowedHosts } : {}),
+          ...(host.signIn ? { signIn: host.signIn } : {})
         }),
         port,
         opts.listenHost
