@@ -59,9 +59,17 @@ async function provider() {
       .setIssuedAt()
       .setExpirationTime(opts.expired ? "-1m" : "10m")
       .sign(privateKey);
+  /** A token missing what `token` always sets: an expiry or a subject (L1, ADR-0124). */
+  const lacking = (what: "exp" | "sub", claims: Record<string, unknown>) => {
+    let jwt = new SignJWT(claims).setProtectedHeader({ alg: "RS256", kid: "k1" }).setIssuer(issuer).setAudience("typesys-airforce").setIssuedAt();
+    if (what !== "exp") jwt = jwt.setExpirationTime("10m");
+    if (what !== "sub") jwt = jwt.setSubject("someone");
+    return jwt.sign(privateKey);
+  };
   return {
     issuer,
     token,
+    lacking,
     discoveryHits: () => discoveryHits,
     setUp: (v: boolean) => {
       up = v;
@@ -192,6 +200,28 @@ describe("signing in to a deployment (ADR-0116)", () => {
       expect(res.status).toBe(401);
       expect(res.headers.get("www-authenticate")).toContain('error="invalid_token"');
     }
+  });
+
+  it("refuses a token with no expiry or no subject, and audits every refused token (ADR-0124)", async () => {
+    const audited = async () => (await serving.host.registry.listAuditEvents({ limit: 1000 })).items.filter((e) => e.action === "sign-in");
+    const seen = new Set((await audited()).map((e) => e.id));
+    for (const token of [await idp.lacking("exp", { groups: ["Fleet Maintainers"] }), await idp.lacking("sub", { groups: ["Fleet Maintainers"] })]) {
+      expect((await fetch(`${base}/api/me`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+      expect((await mcp({ authorization: `Bearer ${token}` })).status).toBe(401);
+    }
+    const expired = await idp.token({ sub: "mallory", groups: ["Fleet Maintainers"] }, { expired: true });
+    expect((await fetch(`${base}/api/me`, { headers: { authorization: `Bearer ${expired}` } })).status).toBe(401);
+    // No token is not a failed sign-in: every client asks once without one.
+    expect((await fetch(`${base}/api/me`)).status).toBe(401);
+    await new Promise((r) => setTimeout(r, 50));
+    const rows = (await audited()).filter((e) => !seen.has(e.id));
+    expect(rows).toHaveLength(5);
+    expect(rows.every((r) => r.subjectId === "unauthenticated" && r.decision === "deny" && r.resource.typeName === "identity")).toBe(true);
+    expect(rows.map((r) => (r.details as { transport: string }).transport).sort()).toEqual(["api", "api", "api", "mcp", "mcp"]);
+    expect(rows.map((r) => r.reason).join("\n")).toMatch(/"exp" claim/);
+    expect(rows.map((r) => r.reason).join("\n")).toMatch(/"sub" claim/);
+    // What the expired token claimed is kept, as a claim.
+    expect(rows.find((r) => (r.details as { claimed?: { sub?: string } }).claimed?.sub === "mallory")?.reason).toMatch(/"exp" claim timestamp check failed/);
   });
 
   it("answers 503, not 401, while the provider cannot be reached for a key it has not fetched", async () => {

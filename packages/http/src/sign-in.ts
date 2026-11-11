@@ -86,8 +86,8 @@ export type Caller =
   | { readonly kind: "identity"; readonly identity: Identity; readonly token: string | undefined }
   /** No token, and one is required: answer 401 with a challenge. */
   | { readonly kind: "missing" }
-  /** A token the resolver refused: answer 401 with `error="invalid_token"`. */
-  | { readonly kind: "invalid" }
+  /** A token the resolver refused: answer 401 with `error="invalid_token"`. `reason` is the verifier's, for the audit trail only. */
+  | { readonly kind: "invalid"; readonly reason: string; readonly claimed: SignInClaims }
   /** The identity provider could not be reached: answer 503. */
   | { readonly kind: "unavailable"; readonly message: string };
 
@@ -103,6 +103,47 @@ export async function resolveCaller(req: Request, resolver: IdentityResolver, si
     return { kind: "identity", identity: await resolver(token ?? null), token };
   } catch (err) {
     if (err instanceof IdentityProviderUnavailableError) return { kind: "unavailable", message: err.message };
-    return { kind: "invalid" };
+    return { kind: "invalid", reason: err instanceof Error ? err.message : String(err), claimed: claimsOf(token ?? "") };
   }
+}
+
+/** What a refused token says of itself, unverified: who it claims to be, from whom, for whom. */
+export interface SignInClaims {
+  readonly sub?: string;
+  readonly iss?: string;
+  readonly aud?: string;
+}
+
+/** A JWT's claimed `sub`, `iss` and `aud`, read without verifying anything: for the audit trail, as claims. */
+export function claimsOf(token: string): SignInClaims {
+  try {
+    const part = token.split(".")[1];
+    if (!part || part.length > 16_384) return {};
+    const payload = JSON.parse(Buffer.from(part, "base64url").toString("utf8")) as Record<string, unknown>;
+    const text = (v: unknown) => (typeof v === "string" ? v : Array.isArray(v) && v.every((x) => typeof x === "string") ? v.join(" ") : undefined);
+    const out: Record<string, string> = {};
+    for (const k of ["sub", "iss", "aud"] as const) {
+      const v = text(payload[k]);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** The part of a runtime that writes a failed sign-in to the audit trail (ADR-0124). */
+export interface SignInAudit {
+  recordSignInFailure?(failure: { readonly transport: string; readonly reason: string; readonly claimed?: SignInClaims }): Promise<void>;
+}
+
+/**
+ * Writes a refused token to the audit trail, never failing the request over
+ * it: the caller is answered 401 whether or not the row could be written. A
+ * missing token is not a failed sign-in (every client asks once without one
+ * to learn where to sign in), so it is not recorded.
+ */
+export function auditSignInFailure(runtime: SignInAudit, caller: Caller, transport: string, onError: (err: unknown) => void = (err) => console.error("Could not audit a failed sign-in:", err)): void {
+  if (caller.kind !== "invalid" || typeof runtime.recordSignInFailure !== "function") return;
+  runtime.recordSignInFailure({ transport, reason: caller.reason, claimed: caller.claimed }).catch(onError);
 }

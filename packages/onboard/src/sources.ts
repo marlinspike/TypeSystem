@@ -59,6 +59,8 @@ export interface SourceField {
   /** For a column, its SQL type, and how the table adapter converts it. */
   readonly storage?: string;
   readonly as?: PostgresColumn["as"];
+  /** How its values are read, where that loses something a reviewer should know (ADR-0124): a bigint, a money column. */
+  readonly readNote?: string;
   /** A reference the source itself declares (a foreign key). */
   readonly references?: { readonly entity: string; readonly field: string; readonly evidence: string };
   readonly hints: readonly SensitivityHint[];
@@ -436,6 +438,14 @@ export function fromPostgres(catalog: PgCatalog, options: { readonly source: str
         `Column ${tableName(t.schema, t.name)}.${c.name} ${c.type}${c.notNull ? " NOT NULL" : ""}${c.name === pk ? " PRIMARY KEY" : ""}${c.default ? ` DEFAULT ${c.default}` : ""}${c.comment ? `: "${c.comment}"` : ""}`
       );
       const full: JsonSchema2020 = enumValues ? { ...schema, enum: enumValues } : schema;
+      // Said, not left to be found (ADR-0124): a bigint is read as a JavaScript number, and one past 2^53 is left out rather
+      // than rounded; a type the table adapter does not know is read as PostgreSQL prints it.
+      const readNote =
+        c.udt === "int8" && c.name !== pk && !references
+          ? "bigint, read as a number: a value beyond ±2^53 is left out rather than rounded. Map it with \"as\": \"text\" to read every value exactly, as a string"
+          : unknown
+            ? `${c.type}, read as text exactly as PostgreSQL prints it${c.udt === "money" ? " (with its currency symbol and separators, such as \"$1,234.50\")" : ""}: expose a view that casts it to read it as a number or another type`
+            : undefined;
       return {
         id: fid,
         name: c.name,
@@ -445,6 +455,7 @@ export function fromPostgres(catalog: PgCatalog, options: { readonly source: str
         ...(c.comment ? { description: c.comment } : {}),
         storage: c.type,
         ...(as ? { as } : {}),
+        ...(readNote ? { readNote } : {}),
         ...(references ? { references } : {}),
         hints: [...sensitivityHints(c.name, c.comment), ...(unknown ? [] : [])]
       };

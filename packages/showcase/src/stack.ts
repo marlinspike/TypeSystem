@@ -46,6 +46,11 @@ export function portFree(port: number): Promise<boolean> {
   });
 }
 
+/** The built files the showcase needs that are not there: what a fresh checkout lacks until it builds the applications. */
+export function unbuilt(): string[] {
+  return (Object.keys(COMMANDS) as (keyof typeof COMMANDS)[]).flatMap((k) => COMMANDS[k].needs).filter((file) => !existsSync(path.join(ROOT, file)));
+}
+
 /** What must be true before anything starts: the builds exist and every port is free. Says what to run when not. */
 export async function preflight(only: readonly SurfaceKey[] = Object.keys(SURFACES) as SurfaceKey[]): Promise<Preflight> {
   const problems: string[] = [];

@@ -144,8 +144,9 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
   beforeAll(async () => {
     admin = new pg.Pool({ connectionString: url, max: 1 });
     await admin.query(`CREATE SCHEMA ${schema};
-      CREATE TABLE ${schema}.customers (customer_id text PRIMARY KEY, full_name text NOT NULL, email text, tier text);
-      INSERT INTO ${schema}.customers VALUES ('C-1', 'Ada Lovelace', 'ada@example.com', 'gold'), ('C-2', 'Grace Hopper', 'grace@example.com', 'platinum');
+      CREATE TABLE ${schema}.customers (customer_id text PRIMARY KEY, full_name text NOT NULL, email text, tier text, password_hash text, points bigint, balance money);
+      INSERT INTO ${schema}.customers VALUES ('C-1', 'Ada Lovelace', 'ada@example.com', 'gold', 'x$hash', 9007199254740993, 12.34), ('C-2', 'Grace Hopper', 'grace@example.com', 'platinum', 'y$hash', 7, 0);
+      CREATE TABLE ${schema}.events (note text);
       CREATE TABLE ${schema}.orders (order_id text PRIMARY KEY, customer_id text REFERENCES ${schema}.customers, total numeric(10,2));
       INSERT INTO ${schema}.orders VALUES ('O-1', 'C-1', 120.50);`);
   });
@@ -166,7 +167,12 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
     expect(text).toMatch(/reader\s+dev-reader-/);
     // What a reader is returned is listed, for a person to check (H2).
     expect(text).toContain("A reader is returned every other column");
-    expect(text).toMatch(/shop\.Customer: customerId, tier/);
+    expect(text).toMatch(/shop\.Customer: balance, customerId, points, tier/);
+    // L3, L4, L5 (ADR-0124): what init left out or reads with a caveat is said, and a credential is read by no persona.
+    expect(text).toMatch(/Left out:\n  .*events declares no key/);
+    expect(text).toMatch(/Read with a caveat:[\s\S]*customers\.points: bigint, read as a number: a value beyond ±2\^53 is left out/);
+    expect(text).toMatch(/customers\.balance: money, read as text exactly as PostgreSQL prints it \(with its currency symbol/);
+    expect(text).toContain("Credentials, read by no persona (only the role credential-reader, which none holds): shop.Customer.passwordHash");
     expect(text).toContain(`npx typesys dev ${path.join(dir, "shop.deployment.json")}`);
     for (const f of ["shop.deployment.json", "shop.tests.json", "README.md", "packs/shop-1.0.0.typesys-pack.json", "onboarding/review.json", "onboarding/sources.json"]) expect(existsSync(path.join(dir, f))).toBe(true);
     const written = readFileSync(path.join(dir, "shop.deployment.json"), "utf8");
@@ -191,6 +197,8 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
         expect(reader).not.toHaveProperty("email");
         expect(reader).not.toHaveProperty("fullName");
         expect(steward).toMatchObject({ email: "ada@example.com", fullName: "Ada Lovelace" });
+        expect(steward).not.toHaveProperty("passwordHash");
+        expect(reader).not.toHaveProperty("points");
         await expect(host.runtime.getObject("shop.Customer", "C-1", host.personas.anonymous!)).rejects.toThrow(/Not authorized/);
       } finally {
         await host.close();
@@ -203,7 +211,9 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
     const tokens = Object.keys((JSON.parse(written) as { identity: { tokens: Record<string, string> } }).identity.tokens);
     const readme = readFileSync(path.join(dir, "README.md"), "utf8");
     for (const t of tokens) expect(readme).not.toContain(t);
-    expect(readme).toContain("- `shop.Customer`: customerId, tier");
+    expect(readme).toContain("- `shop.Customer`: balance, customerId, points, tier");
+    expect(readme).toContain("- Left out: ");
+    expect((JSON.parse(written) as { policies: Record<string, unknown> }).policies["shop.credential"]).toEqual({ role: ["credential-reader"] });
 
     // Running init again would replace files someone may have edited: refused without --force, naming each (H3).
     writeFileSync(path.join(dir, "onboarding/review.json"), '{"mine":true}');

@@ -4,20 +4,21 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findChromium } from "@typesys/compiler";
-import { ROOT, SURFACES, Stack, preflight, startGuide } from "../src/index.js";
+import { ROOT, SURFACES, Stack, preflight, startGuide, unbuilt } from "../src/index.js";
 
 /**
  * The whole showcase, started as `npm run showcase` starts it, and driven in
  * Chromium: local only, beside `npm run check:full`, never on a pull
  * request's CI (it starts eleven servers). Needs the build, the two
- * applications built, and the showcase's ports free. With
+ * applications built (skipped, not failed, on a checkout that has not built
+ * them: `npx typesys app build examples/apps/<name>`), and the showcase's ports free. With
  * TYPESYS_SHOWCASE_SCREENSHOTS set it saves the README's screenshots.
  */
 const chrome = findChromium();
 const shots = process.env.TYPESYS_SHOWCASE_SCREENSHOTS ? path.join(ROOT, "docs/images/showcase") : undefined;
 const url = (key: keyof typeof SURFACES, p = "/") => `http://127.0.0.1:${SURFACES[key].port}${p}`;
 
-describe.skipIf(!chrome || process.env.CI !== undefined)("the showcase, launched", () => {
+describe.skipIf(!chrome || process.env.CI !== undefined || unbuilt().length > 0)("the showcase, launched", () => {
   let stack: Stack;
   let guide: Server;
   let browser: Browser;

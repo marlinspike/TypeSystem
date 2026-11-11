@@ -33,7 +33,10 @@ export interface PackRules {
 }
 
 /** The roles a drafted deployment grants each kind of rule to, and the personas that hold them. */
-export const DRAFT_ROLES = { read: "reader", sensitive: "steward", invoke: "operator" } as const;
+export const DRAFT_ROLES = { read: "reader", sensitive: "steward", invoke: "operator", credential: "credential-reader" } as const;
+
+/** A rule guarding credentials (passwords, hashes, keys, tokens): onboarding names it `<domain>.credential`. */
+export const isCredentialRule = (rule: string): boolean => rule.endsWith(".credential");
 
 /** Every policy rule a pack names, sorted into what each decides. A rule named in two places is given its widest role, `read` before `sensitive` before `invoke`. */
 export function packRules(pack: PackArchive): PackRules {
@@ -57,8 +60,14 @@ export function packRules(pack: PackArchive): PackRules {
   return { read: sorted(read), sensitive: sorted(sensitive), invoke: sorted(invoke) };
 }
 
-/** The rule a drafted deployment starts each policy with: the kind's role (ADR-0111). Nothing is `"always"`. */
-export function draftPolicy(kind: keyof PackRules): { readonly role: readonly string[] } {
+/**
+ * The rule a drafted deployment starts each policy with: the kind's role
+ * (ADR-0111). Nothing is `"always"`. A credential is not personal data a
+ * steward reviews: its rule names a role no drafted persona holds, so no one
+ * reads one until someone grants it on purpose (ADR-0124).
+ */
+export function draftPolicy(kind: keyof PackRules, rule?: string): { readonly role: readonly string[] } {
+  if (rule !== undefined && isCredentialRule(rule)) return { role: [DRAFT_ROLES.credential] };
   if (kind === "read") return { role: [DRAFT_ROLES.read] };
   if (kind === "sensitive") return { role: [DRAFT_ROLES.sensitive] };
   return { role: [DRAFT_ROLES.invoke] };
@@ -101,7 +110,7 @@ export interface DraftResult {
 export function draftDeployment(pack: PackArchive, plans: readonly AdapterPlan[], opts: DraftOptions): DraftResult {
   const rules = packRules(pack);
   const policies: Record<string, unknown> = {};
-  for (const kind of ["read", "sensitive", "invoke"] as const) for (const r of rules[kind]) policies[r] = draftPolicy(kind);
+  for (const kind of ["read", "sensitive", "invoke"] as const) for (const r of rules[kind]) policies[r] = draftPolicy(kind, r);
   const sources: Record<string, unknown> = {};
   for (const plan of plans) {
     if (plan.kind !== "postgres-table") throw new Error(`${plan.dataSourceId} is a ${plan.kind} source: typesys init drafts deployments for PostgreSQL sources only`);
@@ -179,7 +188,7 @@ export function updateDeployment(existing: DraftDeployment, pack: PackArchive, p
   for (const kind of ["read", "sensitive", "invoke"] as const) {
     for (const r of rules[kind]) {
       if (Object.hasOwn(policies, r)) continue;
-      policies[r] = draftPolicy(kind);
+      policies[r] = draftPolicy(kind, r);
       addedPolicies.push(r);
     }
   }

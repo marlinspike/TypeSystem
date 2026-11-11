@@ -8,5 +8,5 @@ export * from "./run.js";
 export * from "./agent.js";
 export * from "./command.js";
 export * from "./mcp.js";
-export { draftDeployment, draftPolicy, packRules, updateDeployment, DRAFT_ROLES, type DraftDeployment, type DraftOptions, type DraftResult, type DeploymentUpdate, type PackRules } from "./deployment.js";
+export { draftDeployment, draftPolicy, isCredentialRule, packRules, updateDeployment, DRAFT_ROLES, type DraftDeployment, type DraftOptions, type DraftResult, type DeploymentUpdate, type PackRules } from "./deployment.js";
 export { initCommand, INIT_USAGE } from "./init.js";
