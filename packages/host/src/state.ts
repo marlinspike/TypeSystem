@@ -212,11 +212,12 @@ async function reachable(pool: Pool, at: string): Promise<void> {
  * append-only triggers, and so can anyone holding its credential (ADR-0124).
  * Said at start, as a warning: a demo or a laptop may well run that way.
  */
-async function warnIfOwner(pool: Pool, tables: readonly string[], at: string, demo: boolean): Promise<void> {
+export async function warnIfOwner(pool: Pool, tables: readonly string[], at: string, demo: boolean): Promise<void> {
   if (demo) return;
   const { rows } = await pool
     .query<{ owns: boolean }>(
-      "SELECT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) OR EXISTS (SELECT 1 FROM pg_tables WHERE tablename = ANY($1) AND pg_has_role(current_user, tableowner, 'USAGE')) AS owns",
+      // The tables this connection resolves the names to, through its own search path: not a same-named table elsewhere.
+      "SELECT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) OR EXISTS (SELECT 1 FROM unnest($1::text[]) AS t(name) JOIN pg_class c ON c.oid = to_regclass(t.name) WHERE pg_has_role(current_user, c.relowner, 'USAGE')) AS owns",
       [tables]
     )
     .catch(() => ({ rows: [] as { owns: boolean }[] }));

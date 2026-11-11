@@ -117,6 +117,22 @@ describe.skipIf(!url)("the table adapter on a large table (ADR-0122)", () => {
     expect(result.groups.reduce((n, g) => n + g.values.n!, 0)).toBe(all.items.length);
   });
 
+  it("binds only the values a folded filter still uses", async () => {
+    // An OR with a branch SQL cannot narrow is TRUE; the values of its other branches must not be sent unused,
+    // or PostgreSQL refuses the statement ("could not determine data type of parameter $1").
+    const a = adapter();
+    for (const f of [
+      { or: [{ property: "orderId", operator: "icontains", value: "0" }, { property: "orderId", operator: "eq", value: 0 }] },
+      { and: [{ property: "status", operator: "eq", value: "open" }, { property: "qty", operator: "in", value: [] }] },
+      { and: [{ property: "status", operator: "eq", value: "open" }, { or: [{ property: "total", operator: "gt", value: 1 }, { property: "missing", operator: "ne", value: 1 }] }] }
+    ] as QueryFilter[]) {
+      const everything = (await a.queryByType("t.Order", undefined)).items;
+      const expected = everything.filter((o) => matchesFilter(o.values, f)).map((o) => o.objectId);
+      const page = await a.queryByType("t.Order", f, 3);
+      expect(page.items.map((o) => o.objectId), JSON.stringify(f)).toEqual(expected.slice(0, 3));
+    }
+  });
+
   it("answers every filter, sort and page as the runtime's own interpreter does over the whole table", async () => {
     const a = adapter();
     const everything = (await a.queryByType("t.Order", undefined)).items;
@@ -124,7 +140,7 @@ describe.skipIf(!url)("the table adapter on a large table (ADR-0122)", () => {
     const value = fc.oneof(
       fc.constantFrom("open", "closed", "O000010", "", "OPEN"),
       fc.integer({ min: -2, max: 2 }),
-      fc.constantFrom(0, 1, 2, 12.25, 12.5, 248.75, 249, 1e300, -0, 0.1, 9007199254740993),
+      fc.constantFrom(0, 1, 2, 12.25, 12.5, 248.75, 249, 1e300, -0, 0.1, 2 ** 53),
       fc.boolean(),
       fc.constant(null)
     );

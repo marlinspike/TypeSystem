@@ -232,6 +232,16 @@ says so.
    write-once store or transparency log), and keeping the signing key in a
    KMS rather than a mounted secret. Someone who holds both the database
    and the signing key can still rewrite history undetected.
+   *Tightened (2026-11-11, ADR-0124):* the database alone used to be enough
+   to delete a whole chain with its checkpoints, and the server's own role
+   owned the tables. Now the server signs in as a role that may only read
+   and append (migrate, as `state.audit.ownerUrl`, creates and grants it),
+   so its credential cannot lift the triggers; and `typesys audit verify
+   --witness <file>` remembers each chain's newest checkpoint and last row
+   outside the database, so a chain deleted whole is reported `vanished`.
+   Erasing history undetected now needs the owner's credential and write
+   access to the witness, or the owner's credential and the signing key to
+   rewrite a chain no verification has witnessed yet.
 10. **Observability wired to something real.** The OpenTelemetry hooks
     (ADR-0017) are tested to fire in isolation; nobody has pointed them at
     a real backend (Datadog, Honeycomb, Jaeger) and built dashboards,

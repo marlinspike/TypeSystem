@@ -1,6 +1,6 @@
 import type { QueryCondition, QueryFilter, SortKey } from "@typesys/core";
 import { exactDecimal, nextDown, nextUp } from "./double.js";
-import { SqlParams } from "./sql-filter.js";
+import type { SqlParams } from "./sql-filter.js";
 
 /**
  * What a column's catalog type is, as far as pushing a condition or an
@@ -199,9 +199,19 @@ function anyOf(parts: Piece[]): Piece {
  * when nothing narrows; `"FALSE"` when no row can match.
  */
 export function columnPredicate(filter: QueryFilter | undefined, cols: (property: string) => ColumnInfo | undefined, params: SqlParams): string {
-  const compile = (f: QueryFilter): Piece => ("and" in f ? allOf(f.and.map(compile)) : "or" in f ? anyOf(f.or.map(compile)) : condition(cols, f, params));
+  // A branch that folds away (an OR with a TRUE in it, an AND with a FALSE) leaves its values unused, and
+  // PostgreSQL refuses a statement with a parameter it cannot type. So values are held under markers while
+  // compiling, and only those the predicate still uses are bound, in the order they appear.
+  const held: SqlParams = {
+    values: [],
+    bind(value: unknown): string {
+      this.values.push(value);
+      return `\uE000${this.values.length - 1}\uE000`;
+    }
+  };
+  const compile = (f: QueryFilter): Piece => ("and" in f ? allOf(f.and.map(compile)) : "or" in f ? anyOf(f.or.map(compile)) : condition(cols, f, held));
   const p = filter ? compile(filter) : TRUE;
-  return p.kind === "true" ? "TRUE" : p.kind === "false" ? "FALSE" : p.sql;
+  return p.kind === "true" ? "TRUE" : p.kind === "false" ? "FALSE" : p.sql.replace(/\uE000(\d+)\uE000/g, (_, i: string) => params.bind(held.values[Number(i)]));
 }
 
 /**

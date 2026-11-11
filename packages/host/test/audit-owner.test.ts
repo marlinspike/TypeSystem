@@ -11,6 +11,7 @@ import { airforceDeployment, airforceExtension } from "@typesys/demo-web/deploym
 import { auditCommand } from "../src/audit-cli.js";
 import { buildHost, emptyEnvironment, overlayEnvironment } from "../src/host.js";
 import { migrateDeployment } from "../src/migrate.js";
+import { warnIfOwner } from "../src/state.js";
 import type { Deployment } from "../src/deployment.js";
 
 /**
@@ -108,7 +109,23 @@ describe.skipIf(!DATABASE_URL)("a server role that does not own its state, and a
   });
 
   it("serves over the server's role, which cannot delete, truncate or lift a trigger", async () => {
-    await serve();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await serve();
+      expect(warn.mock.calls.flat().join("\n")).not.toContain("owns these tables");
+      // A server whose role owns the tables is warned about at start (a demo excepted).
+      for (const [url, warned] of [[ownerUrl, true], [runtimeUrl, false]] as const) {
+        warn.mockClear();
+        const p = new pg.Pool({ connectionString: url, max: 1 });
+        await warnIfOwner(p, ["audit_events", "audit_checkpoints"], "state.audit", false);
+        await warnIfOwner(p, ["audit_events", "audit_checkpoints"], "state.audit", true);
+        await p.end();
+        expect(warn.mock.calls.length, url).toBe(warned ? 1 : 0);
+        if (warned) expect(String(warn.mock.calls[0]![0])).toContain("state.audit: the server signs in as a role that owns these tables");
+      }
+    } finally {
+      warn.mockRestore();
+    }
     const rt = new pg.Pool({ connectionString: runtimeUrl, max: 1 });
     try {
       expect(Number((await rt.query<{ n: string }>("SELECT count(*) AS n FROM audit_events")).rows[0]!.n)).toBeGreaterThan(0);

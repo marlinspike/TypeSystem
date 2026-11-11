@@ -169,7 +169,7 @@ describe.skipIf(!url)("typesys init --from postgres, end to end (ADR-0111)", () 
     expect(text).toContain("A reader is returned every other column");
     expect(text).toMatch(/shop\.Customer: balance, customerId, points, tier/);
     // L3, L4, L5 (ADR-0124): what init left out or reads with a caveat is said, and a credential is read by no persona.
-    expect(text).toMatch(/Left out:\n  .*events declares no key/);
+    expect(text).toMatch(/Left out:\n {2}.*events declares no key/);
     expect(text).toMatch(/Read with a caveat:[\s\S]*customers\.points: bigint, read as a number: a value beyond ±2\^53 is left out/);
     expect(text).toMatch(/customers\.balance: money, read as text exactly as PostgreSQL prints it \(with its currency symbol/);
     expect(text).toContain("Credentials, read by no persona (only the role credential-reader, which none holds): shop.Customer.passwordHash");

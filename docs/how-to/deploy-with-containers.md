@@ -182,6 +182,7 @@ lives in the document. Then, from anywhere that can reach the database:
 
 ```bash
 npx typesys audit verify deployment.json                 # every chain, every row, every signature
+npx typesys audit verify --witness witness.json deployment.json   # also catches a chain deleted whole
 npx typesys audit export deployment.json --out trail.jsonl
 npx typesys audit verify --file trail.jsonl deployment.json   # offline, against the export
 npx typesys audit prune deployment.json                  # deletes rows older than state.audit.retainDays, only behind a signed checkpoint
@@ -190,3 +191,19 @@ npx typesys audit prune deployment.json                  # deletes rows older th
 `verify` exits 1 and names the row when a row was edited, deleted, reordered or
 cut off, or when a checkpoint's signature or key does not check. Run `prune`
 on a schedule (a Kubernetes CronJob) if the deployment sets `retainDays`.
+
+The server should sign in as a role that may read and append its state but
+does not own it (ADR-0124). Name the owner in `state.audit.ownerUrl` (and
+`state.workflows.ownerUrl`); `npx typesys migrate` signs in as the owner,
+creates the server's role from the user and password in `url` if it is
+missing, and grants it SELECT and INSERT only. That role cannot lift the
+append-only triggers, delete, truncate or drop, so a stolen server credential
+cannot rewrite the trail. `prune` signs in as the owner too. A server whose role
+owns its tables starts with a warning.
+
+The one thing an owner could still do unseen is delete a chain whole, with its
+checkpoints: what is left verifies. `--witness <file>` keeps, outside the
+database, the newest checkpoint and head of every chain a passing verification
+saw, and the next verification fails with `[vanished]` if any of them is gone.
+Keep the witness file where the database's owner cannot write it; the packages
+from `typesys deploy package` mount a volume for it and run verify with it.

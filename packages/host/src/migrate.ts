@@ -40,8 +40,8 @@ export function roleOf(url: string): string {
   let user: string;
   try {
     user = decodeURIComponent(new URL(url).username);
-  } catch {
-    throw new Error("a state connection string is not a URL");
+  } catch (err) {
+    throw new Error("a state connection string is not a URL", { cause: err });
   }
   if (!user) throw new Error("a state connection string names no user: name the role it signs in as");
   return user;
@@ -71,7 +71,7 @@ async function grantRuntime(owner: Pool, store: PostgresStore): Promise<string> 
       try {
         await client.query(`CREATE ROLE ${ident} LOGIN${password ? ` PASSWORD ${client.escapeLiteral(password)}` : ""}`);
       } catch (err) {
-        throw new Error(`the server's role ${role} does not exist, and the owner cannot create it (${(err as Error).message}): create it as a login role, then run migrate again`);
+        throw new Error(`the server's role ${role} does not exist, and the owner cannot create it (${(err as Error).message}): create it as a login role, then run migrate again`, { cause: err });
       }
     } else if ((exists.rows[0] as { rolsuper: boolean }).rolsuper) throw new Error(`the server's role ${role} is a superuser, which no grant can limit: give the server an ordinary role`);
     const owns = await client.query<{ owns: boolean }>(

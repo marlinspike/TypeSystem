@@ -2999,6 +2999,122 @@
       "tests": [
         "packages/host/test/telemetry.test.ts"
       ]
+    },
+    {
+      "id": "witness.vanished-checkpoint-ignored",
+      "adr": "0124",
+      "description": "A checkpoint an earlier verification saw may disappear, with its whole chain, and verify still passes.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (!now || now.hash !== was.checkpoint.hash)",
+      "replace": "if (now && now.hash !== was.checkpoint.hash)",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "witness.cut-head-ignored",
+      "adr": "0124",
+      "description": "Rows an earlier verification saw may be cut from a chain's end without the witness noticing.",
+      "file": "packages/core/src/audit/chain.ts",
+      "find": "if (to === undefined || to < was.head.seq)",
+      "replace": "if (to === undefined)",
+      "tests": [
+        "packages/core/test/audit-chain.test.ts"
+      ]
+    },
+    {
+      "id": "migrate.runtime-role-may-delete",
+      "adr": "0124",
+      "description": "The server's own role is granted DELETE and TRUNCATE on the audit tables, so its credential can erase the trail.",
+      "file": "packages/host/src/migrate.ts",
+      "find": "\"GRANT SELECT, INSERT ON audit_events, audit_checkpoints TO %R\"",
+      "replace": "\"GRANT SELECT, INSERT, DELETE, TRUNCATE ON audit_events, audit_checkpoints TO %R\"",
+      "tests": [
+        "packages/host/test/audit-owner.test.ts"
+      ],
+      "requires": [
+        "DATABASE_URL"
+      ]
+    },
+    {
+      "id": "oidc.token-without-expiry",
+      "adr": "0124",
+      "description": "A token with no exp claim is accepted and never expires.",
+      "file": "packages/auth-oidc/src/oidc-identity-resolver.ts",
+      "find": "requiredClaims: [\"exp\", \"sub\"]",
+      "replace": "requiredClaims: [\"sub\"]",
+      "tests": [
+        "packages/host/test/sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "sign-in.failures-unaudited",
+      "adr": "0124",
+      "description": "A refused token leaves no audit row.",
+      "file": "packages/http/src/sign-in.ts",
+      "find": "if (caller.kind !== \"invalid\" || typeof runtime.recordSignInFailure !== \"function\") return;",
+      "replace": "if (caller.kind !== \"invalid\" || typeof runtime.recordSignInFailure !== \"function\" || transport !== \"\") return;",
+      "tests": [
+        "packages/host/test/sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "sign-in.audit-uncapped",
+      "adr": "0124",
+      "description": "Failed sign-ins are audited without a cap, so a flood of bad tokens floods the trail.",
+      "file": "packages/core/src/runtime/runtime.ts",
+      "find": "if (count.written >= SIGN_IN_FAILURES_PER_MINUTE) {",
+      "replace": "if (count.written >= Number.MAX_SAFE_INTEGER) {",
+      "tests": [
+        "packages/core/test/sign-in-audit.test.ts"
+      ]
+    },
+    {
+      "id": "promote.role-map-drops-combined-roles",
+      "adr": "0124",
+      "description": "A drafted role map grants each group its one role, so a persona holding two is refused through every group.",
+      "file": "packages/host/src/promote.ts",
+      "find": "return [r, [...new Set([r, ...implied])].sort()];",
+      "replace": "return [r, [r]];",
+      "tests": [
+        "packages/host/test/promote.test.ts"
+      ]
+    },
+    {
+      "id": "deploy-test.role-map-unchecked",
+      "adr": "0124",
+      "description": "deploy test passes a persona that no single role-map entry can sign in as.",
+      "file": "packages/host/src/tests.ts",
+      "find": "const group = entries.find(([, granted]) => roles.every((r) => granted.includes(r)));",
+      "replace": "const group = entries.find(([, granted]) => roles.some((r) => granted.includes(r)));",
+      "tests": [
+        "packages/host/test/usability.test.ts"
+      ]
+    },
+    {
+      "id": "promote.discovery-left-open",
+      "adr": "0124",
+      "description": "A promoted deployment serves its model to callers who have not signed in.",
+      "file": "packages/host/src/promote.ts",
+      "find": "discovery: dev.runtime?.discovery ?? \"authenticated\"",
+      "replace": "discovery: dev.runtime?.discovery ?? \"open\"",
+      "tests": [
+        "packages/host/test/promote.test.ts"
+      ]
+    },
+    {
+      "id": "table-sql.sort-direction-ignored",
+      "adr": "0122",
+      "description": "A descending sort on a Postgres table runs ascending in SQL.",
+      "file": "packages/adapter-postgres/src/table-sql.ts",
+      "find": "key.direction === \"desc\" ? \"DESC NULLS FIRST\" : \"ASC NULLS LAST\"",
+      "replace": "\"ASC NULLS LAST\"",
+      "tests": [
+        "packages/adapter-postgres/test/table-at-scale.test.ts"
+      ],
+      "requires": [
+        "DATABASE_URL"
+      ]
     }
   ]
 }

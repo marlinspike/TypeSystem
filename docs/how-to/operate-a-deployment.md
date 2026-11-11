@@ -6,7 +6,8 @@ machine. It takes that deployment to a server a team signs in to, and then
 covers what running it involves: upgrades, keys, the audit trail and
 telemetry. Each step is one command; the decisions are in
 [ADR-0116](../adr/0116-clients-sign-in-through-the-deployments-provider.md) to
-[ADR-0121](../adr/0121-telemetry-and-request-logs-are-declared.md).
+[ADR-0121](../adr/0121-telemetry-and-request-logs-are-declared.md) and
+[ADR-0124](../adr/0124-the-server-cannot-erase-its-own-audit-trail.md).
 
 ## From development to shared
 
@@ -17,8 +18,14 @@ npx typesys deploy promote shop/shop.deployment.json \
 ```
 
 `promote` writes `shop/shop.shared.deployment.json` and leaves the original
-alone. The shared one is not a demo, signs people in through your provider,
-and keeps a signed audit trail in Postgres. The private half of its new audit
+alone. The shared one:
+
+- is not a demo, and signs people in through your provider;
+- tells an anonymous caller nothing about the model (`runtime.discovery:
+  "authenticated"`), and names no roles in a refusal;
+- keeps a signed audit trail in Postgres, written by a role that may only read
+  and append: `state.audit.ownerUrl` names the tables' owner, which only
+  `migrate` and `audit prune` sign in as. The private half of its new audit
 signing key is in `shop/secrets/audit-1.private.pem`, which is git-ignored;
 the public half is in the document. An argument shaped like an environment
 variable name (`--issuer OIDC_ISSUER`) becomes a reference to that variable
@@ -27,22 +34,33 @@ instead of a literal.
 Open the shared file and give `identity.roleMap` your provider's names. Each
 key is a value your provider puts in the roles claim (a group, an app role);
 each value is the deployment's roles it grants. A name that is not listed
-grants nothing:
+grants nothing. `promote` drafts a group per role, granting what every persona
+with that role also holds, so the steward group grants `reader` too:
 
 ```json
 "roleMap": { "Shop.Readers": ["reader"], "Shop.Stewards": ["reader", "steward"] }
 ```
 
+`typesys deploy test` checks each persona its tests run as against the map, and
+fails one that no single group can make: a member of that group would be
+refused what the tests allow.
+
 Then check what promoting changed, ready the database and build:
 
 ```bash
 npx typesys deploy check shop/shop.deployment.json shop/shop.shared.deployment.json
-export TYPESYS_STATE_URL=postgres://...      # where the audit trail goes
+export TYPESYS_STATE_OWNER_URL=postgres://owner@db/shopstate    # owns the tables: migrate and prune only
+export TYPESYS_STATE_URL=postgres://typesys_app:<password>@db/shopstate   # the server's own role
 npx typesys migrate shop/shop.shared.deployment.json
 npx typesys deploy build shop/shop.shared.deployment.json
 ```
 
-`deploy build` fails, naming the migrations, until `migrate` has run.
+`migrate` signs in as the owner, creates the tables and the server's role
+(with the password `TYPESYS_STATE_URL` carries, if the role does not exist),
+and grants that role SELECT and INSERT on the audit tables and nothing else.
+It refuses a server role that is the owner or a superuser. `deploy build` fails,
+naming the migrations, until `migrate` has run. A server whose role owns the
+tables starts, but says at start what that gives away.
 
 ## Set up your provider
 
@@ -96,13 +114,26 @@ docker compose up -d
 docker compose --profile ops run --rm audit-verify
 ```
 
+Compose publishes the server on 127.0.0.1 only. Clients send a bearer token
+with every request, so put a proxy that terminates TLS in front of it (Caddy,
+nginx, a cloud load balancer), set `identity.resource` to its `https://` origin
+and add its name to `MCP_ALLOWED_HOSTS`. For the bundled database, `owner.env`
+holds the owner's password, made when you first package; only the database,
+`migrate` and `audit-prune` read it. If you packaged before this existed, put
+your old `STATE_DB_PASSWORD` in `owner.env` as `POSTGRES_PASSWORD` and in its
+owner URL: the database keeps the password it was first started with.
+
 Or, for Kubernetes:
 
 ```bash
-npx typesys deploy package shop/shop.shared.deployment.json --target k8s --out k8s
+npx typesys deploy package shop/shop.shared.deployment.json --target k8s --out k8s --host shop.example.com
 cd k8s && cp secrets.env.example secrets.env   # fill it in, keep it out of git
+cp owner.env.example owner.env                  # the owner: given to the migrate init container and the prune job only
 kubectl apply -k .
 ```
+
+With `--host`, `typesys.yaml` has an Ingress for those names serving TLS from
+the Secret `typesys-<name>-tls`: create it, or let cert-manager fill it.
 
 Both use `ghcr.io/marlinspike/typesystem:<version>`; pass `--image` for your
 own registry. The Kubernetes files run `migrate` as an init container, so a
@@ -147,9 +178,18 @@ signed are kept: `typesys audit verify` needs it to check them.
 
 `typesys audit verify <deployment.json>` checks every chain, row and
 signature, and exits 1 naming the first row that was edited, deleted,
-reordered or cut off. The Kubernetes files run it daily as a CronJob; run it
+reordered or cut off.
+
+From the database alone, a chain deleted whole, checkpoints and all, leaves
+nothing to compare against. `--witness <file>` closes that: each run that
+verifies records every chain's newest checkpoint and last row in the file, and
+the next run reports `vanished` for any that is gone. Keep the file where the
+database's owner cannot write. The packaged verifier keeps it in a volume of
+its own and is given no private key, since verifying needs only the public
+keys in the deployment. The Kubernetes files run it daily as a CronJob; run it
 from Compose with the `ops` profile. With `state.audit.retainDays` set,
-`typesys audit prune` deletes older rows, only behind a signed checkpoint, and
+`typesys audit prune` deletes older rows, only behind a signed checkpoint,
+signing in as `state.audit.ownerUrl` (the server's role may not delete), and
 the Kubernetes files schedule it too. `typesys audit export --out trail.jsonl`
 writes a copy that `audit verify --file` checks offline.
 
@@ -166,6 +206,11 @@ workflow-run ids taken out and no query string, and no header, token or value
 is logged. A caller's `X-Request-Id` is kept when it is a plain token and
 echoed in the response, so a report that quotes it can be found.
 `"runtime": { "requestLog": false }` turns the log off.
+
+A token the server refuses (expired, for another audience, badly signed, with
+no `exp` or no `sub`) is also an audit row: subject `unauthenticated`, action
+`sign-in`, the verifier's reason, and what the token claimed. A process writes
+at most 60 such rows a minute; the next one says how many were left out.
 
 To send traces and metrics to an OpenTelemetry collector:
 

@@ -97,7 +97,7 @@ export interface PostgresSourceSpec {
   /** The connection string: it holds a password, so it is a credential. */
   readonly url: Credential;
   readonly types: Readonly<Record<string, PostgresTypeSpec>>;
-  /** Most rows one query reads before refusing a partial answer. Default 10,000. */
+  /** Most rows one call reads before refusing a partial answer (ADR-0122): not a limit on the table's size. Default 100,000. */
   readonly maxRows?: number;
 }
 

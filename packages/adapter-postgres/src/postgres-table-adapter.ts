@@ -78,7 +78,7 @@ interface Columns {
   readonly found: boolean;
   readonly id: ColumnInfo;
   readonly kinds: ReadonlyMap<string, ColumnKind>;
-  property(name: string): ColumnInfo | undefined;
+  property(this: void, name: string): ColumnInfo | undefined;
 }
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -358,7 +358,7 @@ export class PostgresTableAdapter implements Adapter {
   private tooMany(typeName: string): AdapterUnavailableError {
     // The caller's to narrow, not an outage: reading again would answer the same.
     return new AdapterUnavailableError(
-      `${this.config.system} would need to read more than ${this.config.maxRows ?? DEFAULT_MAX_ROWS} rows of ${typeName} to answer this; narrow it with a condition on a plain column, or sort by one`,
+      `${this.config.system} would need to read more than ${this.config.maxRows ?? DEFAULT_MAX_ROWS} rows of ${typeName} to answer this (the source's maxRows); narrow it with a condition on a plain column, or sort by one`,
       { retryable: false }
     );
   }
@@ -496,7 +496,7 @@ function convert(raw: unknown, col: PostgresColumn, kind: ColumnKind): unknown {
     case "integer": {
       // A bigint past 2^53 cannot be held exactly: left out, never rounded to a neighbour's value (map it as text).
       const n = typeof raw === "number" ? raw : Number(raw);
-      return Number.isSafeInteger(n) && (typeof raw === "number" || /^-?[0-9]+$/.test(String(raw))) ? n : undefined;
+      return Number.isSafeInteger(n) && (typeof raw === "number" || (typeof raw === "string" && /^-?[0-9]+$/.test(raw))) ? n : undefined;
     }
     case "boolean":
       return typeof raw === "boolean" ? raw : undefined;

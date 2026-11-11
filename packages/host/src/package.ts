@@ -38,7 +38,7 @@ export interface PackageResult {
   readonly out: string;
   readonly files: readonly string[];
   /** What to put in the environment file before it runs, with a description of each. */
-  readonly settings: readonly { readonly name: string; readonly secret: boolean; readonly note: string }[];
+  readonly settings: readonly { readonly name: string; readonly secret: boolean; readonly note: string; /** Only migrate and audit prune are given it, from owner.env (ADR-0124). */ readonly owner?: boolean }[];
   readonly warnings: readonly string[];
 }
 
@@ -206,7 +206,7 @@ export async function packageDeployment(file: string, opts: PackageOptions): Pro
   const bundledRedis = bundledState && state.redis.size > 0;
   const allowedHosts = [...new Set(["localhost", ...(opts.target === "k8s" ? [name] : []), ...(opts.hosts ?? [])])].join(",");
 
-  const settings: { name: string; secret: boolean; note: string }[] = [];
+  const settings: { name: string; secret: boolean; note: string; owner?: boolean }[] = [];
   for (const s of refs.secrets) {
     if (s === signing) continue;
     if (bundledPostgres && (state.postgres.has(s) || state.owner.has(s))) continue;
@@ -214,6 +214,7 @@ export async function packageDeployment(file: string, opts: PackageOptions): Pro
     settings.push({
       name: s,
       secret: true,
+      ...(state.owner.has(s) ? { owner: true } : {}),
       note: state.owner.has(s)
         ? "Postgres connection string for the role that owns the state's tables: given only to migrate and audit prune, never the server"
         : state.postgres.has(s)
@@ -616,7 +617,8 @@ export async function packageCommand(argv: readonly string[], log: (s: string) =
         `Wrote ${rel(r.out)}/ for ${target === "compose" ? "Docker Compose" : "Kubernetes"}: ${r.files.length} files.`,
         ...(r.warnings.length ? ["", ...r.warnings.map((w) => `! ${w}`)] : []),
         "",
-        `Fill in ${target === "compose" ? ".env (from .env.example)" : "secrets.env (from secrets.env.example) and config.env"}: ${r.settings.map((s) => s.name).join(", ")}.`,
+        `Fill in ${target === "compose" ? ".env (from .env.example)" : "secrets.env (from secrets.env.example) and config.env"}: ${r.settings.filter((s) => !s.owner).map((s) => s.name).join(", ")}.`,
+        ...(r.settings.some((s) => s.owner) ? [`Fill in owner.env (from owner.env.example), which only migrate and audit prune read: ${r.settings.filter((s) => s.owner).map((s) => s.name).join(", ")}.`] : []),
         `Then: ${target === "compose" ? `cd ${rel(r.out)} && docker compose up -d` : `kubectl apply -k ${rel(r.out)}`}`
       ].join("\n")
     );

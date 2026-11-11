@@ -46,7 +46,7 @@ describe("typesys deploy promote (ADR-0118)", () => {
     expect(rolesOf(dev)).toEqual(["reader", "steward", "support"]);
     // Shared, so not open: anonymous callers learn nothing and refusals name no roles (ADR-0124).
     expect(shared.runtime?.discovery).toBe("authenticated");
-    expect(promoteDeployment({ ...dev, runtime: { discovery: "need-to-know" } } as Deployment, { issuer: "x", audience: "a", publicKey: "PEM" }).runtime?.discovery).toBe("need-to-know");
+    expect(promoteDeployment({ ...dev, runtime: { discovery: "need-to-know" } }, { issuer: "x", audience: "a", publicKey: "PEM" }).runtime?.discovery).toBe("need-to-know");
     expect(referencesOf(shared)).toEqual({ secrets: ["SHOP_URL", "TYPESYS_AUDIT_SIGNING_KEY", "TYPESYS_STATE_OWNER_URL", "TYPESYS_STATE_URL"], env: ["OIDC_ISSUER"] });
   });
 

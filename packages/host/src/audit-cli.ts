@@ -88,7 +88,7 @@ async function readWitness(file: string): Promise<AuditWitness | undefined> {
   try {
     return parseAuditWitness(JSON.parse(text));
   } catch (err) {
-    throw new Error(`--witness ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`--witness ${file}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 }
 

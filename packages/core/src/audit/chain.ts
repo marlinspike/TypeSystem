@@ -430,8 +430,8 @@ export function parseAuditWitness(value: unknown): AuditWitness {
     if (!q || typeof q !== "object" || !Number.isSafeInteger(q.seq) || (q.seq as number) < 0 || typeof q.hash !== "string") throw new Error(`witness ${at} is malformed`);
   };
   for (const [chain, e] of Object.entries(v.chains)) {
-    point((e as AuditWitnessEntry).checkpoint, `${chain}.checkpoint`);
-    point((e as AuditWitnessEntry).head, `${chain}.head`);
+    point(e.checkpoint, `${chain}.checkpoint`);
+    point(e.head, `${chain}.head`);
   }
   return v as AuditWitness;
 }
@@ -450,7 +450,8 @@ export async function verifyAuditLog(
   const pageSize = opts.pageSize ?? 1000;
   const problems: AuditProblem[] = [];
   const summaries: AuditChainSummary[] = [];
-  const seen: Record<string, AuditWitnessEntry> = {};
+  // No prototype: a chain id is whatever a row says, `__proto__` included.
+  const seen = Object.create(null) as Record<string, AuditWitnessEntry>;
   let total = 0;
   const allCheckpoints = await source.listCheckpoints();
   const witnessed = opts.witness?.chains ?? {};
