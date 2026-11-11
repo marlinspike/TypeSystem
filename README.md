@@ -23,6 +23,18 @@ Because all of this happens in one place, a React app, a REST client and an
 AI agent connected over MCP get the same answer for the same person, and none
 of them has to re-implement the access rules.
 
+TypeSystem now keeps its audit trail out of reach of the server that writes
+it, and reads large tables in the database. A shared deployment's server signs
+in as a role that may read and append but not own its tables, so a stolen
+server credential cannot lift the append-only triggers or delete a row, and a
+witness kept outside the database catches the one thing an owner could still
+do unseen, deleting a chain whole. A Postgres table is now filtered, sorted,
+paged and joined in SQL (a list over 200,000 orders answers in 25 ms), failed
+sign-ins are audited, and a shared deployment hides its model from callers who
+have not signed in. The section
+[Hardened against its own operators](#hardened-against-its-own-operators)
+shows it on a 200,000-row database, with output.
+
 TypeSystem now goes from your laptop to a shared server that people and
 agents sign in to. `typesys deploy promote` turns the development deployment
 `init` wrote into a shared one (your OpenID Connect provider, a signed audit
@@ -84,6 +96,102 @@ through its API and in a browser. The section
 [Build an application from one document](#build-an-application-from-one-document)
 shows it end to end on Cold Chain Command.
 
+## Hardened against its own operators
+
+An end-to-end pressure test of the shared deployment path found 18 problems,
+two of them serious; all are fixed
+([ADR-0122](docs/adr/0122-postgres-table-queries-run-in-sql.md) to
+[ADR-0124](docs/adr/0124-the-server-cannot-erase-its-own-audit-trail.md),
+report in [docs/reviews/](docs/reviews/hardening-pressure-test-2026-11-11.md)).
+Everything below was measured on a `shop` database with 2,000 customers and
+200,000 orders, served by the generic server.
+
+**The server cannot erase its own trail.** `typesys deploy promote` now names
+two credentials: `url`, which the server signs in with, and `ownerUrl`, which
+only `typesys migrate` and `typesys audit prune` use. `migrate` signs in as the
+owner, creates the server's role if it is missing, and grants it SELECT and
+INSERT and nothing more:
+
+```
+$ npx typesys migrate shop.shared.deployment.json
+state.audit: applied 0001_init.sql, ..., 0008_audit_chain.sql; the server's role typesys_rt may read and append, nothing more
+```
+
+Signed in as that role, every way to rewrite history is refused by Postgres
+itself: `ALTER TABLE audit_events DISABLE TRIGGER ALL`, `DELETE`, `TRUNCATE`,
+`UPDATE`, `SET session_replication_role = replica` and `DROP TABLE` all fail
+with `permission denied` or `must be owner`. A server that still signs in as the
+owner starts with a warning that says so. `migrate` refuses a deployment whose
+two URLs name one role, and refuses a server role that is a superuser or a
+member of the owner.
+
+**A witness catches a chain deleted whole.** Whoever owns the database can
+still lift the triggers and delete a chain with all its checkpoints, and what
+is left verifies. `typesys audit verify --witness <file>` keeps, outside the
+database, the newest checkpoint and head of every chain a passing run saw:
+
+```
+$ npx typesys audit verify --witness witness.json shop.shared.deployment.json
+OK: 38 rows in 2 chains verify.
+
+# the owner disables the triggers and deletes chain c3fd..., checkpoints and all
+
+$ npx typesys audit verify shop.shared.deployment.json
+OK: 19 rows in 1 chain verify.
+
+$ npx typesys audit verify --witness witness.json shop.shared.deployment.json
+FAILED: 2 problems
+  [vanished] chain c3fd... row 19: the checkpoint at 19 that an earlier verification saw is gone, with every row of the chain
+  ...
+$ echo $?
+1
+```
+
+A failed run leaves the witness as it was, so every later run fails too. The
+Compose and Kubernetes packages keep the witness in a volume of its own and run
+verify with no secret at all; the owner's password lives in `owner.env`, which
+only the database, `migrate` and `prune` read.
+
+**Large tables are read in SQL.** A declared Postgres table used to be read
+whole and filtered in memory. Conditions on plain columns, sorting, paging,
+counts and relationship lookups now run in the database:
+
+| Call on 200,000 orders | Answer |
+|---|---|
+| first 5 orders | 25 ms |
+| `status = open` | 7 ms |
+| sorted by `total`, descending | 26 ms |
+| one order by id | 5 ms |
+| a customer's orders (related, 100 returned) | 88 ms |
+| sum of `total` where `status = open` | 0.32 s |
+| sum of `total` over every order | `503`: would read more than 100,000 rows of shop.Order; narrow it with a condition on a plain column, or sort by one |
+
+The last row is the source's `maxRows` (default 100,000) doing its job: a
+query that cannot be pushed down is refused with a message that says what to
+change, never a silent full scan. A call the source cannot answer at all is a
+`422 not-supported`, not a `500`.
+
+**Sign-in failures are on the record.** A token for another audience, one
+with no `exp` or no `sub`, an expired one and a malformed one each get `401`,
+and each now leaves a denied audit row (operation `signIn`, the reason, and the
+token's issuer, audience and subject as claimed, clipped to 200 characters), at
+most 60 a minute with a count of the ones not recorded.
+
+**Strangers learn nothing.** A promoted deployment sets
+`runtime.discovery: "authenticated"`: `GET /api/model` without a token is
+`401`, and a refusal does not name the roles that would have been allowed.
+`high-assurance-v2` requires `need-to-know`. `typesys deploy test` now also
+checks the role map, so a persona whose roles no single provider group grants
+fails before anyone signs in.
+
+**Smaller fixes.** `/readyz` answers for the state stores only, so a slow
+source no longer takes every replica out of rotation; a hosted application
+accepts the deployment's own host names; `typesys init` lists what it left out
+and which columns read with a caveat (8-byte integers, `money`), and keeps
+credentials from every persona, a steward included; Compose binds to
+127.0.0.1 by default and Kubernetes gets a TLS Ingress with `--host`; the CLI
+help lists every command.
+
 ## From your laptop to a shared server
 
 Four commands take the deployment `typesys init` drafted to one a team can
@@ -100,19 +208,23 @@ npx typesys deploy promote shop/shop.deployment.json --issuer https://login.exam
 ```
 Wrote shop.shared.deployment.json and its audit signing key secrets/audit-1.private.pem (git-ignored).
 
-Roles its policies use: reader, steward. In identity.roleMap, replace each key with the name your
+Roles its policies use: credential-reader, reader, steward. In identity.roleMap, replace each key with the name your
 provider puts in the "groups" claim for it (a group or app role); a value not listed grants nothing.
 
 Secrets and settings to provide when it runs:
   SHOP_URL
   TYPESYS_AUDIT_SIGNING_KEY  (the contents of secrets/audit-1.private.pem)
+  TYPESYS_STATE_OWNER_URL  (the tables' owner: for migrate and audit prune only, never the server)
   TYPESYS_STATE_URL
 ```
 
 The model, sources, rules and personas are left as they were, so
 `typesys deploy check shop.deployment.json shop.shared.deployment.json` shows
 only what sharing changes (`identity, demo, state`; `audit memory → postgres,
-signed no → yes`). Put your provider's names in the role map:
+signed no → yes`). The drafted role map already gives each
+group every role its personas hold together (a steward is also a reader), and
+`typesys deploy test` fails a persona no single entry covers. Put your
+provider's names in it:
 
 ```json
 "identity": {
@@ -129,7 +241,7 @@ FAIL
   - state.audit: 8 migrations not applied (0001_init.sql, ..., 0008_audit_chain.sql): run `typesys migrate <deployment.json>`
 
 $ npx typesys migrate shop.shared.deployment.json
-state.audit: applied 0001_init.sql, 0002_audit_operation.sql, ..., 0008_audit_chain.sql
+state.audit: applied 0001_init.sql, 0002_audit_operation.sql, ..., 0008_audit_chain.sql; the server's role typesys_rt may read and append, nothing more
 
 $ npx typesys deploy build shop.shared.deployment.json
 shop builds: sha256:e8fe033acd6ef2fdf682a8ddcad35c652560424c7c0e2ef03b070682316e53a9
@@ -137,18 +249,22 @@ shop builds: sha256:e8fe033acd6ef2fdf682a8ddcad35c652560424c7c0e2ef03b070682316e
 $ npx typesys deploy package shop.shared.deployment.json --target compose --out deploy --host shop.example.com
 Wrote deploy/ for Docker Compose: 7 files.
 
-Fill in .env (from .env.example): SHOP_URL, MCP_ALLOWED_HOSTS, STATE_DB_PASSWORD.
+Fill in .env (from .env.example): SHOP_URL, MCP_ALLOWED_HOSTS, STATE_APP_PASSWORD.
+owner.env holds the database owner's password (generated, mode 0600): only the database, migrate and prune read it.
 Then: cd deploy && docker compose up -d
 ```
 
 `deploy/` holds the deployment and its pack byte for byte (the packaged copy
 builds to the same id), a Compose project with a state database, a `migrate`
-step the server waits on, the server on `ghcr.io/marlinspike/typesystem`, the
-signing key as a Compose secret, and an `audit-verify` service
-(`docker compose --profile ops run --rm audit-verify`). `--target k8s` writes a
+step the server waits on, the server on `ghcr.io/marlinspike/typesystem`
+(published on 127.0.0.1 unless `TYPESYS_BIND` says otherwise), the signing key
+as a Compose secret, and an `audit-verify` service
+(`docker compose --profile ops run --rm audit-verify`) that holds no secret and
+keeps its witness in a volume of its own. `--target k8s` writes a
 Kustomize directory instead: an init container that migrates, probes, a
 disruption budget, and CronJobs that verify (and, with `retainDays`, prune) the
-audit trail. Any secret can be a file: `TYPESYS_AUDIT_SIGNING_KEY_FILE=/run/secrets/...`.
+audit trail; with `--host` it adds an Ingress that serves TLS from the
+`<name>-tls` secret. Any secret can be a file: `TYPESYS_AUDIT_SIGNING_KEY_FILE=/run/secrets/...`.
 
 **Signing in.** The server publishes OAuth Protected Resource Metadata
 (RFC 9728) and answers a call without a token the way the MCP authorization
@@ -322,7 +438,7 @@ Compose and the Kubernetes manifests now serve:
 
 The server connects to all of them before it serves, and refuses to start if
 a database is unreachable or its tables are not migrated. `/version` says where
-each piece lives and which audit chain this replica writes, and `/readyz`
+each piece lives (the startup line names the audit chain this replica writes), and `/readyz`
 returns 503 while any of them is down:
 
 ```text
@@ -331,8 +447,7 @@ TypeSystem host "airforce-durable" (build sha256:13cabcab4baa…) on http://loca
 state: audit postgres (chain 5230acf9-fc87-42a4-9b05-298fc8c85ddb), workflows postgres, cache redis, rate limit redis
 $ curl localhost:3939/version
 {"deployment":"airforce-durable","build":"sha256:13cabcab4baa…","packs":["core@1.0.0","airforce@1.0.0"],
- "state":{"audit":"postgres","workflows":"postgres","cache":"redis","rateLimit":"redis"},
- "auditChain":"5230acf9-fc87-42a4-9b05-298fc8c85ddb","applications":[]}
+ "state":{"audit":"postgres","workflows":"postgres","cache":"redis","rateLimit":"redis"},"applications":[]}
 ```
 
 A deployment that is not marked `"demo": true` must keep its audit trail in

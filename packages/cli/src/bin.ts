@@ -36,9 +36,9 @@ Usage:
   typesys engineer plan|scaffold|verify ...   (with @typesys/engineer installed)
   typesys onboard collect|request|propose|review|check ...   (with @typesys/onboard installed)
   typesys app catalog|explain|context|check|compile|build|verify|diff|migrate|inspect|why|graph|impact|links ...   (with @typesys/compiler installed)
-  typesys deploy build|check|test ...   (with @typesys/host installed: build a deployment, check an upgrade before it rolls, run its policy tests)
+  typesys deploy build|check|test|promote|package ...   (with @typesys/host installed: build a deployment, check an upgrade before it rolls, run its policy tests, make a shared one from a development one, write Compose or Kubernetes files to run it)
   typesys dev <deployment.json> ...   (with @typesys/host installed: serve a deployment for development)
-  typesys audit verify|export|prune ...   (with @typesys/host installed: verify, export or prune a deployment's audit trail)
+  typesys audit verify|export|prune|keygen ...   (with @typesys/host installed: verify, export or prune a deployment's audit trail, or make a checkpoint signing key)
   typesys migrate <deployment.json>   (with @typesys/host installed: create or update the tables the deployment keeps its state in)
 
 <dir> is a directory of .yaml/.yml type files, loaded in alphabetical

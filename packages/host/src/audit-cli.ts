@@ -1,12 +1,14 @@
 import { generateKeyPairSync } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { ulid } from "ulid";
 import { createPool, PostgresAuditLog } from "@typesys/registry-store-postgres";
 import {
+  parseAuditWitness,
   verifyAuditLog,
+  type AuditWitness,
   type AuditChainSource,
   type AuditCheckpoint,
   type AuditVerification,
@@ -21,11 +23,14 @@ export const AUDIT_EXPORT_FORMAT = "typesys.audit-export/1";
 
 const USAGE = `typesys audit — verify, export and prune a deployment's audit trail (ADR-0105)
 
-  typesys audit verify <deployment.json> [--json]
+  typesys audit verify <deployment.json> [--witness <file>] [--json]
       Walk every chain in the deployment's audit trail (state.audit) from its start and check
       each row's hash, each link, each sequence number and each signed checkpoint against
       state.audit.verifyKeys. Exits 1 on any row edited, removed, inserted or reordered, or any
-      checkpoint that does not verify.
+      checkpoint that does not verify. With --witness, also checks that every chain, checkpoint
+      and row the last verification saw is still there (a chain deleted whole, checkpoints and
+      all, is caught only this way), and on success records what this one saw. Keep the file
+      where the database's owner cannot write (ADR-0124).
   typesys audit verify --file <export.jsonl> <deployment.json> [--json]
       The same over an export, with the deployment's verify keys.
   typesys audit export <deployment.json> [--chain <id>]... [--out <file>]
@@ -36,7 +41,8 @@ const USAGE = `typesys audit — verify, export and prune a deployment's audit t
       state.audit.signing.key names, the public key in state.audit.verifyKeys.
   typesys audit prune <deployment.json> [--before <ISO time>] [--json]
       Delete rows older than state.audit.retainDays (or --before), each chain only up to a signed
-      checkpoint, so what remains still verifies. The prune itself is audited.
+      checkpoint, so what remains still verifies. The prune itself is audited. Signs in as
+      state.audit.ownerUrl when the deployment names one: the server's role may not delete.
 
 The database URL and signing key come from the environment, as the deployment's $secret
 references name them.
@@ -70,6 +76,22 @@ export async function readAuditExport(file: string): Promise<AuditChainSource> {
   };
 }
 
+/** The witness file, or none yet: the first verification with --witness starts it. */
+async function readWitness(file: string): Promise<AuditWitness | undefined> {
+  let text: string;
+  try {
+    text = await readFile(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+  try {
+    return parseAuditWitness(JSON.parse(text));
+  } catch (err) {
+    throw new Error(`--witness ${file}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+  }
+}
+
 /** Resolves a deployment's `$secret` references from `env`, as the server does: a default only in a demo. */
 export function credentialResolver(deployment: Deployment, env: HostEnvironment) {
   return (value: Credential, at: string): string => {
@@ -80,10 +102,13 @@ export function credentialResolver(deployment: Deployment, env: HostEnvironment)
   };
 }
 
-function postgresAudit(deployment: Deployment, env: HostEnvironment): { log: PostgresAuditLog; close(): Promise<void> } {
+/** The trail in Postgres, over the server's role, or for a prune the owner's when the deployment names one (ADR-0124). */
+function postgresAudit(deployment: Deployment, env: HostEnvironment, asOwner = false): { log: PostgresAuditLog; close(): Promise<void> } {
   const a = deployment.state?.audit;
   if (a?.kind !== "postgres") throw new DeploymentError([`${deployment.name}: state.audit is not postgres: its trail is kept in the serving process and goes with it`]);
-  const pool = createPool({ connectionString: credentialResolver(deployment, env)(a.url, "state.audit.url"), max: 2 });
+  const resolve = credentialResolver(deployment, env);
+  const url = asOwner && a.ownerUrl !== undefined ? resolve(a.ownerUrl, "state.audit.ownerUrl") : resolve(a.url, "state.audit.url");
+  const pool = createPool({ connectionString: url, max: 2 });
   return { log: new PostgresAuditLog(pool), close: () => pool.end() };
 }
 
@@ -104,6 +129,7 @@ interface Args {
   chains: string[];
   json: boolean;
   file?: string;
+  witness?: string;
   out?: string;
   before?: string;
   keyId?: string;
@@ -121,6 +147,7 @@ function parse(argv: readonly string[]): Args {
     };
     if (a === "--json") out.json = true;
     else if (a === "--file") out.file = next();
+    else if (a === "--witness") out.witness = next();
     else if (a === "--out") out.out = next();
     else if (a === "--chain") out.chains.push(next());
     else if (a === "--before") out.before = next();
@@ -176,20 +203,28 @@ export async function auditCommand(argv: readonly string[], env: HostEnvironment
     const keys = deployment.state?.audit?.verifyKeys ?? {};
     if (sub === "verify") {
       let v: AuditVerification;
-      if (args.file) v = await verifyAuditLog(await readAuditExport(args.file), keys);
+      const witness = args.witness === undefined ? undefined : await readWitness(args.witness);
+      const opts = witness ? { witness } : {};
+      if (args.file) v = await verifyAuditLog(await readAuditExport(args.file), keys, opts);
       else {
         const pg = postgresAudit(deployment, env);
         try {
-          v = await verifyAuditLog(pg.log, keys);
+          v = await verifyAuditLog(pg.log, keys, opts);
         } finally {
           await pg.close();
         }
+      }
+      // Only a trail that verified is witnessed: a failure leaves the last good witness to compare against.
+      if (args.witness !== undefined && v.ok) {
+        const tmp = `${args.witness}.${process.pid}.tmp`;
+        await writeFile(tmp, `${JSON.stringify(v.witness, null, 2)}\n`, { mode: 0o600 });
+        await rename(tmp, args.witness);
       }
       if (args.json) console.log(JSON.stringify(v));
       else (v.ok ? process.stdout : process.stderr).write(render(v));
       return v.ok ? 0 : 1;
     }
-    const pg = postgresAudit(deployment, env);
+    const pg = postgresAudit(deployment, env, sub === "prune");
     try {
       if (sub === "export") {
         const chains = args.chains.length ? args.chains : await pg.log.listChains();

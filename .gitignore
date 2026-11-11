@@ -211,3 +211,6 @@ dist
 /packages/sortie-readiness/.work/
 /packages/evaluation/.work/
 /packages/compiler/.work/
+
+# Redis writes this where it is started, as the tests start it
+dump.rdb

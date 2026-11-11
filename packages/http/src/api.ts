@@ -21,7 +21,7 @@ import { workflowUses, type WorkflowEngine } from "@typesys/workflow";
 import { LOCAL_HOSTS, originGuard } from "./guard.js";
 import { openApiDocument } from "./openapi.js";
 import { bodyProblem, identityUnavailable, notFound, sendProblem, toProblem, unauthenticated, unauthorized } from "./problems.js";
-import { challengeHeader, checkSignIn, resolveCaller, type SignIn } from "./sign-in.js";
+import { auditSignInFailure, challengeHeader, checkSignIn, resolveCaller, type SignIn } from "./sign-in.js";
 
 export interface ApiOptions {
   /** What every request is served from: a registry and the runtime over it (what `buildRuntime` returns). */
@@ -110,11 +110,13 @@ export function createApiRouter(opts: ApiOptions): Router {
       if (caller.kind === "unavailable") {
         onError(new Error(caller.message), req);
         sendProblem(res, identityUnavailable());
-      } else
+      } else {
+        auditSignInFailure(runtime, caller, "api");
         sendProblem(
           res.setHeader("WWW-Authenticate", opts.signIn ? challengeHeader(opts.signIn, req, caller.kind === "invalid" ? "invalid_token" : undefined) : "Bearer"),
           caller.kind === "missing" ? unauthenticated() : unauthorized()
         );
+      }
       return;
     }
     const identity: Identity = caller.identity;

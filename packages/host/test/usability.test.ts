@@ -10,7 +10,7 @@ import { InvalidInputError } from "@typesys/core";
 import { acceptanceFor, applyAcceptance, checkDeployment, renderDeployCheck, validateAcceptance, type DeploymentBuild } from "../src/check.js";
 import { buildHost, emptyEnvironment } from "../src/host.js";
 import { DeploymentError, validateDeployment, type Deployment } from "../src/deployment.js";
-import { runTests, renderTests, validateTests, testsFileFor, loadTests, type DeploymentTests } from "../src/tests.js";
+import { runTests, renderTests, roleMapOutcomes, validateTests, testsFileFor, loadTests, type DeploymentTests } from "../src/tests.js";
 import { startDev, welcome } from "../src/dev.js";
 import { serve } from "../src/serve.js";
 import { deployCommand } from "../src/cli.js";
@@ -343,6 +343,50 @@ describe("typesys dev (ADR-0112)", () => {
       expect((err as DeploymentError).problems[0]).toMatch(/^pack core@1\.0\.0: not found at /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("deploy test checks the personas against the role map (ADR-0124)", () => {
+  const host = (roleMap: Record<string, string[]>) =>
+    ({
+      deployment: { identity: { kind: "oidc", issuer: "https://idp.example", audience: "a", roleMap } },
+      personas: { reader: { subjectId: "r", roles: ["reader"], attributes: {} }, steward: { subjectId: "s", roles: ["reader", "steward"], attributes: {} }, anonymous: { subjectId: "anonymous", roles: [], attributes: {} } }
+    }) as unknown as Parameters<typeof roleMapOutcomes>[0];
+
+  it("fails a persona no one group can make, as promote used to draft the map", () => {
+    const out = roleMapOutcomes(host({ reader: ["reader"], steward: ["steward"] }), ["reader", "steward", "steward", "anonymous"]);
+    expect(out.map((o) => [o.name, o.ok])).toEqual([
+      ["persona reader [reader] can sign in through identity.roleMap", true],
+      ["persona steward [reader, steward] can sign in through identity.roleMap", false]
+    ]);
+    expect(out[1]!.detail).toBe("no one group grants all of [reader, steward] (reader grants [reader]; steward grants [steward]): a member of one group is refused what this persona's tests allow. Map a group to every role the persona holds.");
+  });
+
+  it("passes when a group grants every role the persona holds, and says nothing for token identities", () => {
+    expect(roleMapOutcomes(host({ "app-readers": ["reader"], "app-stewards": ["reader", "steward"] }), ["steward"])).toEqual([
+      { name: "persona steward [reader, steward] can sign in through identity.roleMap", ok: true, detail: "group app-stewards" }
+    ]);
+    expect(roleMapOutcomes({ ...host({}), deployment: { identity: { kind: "tokens", tokens: {} } } } as unknown as Parameters<typeof roleMapOutcomes>[0], ["steward"])).toEqual([]);
+  });
+});
+
+describe("a deployment sets discovery (ADR-0124)", () => {
+  it("reaches the runtime, so an anonymous caller learns nothing when it is not open", async () => {
+    for (const discovery of ["authenticated", "need-to-know"] as const) {
+      const h = await buildHost({ ...airforceDeployment, runtime: { ...airforceDeployment.runtime, discovery } }, { packs: [corePack, airforcePack], extensions: [airforceExtension], env: emptyEnvironment });
+      try {
+        expect(h.runtime.discovery).toBe(discovery);
+        await expect(h.runtime.describeModel(await h.identityResolver(undefined))).rejects.toThrow("Not authorized: describe the model");
+      } finally {
+        await h.close();
+      }
+    }
+    const open = await host();
+    try {
+      expect(open.runtime.discovery).toBe("open");
+    } finally {
+      await open.close();
     }
   });
 });

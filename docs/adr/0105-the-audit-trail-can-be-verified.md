@@ -68,3 +68,9 @@ covered. The trigger is still not what makes the trail trustworthy, and
 anyone who holds the signing key can forge checkpoints: keep it in a
 secret store the database's owner cannot read. Deleting a whole chain that
 was never checkpointed is not detectable.
+
+*Amended by ADR-0124 (2026-11-11):* neither is deleting a whole chain with its
+checkpoints, by the database's owner, from what the database holds alone: the
+chain leaves nothing behind to compare against. A witness kept outside the
+database (`typesys audit verify --witness`) catches it, and the server now signs
+in as a role that does not own the tables.

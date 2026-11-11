@@ -27,9 +27,9 @@ describe("PostgresTableAdapter", () => {
     beforeAll(async () => {
       pool = new pg.Pool({ connectionString: url });
       await pool.query(`DROP SCHEMA IF EXISTS pta CASCADE; CREATE SCHEMA pta;
-        CREATE TABLE pta.unit (cd char(6) PRIMARY KEY, nm text);
+        CREATE TABLE pta.unit (cd char(6) PRIMARY KEY, nm char(16), note text);
         CREATE TABLE pta.item (id integer PRIMARY KEY, unit_cd char(6) REFERENCES pta.unit, st char(1), qty numeric(6,1), seen date);
-        INSERT INTO pta.unit VALUES ('388FW', 'Fighter Wing'), ('419FW', NULL), ('512AW', 'Airlift Wing  ');
+        INSERT INTO pta.unit VALUES ('388FW', 'Fighter Wing', 'kept as stored  '), ('419FW', NULL, NULL), ('512AW', 'Airlift Wing  ', NULL);
         INSERT INTO pta.item VALUES (1, '388FW', 'A', 12.5, '2026-09-30'), (2, '388FW', 'Z', NULL, NULL), (3, '419FW', 'R', 3, '2026-01-02');`);
     });
     afterAll(async () => {
@@ -42,7 +42,7 @@ describe("PostgresTableAdapter", () => {
         system: "PTA",
         ...(maxRows ? { maxRows } : {}),
         types: {
-          "t.Unit": { table: "pta.unit", id: "cd", columns: { code: "cd", name: "nm" } },
+          "t.Unit": { table: "pta.unit", id: "cd", columns: { code: "cd", name: "nm", note: "note" } },
           "t.Item": { table: "pta.item", id: "id", columns: { unit: "unit_cd", status: { column: "st", map: { A: "active", R: "retired" } }, quantity: { column: "qty", as: "number" }, seen: { column: "seen", as: "date" } } }
         }
       });
@@ -53,7 +53,8 @@ describe("PostgresTableAdapter", () => {
       expect(one.values).toEqual({ unit: "388FW", status: "active", quantity: 12.5, seen: "2026-09-30" });
       expect(one.provenance[0]!.source).toMatchObject({ dataSourceId: "pta", recordId: "1", field: "pta.item.unit_cd" });
       expect((await a.resolveProperties("t.Item", "2", [])).values).toEqual({ unit: "388FW" });
-      expect((await a.resolveProperties("t.Unit", "388FW", [])).values).toEqual({ code: "388FW", name: "Fighter Wing" });
+      // Only char(n) is padded, so only its padding is dropped: text keeps the spaces it was stored with (ADR-0122).
+      expect((await a.resolveProperties("t.Unit", "388FW", [])).values).toEqual({ code: "388FW", name: "Fighter Wing", note: "kept as stored  " });
       expect((await a.resolveProperties("t.Item", "99", [])).values).toEqual({});
     });
 
@@ -81,10 +82,13 @@ describe("PostgresTableAdapter", () => {
       expect(await a.resolveRelationship(rel("byOwnField:unit", "t.Item", "t.Unit"), "3")).toEqual([{ objectId: "419FW" }]);
     });
 
-    it("refuses to answer from a partial list rather than truncate it, and says retrying will not help", async () => {
+    it("refuses to answer from part of the table when a call must read past maxRows, and says retrying will not help", async () => {
+      // No limit: every match is wanted, and there are more rows than the adapter may read.
       const err = await adapter(2).queryByType("t.Item").catch((e: unknown) => e);
       expect(err).toBeInstanceOf(AdapterUnavailableError);
       expect(isRetryableError(err)).toBe(false);
+      // A page reads only what it returns, whatever maxRows is (ADR-0122).
+      expect((await adapter(2).queryByType("t.Item", undefined, 1)).items.map((o) => o.objectId)).toEqual(["1"]);
     });
   });
 });

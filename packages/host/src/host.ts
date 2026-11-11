@@ -22,6 +22,7 @@ import {
   type RegistryStore,
   type SemanticRuntimeOptions,
   HIGH_ASSURANCE_V1,
+  HIGH_ASSURANCE_V2,
   AdapterUnavailableError,
   composedProperties,
   withAuditLog
@@ -466,6 +467,8 @@ export async function buildHost(deploymentDoc: Deployment, options: HostOptions)
     ...(deployment.runtime?.callTimeoutMs !== undefined ? { resilience: { callTimeoutMs: deployment.runtime.callTimeoutMs } } : {}),
     ...(deployment.runtime?.inspectionPolicy ? { inspection: { policy: deployment.runtime.inspectionPolicy } } : {}),
     ...(deployment.runtime?.securityProfile === "high-assurance-v1" ? { securityProfile: HIGH_ASSURANCE_V1 } : {}),
+    ...(deployment.runtime?.securityProfile === "high-assurance-v2" ? { securityProfile: HIGH_ASSURANCE_V2 } : {}),
+    ...(deployment.runtime?.discovery ? { discovery: deployment.runtime.discovery } : {}),
     ...(state.cache ? { cache: state.cache } : {}),
     ...(state.cacheTtlMs !== undefined ? { defaultCacheTtlMs: state.cacheTtlMs } : {}),
     ...(state.rateLimiter ? { rateLimiter: state.rateLimiter } : {}),

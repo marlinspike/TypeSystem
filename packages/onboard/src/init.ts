@@ -1,7 +1,7 @@
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
-import { draftDeployment, DRAFT_ROLES, type DraftResult } from "./deployment.js";
+import { draftDeployment, DRAFT_ROLES, isCredentialRule, type DraftResult } from "./deployment.js";
 import { decide } from "./review.js";
 import { onboard } from "./run.js";
 import { fromPostgres, introspectPostgres } from "./sources.js";
@@ -82,18 +82,22 @@ const domainFrom = (dir: string): string => path.basename(path.resolve(dir)).toL
  * from the database is written into them. A `returns` test is drafted only
  * for a Type whose table has rows.
  */
-function draftTests(types: readonly string[], hasRows: Readonly<Record<string, boolean>>, sensitiveOf: Readonly<Record<string, readonly string[]>>): unknown {
+function draftTests(types: readonly string[], hasRows: Readonly<Record<string, boolean>>, sensitiveOf: Readonly<Record<string, readonly string[]>>, credentialOf: Readonly<Record<string, readonly string[]>>): unknown {
   const tests: unknown[] = [];
   for (const type of types) {
     const hidden = sensitiveOf[type] ?? [];
+    const credentials = credentialOf[type] ?? [];
+    const stewardSees = hidden.filter((p) => !credentials.includes(p));
     tests.push({ name: `a reader lists ${type}${hidden.length ? ` without ${hidden.join(", ")}` : ""}`, as: "reader", query: type, ...(hidden.length ? { withholds: hidden } : {}) });
-    if (hidden.length && hasRows[type]) tests.push({ name: `a steward sees ${hidden.join(", ")} on ${type}`, as: "steward", query: type, returns: hidden });
+    if (stewardSees.length && hasRows[type]) tests.push({ name: `a steward sees ${stewardSees.join(", ")} on ${type}`, as: "steward", query: type, returns: stewardSees });
+    // A credential is read by no drafted persona, a steward included (ADR-0124).
+    if (credentials.length) tests.push({ name: `not even a steward sees ${credentials.join(", ")} on ${type}`, as: "steward", query: type, withholds: credentials });
     tests.push({ name: `anyone else is refused ${type}`, as: "anonymous", query: type, refused: true });
   }
   return { format: "typesys.deployment-tests/1", tests };
 }
 
-function readme(domain: string, file: string, draft: DraftResult, variable: string, readerSees: string): string {
+function readme(domain: string, file: string, draft: DraftResult, variable: string, readerSees: string, caveats: readonly string[]): string {
   const t = draft.tokens;
   return `# ${domain}
 
@@ -120,7 +124,7 @@ Every rule starts as one role per kind of rule. Nothing is open to everyone.
 | Persona | Roles | Sees |
 |---|---|---|
 | reader | ${DRAFT_ROLES.read} | every Type, without the parts onboarding marked sensitive |
-| steward | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.sensitive} | the sensitive parts too; not a classified column, which no drafted persona is cleared for |
+| steward | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.sensitive} | the sensitive parts too; not a credential (a password, hash, key or token), which only the role \`${DRAFT_ROLES.credential}\` reads and no persona holds, and not a classified column, which no drafted persona is cleared for |
 ${t.operator ? `| operator | ${DRAFT_ROLES.read}, ${DRAFT_ROLES.invoke} | every Type, and may invoke Actions |\n` : ""}| anyone else | none | nothing: refused |
 
 Each persona's token is in \`identity.tokens\` in the deployment, and \`typesys dev\` prints them.
@@ -134,7 +138,7 @@ To keep one from readers, remove its column from \`sources\` in the deployment, 
 not read at all, or reject the property in \`onboarding/review.json\` and run
 \`typesys onboard propose ... --deployment ${file}\` again.
 
-Change a rule in \`policies\`, then run \`npx typesys deploy check\` with the old and new
+${caveats.length ? `**What onboarding could not read as-is:**\n\n${caveats.join("\n")}\n\n` : ""}Change a rule in \`policies\`, then run \`npx typesys deploy check\` with the old and new
 files to see who would newly read what, and \`npx typesys deploy test\` to keep the tests true.
 
 ## Before anyone else uses it
@@ -246,6 +250,7 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
       }
     }
     const sensitiveOf: Record<string, string[]> = {};
+    const credentialOf: Record<string, string[]> = {};
     const classifiedOf: Record<string, string[]> = {};
     const readerOf: Record<string, string[]> = {};
     for (const t of pack.contents.types) {
@@ -253,18 +258,22 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
       const pp = schema["x-policy"]?.propertyPolicies ?? {};
       const marked = schema["x-provenance"]?.properties ?? {};
       sensitiveOf[t.name] = Object.keys(pp).sort();
+      credentialOf[t.name] = Object.entries(pp).filter(([, rule]) => isCredentialRule(rule)).map(([k]) => k).sort();
       classifiedOf[t.name] = Object.entries(marked).filter(([, x]) => x.classification).map(([k, x]) => `${k} (${x.classification!.replace(/_/g, " ")})`).sort();
       readerOf[t.name] = Object.keys(schema.properties ?? {}).filter((k) => !Object.hasOwn(pp, k) && !marked[k]?.classification).sort();
     }
     const readerSees = pack.contents.types.map((t) => `- \`${t.name}\`: ${readerOf[t.name]!.join(", ") || "nothing but its id"}${classifiedOf[t.name]!.length ? `; classified, served to no drafted persona: ${classifiedOf[t.name]!.join(", ")}` : ""}`).join("\n") + "\n";
 
+    // What init did not do, said here and not only in onboarding/ (ADR-0124): tables left out, and columns read with a caveat.
+    const leftOut = final.proposal.findings.filter((f) => f.kind === "missing-key").map((f) => f.message);
+    const readNotes = collected.entities.flatMap((e) => e.fields.filter((f) => f.readNote).map((f) => `${e.name}.${f.name}: ${f.readNote}`));
     await mkdir(path.join(dir, "packs"), { recursive: true });
     for (const f of new Set(present)) await copyFile(path.join(dir, f), path.join(dir, `${f}.bak`));
     await mkdir(path.join(dir, "onboarding"), { recursive: true });
     await write(path.join(dir, packFile), pack);
     await write(path.join(dir, file), draft.deployment);
-    await write(path.join(dir, `${domain}.tests.json`), draftTests(pack.contents.types.map((t) => t.name), hasRows, sensitiveOf));
-    await write(path.join(dir, "README.md"), readme(domain, file, draft, variable, readerSees));
+    await write(path.join(dir, `${domain}.tests.json`), draftTests(pack.contents.types.map((t) => t.name), hasRows, sensitiveOf, credentialOf));
+    await write(path.join(dir, "README.md"), readme(domain, file, draft, variable, readerSees, [...leftOut.map((x) => `- Left out: ${x}`), ...readNotes.map((x) => `- ${x}`)]));
     await write(path.join(dir, "onboarding", "sources.json"), { format: SOURCES_FORMAT, sources: [collected] });
     await write(path.join(dir, "onboarding", "proposal.json"), final.proposal);
     await write(path.join(dir, "onboarding", "review.json"), review);
@@ -274,7 +283,7 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
 
     const m = final.metrics.approved;
     const rel = (f: string) => path.join(args.dir!, f);
-    const payload = { dir, deployment: path.join(dir, file), pack: { name: pack.name, version: pack.version, digest: pack.digest }, types: pack.contents.types.map((t) => t.name), policies: draft.rules, tokens: draft.tokens };
+    const payload = { leftOut, readNotes, dir, deployment: path.join(dir, file), pack: { name: pack.name, version: pack.version, digest: pack.digest }, types: pack.contents.types.map((t) => t.name), policies: draft.rules, tokens: draft.tokens };
     if (args.json) {
       out(JSON.stringify({ ok: true, ...payload }));
       return 0;
@@ -286,6 +295,9 @@ export async function initCommand(argv: readonly string[], out: (s: string) => v
         "",
         "A reader is returned every other column. Check none of these should be kept from readers:",
         ...pack.contents.types.map((t) => `  ${t.name}: ${readerOf[t.name]!.join(", ") || "nothing but its id"}`),
+        ...(leftOut.length ? ["", "Left out:", ...leftOut.map((x) => `  ${x}`)] : []),
+        ...(readNotes.length ? ["", "Read with a caveat:", ...readNotes.map((x) => `  ${x}`)] : []),
+        ...(Object.values(credentialOf).some((c) => c.length) ? ["", `Credentials, read by no persona (only the role ${DRAFT_ROLES.credential}, which none holds): ${pack.contents.types.flatMap((t) => credentialOf[t.name]!.map((p) => `${t.name}.${p}`)).join(", ")}`] : []),
         ...warnings.map((w) => `Warning: ${w}`),
         ...(present.length ? [`Kept what was there as .bak: ${[...new Set(present)].join(", ")}`] : []),
         "",

@@ -367,7 +367,9 @@ export type AuditProblemKind =
   /** In a signed trail, a chain with no valid checkpoint at all: no writer holding the key started it. */
   | "unsigned-chain"
   | "bad-signature"
-  | "unknown-key";
+  | "unknown-key"
+  /** A chain, checkpoint or row an earlier verification witnessed is gone or different: deleted whole, or rewritten. */
+  | "vanished";
 
 export interface AuditProblem {
   readonly kind: AuditProblemKind;
@@ -395,6 +397,43 @@ export interface AuditVerification {
   readonly unchained: number;
   readonly chains: readonly AuditChainSummary[];
   readonly problems: readonly AuditProblem[];
+  /** What this verification saw, to pass as the next one's `witness`. */
+  readonly witness: AuditWitness;
+}
+
+export const AUDIT_WITNESS_FORMAT = "typesys.audit-witness/1";
+
+/**
+ * What one verification saw of each chain: its newest valid checkpoint and its
+ * last row (ADR-0124). Kept outside the database, it is what lets the next
+ * verification tell a chain deleted whole, checkpoints and all, from one that
+ * never existed: something nobody holding only the database can undo.
+ */
+export interface AuditWitness {
+  readonly format: typeof AUDIT_WITNESS_FORMAT;
+  readonly at: string;
+  readonly chains: Readonly<Record<string, AuditWitnessEntry>>;
+}
+
+export interface AuditWitnessEntry {
+  readonly checkpoint?: { readonly seq: number; readonly hash: string };
+  readonly head?: { readonly seq: number; readonly hash: string };
+}
+
+/** A witness read back from JSON, or a problem with it. */
+export function parseAuditWitness(value: unknown): AuditWitness {
+  const v = value as Partial<AuditWitness> | null;
+  if (!v || typeof v !== "object" || v.format !== AUDIT_WITNESS_FORMAT || typeof v.chains !== "object" || v.chains === null) throw new Error(`not a ${AUDIT_WITNESS_FORMAT} witness`);
+  const point = (p: unknown, at: string) => {
+    if (p === undefined) return;
+    const q = p as { seq?: unknown; hash?: unknown };
+    if (!q || typeof q !== "object" || !Number.isSafeInteger(q.seq) || (q.seq as number) < 0 || typeof q.hash !== "string") throw new Error(`witness ${at} is malformed`);
+  };
+  for (const [chain, e] of Object.entries(v.chains)) {
+    point(e.checkpoint, `${chain}.checkpoint`);
+    point(e.head, `${chain}.head`);
+  }
+  return v as AuditWitness;
 }
 
 /**
@@ -403,13 +442,20 @@ export interface AuditVerification {
  * where a valid checkpoint signs its first row or the row before it
  * (pruned by retention behind a checkpoint, ADR-0105).
  */
-export async function verifyAuditLog(source: AuditChainSource, keys: Readonly<Record<string, string | KeyObject>>, opts: { readonly pageSize?: number } = {}): Promise<AuditVerification> {
+export async function verifyAuditLog(
+  source: AuditChainSource,
+  keys: Readonly<Record<string, string | KeyObject>>,
+  opts: { readonly pageSize?: number; readonly witness?: AuditWitness } = {}
+): Promise<AuditVerification> {
   const pageSize = opts.pageSize ?? 1000;
   const problems: AuditProblem[] = [];
   const summaries: AuditChainSummary[] = [];
+  // No prototype: a chain id is whatever a row says, `__proto__` included.
+  const seen = Object.create(null) as Record<string, AuditWitnessEntry>;
   let total = 0;
   const allCheckpoints = await source.listCheckpoints();
-  const chains = [...new Set([...(await source.listChains()), ...allCheckpoints.map((c) => c.chain)])].sort();
+  const witnessed = opts.witness?.chains ?? {};
+  const chains = [...new Set([...(await source.listChains()), ...allCheckpoints.map((c) => c.chain), ...Object.keys(witnessed)])].sort();
   for (const chain of chains) {
     const validCps = new Map<number, AuditCheckpoint>();
     for (const cp of allCheckpoints.filter((c) => c.chain === chain)) {
@@ -475,6 +521,24 @@ export async function verifyAuditLog(source: AuditChainSource, keys: Readonly<Re
     // nobody signed, not even its opening, is rows of unknown origin.
     if (Object.keys(keys).length > 0 && rows > 0 && validCps.size === 0 && !allCheckpoints.some((c) => c.chain === chain))
       problems.push({ kind: "unsigned-chain", chain, message: `${rows} row${rows === 1 ? "" : "s"} in a chain no key signed: not written by a signing writer` });
+    // ADR-0124: what an earlier verification saw must still be here. Checkpoints are never deleted, not even by a
+    // prune, and a prune keeps each chain's last row, so a witnessed checkpoint or head that is gone was removed.
+    const was = Object.hasOwn(witnessed, chain) ? witnessed[chain] : undefined;
+    if (was?.checkpoint) {
+      const now = allCheckpoints.find((c) => c.chain === chain && c.seq === was.checkpoint!.seq);
+      if (!now || now.hash !== was.checkpoint.hash)
+        problems.push({ kind: "vanished", chain, seq: was.checkpoint.seq, message: `the checkpoint at ${was.checkpoint.seq} that an earlier verification saw is ${now ? "different" : "gone"}${rows === 0 ? ", with every row of the chain" : ""}` });
+    }
+    if (was?.head) {
+      if (to === undefined || to < was.head.seq)
+        problems.push({ kind: "vanished", chain, seq: was.head.seq, message: `an earlier verification saw rows through ${was.head.seq}, but the chain ${to === undefined ? "has no rows" : `ends at ${to}`}` });
+      else if (from !== undefined && from <= was.head.seq && hashes.get(was.head.seq) !== was.head.hash)
+        problems.push({ kind: "vanished", chain, seq: was.head.seq, message: `row ${was.head.seq} is not the row an earlier verification saw` });
+    }
+    const newest = [...validCps.values()].filter((cp) => cp.seq === 0 || (to !== undefined && cp.seq <= to)).sort((a, b) => b.seq - a.seq)[0];
+    if (newest || to !== undefined)
+      seen[chain] = { ...(newest ? { checkpoint: { seq: newest.seq, hash: newest.hash } } : {}), ...(to !== undefined ? { head: { seq: to, hash: hashes.get(to)! } } : {}) };
+    else if (was) seen[chain] = was;
     summaries.push({
       chain,
       ...(from !== undefined ? { from } : {}),
@@ -485,7 +549,14 @@ export async function verifyAuditLog(source: AuditChainSource, keys: Readonly<Re
       builds: [...builds].sort()
     });
   }
-  return { ok: problems.length === 0, rows: total, unchained: await source.countUnchained(), chains: summaries, problems };
+  return {
+    ok: problems.length === 0,
+    rows: total,
+    unchained: await source.countUnchained(),
+    chains: summaries,
+    problems,
+    witness: { format: AUDIT_WITNESS_FORMAT, at: new Date().toISOString(), chains: seen }
+  };
 }
 
 /**

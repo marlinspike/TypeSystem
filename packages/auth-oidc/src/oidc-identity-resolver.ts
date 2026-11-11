@@ -150,15 +150,19 @@ export function createOidcIdentityResolver(config: OidcIdentityResolverConfig): 
     if (!token) return anonymousIdentity();
 
     try {
+      // A token with no expiry would be good forever, and one with no subject would share one with every other such
+      // caller in the audit trail: both are refused (ADR-0124).
       const { payload } = await jwtVerify(token, jwks, {
         issuer: config.issuer,
-        audience: config.audience
+        audience: config.audience,
+        requiredClaims: ["exp", "sub"]
       });
+      if (typeof payload.sub !== "string" || payload.sub === "") throw new Error('the token\'s "sub" claim is not a subject');
 
       const scope = payload.scope;
       const clearance = config.clearanceClaim ? readClaimPath(payload, config.clearanceClaim) : undefined;
       return {
-        subjectId: typeof payload.sub === "string" ? payload.sub : "unknown",
+        subjectId: payload.sub,
         roles: rolesOf(payload, rolesClaim, config.roleMap),
         attributes: payload,
         ...(typeof scope === "string" ? { tokenScopes: scope.split(" ").filter(Boolean) } : {}),

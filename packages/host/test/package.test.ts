@@ -50,11 +50,26 @@ describe("typesys deploy package (ADR-0119)", () => {
     expect(out).toBe(path.join(dir, "deploy-compose"));
     const compose = yaml.load(readFileSync(path.join(out, "compose.yaml"), "utf8")) as { services: Record<string, Record<string, unknown>>; secrets: Record<string, { file: string }> };
     expect(Object.keys(compose.services)).toEqual(["state-db", "migrate", "app", "audit-verify"]);
+    // ADR-0124: the server signs in as a role of its own; only the database and migrate read the owner's file.
+    expect(compose.services["state-db"]!.env_file).toEqual(["owner.env"]);
+    expect(compose.services.migrate!.env_file).toEqual([".env", "owner.env"]);
+    expect(compose.services.app!.env_file).toEqual([".env"]);
+    expect(compose.services.app!.ports).toEqual(["${TYPESYS_BIND:-127.0.0.1}:${TYPESYS_PORT:-3939}:3939"]);
+    const ownerEnv = readFileSync(path.join(out, "owner.env"), "utf8");
+    const pw = /^POSTGRES_PASSWORD=([0-9a-f]{48})$/m.exec(ownerEnv)![1]!;
+    expect(ownerEnv).toContain(`TYPESYS_STATE_OWNER_URL=postgresql://typesys:${pw}@state-db:5432/typesys\n`);
+    expect(statSync(path.join(out, "owner.env")).mode & 0o777).toBe(0o600);
+    // The verifier: no private key, a witness in a volume of its own.
+    const verify = compose.services["audit-verify"]!;
+    expect(verify.secrets).toBeUndefined();
+    expect(verify.environment).not.toHaveProperty("TYPESYS_AUDIT_SIGNING_KEY_FILE");
+    expect(verify.command).toEqual(["node", "packages/cli/dist/bin.js", "audit", "verify", "/etc/typesys/fleet.shared.deployment.json", "--witness", "/var/lib/typesys/audit-witness.json"]);
+    expect(verify.volumes).toContain("audit-witness:/var/lib/typesys");
     const app = compose.services.app!;
     expect(app.image).toBe("typesys:test");
     expect(app.environment).toMatchObject({
       TYPESYS_DEPLOYMENT: "/etc/typesys/fleet.shared.deployment.json",
-      TYPESYS_STATE_URL: "postgresql://typesys:${STATE_DB_PASSWORD:?set STATE_DB_PASSWORD in .env}@state-db:5432/typesys",
+      TYPESYS_STATE_URL: "postgresql://typesys_app:${STATE_APP_PASSWORD:?set STATE_APP_PASSWORD in .env}@state-db:5432/typesys",
       TYPESYS_AUDIT_SIGNING_KEY_FILE: "/run/secrets/audit_signing_key"
     });
     expect(app.depends_on).toEqual({ migrate: { condition: "service_completed_successfully" } });
@@ -64,13 +79,15 @@ describe("typesys deploy package (ADR-0119)", () => {
     // The key is copied into a directory only this user may enter, and git-ignored with .env.
     expect(readFileSync(path.join(out, "secrets", "audit-1.private.pem"), "utf8")).toContain("BEGIN PRIVATE KEY");
     expect(statSync(path.join(out, "secrets")).mode & 0o777).toBe(0o700);
-    expect(readFileSync(path.join(out, ".gitignore"), "utf8")).toBe(".env\nsecrets/\n");
+    expect(readFileSync(path.join(out, ".gitignore"), "utf8")).toBe(".env\nowner.env\nsecrets/\n");
     // Every setting it needs, and none it supplies itself (the bundled state database's URL, the key).
     const example = readFileSync(path.join(out, ".env.example"), "utf8");
     expect(example).toContain("OIDC_ISSUER=\n");
     expect(example).toContain("MCP_ALLOWED_HOSTS=localhost,fleet.example.com\n");
-    expect(example).toContain("STATE_DB_PASSWORD=\n");
+    expect(example).toContain("STATE_APP_PASSWORD=\n");
+    expect(example).not.toContain("STATE_DB_PASSWORD");
     expect(example).not.toMatch(/^TYPESYS_STATE_URL=/m);
+    expect(example).not.toMatch(/^TYPESYS_STATE_OWNER_URL=/m);
     expect(example).not.toMatch(/^TYPESYS_AUDIT_SIGNING_KEY=/m);
 
     // The packaged deployment builds to the same build id as the original.
@@ -92,27 +109,47 @@ describe("typesys deploy package (ADR-0119)", () => {
     // Written once; again only with --force.
     await expect(packageDeployment(shared, { target: "compose", packsDir: path.join(root, "packs") })).rejects.toThrow("exists: pass --force");
     await packageDeployment(shared, { target: "compose", packsDir: path.join(root, "packs"), force: true });
+    // The owner's password is made once: packaging again never changes what the database was started with.
+    expect(readFileSync(path.join(out, "owner.env"), "utf8")).toBe(ownerEnv);
   });
 
   it.skipIf(!hasCompose)("writes a project docker compose accepts", () => {
     const out = path.join(dir, "deploy-compose");
-    writeFileSync(path.join(out, ".env"), readFileSync(path.join(out, ".env.example"), "utf8").replace("STATE_DB_PASSWORD=\n", "STATE_DB_PASSWORD=pw\n"));
-    const config = execFileSync("docker", ["compose", "config", "--format", "json"], { cwd: out, encoding: "utf8" });
+    writeFileSync(path.join(out, ".env"), readFileSync(path.join(out, ".env.example"), "utf8").replace("STATE_APP_PASSWORD=\n", "STATE_APP_PASSWORD=pw\n"));
+    const config = execFileSync("docker", ["compose", "--profile", "ops", "config", "--format", "json"], { cwd: out, encoding: "utf8" });
     const parsed = JSON.parse(config) as { services: Record<string, { environment: Record<string, string> }> };
-    expect(parsed.services.app!.environment.TYPESYS_STATE_URL).toBe("postgresql://typesys:pw@state-db:5432/typesys");
+    expect(parsed.services.app!.environment.TYPESYS_STATE_URL).toBe("postgresql://typesys_app:pw@state-db:5432/typesys");
+    // The owner's connection reaches migrate, never the server.
+    expect(parsed.services.migrate!.environment.TYPESYS_STATE_OWNER_URL).toMatch(/^postgresql:\/\/typesys:[0-9a-f]{48}@state-db/);
+    expect(parsed.services.app!.environment).not.toHaveProperty("TYPESYS_STATE_OWNER_URL");
+    expect(parsed.services.app!.environment).not.toHaveProperty("POSTGRES_PASSWORD");
   });
 
   it("writes Kustomize-ready Kubernetes manifests: generated ConfigMap and Secrets, an init container that migrates, probes, audit CronJobs", async () => {
-    const r = await packageDeployment(shared, { target: "k8s", packsDir: path.join(root, "packs"), image: "typesys:test" });
+    const r = await packageDeployment(shared, { target: "k8s", packsDir: path.join(root, "packs"), image: "typesys:test", hosts: ["fleet.example.com"] });
     const out = r.out;
     const docs = yaml.loadAll(readFileSync(path.join(out, "typesys.yaml"), "utf8")) as { kind: string; metadata: { name: string }; spec: Record<string, unknown> }[];
-    expect(docs.map((d) => d.kind)).toEqual(["Deployment", "Service", "PodDisruptionBudget", "CronJob"]);
+    expect(docs.map((d) => d.kind)).toEqual(["Deployment", "Service", "PodDisruptionBudget", "Ingress", "PersistentVolumeClaim", "CronJob"]);
+    // M8: TLS at the edge for the names given.
+    expect(docs[3]!.spec).toMatchObject({ tls: [{ hosts: ["fleet.example.com"], secretName: "typesys-airforce-tls" }] });
+    // The verify job: no private key, the owner's Secret nowhere but migrate, a witness volume.
+    const job = ((docs[5]!.spec as { jobTemplate: { spec: { template: { spec: Record<string, unknown> } } } }).jobTemplate.spec.template.spec) as {
+      containers: { args: string[]; envFrom: { secretRef?: { name: string } }[]; env: { name: string }[] }[];
+      volumes: { name: string; secret?: unknown; persistentVolumeClaim?: { claimName: string } }[];
+      securityContext: { fsGroup?: number };
+    };
+    expect(job.containers[0]!.args).toContain("--witness");
+    expect(job.volumes.map((v) => v.name)).toEqual(["deployment", "audit-witness"]);
+    expect(job.containers[0]!.env.map((e) => e.name)).not.toContain("TYPESYS_AUDIT_SIGNING_KEY_FILE");
+    expect(job.securityContext.fsGroup).toBe(1000);
     const pod = (docs[0]!.spec as { template: { spec: Record<string, unknown> } }).template.spec as {
       initContainers: { args: string[] }[];
       containers: { readinessProbe: unknown; livenessProbe: unknown; envFrom: unknown[]; securityContext: Record<string, unknown> }[];
       volumes: { name: string; configMap?: { items: { key: string; path: string }[] }; secret?: { secretName: string } }[];
     };
     expect(pod.initContainers[0]!.args).toEqual(["node", "packages/host/dist/serve.js", "migrate"]);
+    expect((pod.initContainers[0] as unknown as { envFrom: unknown[] }).envFrom).toContainEqual({ secretRef: { name: "typesys-airforce-state-owner" } });
+    expect(pod.containers[0]!.envFrom).not.toContainEqual({ secretRef: { name: "typesys-airforce-state-owner" } });
     expect(pod.containers[0]!.readinessProbe).toEqual({ httpGet: { path: "/readyz", port: "http" }, periodSeconds: 10 });
     expect(pod.containers[0]!.securityContext).toMatchObject({ runAsNonRoot: true, allowPrivilegeEscalation: false });
     // The deployment keeps its file names, so its packs are where it says.
@@ -126,10 +163,13 @@ describe("typesys deploy package (ADR-0119)", () => {
     const k = yaml.load(readFileSync(path.join(out, "kustomization.yaml"), "utf8")) as { secretGenerator: { name: string; envs?: string[]; files?: string[] }[]; configMapGenerator: { name: string }[] };
     expect(k.secretGenerator).toEqual([
       { name: "typesys-airforce-secrets", envs: ["secrets.env"] },
+      { name: "typesys-airforce-state-owner", envs: ["owner.env"] },
       { name: "typesys-airforce-audit-key", files: ["key.pem=secrets/audit-1.private.pem"] }
     ]);
     expect(readFileSync(path.join(out, "secrets.env.example"), "utf8")).toMatch(/^TYPESYS_STATE_URL=$/m);
-    expect(readFileSync(path.join(out, "config.env"), "utf8")).toContain("MCP_ALLOWED_HOSTS=localhost,typesys-airforce\n");
+    expect(readFileSync(path.join(out, "secrets.env.example"), "utf8")).not.toMatch(/^TYPESYS_STATE_OWNER_URL=/m);
+    expect(readFileSync(path.join(out, "owner.env.example"), "utf8")).toMatch(/^TYPESYS_STATE_OWNER_URL=$/m);
+    expect(readFileSync(path.join(out, "config.env"), "utf8")).toContain("MCP_ALLOWED_HOSTS=localhost,typesys-airforce,fleet.example.com\n");
     expect(statSync(path.join(out, "secrets", "audit-1.private.pem")).mode & 0o777).toBe(0o600);
   });
 

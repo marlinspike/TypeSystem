@@ -6,6 +6,7 @@ import {
   AuditChainWriter,
   InMemoryAuditLog,
   auditLinkHash,
+  parseAuditWitness,
   signAuditCheckpoint,
   verifyAuditLog,
   withAuditLog,
@@ -193,6 +194,39 @@ describe("audit chain (ADR-0105)", () => {
     expect((await store.listAuditEvents()).items.map((e) => e.id)).toEqual(["evt-1"]);
     await store.close?.();
     await expect(log.appendAuditEvent(event(2))).rejects.toThrow("closed");
+  });
+
+  it("a witness catches a chain deleted whole, rows cut from its end, or a row replaced (ADR-0124)", async () => {
+    const { rows, checkpoints } = await written(12, { everyRows: 5 });
+    const first = await verifyAuditLog(source(rows, checkpoints), keys);
+    expect(first.ok).toBe(true);
+    const witness = parseAuditWitness(JSON.parse(JSON.stringify(first.witness)));
+    expect(witness.chains.c1).toMatchObject({ checkpoint: { seq: 12 }, head: { seq: 12 } });
+    // Untouched, and with more rows since: still passes.
+    expect((await verifyAuditLog(source(rows, checkpoints), keys, { witness })).ok).toBe(true);
+
+    // Without the witness, a chain gone with its checkpoints leaves nothing to compare.
+    expect((await verifyAuditLog(source([], []), keys)).ok).toBe(true);
+    const gone = await verifyAuditLog(source([], []), keys, { witness });
+    expect(gone.ok).toBe(false);
+    expect(gone.problems.map((p) => p.kind)).toContain("vanished");
+    expect(gone.problems[0]!.message).toContain("with every row of the chain");
+
+    // The last rows cut off, and the checkpoint over them with them.
+    const cut = await verifyAuditLog(source(rows.slice(0, 10), checkpoints.filter((c) => c.seq <= 10)), keys, { witness });
+    expect(cut.problems.filter((p) => p.kind === "vanished").map((p) => p.seq)).toEqual([12, 12]);
+    const headOnly = { ...witness, chains: { c1: { head: witness.chains.c1!.head! } } };
+    const short = await verifyAuditLog(source(rows.slice(0, 10), checkpoints.filter((c) => c.seq <= 10)), keys, { witness: headOnly });
+    expect(short.problems.find((p) => p.kind === "vanished")?.message).toBe("an earlier verification saw rows through 12, but the chain ends at 10");
+
+    // The row the witness saw at its head is not the row there now.
+    const swapped = await verifyAuditLog(source(rows, checkpoints), keys, { witness: { ...witness, chains: { c1: { head: { seq: 12, hash: "0".repeat(64) } } } } });
+    expect(swapped.problems.some((p) => p.kind === "vanished" && p.message.includes("not the row"))).toBe(true);
+  });
+
+  it("refuses a witness that is not one", () => {
+    expect(() => parseAuditWitness({ format: "other" })).toThrow(/typesys\.audit-witness\/1/);
+    expect(() => parseAuditWitness({ format: "typesys.audit-witness/1", at: "x", chains: { c: { head: { seq: "1", hash: "h" } } } })).toThrow();
   });
 
   it("refuses a key that is not Ed25519", () => {

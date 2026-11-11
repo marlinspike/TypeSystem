@@ -187,10 +187,40 @@ async function runOne(host: Host, t: DeploymentTest): Promise<TestOutcome> {
   }
 }
 
-/** Runs every test, in order. */
+/**
+ * For a deployment whose callers sign in through a provider with a role map
+ * (ADR-0124): can someone be what each tested persona is? A persona whose
+ * roles no one group grants is tested with more than a member of any one of
+ * its groups would hold, so a test can pass for a caller who would be refused.
+ */
+export function roleMapOutcomes(host: Pick<Host, "deployment" | "personas">, personas: readonly string[]): TestOutcome[] {
+  const id = host.deployment.identity;
+  if (id?.kind !== "oidc" || id.roleMap === undefined) return [];
+  const entries = Object.entries(id.roleMap);
+  const out: TestOutcome[] = [];
+  for (const name of [...new Set(personas)].filter((n) => n !== "anonymous").sort()) {
+    const roles = host.personas[name]?.roles ?? [];
+    if (roles.length === 0) continue;
+    const group = entries.find(([, granted]) => roles.every((r) => granted.includes(r)));
+    const label = `persona ${name} [${roles.join(", ")}] can sign in through identity.roleMap`;
+    if (group) out.push({ name: label, ok: true, detail: `group ${group[0]}` });
+    else {
+      const partial = entries.filter(([, granted]) => granted.some((r) => roles.includes(r))).map(([g, granted]) => `${g} grants [${granted.join(", ")}]`);
+      out.push({
+        name: label,
+        ok: false,
+        detail: `no one group grants all of [${roles.join(", ")}]${partial.length ? ` (${partial.join("; ")})` : ""}: a member of one group is refused what this persona's tests allow. Map a group to every role the persona holds.`
+      });
+    }
+  }
+  return out;
+}
+
+/** Runs every test, in order, then checks the personas they run as against the role map. */
 export async function runTests(host: Host, doc: DeploymentTests): Promise<TestReport> {
   const outcomes: TestOutcome[] = [];
   for (const t of doc.tests) outcomes.push(await runOne(host, t));
+  outcomes.push(...roleMapOutcomes(host, doc.tests.map((t) => t.as)));
   const failed = outcomes.filter((o) => !o.ok).length;
   return { ok: failed === 0, passed: outcomes.length - failed, failed, outcomes };
 }

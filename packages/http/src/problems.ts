@@ -1,5 +1,6 @@
 import {
   AdapterTimeoutError,
+  AggregationNotSupportedError,
   AdapterUnavailableError,
   AuthorizationError,
   CircuitOpenError,
@@ -25,6 +26,7 @@ export type ProblemCode =
   | "unavailable"
   | "source-refused"
   | "contract-unsatisfied"
+  | "not-supported"
   | "unauthorized"
   | "internal";
 
@@ -53,6 +55,8 @@ const MAPPING: readonly [ErrorClass, number, ProblemCode, string][] = [
   // The caller's contract names a Type at a version the model no longer has (ADR-0103): its precondition, unmet.
   [ContractUnsatisfiedError, 412, "contract-unsatisfied", "Contract not satisfied"],
   [RateLimitExceededError, 429, "rate-limited", "Rate limit exceeded"],
+  // The Type's source cannot answer this kind of question (an aggregate): the request's to change, not a fault to retry.
+  [AggregationNotSupportedError, 422, "not-supported", "Not supported"],
   [WorkflowStateError, 409, "conflict", "Conflict"],
   [JournalConflictError, 409, "conflict", "Conflict"],
   [ReplayDivergenceError, 409, "workflow-diverged", "Workflow definition diverged"],

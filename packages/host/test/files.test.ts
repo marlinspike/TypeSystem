@@ -80,7 +80,6 @@ describe("the generic server", () => {
         build: server.host.build,
         packs: ["core@1.0.0", "airforce@1.0.0"],
         state: { audit: "memory", workflows: "memory", cache: "none", rateLimit: "none" },
-        auditChain: server.host.state.audit.chain,
         applications: []
       });
       expect((await at("/healthz")).status).toBe(200);

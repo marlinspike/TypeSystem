@@ -97,7 +97,7 @@ export interface PostgresSourceSpec {
   /** The connection string: it holds a password, so it is a credential. */
   readonly url: Credential;
   readonly types: Readonly<Record<string, PostgresTypeSpec>>;
-  /** Most rows one query reads before refusing a partial answer. Default 10,000. */
+  /** Most rows one call reads before refusing a partial answer (ADR-0122): not a limit on the table's size. Default 100,000. */
   readonly maxRows?: number;
 }
 
@@ -109,7 +109,14 @@ export type AuditStateSpec =
   | { readonly kind: "memory"; readonly signing?: AuditSigningSpec; readonly verifyKeys?: Readonly<Record<string, string>> }
   | {
       readonly kind: "postgres";
+      /** The server's own connection: a role that may read and append, never own (ADR-0124). */
       readonly url: Credential;
+      /**
+       * A role that owns the tables, for `typesys migrate` and `typesys audit prune` only: never given to the
+       * server. When set, migrate grants the `url` role what the server needs and no more, so a stolen server
+       * credential cannot lift the append-only triggers.
+       */
+      readonly ownerUrl?: Credential;
       /** Signs each chain's head at intervals. Required outside a demo. */
       readonly signing?: AuditSigningSpec;
       /** Key id → Ed25519 public key (PEM): what `typesys audit verify` checks checkpoints with. */
@@ -137,7 +144,7 @@ export interface AuditSigningSpec {
 export interface StateSpec {
   readonly audit?: AuditStateSpec;
   /** Workflow runs, steps and approvals (ADR-0066). */
-  readonly workflows?: { readonly kind: "memory" } | { readonly kind: "postgres"; readonly url: Credential };
+  readonly workflows?: { readonly kind: "memory" } | { readonly kind: "postgres"; readonly url: Credential; /** As for the audit trail: `typesys migrate` only; the server then does not migrate the journal itself. */ readonly ownerUrl?: Credential };
   /** Shared by every replica, so one replica's cached read serves another's (ADR-0025). Marked and encrypted data is never cached in it (ADR-0036). */
   readonly cache?: { readonly kind: "memory" } | { readonly kind: "redis"; readonly url: Credential; readonly keyPrefix?: string; readonly ttlMs?: number };
   /** One budget per subject across replicas when `redis` (ADR-0019, ADR-0025). */
@@ -240,8 +247,14 @@ export interface Deployment {
     readonly callTimeoutMs?: number;
     /** The policy that decides who may inspect the enforcement structure (ADR-0088). */
     readonly inspectionPolicy?: string;
-    /** A security profile the runtime refuses to start without satisfying (ADR-0046). */
-    readonly securityProfile?: "high-assurance-v1";
+    /** A security profile the runtime refuses to start without satisfying (ADR-0046); v2 also makes discovery need-to-know. */
+    readonly securityProfile?: "high-assurance-v1" | "high-assurance-v2";
+    /**
+     * Who may learn what the model is (ADR-0068, ADR-0124). `open` (the default): any caller, anonymous included, sees
+     * the whole model, and a refusal names the roles it needs. `authenticated`: only a signed-in caller. `need-to-know`:
+     * each caller sees only the Types, members and Actions they could use, and refusals name no roles.
+     */
+    readonly discovery?: "open" | "authenticated" | "need-to-know";
     /**
      * Send the runtime's traces and metrics (ADR-0017) to an OpenTelemetry
      * collector over OTLP/HTTP (ADR-0121). Spans carry no values.
@@ -417,10 +430,11 @@ function checkStore(v: unknown, at: string, kinds: readonly string[], demo: bool
     out.push(`${at}.kind: must be ${kinds.map((k) => `"${k}"`).join(" or ")}`);
     return undefined;
   }
-  if (v.kind === "memory") unknownFields(v, ["kind", ...extra.filter((e) => e !== "url" && e !== "keyPrefix" && e !== "ttlMs" && e !== "retainDays")], at, out);
+  if (v.kind === "memory") unknownFields(v, ["kind", ...extra.filter((e) => e !== "url" && e !== "ownerUrl" && e !== "keyPrefix" && e !== "ttlMs" && e !== "retainDays")], at, out);
   else {
     unknownFields(v, ["kind", "url", ...extra], at, out);
     checkCredential(v.url, `${at}.url`, demo, out);
+    if (v.ownerUrl !== undefined) checkCredential(v.ownerUrl, `${at}.ownerUrl`, demo, out);
   }
   return v;
 }
@@ -435,7 +449,7 @@ function checkState(state: unknown, demo: boolean, out: string[]): void {
   // A deployment for real traffic keeps its audit trail, and signs it, so a cut-short trail can be told from one that ended (ADR-0106).
   if (!demo && (!isRecord(audit) || audit.kind !== "postgres")) out.push('state.audit: a deployment that is not a demo must keep its audit trail: { "kind": "postgres", "url": { "$secret": ... }, "signing": ... }');
   if (audit !== undefined) {
-    const a = checkStore(audit, "state.audit", ["memory", "postgres"], demo, out, ["signing", "verifyKeys", "retainDays"]);
+    const a = checkStore(audit, "state.audit", ["memory", "postgres"], demo, out, ["signing", "verifyKeys", "retainDays", "ownerUrl"]);
     if (a) {
       if (a.signing !== undefined) checkSigning(a.signing, "state.audit.signing", demo, out);
       else if (!demo && a.kind === "postgres") out.push("state.audit.signing: a deployment that is not a demo must sign its audit checkpoints");
@@ -446,7 +460,7 @@ function checkState(state: unknown, demo: boolean, out: string[]): void {
     }
   }
   if (!isRecord(state)) return;
-  if (state.workflows !== undefined) checkStore(state.workflows, "state.workflows", ["memory", "postgres"], demo, out);
+  if (state.workflows !== undefined) checkStore(state.workflows, "state.workflows", ["memory", "postgres"], demo, out, ["ownerUrl"]);
   if (state.cache !== undefined) {
     const c = checkStore(state.cache, "state.cache", ["memory", "redis"], demo, out, ["keyPrefix", "ttlMs"]);
     if (c?.keyPrefix !== undefined && !nonEmpty(c.keyPrefix)) out.push("state.cache.keyPrefix: must be a non-empty string");
@@ -603,7 +617,9 @@ export function validateDeployment(doc: unknown): string[] {
     const r = doc.runtime;
     if (!isRecord(r)) out.push("runtime: must be an object");
     else {
-      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile", "telemetry", "requestLog"], "runtime", out);
+      unknownFields(r, ["callTimeoutMs", "inspectionPolicy", "securityProfile", "discovery", "telemetry", "requestLog"], "runtime", out);
+      if (r.discovery !== undefined && !["open", "authenticated", "need-to-know"].includes(r.discovery as string)) out.push('runtime.discovery: must be "open", "authenticated" or "need-to-know"');
+      if (r.securityProfile === "high-assurance-v2" && r.discovery !== undefined && r.discovery !== "need-to-know") out.push('runtime.discovery: high-assurance-v2 requires "need-to-know"');
       if (r.requestLog !== undefined && typeof r.requestLog !== "boolean") out.push("runtime.requestLog: must be true or false");
       if (r.telemetry !== undefined) {
         const t = r.telemetry;
@@ -617,7 +633,7 @@ export function validateDeployment(doc: unknown): string[] {
             out.push("runtime.telemetry.metricsIntervalSeconds: must be a whole number of seconds, at least 1");
         }
       }
-      if (r.securityProfile !== undefined && r.securityProfile !== "high-assurance-v1") out.push('runtime.securityProfile: must be "high-assurance-v1"');
+      if (r.securityProfile !== undefined && r.securityProfile !== "high-assurance-v1" && r.securityProfile !== "high-assurance-v2") out.push('runtime.securityProfile: must be "high-assurance-v1" or "high-assurance-v2"');
       if (r.callTimeoutMs !== undefined && !(Number.isInteger(r.callTimeoutMs) && (r.callTimeoutMs as number) > 0)) out.push("runtime.callTimeoutMs: must be a positive integer");
       if (r.inspectionPolicy !== undefined && (!nonEmpty(r.inspectionPolicy) || !isRecord(doc.policies) || !Object.hasOwn(doc.policies, r.inspectionPolicy)))
         out.push("runtime.inspectionPolicy: must name one of the deployment's policies");

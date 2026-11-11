@@ -4,7 +4,7 @@ import { requireBackend, requireIdentityResolver, type McpBackend, type McpServe
 import { createServer as createMcpServer } from "./server.js";
 import type { IdentityResolver } from "./auth.js";
 import { CONTRACT_HEADER, parseContractHeader, runUnderContract, type Audience, type ConsumerContract } from "@typesys/core";
-import { LOCAL_HOSTS, PROTECTED_RESOURCE_PATHS, bearerToken, challengeHeader, originGuard, protectedResourceRouter, resolveCaller, type SignIn } from "@typesys/http";
+import { LOCAL_HOSTS, PROTECTED_RESOURCE_PATHS, auditSignInFailure, bearerToken, challengeHeader, originGuard, protectedResourceRouter, resolveCaller, type SignIn } from "@typesys/http";
 
 export interface HttpTransportOptions {
   /** What every request is served from — built once by the caller, so every transport and every request enforces identical governance against identical state (see server.ts). */
@@ -105,7 +105,9 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
       await given?.ready?.();
       res.status(200).json({ status: "ready" });
     } catch (err) {
-      res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) });
+      // Unauthenticated: the cause (a driver's text naming hosts and roles) goes to the server's log, never to the caller (ADR-0123).
+      console.error("Not ready:", err instanceof Error ? err.message : String(err));
+      res.status(503).json({ status: "not_ready" });
     }
   });
 
@@ -119,6 +121,7 @@ export function createHttpApp(opts: HttpTransportOptions): Express {
       // Checked before the MCP server runs (ADR-0116): an MCP client learns it must sign in from the HTTP status, not from a tool's error.
       const caller = await resolveCaller(req, baseResolver, signIn);
       if (caller.kind === "missing" || caller.kind === "invalid") {
+        auditSignInFailure(backend.runtime, caller, "mcp");
         res.setHeader("WWW-Authenticate", challengeHeader(signIn, req, caller.kind === "invalid" ? "invalid_token" : undefined));
         jsonRpcError(res, 401, -32001, caller.kind === "missing" ? "Unauthorized: sign in with the deployment's identity provider" : "Unauthorized: the bearer token was not accepted");
         return;

@@ -395,6 +395,9 @@ function notAuthorized(action: "read" | "invoke", resource: PolicyResource, reas
   return new AuthorizationError(`Not authorized: ${action} ${resource.typeName}${target ? `/${target}` : ""}`, told);
 }
 
+/** At most this many failed sign-ins are written to the audit trail per process per minute (ADR-0124). */
+export const SIGN_IN_FAILURES_PER_MINUTE = 60;
+
 /**
  * The single boundary through which every consumer — a human application
  * or an AI agent over MCP — reads objects, navigates relationships,
@@ -1031,6 +1034,51 @@ export class SemanticRuntime {
       reason: typeof decision?.reason === "string" ? decision.reason : `Policy "${request.policyName}" did not allow (fail closed)`,
       ...(faults.length > 0 ? { faults } : {})
     };
+  }
+
+  /** Sign-in failures recorded in the current minute, and how many were left out past the limit (ADR-0124). */
+  private readonly signInFailures = { minute: 0, written: 0, suppressed: 0 };
+
+  /**
+   * Records a bearer token this server refused (ADR-0124): expired, for
+   * another audience, badly signed, missing a claim. An audit reviewer looks
+   * for repeated failed sign-ins, so each is a row, under the subject
+   * `unauthenticated`. What the token claimed is kept as claimed, never as
+   * who the caller was. A process writes at most `SIGN_IN_FAILURES_PER_MINUTE`
+   * such rows a minute, so a flood of bad tokens cannot flood the trail; the
+   * next row says how many were left out.
+   */
+  async recordSignInFailure(failure: { readonly transport: string; readonly reason: string; readonly claimed?: { readonly sub?: string; readonly iss?: string; readonly aud?: string } }): Promise<void> {
+    const minute = Math.floor(Date.now() / 60_000);
+    const count = this.signInFailures;
+    if (count.minute !== minute) {
+      count.minute = minute;
+      count.written = 0;
+    }
+    if (count.written >= SIGN_IN_FAILURES_PER_MINUTE) {
+      count.suppressed += 1;
+      return;
+    }
+    count.written += 1;
+    const suppressed = count.suppressed;
+    count.suppressed = 0;
+    const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}…` : s);
+    recordPolicyDecision("deny");
+    await this.registry.appendAuditEvent({
+      id: ulid(),
+      timestamp: new Date().toISOString(),
+      subjectId: "unauthenticated",
+      operation: "signIn",
+      action: "sign-in",
+      resource: { typeName: "identity" },
+      decision: "deny",
+      reason: clip(failure.reason),
+      details: {
+        transport: failure.transport,
+        ...(failure.claimed && Object.keys(failure.claimed).length > 0 ? { claimed: Object.fromEntries(Object.entries(failure.claimed).map(([k, v]) => [k, clip(String(v))])) } : {}),
+        ...(suppressed > 0 ? { notRecorded: suppressed } : {})
+      }
+    });
   }
 
   /** Records one decision. The row names what was decided about, never `resource.attributes`. */

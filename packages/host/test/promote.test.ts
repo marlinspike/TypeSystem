@@ -34,23 +34,27 @@ describe("typesys deploy promote (ADR-0118)", () => {
       audience: "typesys-shop",
       resource: "https://shop.example.com",
       rolesClaim: "groups",
-      roleMap: { reader: ["reader"], steward: ["steward"], support: ["support"] }
+      // M6 (ADR-0124): the steward group grants what the steward persona holds, reader included; reader stays reader alone.
+      roleMap: { reader: ["reader"], steward: ["reader", "steward"], support: ["support"] }
     });
-    expect(shared.state?.audit).toEqual({ kind: "postgres", url: { $secret: "TYPESYS_STATE_URL" }, signing: { keyId: "audit-1", key: { $secret: "TYPESYS_AUDIT_SIGNING_KEY" } }, verifyKeys: { "audit-1": PEM } });
+    expect(shared.state?.audit).toEqual({ kind: "postgres", url: { $secret: "TYPESYS_STATE_URL" }, ownerUrl: { $secret: "TYPESYS_STATE_OWNER_URL" }, signing: { keyId: "audit-1", key: { $secret: "TYPESYS_AUDIT_SIGNING_KEY" } }, verifyKeys: { "audit-1": PEM } });
     // What was there is kept, so deploy check and deploy test still work as the personas.
     expect(shared.sources).toBe(dev.sources);
     expect(shared.policies).toBe(dev.policies);
     expect(shared.personas).toBe(dev.personas);
     expect(validateDeployment(shared)).toEqual([]);
     expect(rolesOf(dev)).toEqual(["reader", "steward", "support"]);
-    expect(referencesOf(shared)).toEqual({ secrets: ["SHOP_URL", "TYPESYS_AUDIT_SIGNING_KEY", "TYPESYS_STATE_URL"], env: ["OIDC_ISSUER"] });
+    // Shared, so not open: anonymous callers learn nothing and refusals name no roles (ADR-0124).
+    expect(shared.runtime?.discovery).toBe("authenticated");
+    expect(promoteDeployment({ ...dev, runtime: { discovery: "need-to-know" } }, { issuer: "x", audience: "a", publicKey: "PEM" }).runtime?.discovery).toBe("need-to-know");
+    expect(referencesOf(shared)).toEqual({ secrets: ["SHOP_URL", "TYPESYS_AUDIT_SIGNING_KEY", "TYPESYS_STATE_OWNER_URL", "TYPESYS_STATE_URL"], env: ["OIDC_ISSUER"] });
   });
 
   it("keeps an audit database already declared, and gives applications a durable journal", () => {
     const withState = { ...airforceDeployment, applications: [{ name: "x", port: "4000" }], state: { audit: { kind: "postgres", url: { $secret: "AUDIT_DB" }, retainDays: 90, verifyKeys: { old: "OLDPEM" } } } } as unknown as Deployment;
     const shared = promoteDeployment(withState, { issuer: "https://idp.example", audience: "a", publicKey: "PEM", keyId: "k2", stateSecret: "STATE" });
-    expect(shared.state?.audit).toEqual({ kind: "postgres", url: { $secret: "AUDIT_DB" }, signing: { keyId: "k2", key: { $secret: "TYPESYS_AUDIT_SIGNING_KEY" } }, verifyKeys: { old: "OLDPEM", k2: "PEM" }, retainDays: 90 });
-    expect(shared.state?.workflows).toEqual({ kind: "postgres", url: { $secret: "STATE" } });
+    expect(shared.state?.audit).toEqual({ kind: "postgres", url: { $secret: "AUDIT_DB" }, ownerUrl: { $secret: "TYPESYS_STATE_OWNER_URL" }, signing: { keyId: "k2", key: { $secret: "TYPESYS_AUDIT_SIGNING_KEY" } }, verifyKeys: { old: "OLDPEM", k2: "PEM" }, retainDays: 90 });
+    expect(shared.state?.workflows).toEqual({ kind: "postgres", url: { $secret: "STATE" }, ownerUrl: { $secret: "TYPESYS_STATE_OWNER_URL" } });
     // The demo's classification is not silently made real: it is reported as still to change.
     expect(validateDeployment(shared).join("\n")).toContain("classification: the demonstration ordering is allowed only in a demo deployment");
   });
