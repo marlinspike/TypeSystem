@@ -3,18 +3,19 @@ import type { Server } from "node:http";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { findChromium } from "@typesys/compiler";
+import { buildApp, findChromium } from "@typesys/compiler";
 import { ROOT, SURFACES, Stack, preflight, startGuide } from "../src/index.js";
 
 /**
  * The whole showcase, started as `npm run showcase` starts it, and driven in
  * Chromium: local only, beside `npm run check:full`, never on a pull
- * request's CI (it starts eleven servers). Needs the build, the two
- * applications built, and the showcase's ports free. With
+ * request's CI (it starts eleven servers). Needs the build and the
+ * showcase's ports free; it builds the two applications it starts. With
  * TYPESYS_SHOWCASE_SCREENSHOTS set it saves the README's screenshots.
  */
 const chrome = findChromium();
 const shots = process.env.TYPESYS_SHOWCASE_SCREENSHOTS ? path.join(ROOT, "docs/images/showcase") : undefined;
+const APPS = ["examples/apps/cold-chain", "examples/apps/recall-response"];
 const url = (key: keyof typeof SURFACES, p = "/") => `http://127.0.0.1:${SURFACES[key].port}${p}`;
 
 describe.skipIf(!chrome || process.env.CI !== undefined)("the showcase, launched", () => {
@@ -27,6 +28,7 @@ describe.skipIf(!chrome || process.env.CI !== undefined)("the showcase, launched
   };
 
   beforeAll(async () => {
+    for (const app of APPS) expect(await buildApp(path.join(ROOT, app))).toEqual([]);
     const pre = await preflight();
     if (!pre.ok) throw new Error(`The showcase cannot start: ${pre.problems.join("; ")}. ${pre.fixes.join("; ")}`);
     if (shots) mkdirSync(shots, { recursive: true });
@@ -39,7 +41,7 @@ describe.skipIf(!chrome || process.env.CI !== undefined)("the showcase, launched
 
   afterAll(async () => {
     await browser?.close();
-    await new Promise((r) => guide?.close(r));
+    if (guide) await new Promise((r) => guide.close(r));
     await stack?.stop();
   });
 
