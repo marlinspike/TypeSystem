@@ -1,0 +1,79 @@
+{
+  "project": "typesystem",
+  "week": "2026-W47",
+  "from": "2026-11-15T23:02:56.934Z",
+  "to": "2026-11-22T23:02:56.934Z",
+  "shipped": [
+    {
+      "id": "typesystem-31",
+      "title": "please ensure dependencies are updated",
+      "issue": 31,
+      "requester": "marlinspike",
+      "rounds": 1,
+      "cost_usd": 0,
+      "promoted": true
+    }
+  ],
+  "rejected": [
+    {
+      "id": "typesystem-34",
+      "title": "resolve the merge conflicts on PR #29 against main",
+      "issue": 34,
+      "reason": "Hi, thanks for filing this. I'm turning it down as a job, but the fix is still within reach.",
+      "overruled": false
+    }
+  ],
+  "escalations": [
+    {
+      "id": "typesystem-update",
+      "title": "Update dependencies (2026-11-21)",
+      "question": "",
+      "resolved_minutes": 70,
+      "resolution": "merging"
+    },
+    {
+      "id": "typesystem-update",
+      "title": "Update dependencies (2026-11-21)",
+      "question": "",
+      "resolved_minutes": 15,
+      "resolution": "merging"
+    }
+  ],
+  "dependencies": {
+    "merged": 1,
+    "escalated": 0,
+    "security": 0,
+    "security_hours": []
+  },
+  "promotions": [
+    {
+      "id": "promo_QjiUVMABrBaU",
+      "mode": "manual",
+      "merged_by": "reuben",
+      "jobs": 2,
+      "production_check": null,
+      "revert": false
+    }
+  ],
+  "cost": {
+    "week_usd": 0,
+    "previous_week_usd": 0,
+    "by_agent": {},
+    "by_model": {},
+    "subscription_week_usd": 0,
+    "value_ratio": null
+  },
+  "autonomy": {
+    "jobs_finished": 3,
+    "escalation_rate": 0.3333333333333333,
+    "average_rounds": 2,
+    "reverts": 0,
+    "conflicts_resolved": 2,
+    "suggestion": null,
+    "first_round_rate": 1,
+    "cost_per_job_usd": 0
+  },
+  "learned": [],
+  "carried_over": [],
+  "summary": "This week typesystem shipped 1 job, typesystem-31 \"please ensure dependencies are updated\" (issue 31), which finished in 1 round and was promoted, with 1 dependency update merged, 0 escalated and 0 security, while typesystem-34 \"resolve the merge conflicts on PR #29 against main\" (issue 34) was rejected and not overruled.\nReuben was needed for 2 escalations on \"Update dependencies (2026-11-21)\", resolved in 70 and 15 minutes and both ending in merging, and he merged 1 manual promotion covering 2 jobs with no revert.\nCost was $0 this week and $0 the previous week, and the autonomy figures were 3 jobs finished, an escalation rate of 0.33, an average of 2 rounds, a first-round rate of 1, 0 reverts and 2 conflicts resolved."
+}
