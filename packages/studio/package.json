@@ -37,8 +37,8 @@
     "@typesys/domain-airforce": "0.1.0",
     "@typesys/react": "0.1.0",
     "@typesys/sdk": "0.1.0",
-    "cytoscape": "3.34.3",
-    "playwright-core": "1.56.1",
+    "cytoscape": "3.35.0",
+    "playwright-core": "1.65.1",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   }

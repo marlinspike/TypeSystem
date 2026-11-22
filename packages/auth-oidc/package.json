@@ -30,6 +30,6 @@
   ],
   "dependencies": {
     "@typesys/core": "0.1.0",
-    "jose": "6.2.12"
+    "jose": "6.2.18"
   }
 }
