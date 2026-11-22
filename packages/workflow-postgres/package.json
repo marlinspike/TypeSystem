@@ -22,7 +22,7 @@
   "files": ["dist", "migrations"],
   "dependencies": {
     "@typesys/workflow": "0.1.0",
-    "pg": "8.23.0"
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@types/pg": "8.23.1"

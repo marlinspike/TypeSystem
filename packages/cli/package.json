@@ -36,7 +36,7 @@
     "@typesys/core": "0.1.0",
     "@typesys/devkit": "0.1.0",
     "@typesys/sdk": "0.1.0",
-    "js-yaml": "5.4.2",
+    "js-yaml": "5.5.0",
     "@typesys/packs": "0.1.0"
   },
   "devDependencies": {

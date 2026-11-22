@@ -37,7 +37,7 @@
     "@typesys/llm": "0.1.0",
     "@typesys/sdk": "0.1.0",
     "@typesys/workflow": "0.1.0",
-    "express": "5.2.1"
+    "express": "5.3.0"
   },
   "devDependencies": {
     "@typesys/domain-airforce": "0.1.0",

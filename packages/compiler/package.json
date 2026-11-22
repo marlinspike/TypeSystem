@@ -35,7 +35,7 @@
     "@typesys/sdk": "0.1.0",
     "@typesys/workflow": "0.1.0",
     "esbuild": "0.28.2",
-    "playwright-core": "1.56.1"
+    "playwright-core": "1.65.1"
   },
   "devDependencies": {
     "@typesys/app": "0.1.0",
